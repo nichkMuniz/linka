@@ -46,10 +46,7 @@ const schema = z.object({
     .max(80, "Título muito longo"),
   caption: z.string().max(280, "Legenda muito longa").optional(),
   category: z.enum(["Treino", "Alimentação", "Hábito"]),
-  frequency: z
-    .string()
-    .min(2, "Ex: Diário, 5x/semana, Seg–Sex")
-    .max(30, "Muito longo"),
+  frequency: z.enum(frequencyOptions),
   durationDays: z.enum(["7", "21", "30"]),
 });
 
@@ -79,10 +76,10 @@ const durationMeta: Record<
   "30": { label: "30 dias", Icon: Hourglass },
 };
 
-const frequencySuggestions = [
+const frequencyOptions = [
   "Diário",
-  "2x/dia",
   "1x/dia",
+  "2x/dia",
   "Seg–Sex",
   "3x/semana",
   "4x/semana",
@@ -90,7 +87,7 @@ const frequencySuggestions = [
   "6x/semana",
   "Fim de semana",
   "Alternado",
-];
+] as const;
 
 async function fileToDataUrl(file: File) {
   const buf = await file.arrayBuffer();
@@ -317,15 +314,15 @@ export default function NewPost() {
                             control={form.control}
                             name="title"
                             render={({ field }) => (
-                              <FormItem className="grid grid-cols-[4.5rem_1fr] items-center gap-x-3 gap-y-2 space-y-0">
-                                <FormLabel className="m-0">Título</FormLabel>
+                              <FormItem className="space-y-2">
                                 <FormControl>
                                   <Input
+                                    className="h-11"
                                     placeholder="Ex: Treino do dia (pernas)"
                                     {...field}
                                   />
                                 </FormControl>
-                                <FormMessage className="col-span-2" />
+                                <FormMessage />
                               </FormItem>
                             )}
                           />
@@ -405,22 +402,26 @@ export default function NewPost() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Frequência</FormLabel>
-                            <FormControl>
-                              <div className="relative">
-                                <Repeat className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                <Input
-                                  className="pl-9"
-                                  placeholder="Ex: Diário"
-                                  list="frequency-options"
-                                  {...field}
-                                />
-                                <datalist id="frequency-options">
-                                  {frequencySuggestions.map((v) => (
-                                    <option key={v} value={v} />
-                                  ))}
-                                </datalist>
-                              </div>
-                            </FormControl>
+                            <Select
+                              value={field.value}
+                              onValueChange={field.onChange}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <div className="flex items-center gap-2">
+                                    <Repeat className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-sm">{field.value}</span>
+                                  </div>
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {frequencyOptions.map((opt) => (
+                                  <SelectItem key={opt} value={opt}>
+                                    {opt}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                             <FormMessage />
                           </FormItem>
                         )}
