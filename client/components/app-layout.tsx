@@ -54,12 +54,12 @@ export function AppLayout() {
   return (
     <div className="min-h-dvh bg-background">
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55">
-        <div className="mx-auto grid h-16 w-full max-w-6xl grid-cols-[1fr_auto_1fr] items-center gap-4 px-4">
-          <div className="flex items-center gap-3">
+        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-center gap-4 px-4 lg:grid lg:grid-cols-[1fr_auto_1fr]">
+          <div className="flex items-center gap-3 lg:justify-start">
             <BrandMark />
             <div className="leading-tight">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold tracking-tight">
+                <span className="bg-gradient-to-br from-brand-3 via-brand to-brand-2 bg-clip-text text-sm font-semibold tracking-tight text-transparent">
                   RitmoFit
                 </span>
                 <span className="rounded-full border border-border/60 bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -69,7 +69,7 @@ export function AppLayout() {
             </div>
           </div>
 
-          <nav className="hidden items-center justify-center gap-2 md:flex">
+          <nav className="hidden items-center justify-center gap-2 lg:flex">
             {navItems.map((item) => {
               const active = isActivePath(location.pathname, item.to);
               const Icon = item.icon;
@@ -96,19 +96,15 @@ export function AppLayout() {
             })}
           </nav>
 
-          <div className="hidden justify-end md:flex">
-            <Button asChild variant="outline" className="rounded-full">
-              <Link to="/login">Entrar</Link>
-            </Button>
-          </div>
+          <div className="hidden justify-end lg:flex" />
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-4 pb-24 pt-6 md:pb-10">
+      <main className="mx-auto w-full max-w-6xl px-4 pb-24 pt-6 lg:pb-10">
         <Outlet />
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden">
         <div className="mx-auto grid w-full max-w-6xl grid-cols-5 px-2">
           {navItems.map((item) => {
             const active = isActivePath(location.pathname, item.to);
