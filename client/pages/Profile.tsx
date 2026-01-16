@@ -310,7 +310,7 @@ export default function Profile() {
               </TabsTrigger>
               <TabsTrigger
                 value="workouts"
-                className="rounded-full"
+                className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
                 aria-label="Treinos"
                 title="Treinos"
               >
@@ -319,7 +319,7 @@ export default function Profile() {
               </TabsTrigger>
               <TabsTrigger
                 value="diets"
-                className="rounded-full"
+                className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
                 aria-label="Dietas"
                 title="Dietas"
               >
