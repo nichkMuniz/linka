@@ -110,7 +110,6 @@ export default function Profile() {
           aria-label="Configurações"
           onClick={() => {
             // MVP: configurações ainda não implementadas
-            alert("Configurações: em breve");
           }}
         >
           <Settings className="h-5 w-5" />
