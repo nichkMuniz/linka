@@ -2,7 +2,18 @@ import * as React from "react";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { Camera, ImagePlus, PlusSquare, X } from "lucide-react";
+import {
+  Clock,
+  Dumbbell,
+  Droplets,
+  Hourglass,
+  ImagePlus,
+  PlusSquare,
+  Repeat,
+  Timer,
+  Utensils,
+  X,
+} from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { createGoal, GoalCategory } from "@/lib/ritmofit";
@@ -56,6 +67,20 @@ const categories: { value: GoalCategory; label: string }[] = [
   { value: "Hábito", label: "Hábito" },
 ];
 
+const categoryIcon: Record<GoalCategory, React.ComponentType<{ className?: string }>> = {
+  Treino: Dumbbell,
+  Alimentação: Utensils,
+  Hábito: Droplets,
+};
+
+const durationMeta: Record<
+  Values["durationDays"],
+  { label: string; Icon: React.ComponentType<{ className?: string }> }
+> = {
+  "7": { label: "7 dias", Icon: Clock },
+  "21": { label: "21 dias", Icon: Timer },
+  "30": { label: "30 dias", Icon: Hourglass },
+};
 
 async function fileToDataUrl(file: File) {
   const buf = await file.arrayBuffer();
@@ -68,8 +93,7 @@ async function fileToDataUrl(file: File) {
 export default function NewPost() {
   const navigate = useNavigate();
   const [imageDataUrl, setImageDataUrl] = React.useState<string>("");
-  const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
-  const galleryInputRef = React.useRef<HTMLInputElement | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const autoOpenedRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -80,7 +104,7 @@ export default function NewPost() {
 
     autoOpenedRef.current = true;
     const id = window.setTimeout(() => {
-      cameraInputRef.current?.click();
+      fileInputRef.current?.click();
     }, 350);
 
     return () => window.clearTimeout(id);
@@ -212,17 +236,10 @@ export default function NewPost() {
           <Form {...form}>
             <form className="grid gap-5" onSubmit={form.handleSubmit(onSubmit)}>
               <input
-                ref={cameraInputRef}
+                ref={fileInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
-                className="sr-only"
-                onChange={onPickFile}
-              />
-              <input
-                ref={galleryInputRef}
-                type="file"
-                accept="image/*"
                 className="sr-only"
                 onChange={onPickFile}
               />
@@ -231,32 +248,23 @@ export default function NewPost() {
                 <div className="grid gap-4">
                   <div className="grid place-items-center rounded-2xl border border-dashed border-border/80 bg-muted/20 px-6 py-10 text-center">
                     <div className="grid h-14 w-14 place-items-center rounded-2xl bg-background shadow-sm ring-1 ring-border/60">
-                      <Camera className="h-7 w-7 text-muted-foreground" />
+                      <ImagePlus className="h-7 w-7 text-muted-foreground" />
                     </div>
                     <div className="mt-3 text-base font-semibold tracking-tight">
                       Comece pela foto
                     </div>
                     <div className="mt-1 text-sm text-muted-foreground">
-                      Abra a câmera ou escolha uma imagem da galeria.
+                      Selecione uma imagem para publicar sua rotina.
                     </div>
 
-                    <div className="mt-5 grid w-full max-w-sm gap-2 sm:grid-cols-2">
+                    <div className="mt-5 w-full max-w-sm">
                       <Button
                         type="button"
-                        className="rounded-full gap-2"
-                        onClick={() => cameraInputRef.current?.click()}
-                      >
-                        <Camera className="h-4 w-4" />
-                        Câmera
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="rounded-full gap-2"
-                        onClick={() => galleryInputRef.current?.click()}
+                        className="w-full rounded-full gap-2"
+                        onClick={() => fileInputRef.current?.click()}
                       >
                         <ImagePlus className="h-4 w-4" />
-                        Galeria
+                        Escolher foto
                       </Button>
                     </div>
 
@@ -309,20 +317,10 @@ export default function NewPost() {
                             size="sm"
                             variant="outline"
                             className="rounded-full gap-2"
-                            onClick={() => cameraInputRef.current?.click()}
-                          >
-                            <Camera className="h-4 w-4" />
-                            Câmera
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="rounded-full gap-2"
-                            onClick={() => galleryInputRef.current?.click()}
+                            onClick={() => fileInputRef.current?.click()}
                           >
                             <ImagePlus className="h-4 w-4" />
-                            Galeria
+                            Trocar foto
                           </Button>
                         </div>
                       </div>
@@ -353,26 +351,39 @@ export default function NewPost() {
                       <FormField
                         control={form.control}
                         name="category"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Categoria</FormLabel>
-                            <Select value={field.value} onValueChange={field.onChange}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Selecione" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {categories.map((c) => (
-                                  <SelectItem key={c.value} value={c.value}>
-                                    {c.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
+                        render={({ field }) => {
+                          const Icon = categoryIcon[field.value];
+
+                          return (
+                            <FormItem>
+                              <FormLabel>Categoria</FormLabel>
+                              <Select value={field.value} onValueChange={field.onChange}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <div className="flex items-center gap-2">
+                                      <Icon className="h-4 w-4 text-muted-foreground" />
+                                      <SelectValue placeholder="Selecione" />
+                                    </div>
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {categories.map((c) => {
+                                    const ItemIcon = categoryIcon[c.value];
+                                    return (
+                                      <SelectItem key={c.value} value={c.value}>
+                                        <span className="flex items-center gap-2">
+                                          <ItemIcon className="h-4 w-4 text-muted-foreground" />
+                                          {c.label}
+                                        </span>
+                                      </SelectItem>
+                                    );
+                                  })}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          );
+                        }}
                       />
 
                       <FormField
@@ -382,7 +393,10 @@ export default function NewPost() {
                           <FormItem>
                             <FormLabel>Frequência</FormLabel>
                             <FormControl>
-                              <Input placeholder="Ex: Diário" {...field} />
+                              <div className="relative">
+                                <Repeat className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                <Input className="pl-9" placeholder="Ex: Diário" {...field} />
+                              </div>
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -392,29 +406,41 @@ export default function NewPost() {
                       <FormField
                         control={form.control}
                         name="durationDays"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Duração</FormLabel>
-                            <Select value={field.value} onValueChange={field.onChange}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Selecione" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="7">7 dias</SelectItem>
-                                <SelectItem value="21">21 dias</SelectItem>
-                                <SelectItem value="30">30 dias</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
+                        render={({ field }) => {
+                          const Icon = durationMeta[field.value].Icon;
+
+                          return (
+                            <FormItem>
+                              <FormLabel>Duração</FormLabel>
+                              <Select value={field.value} onValueChange={field.onChange}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <div className="flex items-center gap-2">
+                                      <Icon className="h-4 w-4 text-muted-foreground" />
+                                      <SelectValue placeholder="Selecione" />
+                                    </div>
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {Object.entries(durationMeta).map(([value, meta]) => (
+                                    <SelectItem key={value} value={value}>
+                                      <span className="flex items-center gap-2">
+                                        <meta.Icon className="h-4 w-4 text-muted-foreground" />
+                                        {meta.label}
+                                      </span>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          );
+                        }}
                       />
                     </div>
 
-                    <div className="flex flex-wrap justify-end gap-2 pt-2">
-                      <Button type="submit" className="rounded-full gap-2">
+                    <div className="flex flex-wrap justify-center gap-2 pt-2">
+                      <Button type="submit" className="w-full max-w-sm rounded-full gap-2">
                         <PlusSquare className="h-4 w-4" />
                         Publicar
                       </Button>
