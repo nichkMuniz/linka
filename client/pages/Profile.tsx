@@ -298,10 +298,10 @@ export default function Profile() {
       <div className="grid gap-4">
         {posts.length ? (
           <Tabs defaultValue="all" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 rounded-full">
+            <TabsList className="grid w-full grid-cols-3 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
               <TabsTrigger
                 value="all"
-                className="rounded-full"
+                className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
                 aria-label="Todas"
                 title="Todas"
               >
