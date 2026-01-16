@@ -2,7 +2,13 @@ import * as React from "react";
 import { Edit3, Image as ImageIcon, Settings } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { getRitmoFitState, Goal, goalProgressPercent } from "@/lib/ritmofit";
+import {
+  dayLabel,
+  getRitmoFitState,
+  Goal,
+  goalProgressPercent,
+  updateGoal,
+} from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +19,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { CompleteTodayDialog } from "@/components/complete-today-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 function Avatar({ src, initials }: { src?: string; initials: string }) {
   if (src) {
@@ -32,8 +40,37 @@ function Avatar({ src, initials }: { src?: string; initials: string }) {
   );
 }
 
-function PostMini({ goal }: { goal: Goal }) {
+function PostMini({
+  goal,
+  onChange,
+}: {
+  goal: Goal;
+  onChange: (g: Goal) => void;
+}) {
   const pct = goalProgressPercent(goal);
+  const done = goal.completedDays >= goal.durationDays;
+  const [open, setOpen] = React.useState(false);
+
+  const completeToday = (next: {
+    caption?: string;
+    imageDataUrl?: string;
+    incrementDays: number;
+  }) => {
+    const nextState = updateGoal(goal.id, (g) => {
+      const inc = Math.max(0, next.incrementDays);
+      const completedDays = Math.min(g.completedDays + inc, g.durationDays);
+      return {
+        ...g,
+        completedDays,
+        caption: next.caption !== undefined ? next.caption : g.caption,
+        imageDataUrl:
+          next.imageDataUrl !== undefined ? next.imageDataUrl : g.imageDataUrl,
+      };
+    });
+
+    const updated = nextState.goals.find((g) => g.id === goal.id);
+    if (updated) onChange(updated);
+  };
 
   return (
     <Card className="border-border/60">
@@ -64,12 +101,26 @@ function PostMini({ goal }: { goal: Goal }) {
           )}
         </div>
 
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              {goal.completedDays}/{goal.durationDays} dias
-            </span>
-            <span>{pct}%</span>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-muted-foreground">
+              {goal.completedDays}/{goal.durationDays} {dayLabel(goal.durationDays)} · {pct}%
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant={done ? "secondary" : "default"}
+              className={cn("rounded-full", done && "opacity-80")}
+              onClick={() => setOpen(true)}
+            >
+              {done ? "Concluída" : "Concluir hoje"}
+            </Button>
+            <CompleteTodayDialog
+              goal={goal}
+              open={open}
+              onOpenChange={setOpen}
+              onComplete={completeToday}
+            />
           </div>
           <Progress value={pct} className="h-2" />
         </div>
@@ -166,11 +217,85 @@ export default function Profile() {
         </div>
 
         {posts.length ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            {posts.map((p) => (
-              <PostMini key={p.id} goal={p} />
-            ))}
-          </div>
+          <Tabs defaultValue="all" className="w-full">
+            <TabsList className="grid w-full grid-cols-3 rounded-full">
+              <TabsTrigger value="all" className="rounded-full">
+                Todas
+              </TabsTrigger>
+              <TabsTrigger value="workouts" className="rounded-full">
+                Treinos
+              </TabsTrigger>
+              <TabsTrigger value="diets" className="rounded-full">
+                Dietas
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="all" className="mt-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                {posts.map((p) => (
+                  <PostMini
+                    key={p.id}
+                    goal={p}
+                    onChange={(next) =>
+                      setPosts((prev) => prev.map((g) => (g.id === next.id ? next : g)))
+                    }
+                  />
+                ))}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="workouts" className="mt-4">
+              {posts.some((p) => p.category === "Treino") ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  {posts
+                    .filter((p) => p.category === "Treino")
+                    .map((p) => (
+                      <PostMini
+                        key={p.id}
+                        goal={p}
+                        onChange={(next) =>
+                          setPosts((prev) =>
+                            prev.map((g) => (g.id === next.id ? next : g)),
+                          )
+                        }
+                      />
+                    ))}
+                </div>
+              ) : (
+                <Card className="border-border/60">
+                  <CardContent className="p-6 text-sm text-muted-foreground">
+                    Nenhum treino publicado ainda.
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="diets" className="mt-4">
+              {posts.some((p) => p.category === "Alimentação") ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  {posts
+                    .filter((p) => p.category === "Alimentação")
+                    .map((p) => (
+                      <PostMini
+                        key={p.id}
+                        goal={p}
+                        onChange={(next) =>
+                          setPosts((prev) =>
+                            prev.map((g) => (g.id === next.id ? next : g)),
+                          )
+                        }
+                      />
+                    ))}
+                </div>
+              ) : (
+                <Card className="border-border/60">
+                  <CardContent className="p-6 text-sm text-muted-foreground">
+                    Nenhuma dieta publicada ainda.
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+          </Tabs>
         ) : (
           <Card className="border-border/60">
             <CardContent className="space-y-3 p-6">
