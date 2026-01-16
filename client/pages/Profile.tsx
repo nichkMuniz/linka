@@ -93,8 +93,30 @@ export default function Profile() {
     avatarUrl: "",
   };
 
+  const stats = {
+    posts: posts.length,
+    followers: 128,
+    following: 93,
+  };
+
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-11 w-11 rounded-full"
+          aria-label="Configurações"
+          onClick={() => {
+            // MVP: configurações ainda não implementadas
+            alert("Configurações: em breve");
+          }}
+        >
+          <Settings className="h-5 w-5" />
+        </Button>
+      </div>
+
       <div className="flex flex-col gap-4 rounded-3xl border border-border/60 bg-gradient-to-br from-brand/10 via-background to-brand-2/10 p-6 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
           <Avatar src={profile.avatarUrl} initials="V" />
@@ -106,6 +128,21 @@ export default function Profile() {
               <span className="text-sm text-muted-foreground">{profile.handle}</span>
             </div>
             <p className="max-w-xl text-sm text-muted-foreground">{profile.bio}</p>
+
+            <div className="mt-3 grid max-w-sm grid-cols-3 gap-2">
+              <div className="rounded-2xl bg-background/60 p-3 text-center ring-1 ring-border/60">
+                <div className="text-sm font-semibold">{stats.posts}</div>
+                <div className="text-[11px] text-muted-foreground">Posts</div>
+              </div>
+              <div className="rounded-2xl bg-background/60 p-3 text-center ring-1 ring-border/60">
+                <div className="text-sm font-semibold">{stats.followers}</div>
+                <div className="text-[11px] text-muted-foreground">Seguidores</div>
+              </div>
+              <div className="rounded-2xl bg-background/60 p-3 text-center ring-1 ring-border/60">
+                <div className="text-sm font-semibold">{stats.following}</div>
+                <div className="text-[11px] text-muted-foreground">Seguindo</div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -115,10 +152,6 @@ export default function Profile() {
               <Edit3 className="h-4 w-4" />
               Nova postagem
             </Link>
-          </Button>
-          <Button variant="outline" className="rounded-full gap-2">
-            <Settings className="h-4 w-4" />
-            Configurações
           </Button>
         </div>
       </div>
