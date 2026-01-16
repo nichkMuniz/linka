@@ -43,11 +43,33 @@ export function uid(prefix = "g") {
   return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
 }
 
+function defaultImageForGoal(g: Goal) {
+  // lightweight deterministic defaults (royalty-free Pexels images)
+  if (g.ownerHandle === "@nicholas") {
+    return "https://images.pexels.com/photos/28427829/pexels-photo-28427829.jpeg";
+  }
+  if (g.ownerHandle === "@ana.fit") {
+    return "https://images.pexels.com/photos/13896897/pexels-photo-13896897.jpeg";
+  }
+  if (g.ownerHandle === "@bruno.nutri") {
+    return "https://images.pexels.com/photos/33489594/pexels-photo-33489594.jpeg";
+  }
+
+  if (g.category === "Treino") {
+    return "https://images.pexels.com/photos/841130/pexels-photo-841130.jpeg";
+  }
+  if (g.category === "Alimentação") {
+    return "https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg";
+  }
+  return "https://images.pexels.com/photos/841136/pexels-photo-841136.jpeg";
+}
+
 function normalizeGoal(g: Goal): Goal {
+  const image = (g.imageDataUrl ?? "").trim();
   return {
     ...g,
     caption: g.caption ?? "",
-    imageDataUrl: g.imageDataUrl ?? "",
+    imageDataUrl: image.length ? image : defaultImageForGoal(g),
     incentives: g.incentives ?? { apoio: 0, continua: 0, orgulho: 0 },
     commentsCount: g.commentsCount ?? 0,
     completedDays: g.completedDays ?? 0,
