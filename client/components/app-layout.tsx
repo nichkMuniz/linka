@@ -54,7 +54,7 @@ function BrandMark({ className }: { className?: string }) {
       )}
     >
       <div className="grid h-8 w-8 place-items-center rounded-lg bg-foreground/90">
-        <Dumbbell className="h-4.5 w-4.5 text-white" />
+        <Dumbbell className="h-5 w-5 text-white" />
       </div>
     </div>
   );
