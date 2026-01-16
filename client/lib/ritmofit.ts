@@ -32,6 +32,7 @@ export type Goal = {
 
 type StorageShape = {
   goals: Goal[];
+  blockedHandles: string[];
 };
 
 const STORAGE_KEY = "ritmofit:v1";
@@ -87,13 +88,19 @@ function normalizeGoal(g: Goal): Goal {
 export function getRitmoFitState(): StorageShape {
   const parsed = safeParse(localStorage.getItem(STORAGE_KEY));
   if (parsed?.goals?.length) {
-    const normalized = { goals: parsed.goals.map(normalizeGoal) };
+    const normalized: StorageShape = {
+      goals: parsed.goals.map(normalizeGoal),
+      blockedHandles: Array.isArray((parsed as any).blockedHandles)
+        ? ((parsed as any).blockedHandles as string[])
+        : [],
+    };
     // keep storage upgraded (so future reads are consistent)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
     return normalized;
   }
 
   const seed: StorageShape = {
+    blockedHandles: [],
     goals: [
       {
         id: uid(),
@@ -189,14 +196,42 @@ export function createGoal(input: {
     commentsCount: 0,
   };
 
-  setRitmoFitState({ goals: [goal, ...state.goals] });
+  setRitmoFitState({ ...state, goals: [goal, ...state.goals] });
   return goal;
 }
 
 export function updateGoal(goalId: string, updater: (g: Goal) => Goal) {
   const state = getRitmoFitState();
   const next: StorageShape = {
+    ...state,
     goals: state.goals.map((g) => (g.id === goalId ? updater(g) : g)),
+  };
+  setRitmoFitState(next);
+  return next;
+}
+
+export function isBlocked(ownerHandle: string) {
+  const state = getRitmoFitState();
+  return state.blockedHandles.includes(ownerHandle);
+}
+
+export function blockUser(ownerHandle: string) {
+  const state = getRitmoFitState();
+  if (state.blockedHandles.includes(ownerHandle)) return state;
+  const next: StorageShape = {
+    ...state,
+    blockedHandles: [...state.blockedHandles, ownerHandle],
+  };
+  setRitmoFitState(next);
+  return next;
+}
+
+export function unblockUser(ownerHandle: string) {
+  const state = getRitmoFitState();
+  if (!state.blockedHandles.includes(ownerHandle)) return state;
+  const next: StorageShape = {
+    ...state,
+    blockedHandles: state.blockedHandles.filter((h) => h !== ownerHandle),
   };
   setRitmoFitState(next);
   return next;
