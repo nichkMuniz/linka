@@ -186,11 +186,11 @@ export function AppLayout() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-4 pb-24 pt-6 lg:pb-10">
+      <main className="mx-auto w-full max-w-6xl px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-6 lg:pb-10">
         <Outlet />
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 pb-[env(safe-area-inset-bottom)] backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden">
         <div className="mx-auto grid w-full max-w-6xl grid-cols-5 px-2">
           {navItems.map((item) => {
             const active = isActivePath(location.pathname, item.to);
