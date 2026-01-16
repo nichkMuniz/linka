@@ -270,7 +270,7 @@ export default function Messages() {
                     ))
                   ) : (
                     <div className="grid place-items-center py-10 text-sm text-muted-foreground">
-                      Sem mensagens ainda. Diga oi 👋
+                      Sem mensagens ainda. Diga oi.
                     </div>
                   )}
                 </div>
