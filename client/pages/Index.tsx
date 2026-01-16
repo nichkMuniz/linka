@@ -389,7 +389,7 @@ function PostCard({
         {/* actions */}
         <div className="flex items-center justify-between gap-3">
           <TooltipProvider delayDuration={150}>
-            <div className="flex flex/forum-nowrap gap-2 overflow-x-auto pb-1">
+            <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1">
               <IncentiveButton
                 kind="apoio"
                 count={goal.incentives.apoio}
