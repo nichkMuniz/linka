@@ -87,7 +87,7 @@ export function CompleteTodayDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Concluir hoje</DialogTitle>
+          <DialogTitle>Feito hoje</DialogTitle>
           <DialogDescription>
             Atualize seu progresso e, se quiser, atualize a foto e a legenda do post.
           </DialogDescription>

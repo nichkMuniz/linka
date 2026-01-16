@@ -121,7 +121,6 @@ function IncentiveButton({
             "inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             meta.hoverClassName,
             active ? cn(meta.activeClassName, meta.ringClassName) : null,
-            pulsing ? "ring-2 ring-brand/20" : null,
           )}
         >
           <Icon
@@ -354,7 +353,7 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
                   className={cn("rounded-full", done && "opacity-80")}
                   onClick={() => setOpen(true)}
                 >
-                  {done ? "Concluída" : "Concluir hoje"}
+                  {done ? "Concluída" : "Feito hoje"}
                 </Button>
                 <CompleteTodayDialog
                   goal={goal}

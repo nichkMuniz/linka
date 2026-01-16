@@ -54,7 +54,7 @@ export function AppLayout() {
   return (
     <div className="min-h-dvh bg-background">
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55">
-        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-center gap-4 px-4 lg:grid lg:grid-cols-[1fr_auto_1fr]">
+        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-center gap-4 px-4 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch">
           <div className="flex items-center gap-3 lg:justify-start">
             <BrandMark />
             <div className="leading-tight">

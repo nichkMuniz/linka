@@ -120,7 +120,7 @@ function PostMini({
               className={cn("rounded-full", done && "opacity-80")}
               onClick={() => setOpen(true)}
             >
-              {done ? "Concluída" : "Concluir hoje"}
+              {done ? "Concluída" : "Feito hoje"}
             </Button>
             <CompleteTodayDialog
               goal={goal}
