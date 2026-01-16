@@ -87,7 +87,7 @@ export function CompleteTodayDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Feito hoje</DialogTitle>
+          <DialogTitle>Atualizar rotina</DialogTitle>
           <DialogDescription>
             Atualize seu progresso e, se quiser, atualize a foto e a legenda do post.
           </DialogDescription>
@@ -205,7 +205,7 @@ export function CompleteTodayDialog({
               onOpenChange(false);
             }}
           >
-            Atualizar e concluir
+            Atualizar rotina
           </Button>
         </DialogFooter>
       </DialogContent>
