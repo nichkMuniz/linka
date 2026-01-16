@@ -265,6 +265,7 @@ export function AppLayout() {
       </header>
 
       <main className="mx-auto w-full max-w-6xl px-4 pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)] pt-6 lg:pb-10">
+        <PwaInstallBanner />
         <Outlet />
       </main>
 
