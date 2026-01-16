@@ -12,83 +12,92 @@
    * A different format will require also updating the theme in tailwind.config.ts.
   */
   :root {
-    --background: 160 30% 99%;
-    --foreground: 215 28% 12%;
+    --background: 210 25% 98.5%;
+    --foreground: 222 30% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 215 28% 12%;
+    --card-foreground: 222 30% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 215 28% 12%;
+    --popover-foreground: 222 30% 12%;
 
-    --primary: 160 84% 39%;
+    --primary: 158 78% 40%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 160 26% 96%;
-    --secondary-foreground: 160 35% 16%;
+    --secondary: 220 18% 96%;
+    --secondary-foreground: 222 24% 16%;
 
-    --muted: 220 15% 96%;
-    --muted-foreground: 215 14% 40%;
+    --muted: 220 16% 95%;
+    --muted-foreground: 220 10% 42%;
 
-    --accent: 170 55% 95%;
-    --accent-foreground: 160 35% 16%;
+    --accent: 268 90% 96%;
+    --accent-foreground: 268 25% 18%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 14% 92%;
-    --input: 220 14% 92%;
-    --ring: 160 84% 39%;
+    --border: 220 14% 90%;
+    --input: 220 14% 90%;
+    --ring: 158 78% 40%;
 
-    --radius: 0.9rem;
+    --radius: 1rem;
+
+    /* Brand helpers (for gradients / fitness-social vibe) */
+    --brand: 158 78% 40%; /* emerald */
+    --brand-2: 268 88% 58%; /* violet */
+    --brand-3: 198 90% 48%; /* cyan */
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 215 28% 18%;
-    --sidebar-primary: 160 84% 39%;
+    --sidebar-foreground: 222 24% 18%;
+    --sidebar-primary: 158 78% 40%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 160 26% 96%;
-    --sidebar-accent-foreground: 160 35% 16%;
-    --sidebar-border: 220 14% 92%;
-    --sidebar-ring: 160 84% 39%;
+    --sidebar-accent: 220 18% 96%;
+    --sidebar-accent-foreground: 222 24% 16%;
+    --sidebar-border: 220 14% 90%;
+    --sidebar-ring: 158 78% 40%;
   }
 
   .dark {
-    --background: 215 30% 8%;
+    --background: 222 28% 8%;
     --foreground: 0 0% 98%;
 
-    --card: 215 30% 10%;
+    --card: 222 28% 10%;
     --card-foreground: 0 0% 98%;
 
-    --popover: 215 30% 10%;
+    --popover: 222 28% 10%;
     --popover-foreground: 0 0% 98%;
 
-    --primary: 160 70% 45%;
+    --primary: 158 70% 45%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 215 22% 18%;
+    --secondary: 222 18% 16%;
     --secondary-foreground: 0 0% 98%;
 
-    --muted: 215 22% 18%;
-    --muted-foreground: 215 18% 70%;
+    --muted: 222 18% 16%;
+    --muted-foreground: 220 14% 70%;
 
-    --accent: 215 22% 18%;
+    --accent: 268 25% 18%;
     --accent-foreground: 0 0% 98%;
 
     --destructive: 0 62.8% 35%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 215 22% 20%;
-    --input: 215 22% 20%;
-    --ring: 160 70% 45%;
+    --border: 222 18% 20%;
+    --input: 222 18% 20%;
+    --ring: 158 70% 45%;
 
-    --sidebar-background: 215 30% 9%;
+    --brand: 158 70% 45%;
+    --brand-2: 268 88% 60%;
+    --brand-3: 198 90% 54%;
+
+    --sidebar-background: 222 28% 9%;
     --sidebar-foreground: 0 0% 96%;
-    --sidebar-primary: 160 70% 45%;
+    --sidebar-primary: 158 70% 45%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 215 22% 16%;
+    --sidebar-accent: 222 18% 14%;
     --sidebar-accent-foreground: 0 0% 96%;
-    --sidebar-border: 215 22% 18%;
-    --sidebar-ring: 160 70% 45%;
+    --sidebar-border: 222 18% 18%;
+    --sidebar-ring: 158 70% 45%;
   }
 }
 
