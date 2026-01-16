@@ -121,7 +121,7 @@ function IncentiveButton({
             pulsing ? cn(meta.activeClassName, meta.ringClassName) : null,
           )}
         >
-          <Icon className={cn("h-4 w-4", pulsing ? "text-white" : meta.iconClassName)} />
+          <Icon className={cn("h-4 w-4", meta.iconClassName)} />
           <span
             className={cn(
               "rounded-full bg-muted px-2 py-0.5 text-[11px]",
