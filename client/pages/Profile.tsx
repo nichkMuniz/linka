@@ -20,6 +20,7 @@ import {
   updateGoal,
 } from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
+import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { Button } from "@/components/ui/button";
 import {
   Card,
