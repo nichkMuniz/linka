@@ -1,0 +1,24 @@
+{
+  "name": "RitmoFit",
+  "short_name": "RitmoFit",
+  "description": "RitmoFit — rede social fitness focada em consistência.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F6FAFF",
+  "theme_color": "#1E88FF",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
