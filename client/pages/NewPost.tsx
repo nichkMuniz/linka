@@ -13,6 +13,7 @@ import {
   Timer,
   Utensils,
   X,
+  ArrowLeft,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -190,33 +191,32 @@ export default function NewPost() {
               Poste sua rotina do dia para receber incentivo dos seus amigos.
             </p>
           </div>
-          <Button asChild variant="outline" className="rounded-full">
-            <Link to="/">Cancelar</Link>
+          <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-full">
+            <Link to="/" aria-label="Cancelar">
+              <X className="h-5 w-5" />
+            </Link>
           </Button>
         </div>
       ) : (
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full"
-              onClick={() => {
-                setImageDataUrl("");
-                autoOpenedRef.current = false;
-              }}
-            >
-              Voltar
-            </Button>
-            <div className="leading-tight">
-              <h1 className="text-2xl font-semibold tracking-tight">Detalhes da postagem</h1>
-              <p className="text-sm text-muted-foreground">
-                Agora preencha título, legenda e configurações.
-              </p>
-            </div>
-          </div>
-          <Button asChild variant="outline" className="rounded-full">
-            <Link to="/">Cancelar</Link>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-11 w-11 rounded-full"
+            aria-label="Voltar"
+            onClick={() => {
+              setImageDataUrl("");
+              autoOpenedRef.current = false;
+            }}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+
+          <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-full">
+            <Link to="/" aria-label="Cancelar">
+              <X className="h-5 w-5" />
+            </Link>
           </Button>
         </div>
       )}
@@ -362,7 +362,7 @@ export default function NewPost() {
                                   <SelectTrigger>
                                     <div className="flex items-center gap-2">
                                       <Icon className="h-4 w-4 text-muted-foreground" />
-                                      <SelectValue placeholder="Selecione" />
+                                      <span className="text-sm">{field.value}</span>
                                     </div>
                                   </SelectTrigger>
                                 </FormControl>
@@ -417,7 +417,7 @@ export default function NewPost() {
                                   <SelectTrigger>
                                     <div className="flex items-center gap-2">
                                       <Icon className="h-4 w-4 text-muted-foreground" />
-                                      <SelectValue placeholder="Selecione" />
+                                      <span className="text-sm">{durationMeta[field.value].label}</span>
                                     </div>
                                   </SelectTrigger>
                                 </FormControl>
