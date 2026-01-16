@@ -24,46 +24,59 @@ import Placeholder from "@/pages/Placeholder";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <ThemeProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route element={<AppLayout />}>
-              <Route path="/" element={<Index />} />
-              <Route path="/postar" element={<NewPost />} />
-              <Route path="/buscar" element={<Search />} />
-              <Route path="/perfil" element={<Profile />} />
-              <Route path="/mensagens" element={<Messages />} />
-              <Route path="/rank" element={<Rank />} />
-              <Route path="/reels" element={<Reels />} />
+const App = () => {
+  React.useEffect(() => {
+    // Register Service Worker only in production builds.
+    if (!import.meta.env.PROD) return;
+    if (!("serviceWorker" in navigator)) return;
 
-              {/* compatibility */}
-              <Route
-                path="/criar"
-                element={<Navigate to="/postar" replace />}
-              />
+    navigator.serviceWorker
+      .register("/sw.js")
+      // eslint-disable-next-line no-console
+      .catch((err) => console.warn("SW registration failed", err));
+  }, []);
 
-              <Route
-                path="/login"
-                element={
-                  <Placeholder
-                    title="Login / Cadastro"
-                    subtitle="No MVP, vamos conectar autenticação (ex: Supabase) quando você quiser."
-                  />
-                }
-              />
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route element={<AppLayout />}>
+                <Route path="/" element={<Index />} />
+                <Route path="/postar" element={<NewPost />} />
+                <Route path="/buscar" element={<Search />} />
+                <Route path="/perfil" element={<Profile />} />
+                <Route path="/mensagens" element={<Messages />} />
+                <Route path="/rank" element={<Rank />} />
+                <Route path="/reels" element={<Reels />} />
 
-              <Route path="*" element={<NotFound />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </ThemeProvider>
-  </QueryClientProvider>
-);
+                {/* compatibility */}
+                <Route
+                  path="/criar"
+                  element={<Navigate to="/postar" replace />}
+                />
+
+                <Route
+                  path="/login"
+                  element={
+                    <Placeholder
+                      title="Login / Cadastro"
+                      subtitle="No MVP, vamos conectar autenticação (ex: Supabase) quando você quiser."
+                    />
+                  }
+                />
+
+                <Route path="*" element={<NotFound />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
+};
 
 createRoot(document.getElementById("root")!).render(<App />);
