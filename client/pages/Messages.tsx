@@ -1,5 +1,5 @@
 import * as React from "react";
-import { MessageCircle, Plus, Send, User } from "lucide-react";
+import { ChevronLeft, MessageCircle, Plus, Send, User } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 type Conversation = {
   id: string;
@@ -160,6 +161,12 @@ export default function Messages() {
     );
   }, [newQuery]);
 
+  const isMobile = useIsMobile();
+  const goBackToList = () => {
+    setActiveId("");
+    setText("");
+  };
+
   return (
     <div className="mx-auto grid w-full max-w-5xl gap-6">
       <div className="space-y-2">
@@ -169,36 +176,114 @@ export default function Messages() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-[0.95fr_1.5fr]">
-        <Card className="border-border/60">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center justify-between gap-2 text-base">
-              <span className="flex items-center gap-2">
-                <MessageCircle className="h-4 w-4 text-brand" />
-                Conversas
-              </span>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className="h-9 w-9 rounded-full"
-                aria-label="Nova conversa"
-                onClick={() => setNewDialogOpen(true)}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-2">
-            {conversations.map((c) => {
-              const isActive = c.id === activeId;
-              return (
+      {isMobile ? (
+        active ? (
+          <Card className="border-border/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-9 w-9 rounded-full"
+                  aria-label="Voltar"
+                  onClick={goBackToList}
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </Button>
+                <User className="h-4 w-4 text-brand" />
+                {`${active.name} (${active.handle})`}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <div className="max-h-[60vh] space-y-2 overflow-auto rounded-2xl border border-border/60 bg-muted/20 p-3">
+                {msgs.length ? (
+                  msgs.map((m) => (
+                    <div
+                      key={m.id}
+                      className={cn(
+                        "flex",
+                        m.from === "me" ? "justify-end" : "justify-start",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "max-w-[80%] rounded-2xl px-3 py-2 text-sm shadow-sm ring-1",
+                          m.from === "me"
+                            ? "bg-brand text-white ring-brand/20"
+                            : "bg-background text-foreground ring-border/60",
+                        )}
+                      >
+                        <div>{m.text}</div>
+                        <div
+                          className={cn(
+                            "mt-1 text-[11px]",
+                            m.from === "me" ? "text-white/80" : "text-muted-foreground",
+                          )}
+                        >
+                          {m.time}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="grid place-items-center py-10 text-sm text-muted-foreground">
+                    Sem mensagens ainda. Diga oi.
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Input
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Escreva uma mensagem..."
+                  className="h-11 rounded-full"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      send();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  className="h-11 w-11 rounded-full p-0"
+                  onClick={send}
+                  aria-label="Enviar"
+                >
+                  <Send className="h-5 w-5" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="border-border/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center justify-between gap-2 text-base">
+                <span className="flex items-center gap-2">
+                  <MessageCircle className="h-4 w-4 text-brand" />
+                  Conversas
+                </span>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-9 w-9 rounded-full"
+                  aria-label="Nova conversa"
+                  onClick={() => setNewDialogOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              {conversations.map((c) => (
                 <button
                   key={c.id}
                   type="button"
                   className={cn(
-                    "flex w-full items-center justify-between gap-3 rounded-2xl border border-border/60 px-3 py-2 text-left transition",
-                    isActive ? "bg-muted" : "hover:bg-muted/50",
+                    "flex w-full items-center justify-between gap-3 rounded-2xl border border-border/60 px-3 py-2 text-left transition hover:bg-muted/50",
                   )}
                   onClick={() => setActiveId(c.id)}
                 >
@@ -216,92 +301,147 @@ export default function Messages() {
                   </div>
                   <div className="text-xs text-muted-foreground">{c.time}</div>
                 </button>
-              );
-            })}
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/60">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <User className="h-4 w-4 text-brand" />
-              {active ? `${active.name} (${active.handle})` : "Selecione uma conversa"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            {!active ? (
-              <div className="grid place-items-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
-                <div className="text-sm font-semibold">Abra uma conversa</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  Clique em um nome à esquerda para ver o histórico.
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="max-h-[52vh] space-y-2 overflow-auto rounded-2xl border border-border/60 bg-muted/20 p-3">
-                  {msgs.length ? (
-                    msgs.map((m) => (
-                      <div
-                        key={m.id}
-                        className={cn(
-                          "flex",
-                          m.from === "me" ? "justify-end" : "justify-start",
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "max-w-[80%] rounded-2xl px-3 py-2 text-sm shadow-sm ring-1",
-                            m.from === "me"
-                              ? "bg-brand text-white ring-brand/20"
-                              : "bg-background text-foreground ring-border/60",
-                          )}
-                        >
-                          <div>{m.text}</div>
-                          <div
-                            className={cn(
-                              "mt-1 text-[11px]",
-                              m.from === "me" ? "text-white/80" : "text-muted-foreground",
-                            )}
-                          >
-                            {m.time}
-                          </div>
+              ))}
+            </CardContent>
+          </Card>
+        )
+      ) : (
+        <div className="grid gap-4 md:grid-cols-[0.95fr_1.5fr]">
+          <Card className="border-border/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center justify-between gap-2 text-base">
+                <span className="flex items-center gap-2">
+                  <MessageCircle className="h-4 w-4 text-brand" />
+                  Conversas
+                </span>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-9 w-9 rounded-full"
+                  aria-label="Nova conversa"
+                  onClick={() => setNewDialogOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              {conversations.map((c) => {
+                const isActive = c.id === activeId;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center justify-between gap-3 rounded-2xl border border-border/60 px-3 py-2 text-left transition",
+                      isActive ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                    onClick={() => setActiveId(c.id)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <AvatarCircle label={c.name.slice(0, 1).toUpperCase()} />
+                      <div className="leading-tight">
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-semibold">{c.name}</div>
+                          <div className="text-xs text-muted-foreground">{c.handle}</div>
+                        </div>
+                        <div className="text-xs text-muted-foreground line-clamp-1">
+                          {c.lastMessage ? c.lastMessage : "Comece uma conversa"}
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <div className="grid place-items-center py-10 text-sm text-muted-foreground">
-                      Sem mensagens ainda. Diga oi.
                     </div>
-                  )}
-                </div>
+                    <div className="text-xs text-muted-foreground">{c.time}</div>
+                  </button>
+                );
+              })}
+            </CardContent>
+          </Card>
 
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    placeholder="Escreva uma mensagem..."
-                    className="h-11 rounded-full"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        send();
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    className="h-11 w-11 rounded-full p-0"
-                    onClick={send}
-                    aria-label="Enviar"
-                  >
-                    <Send className="h-5 w-5" />
-                  </Button>
+          <Card className="border-border/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <User className="h-4 w-4 text-brand" />
+                {active ? `${active.name} (${active.handle})` : "Selecione uma conversa"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              {!active ? (
+                <div className="grid place-items-center rounded-2xl border border-border/60 bg-muted/20 p-8 text-center">
+                  <div className="text-sm font-semibold">Abra uma conversa</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    Clique em um nome à esquerda para ver o histórico.
+                  </div>
                 </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+              ) : (
+                <>
+                  <div className="max-h-[52vh] space-y-2 overflow-auto rounded-2xl border border-border/60 bg-muted/20 p-3">
+                    {msgs.length ? (
+                      msgs.map((m) => (
+                        <div
+                          key={m.id}
+                          className={cn(
+                            "flex",
+                            m.from === "me" ? "justify-end" : "justify-start",
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "max-w-[80%] rounded-2xl px-3 py-2 text-sm shadow-sm ring-1",
+                              m.from === "me"
+                                ? "bg-brand text-white ring-brand/20"
+                                : "bg-background text-foreground ring-border/60",
+                            )}
+                          >
+                            <div>{m.text}</div>
+                            <div
+                              className={cn(
+                                "mt-1 text-[11px]",
+                                m.from === "me"
+                                  ? "text-white/80"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {m.time}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="grid place-items-center py-10 text-sm text-muted-foreground">
+                        Sem mensagens ainda. Diga oi.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                      placeholder="Escreva uma mensagem..."
+                      className="h-11 rounded-full"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          send();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      className="h-11 w-11 rounded-full p-0"
+                      onClick={send}
+                      aria-label="Enviar"
+                    >
+                      <Send className="h-5 w-5" />
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Dialog open={newDialogOpen} onOpenChange={setNewDialogOpen}>
         <DialogContent className="sm:max-w-md">
