@@ -251,22 +251,13 @@ export default function Index() {
   };
 
   return (
-    <div className="mx-auto grid w-full max-w-2xl gap-6">
-      <section className="rounded-3xl border border-border/60 bg-gradient-to-br from-brand/10 via-background to-brand-2/10 p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <h1 className="text-xl font-semibold tracking-tight">
-              Poste sua rotina. Receba incentivo. Repita.
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Uma rede social de compromisso público — disciplina maior que motivação.
-            </p>
-          </div>
-          <Button asChild className="rounded-full">
-            <Link to="/postar">Nova postagem</Link>
-          </Button>
-        </div>
-      </section>
+    <div className="mx-auto grid w-full max-w-2xl gap-4">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-lg font-semibold tracking-tight">Feed</h1>
+        <Button asChild className="rounded-full">
+          <Link to="/postar">Nova postagem</Link>
+        </Button>
+      </div>
 
       <section className="grid gap-4">
         {goals.map((goal) => (

@@ -14,6 +14,7 @@ import Index from "@/pages/Index";
 import NewPost from "@/pages/NewPost";
 import Search from "@/pages/Search";
 import Profile from "@/pages/Profile";
+import Messages from "@/pages/Messages";
 import NotFound from "@/pages/NotFound";
 import Placeholder from "@/pages/Placeholder";
 
@@ -32,6 +33,7 @@ const App = () => (
               <Route path="/postar" element={<NewPost />} />
               <Route path="/buscar" element={<Search />} />
               <Route path="/perfil" element={<Profile />} />
+              <Route path="/mensagens" element={<Messages />} />
 
               {/* compatibility */}
               <Route path="/criar" element={<Navigate to="/postar" replace />} />

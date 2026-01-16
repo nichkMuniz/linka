@@ -1,5 +1,12 @@
 import { cn } from "@/lib/utils";
-import { Home, PlusSquare, Search, User, Sparkles } from "lucide-react";
+import {
+  Home,
+  PlusSquare,
+  Search,
+  User,
+  Sparkles,
+  MessagesSquare,
+} from "lucide-react";
 import * as React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
@@ -15,6 +22,7 @@ const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
   { to: "/postar", label: "Nova", icon: PlusSquare },
   { to: "/buscar", label: "Buscar", icon: Search },
+  { to: "/mensagens", label: "Msgs", icon: MessagesSquare },
   { to: "/perfil", label: "Perfil", icon: User },
 ];
 
@@ -94,7 +102,7 @@ export function AppLayout() {
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 md:hidden">
-        <div className="mx-auto grid w-full max-w-6xl grid-cols-4 px-2">
+        <div className="mx-auto grid w-full max-w-6xl grid-cols-5 px-2">
           {navItems.map((item) => {
             const active = isActivePath(location.pathname, item.to);
             const Icon = item.icon;
