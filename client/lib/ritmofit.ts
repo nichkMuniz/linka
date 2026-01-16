@@ -7,6 +7,8 @@ export type GoalIncentives = {
   orgulho: number;
 };
 
+export type GoalIncentiveKey = keyof GoalIncentives;
+
 export type Goal = {
   id: string;
   ownerName: string;
@@ -21,6 +23,8 @@ export type Goal = {
   createdAt: string; // ISO
   completedDays: number;
   incentives: GoalIncentives;
+  /** MVP: incentivos que o usuário atual já deu (para manter o estado colorido). */
+  myIncentives?: Partial<Record<GoalIncentiveKey, boolean>>;
   commentsCount: number;
 };
 
@@ -71,6 +75,7 @@ function normalizeGoal(g: Goal): Goal {
     caption: g.caption ?? "",
     imageDataUrl: image.length ? image : defaultImageForGoal(g),
     incentives: g.incentives ?? { apoio: 0, continua: 0, orgulho: 0 },
+    myIncentives: g.myIncentives ?? {},
     commentsCount: g.commentsCount ?? 0,
     completedDays: g.completedDays ?? 0,
   };
@@ -173,6 +178,7 @@ export function createGoal(input: {
     createdAt: new Date().toISOString(),
     completedDays: 0,
     incentives: { apoio: 0, continua: 0, orgulho: 0 },
+    myIncentives: {},
     commentsCount: 0,
   };
 
