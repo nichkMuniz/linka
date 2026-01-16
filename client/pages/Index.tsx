@@ -34,6 +34,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+function todayKey(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function initials(name: string) {
   const parts = name.trim().split(/\s+/g);
   return (
@@ -152,6 +159,7 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
   const isMine = goal.ownerHandle === "@voce" || goal.ownerName === "Você";
+  const updatedToday = goal.myProgressToday === todayKey();
   const [open, setOpen] = React.useState(false);
   const [pulse, setPulse] = React.useState<IncentiveKind | null>(null);
   const pulseTimer = React.useRef<number | null>(null);
@@ -185,17 +193,25 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
   const quickProgressOnly = () => {
     if (done) return;
 
-    const nextState = updateGoal(goal.id, (g) => ({
-      ...g,
-      completedDays: Math.min(g.completedDays + 1, g.durationDays),
-    }));
+    const key = todayKey();
+
+    const nextState = updateGoal(goal.id, (g) => {
+      const already = g.myProgressToday === key;
+      if (already) return g;
+
+      return {
+        ...g,
+        completedDays: Math.min(g.completedDays + 1, g.durationDays),
+        myProgressToday: key,
+      };
+    });
 
     const updated = nextState.goals.find((g) => g.id === goal.id);
     if (updated) onChange(updated);
 
     toast({
-      title: "Progresso atualizado",
-      description: "Marcamos +1 dia na sua rotina.",
+      title: "Rotina atualizada",
+      description: "Marcamos +1 dia na sua rotina hoje.",
     });
   };
 
@@ -204,12 +220,15 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
     imageDataUrl?: string;
     incrementDays: number;
   }) => {
+    const key = todayKey();
+
     const nextState = updateGoal(goal.id, (g) => {
       const inc = Math.max(0, next.incrementDays);
       const completedDays = Math.min(g.completedDays + inc, g.durationDays);
       return {
         ...g,
         completedDays,
+        myProgressToday: inc > 0 ? key : g.myProgressToday,
         caption: next.caption !== undefined ? next.caption : g.caption,
         imageDataUrl:
           next.imageDataUrl !== undefined ? next.imageDataUrl : g.imageDataUrl,
@@ -369,9 +388,25 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
                     type="button"
                     size="sm"
                     variant="outline"
-                    className="h-9 w-9 rounded-full p-0"
-                    aria-label="Atualizar progresso"
-                    onClick={quickProgressOnly}
+                    className={cn(
+                      "h-9 w-9 rounded-full p-0",
+                      updatedToday
+                        ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-500/90"
+                        : null,
+                    )}
+                    aria-label={
+                      updatedToday ? "Rotina já atualizada hoje" : "Atualizar progresso"
+                    }
+                    onClick={() => {
+                      if (updatedToday) {
+                        toast({
+                          title: "Já foi",
+                          description: "Você já atualizou a rotina hoje.",
+                        });
+                        return;
+                      }
+                      quickProgressOnly();
+                    }}
                   >
                     <Check className="h-4 w-4" />
                   </Button>
@@ -384,7 +419,7 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
                   className={cn("rounded-full", done && "opacity-80")}
                   onClick={() => setOpen(true)}
                 >
-                  {done ? "Concluída" : "Feito hoje"}
+                  {done ? "Concluída" : "Atualizar rotina"}
                 </Button>
                 <CompleteTodayDialog
                   goal={goal}
