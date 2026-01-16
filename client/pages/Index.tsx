@@ -3,10 +3,12 @@ import {
   Flame,
   HeartHandshake,
   MessageCircle,
-  Repeat2,
+  MoreHorizontal,
   Share2,
-  Target,
   Trophy,
+  Dumbbell,
+  Utensils,
+  Droplets,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -15,18 +17,12 @@ import {
   dayLabel,
   getRitmoFitState,
   goalProgressPercent,
+  timeAgo,
   updateGoal,
 } from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/components/ui/use-toast";
 
@@ -38,59 +34,17 @@ function initials(name: string) {
   );
 }
 
-function categoryBadge(category: Goal["category"]) {
-  switch (category) {
-    case "Treino":
-      return "bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300";
-    case "Alimentação":
-      return "bg-orange-500/10 text-orange-700 ring-orange-500/20 dark:text-orange-300";
-    case "Hábito":
-      return "bg-sky-500/10 text-sky-700 ring-sky-500/20 dark:text-sky-300";
-  }
+function CategoryIcon({ category }: { category: Goal["category"] }) {
+  if (category === "Treino") return <Dumbbell className="h-6 w-6" />;
+  if (category === "Alimentação") return <Utensils className="h-6 w-6" />;
+  return <Droplets className="h-6 w-6" />;
 }
 
-function IncentiveButton({
-  label,
-  icon,
-  count,
-  onClick,
-  className,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  count: number;
-  onClick: () => void;
-  className?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm transition hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-        className,
-      )}
-    >
-      <span className="text-muted-foreground">{icon}</span>
-      <span>{label}</span>
-      <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-        {count}
-      </span>
-    </button>
-  );
-}
-
-function GoalCard({
-  goal,
-  onChange,
-}: {
-  goal: Goal;
-  onChange: (g: Goal) => void;
-}) {
+function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void }) {
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
 
-  const handleIncentive = (key: keyof Goal["incentives"], label: string) => {
+  const bumpIncentive = (key: keyof Goal["incentives"], label: string) => {
     const nextState = updateGoal(goal.id, (g) => ({
       ...g,
       incentives: { ...g.incentives, [key]: g.incentives[key] + 1 },
@@ -104,7 +58,7 @@ function GoalCard({
     });
   };
 
-  const handleCompleteToday = () => {
+  const completeToday = () => {
     const nextState = updateGoal(goal.id, (g) => {
       if (g.completedDays >= g.durationDays) return g;
       return { ...g, completedDays: g.completedDays + 1 };
@@ -123,144 +77,164 @@ function GoalCard({
 
   return (
     <Card className="overflow-hidden border-border/60">
-      <CardHeader className="space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-500 text-sm font-semibold text-white shadow-sm ring-1 ring-emerald-500/20">
-              {initials(goal.ownerName)}
+      {/* header */}
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-brand-3 via-brand to-brand-2 text-sm font-semibold text-white shadow-sm ring-1 ring-brand/20">
+            {initials(goal.ownerName)}
+          </div>
+          <div className="leading-tight">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold">{goal.ownerName}</span>
+              <span className="text-xs text-muted-foreground">{goal.ownerHandle}</span>
+              <span className="text-xs text-muted-foreground">·</span>
+              <span className="text-xs text-muted-foreground">{timeAgo(goal.createdAt)}</span>
             </div>
-            <div className="leading-tight">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold">{goal.ownerName}</span>
-                <span className="text-xs text-muted-foreground">
-                  {goal.ownerHandle}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className={cn(
-                    "rounded-full px-2 py-0.5 text-[11px] font-medium ring-1",
-                    categoryBadge(goal.category),
-                  )}
-                >
-                  {goal.category}
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {goal.frequency} · {goal.visibility}
-                </span>
+            <div className="text-xs text-muted-foreground">
+              {goal.category} · {goal.visibility}
+            </div>
+          </div>
+        </div>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="rounded-full"
+          onClick={() =>
+            toast({
+              title: "Opções",
+              description: "No MVP, adicionamos salvar/denunciar/bloquear depois.",
+            })
+          }
+        >
+          <MoreHorizontal className="h-5 w-5" />
+        </Button>
+      </div>
+
+      {/* media */}
+      <div className="relative aspect-square w-full overflow-hidden bg-muted">
+        {goal.imageDataUrl ? (
+          <img
+            src={goal.imageDataUrl}
+            alt="Imagem da postagem"
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="h-full w-full bg-gradient-to-br from-brand/20 via-background to-brand-2/20">
+            <div className="absolute inset-0 grid place-items-center">
+              <div className="grid h-16 w-16 place-items-center rounded-2xl bg-background/80 text-brand shadow-sm ring-1 ring-border/60">
+                <CategoryIcon category={goal.category} />
               </div>
             </div>
           </div>
+        )}
+      </div>
 
-          <Button
-            type="button"
-            size="sm"
-            variant={done ? "secondary" : "default"}
-            className={cn("rounded-full", done && "opacity-80")}
-            onClick={handleCompleteToday}
-          >
-            {done ? "Concluída" : "Concluir hoje"}
-          </Button>
-        </div>
-
-        <div className="space-y-1">
-          <CardTitle className="text-base leading-snug">{goal.title}</CardTitle>
-          <CardDescription>
-            {goal.completedDays}/{goal.durationDays} {dayLabel(goal.durationDays)} · {pct}%
-          </CardDescription>
-        </div>
-
-        <Progress value={pct} className="h-2" />
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-3 gap-2">
-          <IncentiveButton
-            label="Te apoio"
-            icon={<HeartHandshake className="h-4 w-4" />}
-            count={goal.incentives.apoio}
-            onClick={() => handleIncentive("apoio", "Te apoio")}
-            className="hover:border-emerald-500/40"
-          />
-          <IncentiveButton
-            label="Continua"
-            icon={<Flame className="h-4 w-4" />}
-            count={goal.incentives.continua}
-            onClick={() => handleIncentive("continua", "Continua")}
-            className="hover:border-orange-500/40"
-          />
-          <IncentiveButton
-            label="Orgulho"
-            icon={<Trophy className="h-4 w-4" />}
-            count={goal.incentives.orgulho}
-            onClick={() => handleIncentive("orgulho", "Orgulho")}
-            className="hover:border-sky-500/40"
-          />
-        </div>
-
+      <CardContent className="space-y-4 p-4">
+        {/* actions */}
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <MessageCircle className="h-4 w-4" />
-            {goal.commentsCount} comentários
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => bumpIncentive("apoio", "Te apoio")}
+              className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm transition hover:bg-muted"
+            >
+              <HeartHandshake className="h-4 w-4 text-brand" />
+              Te apoio
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                {goal.incentives.apoio}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => bumpIncentive("continua", "Continua")}
+              className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm transition hover:bg-muted"
+            >
+              <Flame className="h-4 w-4 text-orange-500" />
+              Continua
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                {goal.incentives.continua}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => bumpIncentive("orgulho", "Orgulho")}
+              className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm transition hover:bg-muted"
+            >
+              <Trophy className="h-4 w-4 text-brand-2" />
+              Orgulho
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                {goal.incentives.orgulho}
+              </span>
+            </button>
           </div>
+
           <div className="flex items-center gap-2">
             <Button
               type="button"
-              size="sm"
               variant="ghost"
+              size="icon"
               className="rounded-full"
               onClick={() =>
                 toast({
                   title: "Comentários",
-                  description: "No MVP, os comentários entram na próxima fase.",
+                  description: "Na Fase 2: comentários + notificações.",
                 })
               }
             >
-              <MessageCircle className="h-4 w-4" />
-              <span className="sr-only">Comentar</span>
+              <MessageCircle className="h-5 w-5" />
             </Button>
             <Button
               type="button"
-              size="sm"
               variant="ghost"
+              size="icon"
               className="rounded-full"
               onClick={() =>
                 toast({
                   title: "Compartilhar",
-                  description:
-                    "Depois adicionamos link público e compartilhamento para o Instagram.",
+                  description: "Na Fase 3: compartilhar no Instagram/WhatsApp.",
                 })
               }
             >
-              <Share2 className="h-4 w-4" />
-              <span className="sr-only">Compartilhar</span>
+              <Share2 className="h-5 w-5" />
             </Button>
           </div>
         </div>
-      </CardContent>
 
-      <CardFooter className="border-t border-border/60 bg-muted/30">
-        <div className="flex w-full items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Target className="h-4 w-4" />
-            Meta de {goal.durationDays} {dayLabel(goal.durationDays)}
+        {/* text */}
+        <div className="space-y-1">
+          <div className="text-sm">
+            <span className="font-semibold">{goal.ownerHandle}</span>{" "}
+            <span className="font-semibold">{goal.title}</span>
           </div>
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-300"
-            onClick={() =>
-              toast({
-                title: "Desafios / Comunidade",
-                description:
-                  "Quando você quiser, adiciono uma aba de desafios e ranking por streak.",
-              })
-            }
-          >
-            <Repeat2 className="h-4 w-4" />
-            Ver desafios
-          </button>
+          {goal.caption ? (
+            <div className="text-sm text-muted-foreground">{goal.caption}</div>
+          ) : null}
         </div>
-      </CardFooter>
+
+        {/* progress */}
+        <div className="space-y-2 rounded-2xl border border-border/60 bg-muted/30 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-muted-foreground">
+              {goal.completedDays}/{goal.durationDays} {dayLabel(goal.durationDays)} · {pct}%
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant={done ? "secondary" : "default"}
+              className={cn("rounded-full", done && "opacity-80")}
+              onClick={completeToday}
+            >
+              {done ? "Concluída" : "Concluir hoje"}
+            </Button>
+          </div>
+          <Progress value={pct} className="h-2" />
+          <div className="text-[11px] text-muted-foreground">
+            Frequência: {goal.frequency} · Duração: {goal.durationDays} {dayLabel(goal.durationDays)}
+          </div>
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -277,81 +251,27 @@ export default function Index() {
   };
 
   return (
-    <div className="grid gap-6">
-      <section className="grid gap-4 rounded-3xl border border-border/60 bg-gradient-to-br from-emerald-500/10 via-background to-teal-500/10 p-6 md:grid-cols-[1.2fr_0.8fr]">
-        <div className="space-y-3">
-          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
-            Uma rede social de compromisso público e disciplina.
-          </h1>
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            Aqui, você não ganha “curtidas”. Você ganha incentivo. Treino,
-            alimentação, água, sono e hábitos marcados dia a dia.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild className="rounded-full">
-              <Link to="/criar">Criar minha meta</Link>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full"
-              onClick={() =>
-                toast({
-                  title: "Plano de divulgação",
-                  description:
-                    "Posicionamento: disciplina > motivação. Post de anúncio + conteúdo de autoridade + stories diários.",
-                })
-              }
-            >
-              Ver estratégia
-            </Button>
+    <div className="mx-auto grid w-full max-w-2xl gap-6">
+      <section className="rounded-3xl border border-border/60 bg-gradient-to-br from-brand/10 via-background to-brand-2/10 p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <h1 className="text-xl font-semibold tracking-tight">
+              Poste sua rotina. Receba incentivo. Repita.
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Uma rede social de compromisso público — disciplina maior que motivação.
+            </p>
           </div>
-        </div>
-
-        <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
-          <div className="space-y-2">
-            <div className="text-xs font-medium text-muted-foreground">
-              O diferencial
-            </div>
-            <div className="text-sm font-semibold">
-              Sistema de incentivo emocional
-            </div>
-            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-              <li className="flex items-center gap-2">
-                <HeartHandshake className="h-4 w-4 text-emerald-500" />
-                Te apoio
-              </li>
-              <li className="flex items-center gap-2">
-                <Flame className="h-4 w-4 text-orange-500" />
-                Continua
-              </li>
-              <li className="flex items-center gap-2">
-                <Trophy className="h-4 w-4 text-sky-500" />
-                Orgulho
-              </li>
-            </ul>
-          </div>
+          <Button asChild className="rounded-full">
+            <Link to="/postar">Nova postagem</Link>
+          </Button>
         </div>
       </section>
 
       <section className="grid gap-4">
-        <div className="flex items-end justify-between gap-4">
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold tracking-tight">Feed principal</h2>
-            <p className="text-sm text-muted-foreground">
-              Cards verticais com progresso, prazo e botões de incentivo.
-            </p>
-          </div>
-          <Button asChild variant="outline" className="rounded-full">
-            <Link to="/criar">Nova meta</Link>
-          </Button>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          {goals.map((goal) => (
-            <GoalCard key={goal.id} goal={goal} onChange={updateOne} />
-          ))}
-        </div>
+        {goals.map((goal) => (
+          <PostCard key={goal.id} goal={goal} onChange={updateOne} />
+        ))}
       </section>
     </div>
   );
