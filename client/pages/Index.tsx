@@ -53,7 +53,7 @@ const incentiveMeta: Record<
   IncentiveKind,
   {
     label: string;
-    Icon: React.ComponentType<{ className?: string }>;
+    Icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
     iconClassName: string;
     ringClassName: string;
     hoverClassName: string;
@@ -67,8 +67,8 @@ const incentiveMeta: Record<
     iconClassName: "text-brand",
     ringClassName: "ring-2 ring-brand/35",
     hoverClassName: "hover:bg-brand/10",
-    activeClassName: "bg-brand text-white border-brand/30",
-    badgeActiveClassName: "bg-white/15 text-white",
+    activeClassName: "bg-brand/10 border-brand/30",
+    badgeActiveClassName: "bg-brand/15 text-brand",
   },
   continua: {
     label: "Continua",
@@ -76,8 +76,8 @@ const incentiveMeta: Record<
     iconClassName: "text-orange-500",
     ringClassName: "ring-2 ring-orange-500/30",
     hoverClassName: "hover:bg-orange-500/10",
-    activeClassName: "bg-orange-500 text-white border-orange-500/30",
-    badgeActiveClassName: "bg-white/15 text-white",
+    activeClassName: "bg-orange-500/10 border-orange-500/30",
+    badgeActiveClassName: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
   },
   orgulho: {
     label: "Orgulho",
@@ -85,8 +85,8 @@ const incentiveMeta: Record<
     iconClassName: "text-brand-2",
     ringClassName: "ring-2 ring-brand-2/30",
     hoverClassName: "hover:bg-brand-2/10",
-    activeClassName: "bg-brand-2 text-white border-brand-2/30",
-    badgeActiveClassName: "bg-white/15 text-white",
+    activeClassName: "bg-brand-2/10 border-brand-2/30",
+    badgeActiveClassName: "bg-brand-2/15 text-brand-2",
   },
 };
 
@@ -103,6 +103,7 @@ function IncentiveButton({
 }) {
   const meta = incentiveMeta[kind];
   const Icon = meta.Icon;
+  const active = pulsing;
 
   return (
     <Tooltip>
@@ -113,19 +114,25 @@ function IncentiveButton({
           onClick={onClick}
           whileHover={{ scale: 1.04 }}
           whileTap={{ scale: 0.92 }}
-          animate={pulsing ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+          animate={active ? { scale: [1, 1.08, 1] } : { scale: 1 }}
           transition={{ duration: 0.28 }}
           className={cn(
             "inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             meta.hoverClassName,
-            pulsing ? cn(meta.activeClassName, meta.ringClassName) : null,
+            active ? cn(meta.activeClassName, meta.ringClassName) : null,
           )}
         >
-          <Icon className={cn("h-4 w-4", meta.iconClassName)} />
+          <Icon
+            className={cn(
+              "h-4 w-4 transition-colors",
+              active ? meta.iconClassName : "text-muted-foreground",
+            )}
+            fill={active ? "currentColor" : "none"}
+          />
           <span
             className={cn(
-              "rounded-full bg-muted px-2 py-0.5 text-[11px]",
-              pulsing ? meta.badgeActiveClassName : "text-muted-foreground",
+              "rounded-full bg-muted/60 px-2 py-0.5 text-[11px]",
+              active ? meta.badgeActiveClassName : "text-muted-foreground",
             )}
           >
             {count}
@@ -153,17 +160,16 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
     };
   }, []);
 
-  const bumpIncentive = (key: IncentiveKind, label: string) => {
+  const bumpIncentive = (key: IncentiveKind) => {
     setPulse(key);
     if (pulseTimer.current) window.clearTimeout(pulseTimer.current);
-    pulseTimer.current = window.setTimeout(() => setPulse(null), 450);
+    pulseTimer.current = window.setTimeout(() => setPulse(null), 900);
     const nextState = updateGoal(goal.id, (g) => ({
       ...g,
       incentives: { ...g.incentives, [key]: g.incentives[key] + 1 },
     }));
     const updated = nextState.goals.find((g) => g.id === goal.id);
     if (updated) onChange(updated);
-
   };
 
   const completeToday = (next: {
@@ -260,19 +266,19 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
                 kind="apoio"
                 count={goal.incentives.apoio}
                 pulsing={pulse === "apoio"}
-                onClick={() => bumpIncentive("apoio", "Te apoio")}
+                onClick={() => bumpIncentive("apoio")}
               />
               <IncentiveButton
                 kind="continua"
                 count={goal.incentives.continua}
                 pulsing={pulse === "continua"}
-                onClick={() => bumpIncentive("continua", "Continua")}
+                onClick={() => bumpIncentive("continua")}
               />
               <IncentiveButton
                 kind="orgulho"
                 count={goal.incentives.orgulho}
                 pulsing={pulse === "orgulho"}
-                onClick={() => bumpIncentive("orgulho", "Orgulho")}
+                onClick={() => bumpIncentive("orgulho")}
               />
             </div>
           </TooltipProvider>
@@ -369,10 +375,6 @@ export default function Index() {
 
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold tracking-tight">Feed</h1>
-      </div>
-
       <section className="grid gap-4">
         {goals.map((goal) => (
           <PostCard key={goal.id} goal={goal} onChange={updateOne} />
