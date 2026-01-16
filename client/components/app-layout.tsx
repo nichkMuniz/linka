@@ -71,10 +71,47 @@ export function AppLayout() {
     [],
   );
 
+  const [headerHidden, setHeaderHidden] = React.useState(false);
+
+  React.useEffect(() => {
+    let lastY = window.scrollY;
+    let ticking = false;
+
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+
+      window.requestAnimationFrame(() => {
+        const y = window.scrollY;
+        const delta = y - lastY;
+
+        // evita ficar piscando quando está bem no topo
+        const shouldHide = y > 96 && delta > 10;
+        const shouldShow = delta < -10;
+
+        if (shouldHide) setHeaderHidden(true);
+        if (shouldShow) setHeaderHidden(false);
+
+        lastY = y;
+        ticking = false;
+      });
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
     <div className="min-h-dvh bg-background">
-      <header className="sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55">
-        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-center gap-4 px-4 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch">
+      <header
+        className={cn(
+          "sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55 transition-transform duration-200",
+          headerHidden
+            ? "-translate-y-full pointer-events-none"
+            : "translate-y-0",
+        )}
+      >
+        <div className="relative mx-auto flex h-16 w-full max-w-6xl items-center justify-center gap-4 px-4 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch">
           <div className="flex items-center gap-3 lg:justify-start">
             <BrandMark />
             <div className="leading-tight">
@@ -87,6 +124,21 @@ export function AppLayout() {
                 </span>
               </div>
             </div>
+          </div>
+
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 lg:hidden">
+            <Button
+              asChild
+              variant={isActivePath(location.pathname, MESSAGES_PATH) ? "secondary" : "ghost"}
+              className="h-11 w-11 rounded-full p-0"
+            >
+              <Link to={MESSAGES_PATH} aria-label="Mensagens">
+                <span className="relative">
+                  <MessagesSquare className="h-5 w-5" />
+                  <UnreadBadge count={unreadMessages} />
+                </span>
+              </Link>
+            </Button>
           </div>
 
           <nav className="hidden items-center justify-center gap-2 lg:flex">
