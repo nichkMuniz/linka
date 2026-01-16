@@ -11,7 +11,6 @@ import {
   Droplets,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
 
 import {
   Goal,
@@ -363,9 +362,6 @@ export default function Index() {
     <div className="mx-auto grid w-full max-w-2xl gap-4">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-lg font-semibold tracking-tight">Feed</h1>
-        <Button asChild className="rounded-full">
-          <Link to="/postar">Nova postagem</Link>
-        </Button>
       </div>
 
       <section className="grid gap-4">

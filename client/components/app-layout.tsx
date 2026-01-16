@@ -66,9 +66,6 @@ export function AppLayout() {
                   MVP
                 </span>
               </div>
-              <div className="text-[12px] text-muted-foreground">
-                Disciplina &middot; rotina &middot; constância
-              </div>
             </div>
           </div>
 
