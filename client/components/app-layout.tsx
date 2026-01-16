@@ -16,6 +16,7 @@ import { useTheme } from "next-themes";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { PwaInstallBanner } from "@/components/pwa-install-banner";
 
 type NavItem = {
   to: string;
