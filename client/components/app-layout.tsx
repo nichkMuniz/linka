@@ -141,7 +141,7 @@ export function AppLayout() {
             </div>
           </Link>
 
-          <div className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 lg:hidden">
+          <div className="absolute left-4 top-1/2 flex -translate-y-1/2 items-center gap-1 lg:hidden">
             <Button
               type="button"
               variant="ghost"
@@ -152,7 +152,9 @@ export function AppLayout() {
             >
               {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
+          </div>
 
+          <div className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 lg:hidden">
             <Button
               asChild
               variant={isActivePath(location.pathname, "/buscar") ? "secondary" : "ghost"}
