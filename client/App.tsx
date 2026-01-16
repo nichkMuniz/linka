@@ -19,6 +19,7 @@ import Profile from "@/pages/Profile";
 import Messages from "@/pages/Messages";
 import Rank from "@/pages/Rank";
 import Reels from "@/pages/Reels";
+import Install from "@/pages/Install";
 import NotFound from "@/pages/NotFound";
 import Placeholder from "@/pages/Placeholder";
 
