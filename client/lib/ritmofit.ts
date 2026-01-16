@@ -9,6 +9,14 @@ export type GoalIncentives = {
 
 export type GoalIncentiveKey = keyof GoalIncentives;
 
+export type GoalComment = {
+  id: string;
+  authorName: string;
+  authorHandle: string;
+  text: string;
+  createdAt: string; // ISO
+};
+
 export type Goal = {
   id: string;
   ownerName: string;
@@ -27,6 +35,7 @@ export type Goal = {
   myIncentives?: Partial<Record<GoalIncentiveKey, boolean>>;
   /** MVP: marca o dia em que o usuário atual atualizou o progresso (para pintar o check de verde). */
   myProgressToday?: string;
+  comments?: GoalComment[];
   commentsCount: number;
 };
 
@@ -73,6 +82,9 @@ function defaultImageForGoal(g: Goal) {
 
 function normalizeGoal(g: Goal): Goal {
   const image = (g.imageDataUrl ?? "").trim();
+  const comments = Array.isArray((g as any).comments)
+    ? ((g as any).comments as GoalComment[])
+    : [];
   return {
     ...g,
     caption: g.caption ?? "",
@@ -80,7 +92,8 @@ function normalizeGoal(g: Goal): Goal {
     incentives: g.incentives ?? { apoio: 0, continua: 0, orgulho: 0 },
     myIncentives: g.myIncentives ?? {},
     myProgressToday: g.myProgressToday ?? "",
-    commentsCount: g.commentsCount ?? 0,
+    comments,
+    commentsCount: typeof g.commentsCount === "number" ? g.commentsCount : comments.length,
     completedDays: g.completedDays ?? 0,
   };
 }
@@ -117,7 +130,23 @@ export function getRitmoFitState(): StorageShape {
         createdAt: new Date().toISOString(),
         completedDays: 6,
         incentives: { apoio: 12, continua: 8, orgulho: 5 },
-        commentsCount: 3,
+        comments: [
+          {
+            id: uid("c"),
+            authorName: "Ana",
+            authorHandle: "@ana.fit",
+            text: "Brabo! Continua assim 💪",
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: uid("c"),
+            authorName: "Bruno",
+            authorHandle: "@bruno.nutri",
+            text: "Treino bem feito. Descanso também conta.",
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        commentsCount: 2,
       },
       {
         id: uid(),
@@ -134,7 +163,16 @@ export function getRitmoFitState(): StorageShape {
         createdAt: new Date().toISOString(),
         completedDays: 11,
         incentives: { apoio: 21, continua: 13, orgulho: 10 },
-        commentsCount: 5,
+        comments: [
+          {
+            id: uid("c"),
+            authorName: "Você",
+            authorHandle: "@voce",
+            text: "Isso dá uma diferença enorme no dia.",
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        commentsCount: 1,
       },
       {
         id: uid(),
@@ -151,7 +189,8 @@ export function getRitmoFitState(): StorageShape {
         createdAt: new Date().toISOString(),
         completedDays: 8,
         incentives: { apoio: 9, continua: 6, orgulho: 4 },
-        commentsCount: 1,
+        comments: [],
+        commentsCount: 0,
       },
     ],
   };
@@ -193,6 +232,7 @@ export function createGoal(input: {
     incentives: { apoio: 0, continua: 0, orgulho: 0 },
     myIncentives: {},
     myProgressToday: "",
+    comments: [],
     commentsCount: 0,
   };
 
@@ -208,6 +248,32 @@ export function updateGoal(goalId: string, updater: (g: Goal) => Goal) {
   };
   setRitmoFitState(next);
   return next;
+}
+
+export function addComment(
+  goalId: string,
+  input: { text: string; authorName?: string; authorHandle?: string },
+) {
+  const trimmed = input.text.trim();
+  if (!trimmed) return getRitmoFitState();
+
+  return updateGoal(goalId, (g) => {
+    const nextComment: GoalComment = {
+      id: uid("c"),
+      authorName: input.authorName ?? "Você",
+      authorHandle: input.authorHandle ?? "@voce",
+      text: trimmed,
+      createdAt: new Date().toISOString(),
+    };
+
+    const nextComments = [...(g.comments ?? []), nextComment];
+
+    return {
+      ...g,
+      comments: nextComments,
+      commentsCount: (g.commentsCount ?? 0) + 1,
+    };
+  });
 }
 
 export function isBlocked(ownerHandle: string) {

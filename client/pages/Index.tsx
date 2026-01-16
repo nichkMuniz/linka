@@ -4,16 +4,17 @@ import {
   HeartHandshake,
   MessageCircle,
   MoreHorizontal,
-  Share2,
   Trophy,
   Dumbbell,
   Utensils,
   Droplets,
   Check,
+  Send,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
 import {
+  addComment,
   blockUser,
   Goal,
   dayLabel,
@@ -36,6 +37,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/components/ui/use-toast";
 import { CompleteTodayDialog } from "@/components/complete-today-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -136,7 +145,7 @@ function IncentiveButton({
           animate={pulsing ? { scale: [1, 1.08, 1] } : { scale: 1 }}
           transition={{ duration: 0.28 }}
           className={cn(
-            "inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+            "inline-flex shrink-0 items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             meta.hoverClassName,
             active ? cn(meta.activeClassName, meta.ringClassName) : null,
           )}
@@ -181,6 +190,8 @@ function PostCard({
   const [open, setOpen] = React.useState(false);
   const [pulse, setPulse] = React.useState<IncentiveKind | null>(null);
   const pulseTimer = React.useRef<number | null>(null);
+  const [commentsOpen, setCommentsOpen] = React.useState(false);
+  const [commentDraft, setCommentDraft] = React.useState("");
 
   React.useEffect(() => {
     return () => {
@@ -378,7 +389,7 @@ function PostCard({
         {/* actions */}
         <div className="flex items-center justify-between gap-3">
           <TooltipProvider delayDuration={150}>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex/forum-nowrap gap-2 overflow-x-auto pb-1">
               <IncentiveButton
                 kind="apoio"
                 count={goal.incentives.apoio}
@@ -409,31 +420,87 @@ function PostCard({
               variant="ghost"
               size="icon"
               className="rounded-full"
-              onClick={() =>
-                toast({
-                  title: "Comentários",
-                  description: "Na Fase 2: comentários + notificações.",
-                })
-              }
+              aria-label="Abrir comentários"
+              onClick={() => {
+                setCommentDraft("");
+                setCommentsOpen(true);
+              }}
             >
               <MessageCircle className="h-5 w-5" />
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="rounded-full"
-              onClick={() =>
-                toast({
-                  title: "Compartilhar",
-                  description: "Na Fase 3: compartilhar no Instagram/WhatsApp.",
-                })
-              }
-            >
-              <Share2 className="h-5 w-5" />
-            </Button>
           </div>
         </div>
+
+        <Dialog open={commentsOpen} onOpenChange={setCommentsOpen}>
+          <DialogContent className="w-[calc(100%-2rem)] max-w-lg rounded-2xl p-0 overflow-hidden">
+            <DialogHeader className="p-6 pb-3">
+              <DialogTitle>Comentários</DialogTitle>
+              <DialogDescription>
+                {goal.ownerHandle} · {goal.title}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="px-6 pb-4">
+              <div className="max-h-[50vh] overflow-auto rounded-2xl border border-border/60 bg-muted/20 p-3">
+                {(goal.comments ?? []).length ? (
+                  <div className="grid gap-3">
+                    {(goal.comments ?? []).map((c) => (
+                      <div key={c.id} className="grid gap-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0 truncate text-xs font-semibold">
+                            {c.authorName}{" "}
+                            <span className="font-normal text-muted-foreground">
+                              {c.authorHandle}
+                            </span>
+                          </div>
+                          <div className="shrink-0 text-[11px] text-muted-foreground">
+                            {timeAgo(c.createdAt)}
+                          </div>
+                        </div>
+                        <div className="text-sm text-foreground">{c.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    Ainda não tem comentários.
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 flex items-center gap-2">
+                <Input
+                  value={commentDraft}
+                  onChange={(e) => setCommentDraft(e.target.value)}
+                  placeholder="Escreva um comentário"
+                  className="h-11 rounded-full"
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  className="h-11 w-11 rounded-full"
+                  aria-label="Enviar comentário"
+                  onClick={() => {
+                    const text = commentDraft.trim();
+                    if (!text) return;
+
+                    const next = addComment(goal.id, { text });
+                    const updated = next.goals.find((g) => g.id === goal.id);
+                    if (updated) onChange(updated);
+                    setCommentDraft("");
+
+                    toast({
+                      title: "Comentário publicado",
+                      description: "Seu comentário já aparece no post.",
+                    });
+                  }}
+                >
+                  <Send className="h-5 w-5" />
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* text */}
         <div className="space-y-1">
