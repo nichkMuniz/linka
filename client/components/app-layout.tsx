@@ -4,8 +4,10 @@ import {
   PlusSquare,
   Search,
   User,
-  Sparkles,
+  Dumbbell,
   MessagesSquare,
+  Trophy,
+  PlaySquare,
 } from "lucide-react";
 import * as React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
@@ -47,11 +49,13 @@ function BrandMark({ className }: { className?: string }) {
     <div
       aria-hidden="true"
       className={cn(
-        "grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-3 via-brand to-brand-2 shadow-sm ring-1 ring-brand/20",
+        "grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-3 via-brand to-brand-2 shadow-sm ring-1 ring-brand/30",
         className,
       )}
     >
-      <Sparkles className="h-5 w-5 text-white" />
+      <div className="grid h-8 w-8 place-items-center rounded-lg bg-foreground/90">
+        <Dumbbell className="h-4.5 w-4.5 text-white" />
+      </div>
     </div>
   );
 }
