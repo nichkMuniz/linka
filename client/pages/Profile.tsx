@@ -214,6 +214,9 @@ function PostMini({
 }
 
 export default function Profile() {
+  const { platform, isSafariIOS, installed, isInstallable, promptInstall } =
+    usePwaInstall();
+
   const [posts, setPosts] = React.useState<Goal[]>([]);
 
   React.useEffect(() => {
