@@ -48,6 +48,9 @@ function BrandMark({ className }: { className?: string }) {
 export function AppLayout() {
   const location = useLocation();
 
+  // MVP: contador mockado. Depois isso pode vir do backend/Supabase.
+  const unreadMessages = location.pathname.startsWith("/mensagens") ? 0 : 2;
+
   return (
     <div className="min-h-dvh bg-background">
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55">
@@ -82,7 +85,14 @@ export function AppLayout() {
                   className="h-11 w-11 rounded-full p-0"
                 >
                   <Link to={item.to} aria-label={item.label}>
-                    <Icon className="h-5 w-5" />
+                    <span className="relative">
+                      <Icon className="h-5 w-5" />
+                      {item.to === "/mensagens" && unreadMessages > 0 ? (
+                        <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-background">
+                          {unreadMessages > 9 ? "9+" : unreadMessages}
+                        </span>
+                      ) : null}
+                    </span>
                   </Link>
                 </Button>
               );
@@ -126,7 +136,14 @@ export function AppLayout() {
                       : "bg-transparent ring-transparent",
                   )}
                 >
-                  <Icon className="h-5 w-5" />
+                  <span className="relative">
+                    <Icon className="h-5 w-5" />
+                    {item.to === "/mensagens" && unreadMessages > 0 ? (
+                      <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-background">
+                        {unreadMessages > 9 ? "9+" : unreadMessages}
+                      </span>
+                    ) : null}
+                  </span>
                 </span>
                 {item.label}
               </Link>
