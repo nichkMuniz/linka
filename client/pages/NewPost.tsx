@@ -19,7 +19,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { createGoal, GoalCategory } from "@/lib/ritmofit";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -78,6 +78,19 @@ const durationMeta: Record<
   "21": { label: "21 dias", Icon: Timer },
   "30": { label: "30 dias", Icon: Hourglass },
 };
+
+const frequencySuggestions = [
+  "Diário",
+  "2x/dia",
+  "1x/dia",
+  "Seg–Sex",
+  "3x/semana",
+  "4x/semana",
+  "5x/semana",
+  "6x/semana",
+  "Fim de semana",
+  "Alternado",
+];
 
 async function fileToDataUrl(file: File) {
   const buf = await file.arrayBuffer();
@@ -181,9 +194,8 @@ export default function NewPost() {
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1" />
-        {!imageDataUrl ? (
+      {!imageDataUrl ? (
+        <div className="flex justify-end">
           <Button
             asChild
             variant="ghost"
@@ -194,12 +206,11 @@ export default function NewPost() {
               <X className="h-5 w-5" />
             </Link>
           </Button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <Card className="border-border/60">
-        <CardHeader />
-        <CardContent>
+        <CardContent className="pt-6">
           <Form {...form}>
             <form className="grid gap-5" onSubmit={form.handleSubmit(onSubmit)}>
               <input
@@ -246,11 +257,11 @@ export default function NewPost() {
                   <div className="grid gap-5">
                     <div className="rounded-2xl border border-border/60 bg-muted/20 p-3">
                       <div className="flex items-start gap-3">
-                        <div className="relative h-24 w-24 shrink-0">
+                        <div className="relative h-20 w-20 shrink-0 sm:h-24 sm:w-24">
                           <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
-                            className="block h-24 w-24 overflow-hidden rounded-2xl ring-1 ring-border/60 transition hover:opacity-95"
+                            className="block h-20 w-20 overflow-hidden rounded-2xl ring-1 ring-border/60 transition hover:opacity-95 sm:h-24 sm:w-24"
                             aria-label="Trocar imagem"
                           >
                             <img
@@ -306,15 +317,15 @@ export default function NewPost() {
                             control={form.control}
                             name="title"
                             render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Título</FormLabel>
+                              <FormItem className="grid grid-cols-[4.5rem_1fr] items-center gap-x-3 gap-y-2 space-y-0">
+                                <FormLabel className="m-0">Título</FormLabel>
                                 <FormControl>
                                   <Input
                                     placeholder="Ex: Treino do dia (pernas)"
                                     {...field}
                                   />
                                 </FormControl>
-                                <FormMessage />
+                                <FormMessage className="col-span-2" />
                               </FormItem>
                             )}
                           />
@@ -400,8 +411,14 @@ export default function NewPost() {
                                 <Input
                                   className="pl-9"
                                   placeholder="Ex: Diário"
+                                  list="frequency-options"
                                   {...field}
                                 />
+                                <datalist id="frequency-options">
+                                  {frequencySuggestions.map((v) => (
+                                    <option key={v} value={v} />
+                                  ))}
+                                </datalist>
                               </div>
                             </FormControl>
                             <FormMessage />
