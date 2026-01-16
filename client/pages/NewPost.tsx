@@ -410,7 +410,9 @@ export default function NewPost() {
                                 <SelectTrigger>
                                   <div className="flex items-center gap-2">
                                     <Repeat className="h-4 w-4 text-muted-foreground" />
-                                    <span className="text-sm">{field.value}</span>
+                                    <span className="text-sm">
+                                      {field.value}
+                                    </span>
                                   </div>
                                 </SelectTrigger>
                               </FormControl>

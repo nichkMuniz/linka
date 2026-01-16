@@ -20,8 +20,7 @@ const XP_PER_LEVEL = 500;
 function initials(name: string) {
   const parts = name.trim().split(/\s+/g);
   return (
-    (parts[0]?.[0] ?? "?").toUpperCase() +
-    (parts[1]?.[0] ?? "").toUpperCase()
+    (parts[0]?.[0] ?? "?").toUpperCase() + (parts[1]?.[0] ?? "").toUpperCase()
   );
 }
 
@@ -84,16 +83,18 @@ export default function Rank() {
       }
     }
 
-    const all: RankEntry[] = Array.from(byOwner.entries()).map(([handle, v]) => {
-      const days = daysForGoals(v.goals);
-      return {
-        handle,
-        name: v.name,
-        goals: v.goals.length,
-        days,
-        xp: days * XP_PER_DAY,
-      };
-    });
+    const all: RankEntry[] = Array.from(byOwner.entries()).map(
+      ([handle, v]) => {
+        const days = daysForGoals(v.goals);
+        return {
+          handle,
+          name: v.name,
+          goals: v.goals.length,
+          days,
+          xp: days * XP_PER_DAY,
+        };
+      },
+    );
 
     // garante que o usuário atual aparece
     const mine = state.goals.filter(
@@ -122,8 +123,9 @@ export default function Rank() {
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">Ranking</h1>
           <p className="text-sm text-muted-foreground">
-            Cada dia concluído vale <span className="font-semibold">{XP_PER_DAY} XP</span>.
-            Consistência vira nível.
+            Cada dia concluído vale{" "}
+            <span className="font-semibold">{XP_PER_DAY} XP</span>. Consistência
+            vira nível.
           </p>
         </div>
         <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand text-white shadow-sm ring-1 ring-brand/30">

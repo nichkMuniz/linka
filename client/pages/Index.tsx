@@ -587,7 +587,9 @@ export default function Index() {
 
   React.useEffect(() => {
     const state = getRitmoFitState();
-    setGoals(state.goals.filter((g) => !state.blockedHandles.includes(g.ownerHandle)));
+    setGoals(
+      state.goals.filter((g) => !state.blockedHandles.includes(g.ownerHandle)),
+    );
   }, []);
 
   const updateOne = (next: Goal) => {
@@ -597,16 +599,18 @@ export default function Index() {
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-4">
       <section className="grid gap-4">
-        {goals.filter((g) => !isBlocked(g.ownerHandle)).map((goal) => (
-          <PostCard
-            key={goal.id}
-            goal={goal}
-            onChange={updateOne}
-            onBlockUser={(handle) =>
-              setGoals((prev) => prev.filter((p) => p.ownerHandle !== handle))
-            }
-          />
-        ))}
+        {goals
+          .filter((g) => !isBlocked(g.ownerHandle))
+          .map((goal) => (
+            <PostCard
+              key={goal.id}
+              goal={goal}
+              onChange={updateOne}
+              onBlockUser={(handle) =>
+                setGoals((prev) => prev.filter((p) => p.ownerHandle !== handle))
+              }
+            />
+          ))}
       </section>
     </div>
   );

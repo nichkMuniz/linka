@@ -150,14 +150,22 @@ export function AppLayout() {
               aria-label={isDark ? "Ativar modo claro" : "Ativar modo noturno"}
               onClick={() => setTheme(isDark ? "light" : "dark")}
             >
-              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              {isDark ? (
+                <Sun className="h-5 w-5" />
+              ) : (
+                <Moon className="h-5 w-5" />
+              )}
             </Button>
           </div>
 
           <div className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 lg:hidden">
             <Button
               asChild
-              variant={isActivePath(location.pathname, "/buscar") ? "secondary" : "ghost"}
+              variant={
+                isActivePath(location.pathname, "/buscar")
+                  ? "secondary"
+                  : "ghost"
+              }
               className="h-11 w-11 rounded-full p-0"
             >
               <Link to="/buscar" aria-label="Buscar">
@@ -167,7 +175,11 @@ export function AppLayout() {
 
             <Button
               asChild
-              variant={isActivePath(location.pathname, MESSAGES_PATH) ? "secondary" : "ghost"}
+              variant={
+                isActivePath(location.pathname, MESSAGES_PATH)
+                  ? "secondary"
+                  : "ghost"
+              }
               className="h-11 w-11 rounded-full p-0"
             >
               <Link to={MESSAGES_PATH} aria-label="Mensagens">
@@ -210,12 +222,20 @@ export function AppLayout() {
               aria-label={isDark ? "Ativar modo claro" : "Ativar modo noturno"}
               onClick={() => setTheme(isDark ? "light" : "dark")}
             >
-              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              {isDark ? (
+                <Sun className="h-5 w-5" />
+              ) : (
+                <Moon className="h-5 w-5" />
+              )}
             </Button>
 
             <Button
               asChild
-              variant={isActivePath(location.pathname, "/buscar") ? "secondary" : "ghost"}
+              variant={
+                isActivePath(location.pathname, "/buscar")
+                  ? "secondary"
+                  : "ghost"
+              }
               className="h-11 w-11 rounded-full p-0"
             >
               <Link to="/buscar" aria-label="Buscar">
@@ -225,7 +245,11 @@ export function AppLayout() {
 
             <Button
               asChild
-              variant={isActivePath(location.pathname, messagesItem.to) ? "secondary" : "ghost"}
+              variant={
+                isActivePath(location.pathname, messagesItem.to)
+                  ? "secondary"
+                  : "ghost"
+              }
               className="h-11 w-11 rounded-full p-0"
             >
               <Link to={messagesItem.to} aria-label={messagesItem.label}>
@@ -243,9 +267,7 @@ export function AppLayout() {
         <Outlet />
       </main>
 
-      <nav
-        className="fixed bottom-[env(safe-area-inset-bottom)] left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden"
-      >
+      <nav className="fixed bottom-[env(safe-area-inset-bottom)] left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden">
         <div className="mx-auto grid w-full max-w-6xl grid-cols-5 px-1">
           {navItems.map((item) => {
             const active = isActivePath(location.pathname, item.to);

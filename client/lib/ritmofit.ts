@@ -93,7 +93,8 @@ function normalizeGoal(g: Goal): Goal {
     myIncentives: g.myIncentives ?? {},
     myProgressToday: g.myProgressToday ?? "",
     comments,
-    commentsCount: typeof g.commentsCount === "number" ? g.commentsCount : comments.length,
+    commentsCount:
+      typeof g.commentsCount === "number" ? g.commentsCount : comments.length,
     completedDays: g.completedDays ?? 0,
   };
 }

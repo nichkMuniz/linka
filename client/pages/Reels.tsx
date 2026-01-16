@@ -22,7 +22,8 @@ const reels: Reel[] = [
     // Pexels mp4 (pode variar por CDN; para MVP serve bem)
     videoUrl:
       "https://videos.pexels.com/video-files/3761540/3761540-hd_720_1366_30fps.mp4",
-    posterUrl: "https://images.pexels.com/photos/841130/pexels-photo-841130.jpeg",
+    posterUrl:
+      "https://images.pexels.com/photos/841130/pexels-photo-841130.jpeg",
   },
   {
     id: "r2",
