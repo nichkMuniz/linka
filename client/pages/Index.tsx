@@ -14,15 +14,24 @@ import {
 import { motion } from "framer-motion";
 
 import {
+  blockUser,
   Goal,
   dayLabel,
   getRitmoFitState,
   goalProgressPercent,
+  isBlocked,
   timeAgo,
   updateGoal,
 } from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/components/ui/use-toast";
@@ -158,9 +167,11 @@ function IncentiveButton({
 function PostCard({
   goal,
   onChange,
+  onBlockUser,
 }: {
   goal: Goal;
   onChange: (g: Goal) => void;
+  onBlockUser: (ownerHandle: string) => void;
 }) {
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
@@ -278,21 +289,57 @@ function PostCard({
           </div>
         </div>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="rounded-full"
-          onClick={() =>
-            toast({
-              title: "Opções",
-              description:
-                "No MVP, adicionamos salvar/denunciar/bloquear depois.",
-            })
-          }
-        >
-          <MoreHorizontal className="h-5 w-5" />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="rounded-full"
+              aria-label="Opções"
+            >
+              <MoreHorizontal className="h-5 w-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem
+              onClick={() =>
+                toast({
+                  title: "Denúncia enviada",
+                  description:
+                    "Obrigado! Vamos revisar este conteúdo (modo MVP).",
+                })
+              }
+            >
+              Denunciar post
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                toast({
+                  title: "Denúncia enviada",
+                  description:
+                    "Obrigado! Vamos revisar este perfil (modo MVP).",
+                })
+              }
+            >
+              Denunciar perfil
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => {
+                blockUser(goal.ownerHandle);
+                onBlockUser(goal.ownerHandle);
+                toast({
+                  title: "Usuário bloqueado",
+                  description: `${goal.ownerHandle} não aparecerá mais no seu feed.`,
+                });
+              }}
+            >
+              Bloquear {goal.ownerHandle}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* media */}
@@ -459,7 +506,8 @@ export default function Index() {
   const [goals, setGoals] = React.useState<Goal[]>([]);
 
   React.useEffect(() => {
-    setGoals(getRitmoFitState().goals);
+    const state = getRitmoFitState();
+    setGoals(state.goals.filter((g) => !state.blockedHandles.includes(g.ownerHandle)));
   }, []);
 
   const updateOne = (next: Goal) => {
@@ -469,8 +517,15 @@ export default function Index() {
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-4">
       <section className="grid gap-4">
-        {goals.map((goal) => (
-          <PostCard key={goal.id} goal={goal} onChange={updateOne} />
+        {goals.filter((g) => !isBlocked(g.ownerHandle)).map((goal) => (
+          <PostCard
+            key={goal.id}
+            goal={goal}
+            onChange={updateOne}
+            onBlockUser={(handle) =>
+              setGoals((prev) => prev.filter((p) => p.ownerHandle !== handle))
+            }
+          />
         ))}
       </section>
     </div>
