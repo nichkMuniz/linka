@@ -39,6 +39,19 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 
+const frequencyOptions = [
+  "Diário",
+  "1x/dia",
+  "2x/dia",
+  "Seg–Sex",
+  "3x/semana",
+  "4x/semana",
+  "5x/semana",
+  "6x/semana",
+  "Fim de semana",
+  "Alternado",
+] as const;
+
 const schema = z.object({
   title: z
     .string()
@@ -75,19 +88,6 @@ const durationMeta: Record<
   "21": { label: "21 dias", Icon: Timer },
   "30": { label: "30 dias", Icon: Hourglass },
 };
-
-const frequencyOptions = [
-  "Diário",
-  "1x/dia",
-  "2x/dia",
-  "Seg–Sex",
-  "3x/semana",
-  "4x/semana",
-  "5x/semana",
-  "6x/semana",
-  "Fim de semana",
-  "Alternado",
-] as const;
 
 async function fileToDataUrl(file: File) {
   const buf = await file.arrayBuffer();
