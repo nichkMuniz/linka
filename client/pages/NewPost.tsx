@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { Camera, ImagePlus, PlusSquare, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { createGoal, GoalCategory, GoalVisibility } from "@/lib/ritmofit";
+import { createGoal, GoalCategory } from "@/lib/ritmofit";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -46,7 +46,6 @@ const schema = z.object({
     .min(2, "Ex: Diário, 5x/semana, Seg–Sex")
     .max(30, "Muito longo"),
   durationDays: z.enum(["7", "21", "30"]),
-  visibility: z.enum(["Público", "Seguidores"]),
 });
 
 type Values = z.infer<typeof schema>;
@@ -57,10 +56,6 @@ const categories: { value: GoalCategory; label: string }[] = [
   { value: "Hábito", label: "Hábito" },
 ];
 
-const visibilities: { value: GoalVisibility; label: string }[] = [
-  { value: "Público", label: "Público" },
-  { value: "Seguidores", label: "Seguidores" },
-];
 
 async function fileToDataUrl(file: File) {
   const buf = await file.arrayBuffer();
@@ -99,7 +94,6 @@ export default function NewPost() {
       category: "Treino",
       frequency: "Diário",
       durationDays: "21",
-      visibility: "Público",
     },
   });
 
@@ -151,7 +145,7 @@ export default function NewPost() {
       category: v.category,
       frequency: v.frequency,
       durationDays: Number(v.durationDays) as 7 | 21 | 30,
-      visibility: v.visibility,
+      visibility: "Público",
     });
 
     toast({
@@ -273,75 +267,66 @@ export default function NewPost() {
                 </div>
               ) : (
                 <>
-                  <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-border/60 bg-muted/10 p-3">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={imageDataUrl}
-                        alt="Miniatura da foto"
-                        className="h-20 w-20 rounded-2xl object-cover ring-1 ring-border/60"
-                      />
-                      <div className="leading-tight">
-                        <div className="text-sm font-semibold">Miniatura</div>
-                        <div className="text-xs text-muted-foreground">
-                          Troque a foto se quiser antes de publicar.
+                  <div className="grid gap-5">
+                    <div className="grid gap-3 md:grid-cols-[auto_1fr] md:items-start">
+                      <div className="relative h-20 w-20">
+                        <img
+                          src={imageDataUrl}
+                          alt="Miniatura da foto"
+                          className="h-20 w-20 rounded-2xl object-cover ring-1 ring-border/60"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setImageDataUrl("");
+                            autoOpenedRef.current = false;
+                          }}
+                          className="absolute -right-1 -top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-background/95 text-foreground shadow-sm ring-1 ring-border/60 transition hover:bg-background"
+                          aria-label="Remover imagem"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="grid gap-3">
+                        <FormField
+                          control={form.control}
+                          name="title"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Título</FormLabel>
+                              <FormControl>
+                                <Input placeholder="Ex: Treino do dia (pernas)" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="rounded-full gap-2"
+                            onClick={() => cameraInputRef.current?.click()}
+                          >
+                            <Camera className="h-4 w-4" />
+                            Câmera
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="rounded-full gap-2"
+                            onClick={() => galleryInputRef.current?.click()}
+                          >
+                            <ImagePlus className="h-4 w-4" />
+                            Galeria
+                          </Button>
                         </div>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="rounded-full gap-2"
-                        onClick={() => cameraInputRef.current?.click()}
-                      >
-                        <Camera className="h-4 w-4" />
-                        Câmera
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="rounded-full gap-2"
-                        onClick={() => galleryInputRef.current?.click()}
-                      >
-                        <ImagePlus className="h-4 w-4" />
-                        Galeria
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-10 w-10 rounded-full"
-                        onClick={() => {
-                          setImageDataUrl("");
-                          autoOpenedRef.current = false;
-                        }}
-                        aria-label="Remover imagem"
-                      >
-                        <X className="h-5 w-5" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4">
-                    <FormField
-                      control={form.control}
-                      name="title"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Título</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Ex: Treino do dia (pernas)" {...field} />
-                          </FormControl>
-                          <FormDescription>
-                            Pense como uma postagem: curto, direto e específico.
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
 
                     <FormField
                       control={form.control}
@@ -363,104 +348,77 @@ export default function NewPost() {
                         </FormItem>
                       )}
                     />
-                  </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FormField
-                      control={form.control}
-                      name="category"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Categoria</FormLabel>
-                          <Select value={field.value} onValueChange={field.onChange}>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <FormField
+                        control={form.control}
+                        name="category"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Categoria</FormLabel>
+                            <Select value={field.value} onValueChange={field.onChange}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Selecione" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {categories.map((c) => (
+                                  <SelectItem key={c.value} value={c.value}>
+                                    {c.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="frequency"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Frequência</FormLabel>
                             <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Selecione" />
-                              </SelectTrigger>
+                              <Input placeholder="Ex: Diário" {...field} />
                             </FormControl>
-                            <SelectContent>
-                              {categories.map((c) => (
-                                <SelectItem key={c.value} value={c.value}>
-                                  {c.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                    <FormField
-                      control={form.control}
-                      name="visibility"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Visibilidade</FormLabel>
-                          <Select value={field.value} onValueChange={field.onChange}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Selecione" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {visibilities.map((v) => (
-                                <SelectItem key={v.value} value={v.value}>
-                                  {v.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+                      <FormField
+                        control={form.control}
+                        name="durationDays"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Duração</FormLabel>
+                            <Select value={field.value} onValueChange={field.onChange}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Selecione" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="7">7 dias</SelectItem>
+                                <SelectItem value="21">21 dias</SelectItem>
+                                <SelectItem value="30">30 dias</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FormField
-                      control={form.control}
-                      name="frequency"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Frequência</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Ex: Diário" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="durationDays"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Duração</FormLabel>
-                          <Select value={field.value} onValueChange={field.onChange}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Selecione" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="7">7 dias</SelectItem>
-                              <SelectItem value="21">21 dias</SelectItem>
-                              <SelectItem value="30">30 dias</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap justify-end gap-2 pt-2">
-                    <Button type="submit" className="rounded-full gap-2">
-                      <PlusSquare className="h-4 w-4" />
-                      Publicar
-                    </Button>
+                    <div className="flex flex-wrap justify-end gap-2 pt-2">
+                      <Button type="submit" className="rounded-full gap-2">
+                        <PlusSquare className="h-4 w-4" />
+                        Publicar
+                      </Button>
+                    </div>
                   </div>
                 </>
               )}
