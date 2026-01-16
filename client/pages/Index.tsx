@@ -57,6 +57,8 @@ const incentiveMeta: Record<
     iconClassName: string;
     ringClassName: string;
     hoverClassName: string;
+    activeClassName: string;
+    badgeActiveClassName: string;
   }
 > = {
   apoio: {
@@ -65,6 +67,8 @@ const incentiveMeta: Record<
     iconClassName: "text-brand",
     ringClassName: "ring-2 ring-brand/35",
     hoverClassName: "hover:bg-brand/10",
+    activeClassName: "bg-brand text-white border-brand/30",
+    badgeActiveClassName: "bg-white/15 text-white",
   },
   continua: {
     label: "Continua",
@@ -72,6 +76,8 @@ const incentiveMeta: Record<
     iconClassName: "text-orange-500",
     ringClassName: "ring-2 ring-orange-500/30",
     hoverClassName: "hover:bg-orange-500/10",
+    activeClassName: "bg-orange-500 text-white border-orange-500/30",
+    badgeActiveClassName: "bg-white/15 text-white",
   },
   orgulho: {
     label: "Orgulho",
@@ -79,6 +85,8 @@ const incentiveMeta: Record<
     iconClassName: "text-brand-2",
     ringClassName: "ring-2 ring-brand-2/30",
     hoverClassName: "hover:bg-brand-2/10",
+    activeClassName: "bg-brand-2 text-white border-brand-2/30",
+    badgeActiveClassName: "bg-white/15 text-white",
   },
 };
 
@@ -110,11 +118,16 @@ function IncentiveButton({
           className={cn(
             "inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             meta.hoverClassName,
-            pulsing && cn("bg-muted", meta.ringClassName),
+            pulsing ? cn(meta.activeClassName, meta.ringClassName) : null,
           )}
         >
-          <Icon className={cn("h-4 w-4", meta.iconClassName)} />
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+          <Icon className={cn("h-4 w-4", pulsing ? "text-white" : meta.iconClassName)} />
+          <span
+            className={cn(
+              "rounded-full bg-muted px-2 py-0.5 text-[11px]",
+              pulsing ? meta.badgeActiveClassName : "text-muted-foreground",
+            )}
+          >
             {count}
           </span>
         </motion.button>
@@ -151,10 +164,6 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
     const updated = nextState.goals.find((g) => g.id === goal.id);
     if (updated) onChange(updated);
 
-    toast({
-      title: "Incentivo enviado",
-      description: `Você marcou “${label}” para ${goal.ownerHandle}.`,
-    });
   };
 
   const completeToday = (next: {
