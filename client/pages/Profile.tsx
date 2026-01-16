@@ -31,6 +31,13 @@ import { CompleteTodayDialog } from "@/components/complete-today-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 
+function todayKey(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function Avatar({ src, initials }: { src?: string; initials: string }) {
   if (src) {
     return (
@@ -58,22 +65,31 @@ function PostMini({
 }) {
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
+  const updatedToday = goal.myProgressToday === todayKey();
   const [open, setOpen] = React.useState(false);
 
   const quickProgressOnly = () => {
     if (done) return;
 
-    const nextState = updateGoal(goal.id, (g) => ({
-      ...g,
-      completedDays: Math.min(g.completedDays + 1, g.durationDays),
-    }));
+    const key = todayKey();
+
+    const nextState = updateGoal(goal.id, (g) => {
+      const already = g.myProgressToday === key;
+      if (already) return g;
+
+      return {
+        ...g,
+        completedDays: Math.min(g.completedDays + 1, g.durationDays),
+        myProgressToday: key,
+      };
+    });
 
     const updated = nextState.goals.find((g) => g.id === goal.id);
     if (updated) onChange(updated);
 
     toast({
-      title: "Progresso atualizado",
-      description: "Marcamos +1 dia na sua rotina.",
+      title: "Rotina atualizada",
+      description: "Marcamos +1 dia na sua rotina hoje.",
     });
   };
 
@@ -82,12 +98,15 @@ function PostMini({
     imageDataUrl?: string;
     incrementDays: number;
   }) => {
+    const key = todayKey();
+
     const nextState = updateGoal(goal.id, (g) => {
       const inc = Math.max(0, next.incrementDays);
       const completedDays = Math.min(g.completedDays + inc, g.durationDays);
       return {
         ...g,
         completedDays,
+        myProgressToday: inc > 0 ? key : g.myProgressToday,
         caption: next.caption !== undefined ? next.caption : g.caption,
         imageDataUrl:
           next.imageDataUrl !== undefined ? next.imageDataUrl : g.imageDataUrl,
@@ -138,9 +157,25 @@ function PostMini({
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="h-9 w-9 rounded-full p-0"
-                  aria-label="Atualizar progresso"
-                  onClick={quickProgressOnly}
+                  className={cn(
+                    "h-9 w-9 rounded-full p-0",
+                    updatedToday
+                      ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-500/90"
+                      : null,
+                  )}
+                  aria-label={
+                    updatedToday ? "Rotina já atualizada hoje" : "Atualizar progresso"
+                  }
+                  onClick={() => {
+                    if (updatedToday) {
+                      toast({
+                        title: "Já foi",
+                        description: "Você já atualizou a rotina hoje.",
+                      });
+                      return;
+                    }
+                    quickProgressOnly();
+                  }}
                 >
                   <Check className="h-4 w-4" />
                 </Button>
@@ -153,7 +188,7 @@ function PostMini({
                 className={cn("rounded-full", done && "opacity-80")}
                 onClick={() => setOpen(true)}
               >
-                {done ? "Concluída" : "Feito hoje"}
+                {done ? "Concluída" : "Atualizar rotina"}
               </Button>
               <CompleteTodayDialog
                 goal={goal}
