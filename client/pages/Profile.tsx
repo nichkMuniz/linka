@@ -121,7 +121,9 @@ function PostMini({
     <Card className="border-border/60">
       <CardHeader className="pb-3">
         <CardTitle className="text-base">{goal.title}</CardTitle>
-        <CardDescription className="line-clamp-2">{goal.caption}</CardDescription>
+        <CardDescription className="line-clamp-2">
+          {goal.caption}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div
@@ -149,7 +151,8 @@ function PostMini({
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs text-muted-foreground">
-              {goal.completedDays}/{goal.durationDays} {dayLabel(goal.durationDays)} · {pct}%
+              {goal.completedDays}/{goal.durationDays}{" "}
+              {dayLabel(goal.durationDays)} · {pct}%
             </div>
             <div className="flex items-center gap-2">
               {!done ? (
@@ -164,7 +167,9 @@ function PostMini({
                       : null,
                   )}
                   aria-label={
-                    updatedToday ? "Rotina já atualizada hoje" : "Atualizar progresso"
+                    updatedToday
+                      ? "Rotina já atualizada hoje"
+                      : "Atualizar progresso"
                   }
                   onClick={() => {
                     if (updatedToday) {
@@ -210,7 +215,9 @@ export default function Profile() {
 
   React.useEffect(() => {
     const all = getRitmoFitState().goals;
-    setPosts(all.filter((g) => g.ownerHandle === "@voce" || g.ownerName === "Você"));
+    setPosts(
+      all.filter((g) => g.ownerHandle === "@voce" || g.ownerName === "Você"),
+    );
   }, []);
 
   const profile = {
@@ -262,9 +269,13 @@ export default function Profile() {
               <h1 className="text-xl font-semibold tracking-tight">
                 {profile.name}
               </h1>
-              <span className="text-sm text-muted-foreground">{profile.handle}</span>
+              <span className="text-sm text-muted-foreground">
+                {profile.handle}
+              </span>
             </div>
-            <p className="max-w-xl text-sm text-muted-foreground">{profile.bio}</p>
+            <p className="max-w-xl text-sm text-muted-foreground">
+              {profile.bio}
+            </p>
           </div>
         </div>
 
@@ -285,7 +296,6 @@ export default function Profile() {
       </div>
 
       <div className="grid gap-4">
-
         {posts.length ? (
           <Tabs defaultValue="all" className="w-full">
             <TabsList className="grid w-full grid-cols-3 rounded-full">
@@ -325,7 +335,9 @@ export default function Profile() {
                     key={p.id}
                     goal={p}
                     onChange={(next) =>
-                      setPosts((prev) => prev.map((g) => (g.id === next.id ? next : g)))
+                      setPosts((prev) =>
+                        prev.map((g) => (g.id === next.id ? next : g)),
+                      )
                     }
                   />
                 ))}
@@ -389,7 +401,8 @@ export default function Profile() {
             <CardContent className="space-y-3 p-6">
               <div className="text-sm font-medium">Você ainda não postou.</div>
               <p className="text-sm text-muted-foreground">
-                Poste sua rotina do dia para receber incentivo dos seus amigos e criar constância.
+                Poste sua rotina do dia para receber incentivo dos seus amigos e
+                criar constância.
               </p>
               <Button asChild className="rounded-full">
                 <Link to="/postar">Fazer primeira postagem</Link>

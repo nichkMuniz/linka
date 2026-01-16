@@ -21,7 +21,8 @@ async function fileToDataUrl(file: File) {
   const buf = await file.arrayBuffer();
   const bytes = new Uint8Array(buf);
   let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i++)
+    binary += String.fromCharCode(bytes[i]);
   return `data:${file.type};base64,${btoa(binary)}`;
 }
 
@@ -41,7 +42,9 @@ export function CompleteTodayDialog({
   }) => void;
 }) {
   const [caption, setCaption] = React.useState(goal.caption ?? "");
-  const [imageDataUrl, setImageDataUrl] = React.useState(goal.imageDataUrl ?? "");
+  const [imageDataUrl, setImageDataUrl] = React.useState(
+    goal.imageDataUrl ?? "",
+  );
   const [daysToAdd, setDaysToAdd] = React.useState(1);
 
   React.useEffect(() => {
@@ -89,7 +92,8 @@ export function CompleteTodayDialog({
         <DialogHeader>
           <DialogTitle>Atualizar rotina</DialogTitle>
           <DialogDescription>
-            Atualize seu progresso e, se quiser, atualize a foto e a legenda do post.
+            Atualize seu progresso e, se quiser, atualize a foto e a legenda do
+            post.
           </DialogDescription>
         </DialogHeader>
 
@@ -98,7 +102,8 @@ export function CompleteTodayDialog({
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm font-semibold">{goal.title}</div>
               <div className="text-xs text-muted-foreground">
-                {goal.completedDays}/{goal.durationDays} {dayLabel(goal.durationDays)}
+                {goal.completedDays}/{goal.durationDays}{" "}
+                {dayLabel(goal.durationDays)}
               </div>
             </div>
             <div className="mt-2 space-y-2">
@@ -170,7 +175,8 @@ export function CompleteTodayDialog({
                 className="min-h-[176px]"
               />
               <div className="text-xs text-muted-foreground">
-                Dica: escreva uma frase curta. Ex: “Treino feito. Sem desculpas.”
+                Dica: escreva uma frase curta. Ex: “Treino feito. Sem
+                desculpas.”
               </div>
             </div>
           </div>

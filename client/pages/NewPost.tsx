@@ -68,7 +68,10 @@ const categories: { value: GoalCategory; label: string }[] = [
   { value: "Hábito", label: "Hábito" },
 ];
 
-const categoryIcon: Record<GoalCategory, React.ComponentType<{ className?: string }>> = {
+const categoryIcon: Record<
+  GoalCategory,
+  React.ComponentType<{ className?: string }>
+> = {
   Treino: Dumbbell,
   Alimentação: Utensils,
   Hábito: Droplets,
@@ -87,7 +90,8 @@ async function fileToDataUrl(file: File) {
   const buf = await file.arrayBuffer();
   const bytes = new Uint8Array(buf);
   let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i++)
+    binary += String.fromCharCode(bytes[i]);
   return `data:${file.type};base64,${btoa(binary)}`;
 }
 
@@ -157,7 +161,8 @@ export default function NewPost() {
     if (!imageDataUrl) {
       toast({
         title: "Adicione uma foto",
-        description: "Para este MVP, o post começa pela imagem (estilo Instagram).",
+        description:
+          "Para este MVP, o post começa pela imagem (estilo Instagram).",
         variant: "destructive",
       });
       return;
@@ -186,12 +191,19 @@ export default function NewPost() {
       {!imageDataUrl ? (
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">Nova postagem</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Nova postagem
+            </h1>
             <p className="text-sm text-muted-foreground">
               Poste sua rotina do dia para receber incentivo dos seus amigos.
             </p>
           </div>
-          <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-full">
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="h-11 w-11 rounded-full"
+          >
             <Link to="/" aria-label="Cancelar">
               <X className="h-5 w-5" />
             </Link>
@@ -213,7 +225,12 @@ export default function NewPost() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
 
-          <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-full">
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="h-11 w-11 rounded-full"
+          >
             <Link to="/" aria-label="Cancelar">
               <X className="h-5 w-5" />
             </Link>
@@ -269,7 +286,8 @@ export default function NewPost() {
                     </div>
 
                     <div className="mt-3 text-xs text-muted-foreground">
-                      Depois de escolher a foto, aparecem os campos de título, legenda e configurações.
+                      Depois de escolher a foto, aparecem os campos de título,
+                      legenda e configurações.
                     </div>
                   </div>
                 </div>
@@ -304,7 +322,10 @@ export default function NewPost() {
                             <FormItem>
                               <FormLabel>Título</FormLabel>
                               <FormControl>
-                                <Input placeholder="Ex: Treino do dia (pernas)" {...field} />
+                                <Input
+                                  placeholder="Ex: Treino do dia (pernas)"
+                                  {...field}
+                                />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -340,7 +361,8 @@ export default function NewPost() {
                             />
                           </FormControl>
                           <FormDescription>
-                            Conte como foi e o que você quer que as pessoas incentivem.
+                            Conte como foi e o que você quer que as pessoas
+                            incentivem.
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -357,12 +379,17 @@ export default function NewPost() {
                           return (
                             <FormItem>
                               <FormLabel>Categoria</FormLabel>
-                              <Select value={field.value} onValueChange={field.onChange}>
+                              <Select
+                                value={field.value}
+                                onValueChange={field.onChange}
+                              >
                                 <FormControl>
                                   <SelectTrigger>
                                     <div className="flex items-center gap-2">
                                       <Icon className="h-4 w-4 text-muted-foreground" />
-                                      <span className="text-sm">{field.value}</span>
+                                      <span className="text-sm">
+                                        {field.value}
+                                      </span>
                                     </div>
                                   </SelectTrigger>
                                 </FormControl>
@@ -395,7 +422,11 @@ export default function NewPost() {
                             <FormControl>
                               <div className="relative">
                                 <Repeat className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                <Input className="pl-9" placeholder="Ex: Diário" {...field} />
+                                <Input
+                                  className="pl-9"
+                                  placeholder="Ex: Diário"
+                                  {...field}
+                                />
                               </div>
                             </FormControl>
                             <FormMessage />
@@ -412,24 +443,31 @@ export default function NewPost() {
                           return (
                             <FormItem>
                               <FormLabel>Duração</FormLabel>
-                              <Select value={field.value} onValueChange={field.onChange}>
+                              <Select
+                                value={field.value}
+                                onValueChange={field.onChange}
+                              >
                                 <FormControl>
                                   <SelectTrigger>
                                     <div className="flex items-center gap-2">
                                       <Icon className="h-4 w-4 text-muted-foreground" />
-                                      <span className="text-sm">{durationMeta[field.value].label}</span>
+                                      <span className="text-sm">
+                                        {durationMeta[field.value].label}
+                                      </span>
                                     </div>
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {Object.entries(durationMeta).map(([value, meta]) => (
-                                    <SelectItem key={value} value={value}>
-                                      <span className="flex items-center gap-2">
-                                        <meta.Icon className="h-4 w-4 text-muted-foreground" />
-                                        {meta.label}
-                                      </span>
-                                    </SelectItem>
-                                  ))}
+                                  {Object.entries(durationMeta).map(
+                                    ([value, meta]) => (
+                                      <SelectItem key={value} value={value}>
+                                        <span className="flex items-center gap-2">
+                                          <meta.Icon className="h-4 w-4 text-muted-foreground" />
+                                          {meta.label}
+                                        </span>
+                                      </SelectItem>
+                                    ),
+                                  )}
                                 </SelectContent>
                               </Select>
                               <FormMessage />
@@ -440,7 +478,10 @@ export default function NewPost() {
                     </div>
 
                     <div className="flex flex-wrap justify-center gap-2 pt-2">
-                      <Button type="submit" className="w-full max-w-sm rounded-full gap-2">
+                      <Button
+                        type="submit"
+                        className="w-full max-w-sm rounded-full gap-2"
+                      >
                         <PlusSquare className="h-4 w-4" />
                         Publicar
                       </Button>

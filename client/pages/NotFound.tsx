@@ -22,7 +22,8 @@ export default function NotFound() {
           P1gina n3o encontrada
         </h1>
         <p className="text-sm text-muted-foreground">
-          N3o existe rota para <span className="font-mono">{location.pathname}</span>.
+          N3o existe rota para{" "}
+          <span className="font-mono">{location.pathname}</span>.
         </p>
       </div>
 

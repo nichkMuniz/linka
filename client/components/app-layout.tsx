@@ -129,7 +129,11 @@ export function AppLayout() {
           <div className="absolute right-4 top-1/2 -translate-y-1/2 lg:hidden">
             <Button
               asChild
-              variant={isActivePath(location.pathname, MESSAGES_PATH) ? "secondary" : "ghost"}
+              variant={
+                isActivePath(location.pathname, MESSAGES_PATH)
+                  ? "secondary"
+                  : "ghost"
+              }
               className="h-11 w-11 rounded-full p-0"
             >
               <Link to={MESSAGES_PATH} aria-label="Mensagens">
@@ -190,7 +194,10 @@ export function AppLayout() {
         <Outlet />
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
         <div className="mx-auto grid w-full max-w-6xl grid-cols-5 px-2">
           {navItems.map((item) => {
             const active = isActivePath(location.pathname, item.to);

@@ -48,8 +48,18 @@ const conversationsSeed: Conversation[] = [
 
 const messagesSeed: Record<string, Message[]> = {
   c1: [
-    { id: "m1", from: "them", text: "Bora manter o ritmo hoje?", time: "2 min" },
-    { id: "m2", from: "me", text: "Fechado. Posto meu treino já já!", time: "agora" },
+    {
+      id: "m1",
+      from: "them",
+      text: "Bora manter o ritmo hoje?",
+      time: "2 min",
+    },
+    {
+      id: "m2",
+      from: "me",
+      text: "Fechado. Posto meu treino já já!",
+      time: "agora",
+    },
   ],
   c2: [
     {
@@ -58,7 +68,12 @@ const messagesSeed: Record<string, Message[]> = {
       text: "Lembra: constância > perfeição.",
       time: "1 h",
     },
-    { id: "m4", from: "me", text: "Boa. Hoje vou cumprir o básico.", time: "55 min" },
+    {
+      id: "m4",
+      from: "me",
+      text: "Boa. Hoje vou cumprir o básico.",
+      time: "55 min",
+    },
   ],
 };
 
@@ -86,8 +101,10 @@ function timeNowLabel() {
 }
 
 export default function Messages() {
-  const [conversations, setConversations] = React.useState<Conversation[]>(conversationsSeed);
-  const [messagesById, setMessagesById] = React.useState<Record<string, Message[]>>(messagesSeed);
+  const [conversations, setConversations] =
+    React.useState<Conversation[]>(conversationsSeed);
+  const [messagesById, setMessagesById] =
+    React.useState<Record<string, Message[]>>(messagesSeed);
   const [activeId, setActiveId] = React.useState<string>("");
   const [text, setText] = React.useState("");
   const [newDialogOpen, setNewDialogOpen] = React.useState(false);
@@ -118,7 +135,9 @@ export default function Messages() {
 
     setConversations((prev) =>
       prev.map((c) =>
-        c.id === activeId ? { ...c, lastMessage: trimmed, time: timeNowLabel() } : c,
+        c.id === activeId
+          ? { ...c, lastMessage: trimmed, time: timeNowLabel() }
+          : c,
       ),
     );
 
@@ -218,7 +237,9 @@ export default function Messages() {
                         <div
                           className={cn(
                             "mt-1 text-[11px]",
-                            m.from === "me" ? "text-white/80" : "text-muted-foreground",
+                            m.from === "me"
+                              ? "text-white/80"
+                              : "text-muted-foreground",
                           )}
                         >
                           {m.time}
@@ -292,7 +313,9 @@ export default function Messages() {
                     <div className="leading-tight">
                       <div className="flex items-center gap-2">
                         <div className="text-sm font-semibold">{c.name}</div>
-                        <div className="text-xs text-muted-foreground">{c.handle}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {c.handle}
+                        </div>
                       </div>
                       <div className="text-xs text-muted-foreground line-clamp-1">
                         {c.lastMessage ? c.lastMessage : "Comece uma conversa"}
@@ -344,14 +367,20 @@ export default function Messages() {
                       <div className="leading-tight">
                         <div className="flex items-center gap-2">
                           <div className="text-sm font-semibold">{c.name}</div>
-                          <div className="text-xs text-muted-foreground">{c.handle}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {c.handle}
+                          </div>
                         </div>
                         <div className="text-xs text-muted-foreground line-clamp-1">
-                          {c.lastMessage ? c.lastMessage : "Comece uma conversa"}
+                          {c.lastMessage
+                            ? c.lastMessage
+                            : "Comece uma conversa"}
                         </div>
                       </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">{c.time}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {c.time}
+                    </div>
                   </button>
                 );
               })}
@@ -362,7 +391,9 @@ export default function Messages() {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <User className="h-4 w-4 text-brand" />
-                {active ? `${active.name} (${active.handle})` : "Selecione uma conversa"}
+                {active
+                  ? `${active.name} (${active.handle})`
+                  : "Selecione uma conversa"}
               </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4">
@@ -472,10 +503,16 @@ export default function Messages() {
                     <AvatarCircle label={p.name.slice(0, 1).toUpperCase()} />
                     <div className="leading-tight">
                       <div className="text-sm font-semibold">{p.name}</div>
-                      <div className="text-xs text-muted-foreground">{p.handle}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {p.handle}
+                      </div>
                     </div>
                   </div>
-                  <Button type="button" variant="outline" className="rounded-full">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full"
+                  >
                     Conversar
                   </Button>
                 </button>

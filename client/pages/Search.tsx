@@ -153,9 +153,13 @@ export default function Search() {
                       <div className="leading-tight">
                         <div className="flex items-center gap-2">
                           <div className="text-sm font-semibold">{r.name}</div>
-                          <div className="text-xs text-muted-foreground">{r.handle}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {r.handle}
+                          </div>
                         </div>
-                        <div className="text-sm text-muted-foreground">{r.bio}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {r.bio}
+                        </div>
                       </div>
                     </div>
                     <Button variant="outline" className="rounded-full">
@@ -186,7 +190,9 @@ export default function Search() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="text-sm text-muted-foreground">{r.subtitle}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {r.subtitle}
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {r.tags.map((t) => (
                         <span
@@ -230,7 +236,9 @@ export default function Search() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="text-sm text-muted-foreground">{r.subtitle}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {r.subtitle}
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {r.tags.map((t) => (
                         <span

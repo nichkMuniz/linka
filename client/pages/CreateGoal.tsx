@@ -56,7 +56,7 @@ const categories: { value: GoalCategory; label: string; hint: string }[] = [
   {
     value: "Alimentação",
     label: "Alimentação",
-    hint: "Refeições e disciplina" ,
+    hint: "Refeições e disciplina",
   },
   { value: "Hábito", label: "Hábito", hint: "Água, sono e rotina" },
 ];
@@ -130,7 +130,12 @@ export default function CreateGoal() {
         <div className="flex items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <Button asChild size="sm" variant="ghost" className="rounded-full">
+              <Button
+                asChild
+                size="sm"
+                variant="ghost"
+                className="rounded-full"
+              >
                 <Link to="/">
                   <ChevronLeft className="h-4 w-4" />
                   Voltar
@@ -204,7 +209,10 @@ export default function CreateGoal() {
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          {categories.find((c) => c.value === field.value)?.hint}
+                          {
+                            categories.find((c) => c.value === field.value)
+                              ?.hint
+                          }
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -283,7 +291,10 @@ export default function CreateGoal() {
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          {visibilities.find((v) => v.value === field.value)?.hint}
+                          {
+                            visibilities.find((v) => v.value === field.value)
+                              ?.hint
+                          }
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -345,7 +356,9 @@ export default function CreateGoal() {
             <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
               <div className="space-y-1">
                 <div className="text-sm font-semibold">
-                  {values.title?.trim() ? values.title : "Sua meta vai aparecer aqui"}
+                  {values.title?.trim()
+                    ? values.title
+                    : "Sua meta vai aparecer aqui"}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   0/{values.durationDays} dias 7 0%
@@ -358,7 +371,10 @@ export default function CreateGoal() {
               <div className="grid grid-cols-2 gap-3">
                 <PreviewItem label="Categoria" value={values.category} />
                 <PreviewItem label="Frequancia" value={values.frequency} />
-                <PreviewItem label="Dura73o" value={`${values.durationDays} dias`} />
+                <PreviewItem
+                  label="Dura73o"
+                  value={`${values.durationDays} dias`}
+                />
                 <PreviewItem label="Visibilidade" value={values.visibility} />
               </div>
 
@@ -380,7 +396,9 @@ export default function CreateGoal() {
 
         <Card className="border-border/60">
           <CardHeader>
-            <CardTitle className="text-base">Pr3ximos passos (Fase 2)</CardTitle>
+            <CardTitle className="text-base">
+              Pr3ximos passos (Fase 2)
+            </CardTitle>
             <CardDescription>
               Seguir pessoas, notifica75es e streak autom1tico.
             </CardDescription>

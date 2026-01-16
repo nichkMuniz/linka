@@ -44,8 +44,7 @@ function todayKey(d = new Date()) {
 function initials(name: string) {
   const parts = name.trim().split(/\s+/g);
   return (
-    (parts[0]?.[0] ?? "?").toUpperCase() +
-    (parts[1]?.[0] ?? "").toUpperCase()
+    (parts[0]?.[0] ?? "?").toUpperCase() + (parts[1]?.[0] ?? "").toUpperCase()
   );
 }
 
@@ -85,7 +84,8 @@ const incentiveMeta: Record<
     ringClassName: "ring-2 ring-orange-500/30",
     hoverClassName: "hover:bg-orange-500/10",
     activeClassName: "bg-orange-500/10 border-orange-500/30",
-    badgeActiveClassName: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
+    badgeActiveClassName:
+      "bg-orange-500/15 text-orange-600 dark:text-orange-400",
   },
   orgulho: {
     label: "Orgulho",
@@ -155,7 +155,13 @@ function IncentiveButton({
   );
 }
 
-function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void }) {
+function PostCard({
+  goal,
+  onChange,
+}: {
+  goal: Goal;
+  onChange: (g: Goal) => void;
+}) {
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
   const isMine = goal.ownerHandle === "@voce" || goal.ownerName === "Você";
@@ -258,9 +264,13 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
           <div className="leading-tight">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold">{goal.ownerName}</span>
-              <span className="text-xs text-muted-foreground">{goal.ownerHandle}</span>
+              <span className="text-xs text-muted-foreground">
+                {goal.ownerHandle}
+              </span>
               <span className="text-xs text-muted-foreground">·</span>
-              <span className="text-xs text-muted-foreground">{timeAgo(goal.createdAt)}</span>
+              <span className="text-xs text-muted-foreground">
+                {timeAgo(goal.createdAt)}
+              </span>
             </div>
             <div className="text-xs text-muted-foreground">
               {goal.category} · {goal.visibility}
@@ -276,7 +286,8 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
           onClick={() =>
             toast({
               title: "Opções",
-              description: "No MVP, adicionamos salvar/denunciar/bloquear depois.",
+              description:
+                "No MVP, adicionamos salvar/denunciar/bloquear depois.",
             })
           }
         >
@@ -379,7 +390,8 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
         <div className="space-y-2 rounded-2xl border border-border/60 bg-muted/30 p-3">
           <div className="flex items-center justify-between gap-3">
             <div className="text-xs text-muted-foreground">
-              {goal.completedDays}/{goal.durationDays} {dayLabel(goal.durationDays)} · {pct}%
+              {goal.completedDays}/{goal.durationDays}{" "}
+              {dayLabel(goal.durationDays)} · {pct}%
             </div>
             {isMine ? (
               <div className="flex items-center gap-2">
@@ -395,7 +407,9 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
                         : null,
                     )}
                     aria-label={
-                      updatedToday ? "Rotina já atualizada hoje" : "Atualizar progresso"
+                      updatedToday
+                        ? "Rotina já atualizada hoje"
+                        : "Atualizar progresso"
                     }
                     onClick={() => {
                       if (updatedToday) {
@@ -432,7 +446,8 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
           </div>
           <Progress value={pct} className="h-2" />
           <div className="text-[11px] text-muted-foreground">
-            Frequência: {goal.frequency} · Duração: {goal.durationDays} {dayLabel(goal.durationDays)}
+            Frequência: {goal.frequency} · Duração: {goal.durationDays}{" "}
+            {dayLabel(goal.durationDays)}
           </div>
         </div>
       </CardContent>

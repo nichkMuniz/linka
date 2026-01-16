@@ -36,7 +36,10 @@ const App = () => (
               <Route path="/mensagens" element={<Messages />} />
 
               {/* compatibility */}
-              <Route path="/criar" element={<Navigate to="/postar" replace />} />
+              <Route
+                path="/criar"
+                element={<Navigate to="/postar" replace />}
+              />
 
               <Route
                 path="/login"

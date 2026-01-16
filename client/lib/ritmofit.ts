@@ -101,7 +101,8 @@ export function getRitmoFitState(): StorageShape {
         ownerHandle: "@nicholas",
         title: "Treinar 5x por semana (sem desistir)",
         caption: "Treino de hoje: peito + tríceps. Sem desculpas.",
-        imageDataUrl: "https://images.pexels.com/photos/28427829/pexels-photo-28427829.jpeg",
+        imageDataUrl:
+          "https://images.pexels.com/photos/28427829/pexels-photo-28427829.jpeg",
         category: "Treino",
         frequency: "5x/semana",
         durationDays: 21,
@@ -117,7 +118,8 @@ export function getRitmoFitState(): StorageShape {
         ownerHandle: "@ana.fit",
         title: "Beber 2L de água todos os dias",
         caption: "Meta simples, resultado grande. 2L fechados hoje ✅",
-        imageDataUrl: "https://images.pexels.com/photos/13896897/pexels-photo-13896897.jpeg",
+        imageDataUrl:
+          "https://images.pexels.com/photos/13896897/pexels-photo-13896897.jpeg",
         category: "Hábito",
         frequency: "Diário",
         durationDays: 30,
@@ -133,7 +135,8 @@ export function getRitmoFitState(): StorageShape {
         ownerHandle: "@bruno.nutri",
         title: "Montar prato equilibrado no almoço",
         caption: "Proteína + carbo bom + salada. Constância > perfeição.",
-        imageDataUrl: "https://images.pexels.com/photos/33489594/pexels-photo-33489594.jpeg",
+        imageDataUrl:
+          "https://images.pexels.com/photos/33489594/pexels-photo-33489594.jpeg",
         category: "Alimentação",
         frequency: "Seg–Sex",
         durationDays: 21,
