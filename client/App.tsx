@@ -15,6 +15,8 @@ import NewPost from "@/pages/NewPost";
 import Search from "@/pages/Search";
 import Profile from "@/pages/Profile";
 import Messages from "@/pages/Messages";
+import Rank from "@/pages/Rank";
+import Reels from "@/pages/Reels";
 import NotFound from "@/pages/NotFound";
 import Placeholder from "@/pages/Placeholder";
 
@@ -34,6 +36,8 @@ const App = () => (
               <Route path="/buscar" element={<Search />} />
               <Route path="/perfil" element={<Profile />} />
               <Route path="/mensagens" element={<Messages />} />
+              <Route path="/rank" element={<Rank />} />
+              <Route path="/reels" element={<Reels />} />
 
               {/* compatibility */}
               <Route
