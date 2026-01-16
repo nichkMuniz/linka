@@ -7,6 +7,8 @@ import {
   Settings,
   Utensils,
   Check,
+  Download,
+  Smartphone,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
