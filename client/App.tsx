@@ -53,6 +53,7 @@ const App = () => {
                 <Route path="/mensagens" element={<Messages />} />
                 <Route path="/rank" element={<Rank />} />
                 <Route path="/reels" element={<Reels />} />
+                <Route path="/instalar" element={<Install />} />
 
                 {/* compatibility */}
                 <Route
