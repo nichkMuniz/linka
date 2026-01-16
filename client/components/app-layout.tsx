@@ -38,7 +38,7 @@ function BrandMark({ className }: { className?: string }) {
         className,
       )}
     >
-      <Sparkles className="h-4.5 w-4.5 text-white" />
+      <Sparkles className="h-5 w-5 text-white" />
     </div>
   );
 }
