@@ -9,6 +9,7 @@ import {
   Dumbbell,
   Utensils,
   Droplets,
+  Check,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -181,6 +182,23 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
     if (updated) onChange(updated);
   };
 
+  const quickProgressOnly = () => {
+    if (done) return;
+
+    const nextState = updateGoal(goal.id, (g) => ({
+      ...g,
+      completedDays: Math.min(g.completedDays + 1, g.durationDays),
+    }));
+
+    const updated = nextState.goals.find((g) => g.id === goal.id);
+    if (updated) onChange(updated);
+
+    toast({
+      title: "Progresso atualizado",
+      description: "Marcamos +1 dia na sua rotina.",
+    });
+  };
+
   const completeToday = (next: {
     caption?: string;
     imageDataUrl?: string;
@@ -345,7 +363,20 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
               {goal.completedDays}/{goal.durationDays} {dayLabel(goal.durationDays)} · {pct}%
             </div>
             {isMine ? (
-              <>
+              <div className="flex items-center gap-2">
+                {!done ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-9 w-9 rounded-full p-0"
+                    aria-label="Atualizar progresso"
+                    onClick={quickProgressOnly}
+                  >
+                    <Check className="h-4 w-4" />
+                  </Button>
+                ) : null}
+
                 <Button
                   type="button"
                   size="sm"
@@ -361,7 +392,7 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
                   onOpenChange={setOpen}
                   onComplete={completeToday}
                 />
-              </>
+              </div>
             ) : null}
           </div>
           <Progress value={pct} className="h-2" />

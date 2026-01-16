@@ -6,6 +6,7 @@ import {
   Plus,
   Settings,
   Utensils,
+  Check,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -28,6 +29,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { CompleteTodayDialog } from "@/components/complete-today-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "@/components/ui/use-toast";
 
 function Avatar({ src, initials }: { src?: string; initials: string }) {
   if (src) {
@@ -57,6 +59,23 @@ function PostMini({
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
   const [open, setOpen] = React.useState(false);
+
+  const quickProgressOnly = () => {
+    if (done) return;
+
+    const nextState = updateGoal(goal.id, (g) => ({
+      ...g,
+      completedDays: Math.min(g.completedDays + 1, g.durationDays),
+    }));
+
+    const updated = nextState.goals.find((g) => g.id === goal.id);
+    if (updated) onChange(updated);
+
+    toast({
+      title: "Progresso atualizado",
+      description: "Marcamos +1 dia na sua rotina.",
+    });
+  };
 
   const completeToday = (next: {
     caption?: string;
@@ -113,21 +132,36 @@ function PostMini({
             <div className="text-xs text-muted-foreground">
               {goal.completedDays}/{goal.durationDays} {dayLabel(goal.durationDays)} · {pct}%
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant={done ? "secondary" : "default"}
-              className={cn("rounded-full", done && "opacity-80")}
-              onClick={() => setOpen(true)}
-            >
-              {done ? "Concluída" : "Feito hoje"}
-            </Button>
-            <CompleteTodayDialog
-              goal={goal}
-              open={open}
-              onOpenChange={setOpen}
-              onComplete={completeToday}
-            />
+            <div className="flex items-center gap-2">
+              {!done ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-9 w-9 rounded-full p-0"
+                  aria-label="Atualizar progresso"
+                  onClick={quickProgressOnly}
+                >
+                  <Check className="h-4 w-4" />
+                </Button>
+              ) : null}
+
+              <Button
+                type="button"
+                size="sm"
+                variant={done ? "secondary" : "default"}
+                className={cn("rounded-full", done && "opacity-80")}
+                onClick={() => setOpen(true)}
+              >
+                {done ? "Concluída" : "Feito hoje"}
+              </Button>
+              <CompleteTodayDialog
+                goal={goal}
+                open={open}
+                onOpenChange={setOpen}
+                onComplete={completeToday}
+              />
+            </div>
           </div>
           <Progress value={pct} className="h-2" />
         </div>
