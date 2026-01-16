@@ -196,7 +196,7 @@ export function AppLayout() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-4 pb-[calc(5rem+env(safe-area-inset-bottom))] pt-6 lg:pb-10">
+      <main className="mx-auto w-full max-w-6xl px-4 pb-[calc(4.25rem+env(safe-area-inset-bottom))] pt-6 lg:pb-10">
         <Outlet />
       </main>
 
@@ -204,7 +204,7 @@ export function AppLayout() {
         className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="mx-auto grid w-full max-w-6xl grid-cols-5 px-2">
+        <div className="mx-auto grid w-full max-w-6xl grid-cols-7 px-1">
           {navItems.map((item) => {
             const active = isActivePath(location.pathname, item.to);
             const Icon = item.icon;
@@ -235,7 +235,7 @@ export function AppLayout() {
                     ) : null}
                   </span>
                 </span>
-                {item.label}
+                <span className="hidden sm:block">{item.label}</span>
               </Link>
             );
           })}
