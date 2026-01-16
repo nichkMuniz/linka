@@ -211,7 +211,7 @@ export default function NewPost() {
       <Card className="border-border/60">
         <CardHeader>
           <CardTitle className="text-base">
-            {!imageDataUrl ? "Criar post" : "Completar postagem"}
+            {!imageDataUrl ? "Criar post" : "Detalhes"}
           </CardTitle>
           <CardDescription>
             {!imageDataUrl
