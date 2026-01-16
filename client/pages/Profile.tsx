@@ -233,7 +233,7 @@ export default function Profile() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 md:max-w-sm">
+        <div className="grid grid-cols-3 gap-3 md:max-w-sm md:gap-4 lg:gap-6">
           <div className="rounded-2xl bg-background/60 p-3 text-center ring-1 ring-border/60">
             <div className="text-sm font-semibold">{stats.posts}</div>
             <div className="text-[11px] text-muted-foreground">Posts</div>
