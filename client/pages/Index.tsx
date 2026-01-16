@@ -93,17 +93,18 @@ const incentiveMeta: Record<
 function IncentiveButton({
   kind,
   count,
+  active,
   pulsing,
   onClick,
 }: {
   kind: IncentiveKind;
   count: number;
+  active: boolean;
   pulsing: boolean;
   onClick: () => void;
 }) {
   const meta = incentiveMeta[kind];
   const Icon = meta.Icon;
-  const active = pulsing;
 
   return (
     <Tooltip>
@@ -114,12 +115,13 @@ function IncentiveButton({
           onClick={onClick}
           whileHover={{ scale: 1.04 }}
           whileTap={{ scale: 0.92 }}
-          animate={active ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+          animate={pulsing ? { scale: [1, 1.08, 1] } : { scale: 1 }}
           transition={{ duration: 0.28 }}
           className={cn(
             "inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             meta.hoverClassName,
             active ? cn(meta.activeClassName, meta.ringClassName) : null,
+            pulsing ? "ring-2 ring-brand/20" : null,
           )}
         >
           <Icon
@@ -163,11 +165,19 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
   const bumpIncentive = (key: IncentiveKind) => {
     setPulse(key);
     if (pulseTimer.current) window.clearTimeout(pulseTimer.current);
-    pulseTimer.current = window.setTimeout(() => setPulse(null), 900);
-    const nextState = updateGoal(goal.id, (g) => ({
-      ...g,
-      incentives: { ...g.incentives, [key]: g.incentives[key] + 1 },
-    }));
+    pulseTimer.current = window.setTimeout(() => setPulse(null), 450);
+
+    const nextState = updateGoal(goal.id, (g) => {
+      const alreadyGiven = Boolean(g.myIncentives?.[key]);
+      if (alreadyGiven) return g;
+
+      return {
+        ...g,
+        incentives: { ...g.incentives, [key]: g.incentives[key] + 1 },
+        myIncentives: { ...g.myIncentives, [key]: true },
+      };
+    });
+
     const updated = nextState.goals.find((g) => g.id === goal.id);
     if (updated) onChange(updated);
   };
@@ -265,18 +275,21 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
               <IncentiveButton
                 kind="apoio"
                 count={goal.incentives.apoio}
+                active={Boolean(goal.myIncentives?.apoio)}
                 pulsing={pulse === "apoio"}
                 onClick={() => bumpIncentive("apoio")}
               />
               <IncentiveButton
                 kind="continua"
                 count={goal.incentives.continua}
+                active={Boolean(goal.myIncentives?.continua)}
                 pulsing={pulse === "continua"}
                 onClick={() => bumpIncentive("continua")}
               />
               <IncentiveButton
                 kind="orgulho"
                 count={goal.incentives.orgulho}
+                active={Boolean(goal.myIncentives?.orgulho)}
                 pulsing={pulse === "orgulho"}
                 onClick={() => bumpIncentive("orgulho")}
               />
