@@ -1,12 +1,5 @@
 import { cn } from "@/lib/utils";
-import {
-  Home,
-  Plus,
-  User,
-  LogIn,
-  Sparkles,
-  ShieldCheck,
-} from "lucide-react";
+import { Home, PlusSquare, Search, User, Sparkles } from "lucide-react";
 import * as React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
@@ -19,8 +12,9 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-  { to: "/", label: "Feed", icon: Home },
-  { to: "/criar", label: "Criar", icon: Plus },
+  { to: "/", label: "Home", icon: Home },
+  { to: "/postar", label: "Nova", icon: PlusSquare },
+  { to: "/buscar", label: "Buscar", icon: Search },
   { to: "/perfil", label: "Perfil", icon: User },
 ];
 
@@ -34,7 +28,7 @@ function BrandMark({ className }: { className?: string }) {
     <div
       aria-hidden="true"
       className={cn(
-        "grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-500 shadow-sm ring-1 ring-emerald-500/20",
+        "grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-3 via-brand to-brand-2 shadow-sm ring-1 ring-brand/20",
         className,
       )}
     >
@@ -49,7 +43,7 @@ export function AppLayout() {
   return (
     <div className="min-h-dvh bg-background">
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55">
-        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-4">
+        <div className="mx-auto grid h-16 w-full max-w-6xl grid-cols-[1fr_auto_1fr] items-center gap-4 px-4">
           <div className="flex items-center gap-3">
             <BrandMark />
             <div className="leading-tight">
@@ -67,24 +61,29 @@ export function AppLayout() {
             </div>
           </div>
 
-          <div className="hidden items-center gap-2 md:flex">
-            <Button asChild variant="ghost" className="gap-2">
-              <Link to="/perfil">
-                <ShieldCheck className="h-4 w-4" />
-                Meu progresso
-              </Link>
-            </Button>
-            <Button asChild className="gap-2 rounded-full">
-              <Link to="/criar">
-                <Plus className="h-4 w-4" />
-                Nova meta
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="gap-2 rounded-full">
-              <Link to="/login">
-                <LogIn className="h-4 w-4" />
-                Entrar
-              </Link>
+          <nav className="hidden items-center justify-center gap-2 md:flex">
+            {navItems.map((item) => {
+              const active = isActivePath(location.pathname, item.to);
+              const Icon = item.icon;
+
+              return (
+                <Button
+                  key={item.to}
+                  asChild
+                  variant={active ? "secondary" : "ghost"}
+                  className="h-11 w-11 rounded-full p-0"
+                >
+                  <Link to={item.to} aria-label={item.label}>
+                    <Icon className="h-5 w-5" />
+                  </Link>
+                </Button>
+              );
+            })}
+          </nav>
+
+          <div className="hidden justify-end md:flex">
+            <Button asChild variant="outline" className="rounded-full">
+              <Link to="/login">Entrar</Link>
             </Button>
           </div>
         </div>
@@ -95,7 +94,7 @@ export function AppLayout() {
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 md:hidden">
-        <div className="mx-auto grid w-full max-w-6xl grid-cols-3 px-2">
+        <div className="mx-auto grid w-full max-w-6xl grid-cols-4 px-2">
           {navItems.map((item) => {
             const active = isActivePath(location.pathname, item.to);
             const Icon = item.icon;
@@ -115,7 +114,7 @@ export function AppLayout() {
                   className={cn(
                     "grid h-10 w-10 place-items-center rounded-2xl ring-1 transition",
                     active
-                      ? "bg-emerald-500 text-white ring-emerald-500/30"
+                      ? "bg-brand text-white ring-brand/30"
                       : "bg-transparent ring-transparent",
                   )}
                 >
