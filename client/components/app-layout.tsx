@@ -35,7 +35,6 @@ const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
   { to: "/reels", label: "Vídeos", icon: PlaySquare },
   { to: "/postar", label: "Nova", icon: PlusSquare },
-  { to: "/buscar", label: "Buscar", icon: Search },
   { to: "/rank", label: "Rank", icon: Trophy },
   { to: "/perfil", label: "Perfil", icon: User },
 ];
@@ -156,6 +155,16 @@ export function AppLayout() {
 
             <Button
               asChild
+              variant={isActivePath(location.pathname, "/buscar") ? "secondary" : "ghost"}
+              className="h-11 w-11 rounded-full p-0"
+            >
+              <Link to="/buscar" aria-label="Buscar">
+                <Search className="h-5 w-5" />
+              </Link>
+            </Button>
+
+            <Button
+              asChild
               variant={isActivePath(location.pathname, MESSAGES_PATH) ? "secondary" : "ghost"}
               className="h-11 w-11 rounded-full p-0"
             >
@@ -204,6 +213,16 @@ export function AppLayout() {
 
             <Button
               asChild
+              variant={isActivePath(location.pathname, "/buscar") ? "secondary" : "ghost"}
+              className="h-11 w-11 rounded-full p-0"
+            >
+              <Link to="/buscar" aria-label="Buscar">
+                <Search className="h-5 w-5" />
+              </Link>
+            </Button>
+
+            <Button
+              asChild
               variant={isActivePath(location.pathname, messagesItem.to) ? "secondary" : "ghost"}
               className="h-11 w-11 rounded-full p-0"
             >
@@ -226,7 +245,7 @@ export function AppLayout() {
         className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="mx-auto grid w-full max-w-6xl grid-cols-6 px-1">
+        <div className="mx-auto grid w-full max-w-6xl grid-cols-5 px-1">
           {navItems.map((item) => {
             const active = isActivePath(location.pathname, item.to);
             const Icon = item.icon;
@@ -252,9 +271,6 @@ export function AppLayout() {
                 >
                   <span className="relative">
                     <Icon className="h-5 w-5" />
-                    {item.to === MESSAGES_PATH ? (
-                      <UnreadBadge count={unreadMessages} />
-                    ) : null}
                   </span>
                 </span>
                 <span className="hidden md:block">{item.label}</span>
