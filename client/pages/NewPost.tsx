@@ -19,13 +19,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { createGoal, GoalCategory } from "@/lib/ritmofit";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -188,12 +182,7 @@ export default function NewPost() {
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
       <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Nova postagem</h1>
-          <p className="text-sm text-muted-foreground">
-            Poste sua rotina do dia para receber incentivo dos seus amigos.
-          </p>
-        </div>
+        <div className="space-y-1" />
         {!imageDataUrl ? (
           <Button
             asChild
@@ -209,16 +198,7 @@ export default function NewPost() {
       </div>
 
       <Card className="border-border/60">
-        <CardHeader>
-          <CardTitle className="text-base">
-            {!imageDataUrl ? "Criar post" : "Detalhes"}
-          </CardTitle>
-          <CardDescription>
-            {!imageDataUrl
-              ? "1) Escolha uma foto. 2) Depois preencha os detalhes."
-              : "Foto selecionada — confira a miniatura e publique."}
-          </CardDescription>
-        </CardHeader>
+        <CardHeader />
         <CardContent>
           <Form {...form}>
             <form className="grid gap-5" onSubmit={form.handleSubmit(onSubmit)}>
@@ -293,10 +273,7 @@ export default function NewPost() {
                         </div>
 
                         <div className="grid min-w-0 flex-1 gap-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-sm font-semibold tracking-tight">
-                              Completar postagem
-                            </div>
+                          <div className="flex items-center justify-end gap-2">
                             <div className="flex items-center gap-1">
                               <Button
                                 type="button"
