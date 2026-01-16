@@ -1,5 +1,12 @@
 import * as React from "react";
-import { Edit3, Image as ImageIcon, Settings } from "lucide-react";
+import {
+  Dumbbell,
+  Image as ImageIcon,
+  LayoutGrid,
+  Plus,
+  Settings,
+  Utensils,
+} from "lucide-react";
 import { Link } from "react-router-dom";
 
 import {
@@ -152,12 +159,12 @@ export default function Profile() {
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
-      <div className="flex justify-end">
+      <div className="relative flex flex-col gap-4 rounded-3xl border border-border/60 bg-gradient-to-br from-brand/10 via-background to-brand-2/10 p-6 md:flex-row md:items-center md:justify-between">
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="h-11 w-11 rounded-full"
+          className="absolute right-4 top-4 h-11 w-11 rounded-full"
           aria-label="Configurações"
           onClick={() => {
             // MVP: configurações ainda não implementadas
@@ -165,11 +172,22 @@ export default function Profile() {
         >
           <Settings className="h-5 w-5" />
         </Button>
-      </div>
 
-      <div className="flex flex-col gap-4 rounded-3xl border border-border/60 bg-gradient-to-br from-brand/10 via-background to-brand-2/10 p-6 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
-          <Avatar src={profile.avatarUrl} initials="V" />
+          <div className="relative">
+            <Avatar src={profile.avatarUrl} initials="V" />
+            <Button
+              asChild
+              size="icon"
+              className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full shadow-md"
+              aria-label="Nova postagem"
+            >
+              <Link to="/postar">
+                <Plus className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-semibold tracking-tight">
@@ -178,55 +196,56 @@ export default function Profile() {
               <span className="text-sm text-muted-foreground">{profile.handle}</span>
             </div>
             <p className="max-w-xl text-sm text-muted-foreground">{profile.bio}</p>
-
-            <div className="mt-3 grid max-w-sm grid-cols-3 gap-2">
-              <div className="rounded-2xl bg-background/60 p-3 text-center ring-1 ring-border/60">
-                <div className="text-sm font-semibold">{stats.posts}</div>
-                <div className="text-[11px] text-muted-foreground">Posts</div>
-              </div>
-              <div className="rounded-2xl bg-background/60 p-3 text-center ring-1 ring-border/60">
-                <div className="text-sm font-semibold">{stats.followers}</div>
-                <div className="text-[11px] text-muted-foreground">Seguidores</div>
-              </div>
-              <div className="rounded-2xl bg-background/60 p-3 text-center ring-1 ring-border/60">
-                <div className="text-sm font-semibold">{stats.following}</div>
-                <div className="text-[11px] text-muted-foreground">Seguindo</div>
-              </div>
-            </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button asChild className="rounded-full gap-2">
-            <Link to="/postar">
-              <Edit3 className="h-4 w-4" />
-              Nova postagem
-            </Link>
-          </Button>
+        <div className="grid grid-cols-3 gap-2 md:max-w-sm">
+          <div className="rounded-2xl bg-background/60 p-3 text-center ring-1 ring-border/60">
+            <div className="text-sm font-semibold">{stats.posts}</div>
+            <div className="text-[11px] text-muted-foreground">Posts</div>
+          </div>
+          <div className="rounded-2xl bg-background/60 p-3 text-center ring-1 ring-border/60">
+            <div className="text-sm font-semibold">{stats.followers}</div>
+            <div className="text-[11px] text-muted-foreground">Seguidores</div>
+          </div>
+          <div className="rounded-2xl bg-background/60 p-3 text-center ring-1 ring-border/60">
+            <div className="text-sm font-semibold">{stats.following}</div>
+            <div className="text-[11px] text-muted-foreground">Seguindo</div>
+          </div>
         </div>
       </div>
 
       <div className="grid gap-4">
-        <div className="flex items-end justify-between gap-3">
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold tracking-tight">Postagens recentes</h2>
-            <p className="text-sm text-muted-foreground">
-              Suas rotinas diárias e metas em andamento.
-            </p>
-          </div>
-        </div>
 
         {posts.length ? (
           <Tabs defaultValue="all" className="w-full">
             <TabsList className="grid w-full grid-cols-3 rounded-full">
-              <TabsTrigger value="all" className="rounded-full">
-                Todas
+              <TabsTrigger
+                value="all"
+                className="rounded-full"
+                aria-label="Todas"
+                title="Todas"
+              >
+                <LayoutGrid className="h-4 w-4" />
+                <span className="sr-only">Todas</span>
               </TabsTrigger>
-              <TabsTrigger value="workouts" className="rounded-full">
-                Treinos
+              <TabsTrigger
+                value="workouts"
+                className="rounded-full"
+                aria-label="Treinos"
+                title="Treinos"
+              >
+                <Dumbbell className="h-4 w-4" />
+                <span className="sr-only">Treinos</span>
               </TabsTrigger>
-              <TabsTrigger value="diets" className="rounded-full">
-                Dietas
+              <TabsTrigger
+                value="diets"
+                className="rounded-full"
+                aria-label="Dietas"
+                title="Dietas"
+              >
+                <Utensils className="h-4 w-4" />
+                <span className="sr-only">Dietas</span>
               </TabsTrigger>
             </TabsList>
 
