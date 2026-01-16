@@ -8,8 +8,11 @@ import {
   MessagesSquare,
   Trophy,
   PlaySquare,
+  Moon,
+  Sun,
 } from "lucide-react";
 import * as React from "react";
+import { useTheme } from "next-themes";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -22,13 +25,18 @@ type NavItem = {
 
 const MESSAGES_PATH = "/mensagens";
 
+const messagesItem: NavItem = {
+  to: MESSAGES_PATH,
+  label: "Msgs",
+  icon: MessagesSquare,
+};
+
 const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
   { to: "/reels", label: "Vídeos", icon: PlaySquare },
   { to: "/postar", label: "Nova", icon: PlusSquare },
   { to: "/buscar", label: "Buscar", icon: Search },
   { to: "/rank", label: "Rank", icon: Trophy },
-  { to: "/mensagens", label: "Msgs", icon: MessagesSquare },
   { to: "/perfil", label: "Perfil", icon: User },
 ];
 
@@ -51,13 +59,14 @@ function BrandMark({ className }: { className?: string }) {
     <div
       aria-hidden="true"
       className={cn(
-        "grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-3 via-brand to-brand-2 shadow-sm ring-1 ring-brand/30",
+        "relative grid h-9 w-9 place-items-center rounded-xl bg-brand shadow-sm ring-1 ring-brand/30",
         className,
       )}
     >
-      <div className="grid h-8 w-8 place-items-center rounded-lg bg-foreground/90">
+      <div className="grid h-8 w-8 place-items-center rounded-lg bg-foreground">
         <Dumbbell className="h-5 w-5 text-white" />
       </div>
+      <span className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-brand-2 ring-2 ring-background" />
     </div>
   );
 }
@@ -68,14 +77,10 @@ export function AppLayout() {
   // MVP: contador mockado. Depois isso pode vir do backend/Supabase.
   const unreadMessages = location.pathname.startsWith(MESSAGES_PATH) ? 0 : 2;
 
-  const desktopNavItems = React.useMemo(
-    () => navItems.filter((item) => item.to !== MESSAGES_PATH),
-    [],
-  );
-  const messagesItem = React.useMemo(
-    () => navItems.find((item) => item.to === MESSAGES_PATH),
-    [],
-  );
+  const desktopNavItems = React.useMemo(() => navItems, []);
+
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const isDark = (resolvedTheme ?? theme) === "dark";
 
   const [headerHidden, setHeaderHidden] = React.useState(false);
 
@@ -118,28 +123,40 @@ export function AppLayout() {
         )}
       >
         <div className="relative mx-auto flex h-16 w-full max-w-6xl items-center justify-center gap-4 px-4 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch">
-          <div className="flex items-center gap-3 lg:justify-start">
+          <Link
+            to="/"
+            aria-label="Ir para Home"
+            className="flex items-center gap-3 rounded-2xl px-2 py-1 transition hover:bg-muted/50 lg:justify-start"
+          >
             <BrandMark />
             <div className="leading-tight">
               <div className="flex items-center gap-2">
-                <span className="bg-gradient-to-br from-brand-3 via-brand to-brand-2 bg-clip-text text-sm font-semibold tracking-tight text-transparent">
-                  RitmoFit
+                <span className="text-sm font-semibold tracking-tight text-foreground">
+                  Ritmo
+                  <span className="text-brand">Fit</span>
                 </span>
                 <span className="rounded-full border border-border/60 bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
                   MVP
                 </span>
               </div>
             </div>
-          </div>
+          </Link>
 
-          <div className="absolute right-4 top-1/2 -translate-y-1/2 lg:hidden">
+          <div className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 lg:hidden">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 rounded-full"
+              aria-label={isDark ? "Ativar modo claro" : "Ativar modo noturno"}
+              onClick={() => setTheme(isDark ? "light" : "dark")}
+            >
+              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
+
             <Button
               asChild
-              variant={
-                isActivePath(location.pathname, MESSAGES_PATH)
-                  ? "secondary"
-                  : "ghost"
-              }
+              variant={isActivePath(location.pathname, MESSAGES_PATH) ? "secondary" : "ghost"}
               className="h-11 w-11 rounded-full p-0"
             >
               <Link to={MESSAGES_PATH} aria-label="Mensagens">
@@ -173,25 +190,30 @@ export function AppLayout() {
             })}
           </nav>
 
-          <div className="hidden justify-end lg:flex">
-            {messagesItem ? (
-              <Button
-                asChild
-                variant={
-                  isActivePath(location.pathname, messagesItem.to)
-                    ? "secondary"
-                    : "ghost"
-                }
-                className="h-11 w-11 rounded-full p-0"
-              >
-                <Link to={messagesItem.to} aria-label={messagesItem.label}>
-                  <span className="relative">
-                    <messagesItem.icon className="h-5 w-5" />
-                    <UnreadBadge count={unreadMessages} />
-                  </span>
-                </Link>
-              </Button>
-            ) : null}
+          <div className="hidden justify-end lg:flex lg:items-center lg:gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 rounded-full"
+              aria-label={isDark ? "Ativar modo claro" : "Ativar modo noturno"}
+              onClick={() => setTheme(isDark ? "light" : "dark")}
+            >
+              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
+
+            <Button
+              asChild
+              variant={isActivePath(location.pathname, messagesItem.to) ? "secondary" : "ghost"}
+              className="h-11 w-11 rounded-full p-0"
+            >
+              <Link to={messagesItem.to} aria-label={messagesItem.label}>
+                <span className="relative">
+                  <messagesItem.icon className="h-5 w-5" />
+                  <UnreadBadge count={unreadMessages} />
+                </span>
+              </Link>
+            </Button>
           </div>
         </div>
       </header>
@@ -204,7 +226,7 @@ export function AppLayout() {
         className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="mx-auto grid w-full max-w-6xl grid-cols-7 px-1">
+        <div className="mx-auto grid w-full max-w-6xl grid-cols-6 px-1">
           {navItems.map((item) => {
             const active = isActivePath(location.pathname, item.to);
             const Icon = item.icon;
@@ -235,7 +257,7 @@ export function AppLayout() {
                     ) : null}
                   </span>
                 </span>
-                <span className="hidden sm:block">{item.label}</span>
+                <span className="hidden md:block">{item.label}</span>
               </Link>
             );
           })}

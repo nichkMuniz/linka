@@ -80,11 +80,11 @@ const incentiveMeta: Record<
   apoio: {
     label: "Te apoio",
     Icon: HeartHandshake,
-    iconClassName: "text-brand",
-    ringClassName: "ring-2 ring-brand/35",
-    hoverClassName: "hover:bg-brand/10",
-    activeClassName: "bg-brand/10 border-brand/30",
-    badgeActiveClassName: "bg-brand/15 text-brand",
+    iconClassName: "text-rose-500",
+    ringClassName: "ring-2 ring-rose-500/30",
+    hoverClassName: "hover:bg-rose-500/10",
+    activeClassName: "bg-rose-500/10 border-rose-500/30",
+    badgeActiveClassName: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
   },
   continua: {
     label: "Continua",
@@ -99,11 +99,12 @@ const incentiveMeta: Record<
   orgulho: {
     label: "Orgulho",
     Icon: Trophy,
-    iconClassName: "text-brand-2",
-    ringClassName: "ring-2 ring-brand-2/30",
-    hoverClassName: "hover:bg-brand-2/10",
-    activeClassName: "bg-brand-2/10 border-brand-2/30",
-    badgeActiveClassName: "bg-brand-2/15 text-brand-2",
+    iconClassName: "text-emerald-500",
+    ringClassName: "ring-2 ring-emerald-500/30",
+    hoverClassName: "hover:bg-emerald-500/10",
+    activeClassName: "bg-emerald-500/10 border-emerald-500/30",
+    badgeActiveClassName:
+      "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
   },
 };
 
@@ -194,12 +195,24 @@ function PostCard({
 
     const nextState = updateGoal(goal.id, (g) => {
       const alreadyGiven = Boolean(g.myIncentives?.[key]);
-      if (alreadyGiven) return g;
+
+      if (alreadyGiven) {
+        const nextMy = { ...(g.myIncentives ?? {}) };
+        delete nextMy[key];
+        return {
+          ...g,
+          incentives: {
+            ...g.incentives,
+            [key]: Math.max(0, g.incentives[key] - 1),
+          },
+          myIncentives: nextMy,
+        };
+      }
 
       return {
         ...g,
         incentives: { ...g.incentives, [key]: g.incentives[key] + 1 },
-        myIncentives: { ...g.myIncentives, [key]: true },
+        myIncentives: { ...(g.myIncentives ?? {}), [key]: true },
       };
     });
 
