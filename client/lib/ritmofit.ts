@@ -12,6 +12,8 @@ export type Goal = {
   ownerName: string;
   ownerHandle: string;
   title: string;
+  caption?: string;
+  imageDataUrl?: string;
   category: GoalCategory;
   frequency: string;
   durationDays: 7 | 21 | 30;
@@ -41,9 +43,25 @@ export function uid(prefix = "g") {
   return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
 }
 
+function normalizeGoal(g: Goal): Goal {
+  return {
+    ...g,
+    caption: g.caption ?? "",
+    imageDataUrl: g.imageDataUrl ?? "",
+    incentives: g.incentives ?? { apoio: 0, continua: 0, orgulho: 0 },
+    commentsCount: g.commentsCount ?? 0,
+    completedDays: g.completedDays ?? 0,
+  };
+}
+
 export function getRitmoFitState(): StorageShape {
   const parsed = safeParse(localStorage.getItem(STORAGE_KEY));
-  if (parsed?.goals?.length) return parsed;
+  if (parsed?.goals?.length) {
+    const normalized = { goals: parsed.goals.map(normalizeGoal) };
+    // keep storage upgraded (so future reads are consistent)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    return normalized;
+  }
 
   const seed: StorageShape = {
     goals: [
@@ -52,6 +70,8 @@ export function getRitmoFitState(): StorageShape {
         ownerName: "Nicholas",
         ownerHandle: "@nicholas",
         title: "Treinar 5x por semana (sem desistir)",
+        caption: "Treino de hoje: peito + tríceps. Sem desculpas.",
+        imageDataUrl: "",
         category: "Treino",
         frequency: "5x/semana",
         durationDays: 21,
@@ -66,6 +86,8 @@ export function getRitmoFitState(): StorageShape {
         ownerName: "Ana",
         ownerHandle: "@ana.fit",
         title: "Beber 2L de água todos os dias",
+        caption: "Meta simples, resultado grande. 2L fechados hoje ✅",
+        imageDataUrl: "",
         category: "Hábito",
         frequency: "Diário",
         durationDays: 30,
@@ -80,6 +102,8 @@ export function getRitmoFitState(): StorageShape {
         ownerName: "Bruno",
         ownerHandle: "@bruno.nutri",
         title: "Montar prato equilibrado no almoço",
+        caption: "Proteína + carbo bom + salada. Constância > perfeição.",
+        imageDataUrl: "",
         category: "Alimentação",
         frequency: "Seg–Sex",
         durationDays: 21,
@@ -104,6 +128,8 @@ export function createGoal(input: {
   ownerName?: string;
   ownerHandle?: string;
   title: string;
+  caption?: string;
+  imageDataUrl?: string;
   category: GoalCategory;
   frequency: string;
   durationDays: 7 | 21 | 30;
@@ -116,6 +142,8 @@ export function createGoal(input: {
     ownerName: input.ownerName ?? "Você",
     ownerHandle: input.ownerHandle ?? "@voce",
     title: input.title,
+    caption: input.caption ?? "",
+    imageDataUrl: input.imageDataUrl ?? "",
     category: input.category,
     frequency: input.frequency,
     durationDays: input.durationDays,
@@ -146,4 +174,15 @@ export function goalProgressPercent(goal: Goal) {
 
 export function dayLabel(n: number) {
   return n === 1 ? "dia" : "dias";
+}
+
+export function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "agora";
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} h`;
+  const d = Math.floor(h / 24);
+  return `${d} d`;
 }
