@@ -18,6 +18,8 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>;
 };
 
+const MESSAGES_PATH = "/mensagens";
+
 const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
   { to: "/postar", label: "Nova", icon: PlusSquare },
@@ -29,6 +31,15 @@ const navItems: NavItem[] = [
 function isActivePath(currentPath: string, to: string) {
   if (to === "/") return currentPath === "/";
   return currentPath === to || currentPath.startsWith(`${to}/`);
+}
+
+function UnreadBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-background">
+      {count > 9 ? "9+" : count}
+    </span>
+  );
 }
 
 function BrandMark({ className }: { className?: string }) {
@@ -49,7 +60,16 @@ export function AppLayout() {
   const location = useLocation();
 
   // MVP: contador mockado. Depois isso pode vir do backend/Supabase.
-  const unreadMessages = location.pathname.startsWith("/mensagens") ? 0 : 2;
+  const unreadMessages = location.pathname.startsWith(MESSAGES_PATH) ? 0 : 2;
+
+  const desktopNavItems = React.useMemo(
+    () => navItems.filter((item) => item.to !== MESSAGES_PATH),
+    [],
+  );
+  const messagesItem = React.useMemo(
+    () => navItems.find((item) => item.to === MESSAGES_PATH),
+    [],
+  );
 
   return (
     <div className="min-h-dvh bg-background">
@@ -70,7 +90,7 @@ export function AppLayout() {
           </div>
 
           <nav className="hidden items-center justify-center gap-2 lg:flex">
-            {navItems.map((item) => {
+            {desktopNavItems.map((item) => {
               const active = isActivePath(location.pathname, item.to);
               const Icon = item.icon;
 
@@ -84,11 +104,6 @@ export function AppLayout() {
                   <Link to={item.to} aria-label={item.label}>
                     <span className="relative">
                       <Icon className="h-5 w-5" />
-                      {item.to === "/mensagens" && unreadMessages > 0 ? (
-                        <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-background">
-                          {unreadMessages > 9 ? "9+" : unreadMessages}
-                        </span>
-                      ) : null}
                     </span>
                   </Link>
                 </Button>
@@ -96,7 +111,26 @@ export function AppLayout() {
             })}
           </nav>
 
-          <div className="hidden justify-end lg:flex" />
+          <div className="hidden justify-end lg:flex">
+            {messagesItem ? (
+              <Button
+                asChild
+                variant={
+                  isActivePath(location.pathname, messagesItem.to)
+                    ? "secondary"
+                    : "ghost"
+                }
+                className="h-11 w-11 rounded-full p-0"
+              >
+                <Link to={messagesItem.to} aria-label={messagesItem.label}>
+                  <span className="relative">
+                    <messagesItem.icon className="h-5 w-5" />
+                    <UnreadBadge count={unreadMessages} />
+                  </span>
+                </Link>
+              </Button>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -131,10 +165,8 @@ export function AppLayout() {
                 >
                   <span className="relative">
                     <Icon className="h-5 w-5" />
-                    {item.to === "/mensagens" && unreadMessages > 0 ? (
-                      <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-background">
-                        {unreadMessages > 9 ? "9+" : unreadMessages}
-                      </span>
+                    {item.to === MESSAGES_PATH ? (
+                      <UnreadBadge count={unreadMessages} />
                     ) : null}
                   </span>
                 </span>
