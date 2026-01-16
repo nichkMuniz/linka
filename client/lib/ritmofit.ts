@@ -25,6 +25,8 @@ export type Goal = {
   incentives: GoalIncentives;
   /** MVP: incentivos que o usuário atual já deu (para manter o estado colorido). */
   myIncentives?: Partial<Record<GoalIncentiveKey, boolean>>;
+  /** MVP: marca o dia em que o usuário atual atualizou o progresso (para pintar o check de verde). */
+  myProgressToday?: string;
   commentsCount: number;
 };
 
@@ -76,6 +78,7 @@ function normalizeGoal(g: Goal): Goal {
     imageDataUrl: image.length ? image : defaultImageForGoal(g),
     incentives: g.incentives ?? { apoio: 0, continua: 0, orgulho: 0 },
     myIncentives: g.myIncentives ?? {},
+    myProgressToday: g.myProgressToday ?? "",
     commentsCount: g.commentsCount ?? 0,
     completedDays: g.completedDays ?? 0,
   };
@@ -179,6 +182,7 @@ export function createGoal(input: {
     completedDays: 0,
     incentives: { apoio: 0, continua: 0, orgulho: 0 },
     myIncentives: {},
+    myProgressToday: "",
     commentsCount: 0,
   };
 
