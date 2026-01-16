@@ -6,7 +6,6 @@ import { Camera, ImagePlus, PlusSquare, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { createGoal, GoalCategory, GoalVisibility } from "@/lib/ritmofit";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Card,
