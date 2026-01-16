@@ -41,7 +41,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
@@ -188,16 +187,14 @@ export default function NewPost() {
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
-      {!imageDataUrl ? (
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Nova postagem
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Poste sua rotina do dia para receber incentivo dos seus amigos.
-            </p>
-          </div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Nova postagem</h1>
+          <p className="text-sm text-muted-foreground">
+            Poste sua rotina do dia para receber incentivo dos seus amigos.
+          </p>
+        </div>
+        {!imageDataUrl ? (
           <Button
             asChild
             variant="ghost"
@@ -208,35 +205,8 @@ export default function NewPost() {
               <X className="h-5 w-5" />
             </Link>
           </Button>
-        </div>
-      ) : (
-        <div className="flex items-center justify-between gap-3">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-11 w-11 rounded-full"
-            aria-label="Voltar"
-            onClick={() => {
-              setImageDataUrl("");
-              autoOpenedRef.current = false;
-            }}
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-
-          <Button
-            asChild
-            variant="ghost"
-            size="icon"
-            className="h-11 w-11 rounded-full"
-          >
-            <Link to="/" aria-label="Cancelar">
-              <X className="h-5 w-5" />
-            </Link>
-          </Button>
-        </div>
-      )}
+        ) : null}
+      </div>
 
       <Card className="border-border/60">
         <CardHeader>
@@ -294,55 +264,83 @@ export default function NewPost() {
               ) : (
                 <>
                   <div className="grid gap-5">
-                    <div className="grid gap-3 md:grid-cols-[auto_1fr] md:items-start">
-                      <div className="relative h-20 w-20">
-                        <img
-                          src={imageDataUrl}
-                          alt="Miniatura da foto"
-                          className="h-20 w-20 rounded-2xl object-cover ring-1 ring-border/60"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setImageDataUrl("");
-                            autoOpenedRef.current = false;
-                          }}
-                          className="absolute -right-1 -top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-background/95 text-foreground shadow-sm ring-1 ring-border/60 transition hover:bg-background"
-                          aria-label="Remover imagem"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-
-                      <div className="grid gap-3">
-                        <FormField
-                          control={form.control}
-                          name="title"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Título</FormLabel>
-                              <FormControl>
-                                <Input
-                                  placeholder="Ex: Treino do dia (pernas)"
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
+                    <div className="rounded-2xl border border-border/60 bg-muted/20 p-3">
+                      <div className="flex items-start gap-3">
+                        <div className="relative h-24 w-24 shrink-0">
+                          <button
                             type="button"
-                            size="sm"
-                            variant="outline"
-                            className="rounded-full gap-2"
                             onClick={() => fileInputRef.current?.click()}
+                            className="block h-24 w-24 overflow-hidden rounded-2xl ring-1 ring-border/60 transition hover:opacity-95"
+                            aria-label="Trocar imagem"
                           >
-                            <ImagePlus className="h-4 w-4" />
-                            Trocar foto
-                          </Button>
+                            <img
+                              src={imageDataUrl}
+                              alt="Miniatura da foto"
+                              className="h-full w-full object-cover"
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setImageDataUrl("");
+                              autoOpenedRef.current = false;
+                            }}
+                            className="absolute -right-1 -top-1 inline-flex h-7 w-7 items-center justify-center rounded-full bg-background/95 text-foreground shadow-sm ring-1 ring-border/60 transition hover:bg-background"
+                            aria-label="Remover imagem"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+
+                        <div className="grid min-w-0 flex-1 gap-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-semibold tracking-tight">
+                              Completar postagem
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-10 w-10 rounded-full"
+                                aria-label="Voltar"
+                                onClick={() => {
+                                  setImageDataUrl("");
+                                  autoOpenedRef.current = false;
+                                }}
+                              >
+                                <ArrowLeft className="h-5 w-5" />
+                              </Button>
+
+                              <Button
+                                asChild
+                                variant="ghost"
+                                size="icon"
+                                className="h-10 w-10 rounded-full"
+                              >
+                                <Link to="/" aria-label="Excluir postagem">
+                                  <X className="h-5 w-5" />
+                                </Link>
+                              </Button>
+                            </div>
+                          </div>
+
+                          <FormField
+                            control={form.control}
+                            name="title"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Título</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder="Ex: Treino do dia (pernas)"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
                         </div>
                       </div>
                     </div>
