@@ -24,8 +24,10 @@ const MESSAGES_PATH = "/mensagens";
 
 const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
+  { to: "/reels", label: "Vídeos", icon: PlaySquare },
   { to: "/postar", label: "Nova", icon: PlusSquare },
   { to: "/buscar", label: "Buscar", icon: Search },
+  { to: "/rank", label: "Rank", icon: Trophy },
   { to: "/mensagens", label: "Msgs", icon: MessagesSquare },
   { to: "/perfil", label: "Perfil", icon: User },
 ];
