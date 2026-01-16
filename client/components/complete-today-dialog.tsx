@@ -177,8 +177,22 @@ export function CompleteTodayDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" className="rounded-full" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="rounded-full"
+            onClick={() => onOpenChange(false)}
+          >
             Cancelar
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-full"
+            onClick={() => {
+              onComplete({ incrementDays: daysToAdd });
+              onOpenChange(false);
+            }}
+          >
+            Só atualizar progresso
           </Button>
           <Button
             className="rounded-full"

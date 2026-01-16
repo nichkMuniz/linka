@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/components/ui/use-toast";
+import { CompleteTodayDialog } from "@/components/complete-today-dialog";
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/g);
@@ -43,6 +44,8 @@ function CategoryIcon({ category }: { category: Goal["category"] }) {
 function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void }) {
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
+  const isMine = goal.ownerHandle === "@voce" || goal.ownerName === "Você";
+  const [open, setOpen] = React.useState(false);
 
   const bumpIncentive = (key: keyof Goal["incentives"], label: string) => {
     const nextState = updateGoal(goal.id, (g) => ({
@@ -58,20 +61,32 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
     });
   };
 
-  const completeToday = () => {
+  const completeToday = (next: {
+    caption?: string;
+    imageDataUrl?: string;
+    incrementDays: number;
+  }) => {
     const nextState = updateGoal(goal.id, (g) => {
-      if (g.completedDays >= g.durationDays) return g;
-      return { ...g, completedDays: g.completedDays + 1 };
+      const inc = Math.max(0, next.incrementDays);
+      const completedDays = Math.min(g.completedDays + inc, g.durationDays);
+      return {
+        ...g,
+        completedDays,
+        caption: next.caption !== undefined ? next.caption : g.caption,
+        imageDataUrl:
+          next.imageDataUrl !== undefined ? next.imageDataUrl : g.imageDataUrl,
+      };
     });
+
     const updated = nextState.goals.find((g) => g.id === goal.id);
     if (updated) onChange(updated);
 
-    const nextDays = Math.min(goal.completedDays + 1, goal.durationDays);
     toast({
-      title: "Dia concluído",
-      description: done
-        ? "Meta já estava concluída."
-        : `Progresso atualizado: ${nextDays}/${goal.durationDays} ${dayLabel(goal.durationDays)}.`,
+      title: "Atualizado",
+      description:
+        next.incrementDays > 0
+          ? "Progresso e post atualizados com sucesso."
+          : "Post atualizado com sucesso.",
     });
   };
 
@@ -219,15 +234,25 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
             <div className="text-xs text-muted-foreground">
               {goal.completedDays}/{goal.durationDays} {dayLabel(goal.durationDays)} · {pct}%
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant={done ? "secondary" : "default"}
-              className={cn("rounded-full", done && "opacity-80")}
-              onClick={completeToday}
-            >
-              {done ? "Concluída" : "Concluir hoje"}
-            </Button>
+            {isMine ? (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={done ? "secondary" : "default"}
+                  className={cn("rounded-full", done && "opacity-80")}
+                  onClick={() => setOpen(true)}
+                >
+                  {done ? "Concluída" : "Concluir hoje"}
+                </Button>
+                <CompleteTodayDialog
+                  goal={goal}
+                  open={open}
+                  onOpenChange={setOpen}
+                  onComplete={completeToday}
+                />
+              </>
+            ) : null}
           </div>
           <Progress value={pct} className="h-2" />
           <div className="text-[11px] text-muted-foreground">
