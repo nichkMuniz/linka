@@ -10,6 +10,7 @@ import {
   Utensils,
   Droplets,
 } from "lucide-react";
+import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 
 import {
@@ -26,6 +27,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/components/ui/use-toast";
 import { CompleteTodayDialog } from "@/components/complete-today-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/g);
@@ -41,13 +48,103 @@ function CategoryIcon({ category }: { category: Goal["category"] }) {
   return <Droplets className="h-6 w-6" />;
 }
 
+type IncentiveKind = keyof Goal["incentives"];
+
+const incentiveMeta: Record<
+  IncentiveKind,
+  {
+    label: string;
+    Icon: React.ComponentType<{ className?: string }>;
+    iconClassName: string;
+    ringClassName: string;
+    hoverClassName: string;
+  }
+> = {
+  apoio: {
+    label: "Te apoio",
+    Icon: HeartHandshake,
+    iconClassName: "text-brand",
+    ringClassName: "ring-2 ring-brand/35",
+    hoverClassName: "hover:bg-brand/10",
+  },
+  continua: {
+    label: "Continua",
+    Icon: Flame,
+    iconClassName: "text-orange-500",
+    ringClassName: "ring-2 ring-orange-500/30",
+    hoverClassName: "hover:bg-orange-500/10",
+  },
+  orgulho: {
+    label: "Orgulho",
+    Icon: Trophy,
+    iconClassName: "text-brand-2",
+    ringClassName: "ring-2 ring-brand-2/30",
+    hoverClassName: "hover:bg-brand-2/10",
+  },
+};
+
+function IncentiveButton({
+  kind,
+  count,
+  pulsing,
+  onClick,
+}: {
+  kind: IncentiveKind;
+  count: number;
+  pulsing: boolean;
+  onClick: () => void;
+}) {
+  const meta = incentiveMeta[kind];
+  const Icon = meta.Icon;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <motion.button
+          type="button"
+          aria-label={meta.label}
+          onClick={onClick}
+          whileHover={{ scale: 1.04 }}
+          whileTap={{ scale: 0.92 }}
+          animate={pulsing ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+          transition={{ duration: 0.28 }}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm backdrop-blur transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+            meta.hoverClassName,
+            pulsing && cn("bg-muted", meta.ringClassName),
+          )}
+        >
+          <Icon className={cn("h-4 w-4", meta.iconClassName)} />
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+            {count}
+          </span>
+        </motion.button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="text-xs">
+        {meta.label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void }) {
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
   const isMine = goal.ownerHandle === "@voce" || goal.ownerName === "Você";
   const [open, setOpen] = React.useState(false);
+  const [pulse, setPulse] = React.useState<IncentiveKind | null>(null);
+  const pulseTimer = React.useRef<number | null>(null);
 
-  const bumpIncentive = (key: keyof Goal["incentives"], label: string) => {
+  React.useEffect(() => {
+    return () => {
+      if (pulseTimer.current) window.clearTimeout(pulseTimer.current);
+    };
+  }, []);
+
+  const bumpIncentive = (key: IncentiveKind, label: string) => {
+    setPulse(key);
+    if (pulseTimer.current) window.clearTimeout(pulseTimer.current);
+    pulseTimer.current = window.setTimeout(() => setPulse(null), 450);
     const nextState = updateGoal(goal.id, (g) => ({
       ...g,
       incentives: { ...g.incentives, [key]: g.incentives[key] + 1 },
@@ -149,41 +246,28 @@ function PostCard({ goal, onChange }: { goal: Goal; onChange: (g: Goal) => void 
       <CardContent className="space-y-4 p-4">
         {/* actions */}
         <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => bumpIncentive("apoio", "Te apoio")}
-              className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm transition hover:bg-muted"
-            >
-              <HeartHandshake className="h-4 w-4 text-brand" />
-              Te apoio
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                {goal.incentives.apoio}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => bumpIncentive("continua", "Continua")}
-              className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm transition hover:bg-muted"
-            >
-              <Flame className="h-4 w-4 text-orange-500" />
-              Continua
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                {goal.incentives.continua}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => bumpIncentive("orgulho", "Orgulho")}
-              className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm transition hover:bg-muted"
-            >
-              <Trophy className="h-4 w-4 text-brand-2" />
-              Orgulho
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                {goal.incentives.orgulho}
-              </span>
-            </button>
-          </div>
+          <TooltipProvider delayDuration={150}>
+            <div className="flex flex-wrap gap-2">
+              <IncentiveButton
+                kind="apoio"
+                count={goal.incentives.apoio}
+                pulsing={pulse === "apoio"}
+                onClick={() => bumpIncentive("apoio", "Te apoio")}
+              />
+              <IncentiveButton
+                kind="continua"
+                count={goal.incentives.continua}
+                pulsing={pulse === "continua"}
+                onClick={() => bumpIncentive("continua", "Continua")}
+              />
+              <IncentiveButton
+                kind="orgulho"
+                count={goal.incentives.orgulho}
+                pulsing={pulse === "orgulho"}
+                onClick={() => bumpIncentive("orgulho", "Orgulho")}
+              />
+            </div>
+          </TooltipProvider>
 
           <div className="flex items-center gap-2">
             <Button
