@@ -1,0 +1,149 @@
+export type GoalCategory = "Treino" | "Alimentação" | "Hábito";
+export type GoalVisibility = "Público" | "Seguidores";
+
+export type GoalIncentives = {
+  apoio: number;
+  continua: number;
+  orgulho: number;
+};
+
+export type Goal = {
+  id: string;
+  ownerName: string;
+  ownerHandle: string;
+  title: string;
+  category: GoalCategory;
+  frequency: string;
+  durationDays: 7 | 21 | 30;
+  visibility: GoalVisibility;
+  createdAt: string; // ISO
+  completedDays: number;
+  incentives: GoalIncentives;
+  commentsCount: number;
+};
+
+type StorageShape = {
+  goals: Goal[];
+};
+
+const STORAGE_KEY = "ritmofit:v1";
+
+function safeParse(raw: string | null): StorageShape | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as StorageShape;
+  } catch {
+    return null;
+  }
+}
+
+export function uid(prefix = "g") {
+  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+}
+
+export function getRitmoFitState(): StorageShape {
+  const parsed = safeParse(localStorage.getItem(STORAGE_KEY));
+  if (parsed?.goals?.length) return parsed;
+
+  const seed: StorageShape = {
+    goals: [
+      {
+        id: uid(),
+        ownerName: "Nicholas",
+        ownerHandle: "@nicholas",
+        title: "Treinar 5x por semana (sem desistir)",
+        category: "Treino",
+        frequency: "5x/semana",
+        durationDays: 21,
+        visibility: "Público",
+        createdAt: new Date().toISOString(),
+        completedDays: 6,
+        incentives: { apoio: 12, continua: 8, orgulho: 5 },
+        commentsCount: 3,
+      },
+      {
+        id: uid(),
+        ownerName: "Ana",
+        ownerHandle: "@ana.fit",
+        title: "Beber 2L de água todos os dias",
+        category: "Hábito",
+        frequency: "Diário",
+        durationDays: 30,
+        visibility: "Público",
+        createdAt: new Date().toISOString(),
+        completedDays: 11,
+        incentives: { apoio: 21, continua: 13, orgulho: 10 },
+        commentsCount: 5,
+      },
+      {
+        id: uid(),
+        ownerName: "Bruno",
+        ownerHandle: "@bruno.nutri",
+        title: "Montar prato equilibrado no almoço",
+        category: "Alimentação",
+        frequency: "Seg–Sex",
+        durationDays: 21,
+        visibility: "Seguidores",
+        createdAt: new Date().toISOString(),
+        completedDays: 8,
+        incentives: { apoio: 9, continua: 6, orgulho: 4 },
+        commentsCount: 1,
+      },
+    ],
+  };
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+  return seed;
+}
+
+export function setRitmoFitState(next: StorageShape) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+}
+
+export function createGoal(input: {
+  ownerName?: string;
+  ownerHandle?: string;
+  title: string;
+  category: GoalCategory;
+  frequency: string;
+  durationDays: 7 | 21 | 30;
+  visibility: GoalVisibility;
+}): Goal {
+  const state = getRitmoFitState();
+
+  const goal: Goal = {
+    id: uid(),
+    ownerName: input.ownerName ?? "Você",
+    ownerHandle: input.ownerHandle ?? "@voce",
+    title: input.title,
+    category: input.category,
+    frequency: input.frequency,
+    durationDays: input.durationDays,
+    visibility: input.visibility,
+    createdAt: new Date().toISOString(),
+    completedDays: 0,
+    incentives: { apoio: 0, continua: 0, orgulho: 0 },
+    commentsCount: 0,
+  };
+
+  setRitmoFitState({ goals: [goal, ...state.goals] });
+  return goal;
+}
+
+export function updateGoal(goalId: string, updater: (g: Goal) => Goal) {
+  const state = getRitmoFitState();
+  const next: StorageShape = {
+    goals: state.goals.map((g) => (g.id === goalId ? updater(g) : g)),
+  };
+  setRitmoFitState(next);
+  return next;
+}
+
+export function goalProgressPercent(goal: Goal) {
+  const pct = (goal.completedDays / goal.durationDays) * 100;
+  return Math.max(0, Math.min(100, Math.round(pct)));
+}
+
+export function dayLabel(n: number) {
+  return n === 1 ? "dia" : "dias";
+}
