@@ -164,23 +164,54 @@ export default function NewPost() {
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Nova postagem</h1>
-          <p className="text-sm text-muted-foreground">
-            Poste sua rotina do dia para receber incentivo dos seus amigos.
-          </p>
+      {!imageDataUrl ? (
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-semibold tracking-tight">Nova postagem</h1>
+            <p className="text-sm text-muted-foreground">
+              Poste sua rotina do dia para receber incentivo dos seus amigos.
+            </p>
+          </div>
+          <Button asChild variant="outline" className="rounded-full">
+            <Link to="/">Cancelar</Link>
+          </Button>
         </div>
-        <Button asChild variant="outline" className="rounded-full">
-          <Link to="/">Cancelar</Link>
-        </Button>
-      </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full"
+              onClick={() => {
+                setImageDataUrl("");
+                autoOpenedRef.current = false;
+              }}
+            >
+              Voltar
+            </Button>
+            <div className="leading-tight">
+              <h1 className="text-2xl font-semibold tracking-tight">Detalhes da postagem</h1>
+              <p className="text-sm text-muted-foreground">
+                Agora preencha título, legenda e configurações.
+              </p>
+            </div>
+          </div>
+          <Button asChild variant="outline" className="rounded-full">
+            <Link to="/">Cancelar</Link>
+          </Button>
+        </div>
+      )}
 
       <Card className="border-border/60">
         <CardHeader>
-          <CardTitle className="text-base">Criar post (estilo Instagram)</CardTitle>
+          <CardTitle className="text-base">
+            {!imageDataUrl ? "Criar post" : "Completar postagem"}
+          </CardTitle>
           <CardDescription>
-            Adicione uma imagem (opcional) e descreva sua rotina/objetivo.
+            {!imageDataUrl
+              ? "1) Escolha uma foto. 2) Depois preencha os detalhes."
+              : "Foto selecionada — confira a miniatura e publique."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -242,96 +273,96 @@ export default function NewPost() {
                 </div>
               ) : (
                 <>
-                  <div className="grid gap-4 md:grid-cols-[1fr_1fr]">
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-sm font-medium">Foto</div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="rounded-full gap-2"
-                            onClick={() => cameraInputRef.current?.click()}
-                          >
-                            <Camera className="h-4 w-4" />
-                            Câmera
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="rounded-full gap-2"
-                            onClick={() => galleryInputRef.current?.click()}
-                          >
-                            <ImagePlus className="h-4 w-4" />
-                            Galeria
-                          </Button>
+                  <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-border/60 bg-muted/10 p-3">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={imageDataUrl}
+                        alt="Miniatura da foto"
+                        className="h-20 w-20 rounded-2xl object-cover ring-1 ring-border/60"
+                      />
+                      <div className="leading-tight">
+                        <div className="text-sm font-semibold">Miniatura</div>
+                        <div className="text-xs text-muted-foreground">
+                          Troque a foto se quiser antes de publicar.
                         </div>
                       </div>
-
-                      <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-border/60 bg-muted">
-                        <img
-                          src={imageDataUrl}
-                          alt="Prévia da imagem do post"
-                          className="h-full w-full object-cover"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setImageDataUrl("");
-                            autoOpenedRef.current = false;
-                          }}
-                          className="absolute right-3 top-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm ring-1 ring-border/60 transition hover:bg-background"
-                          aria-label="Remover imagem"
-                        >
-                          <X className="h-5 w-5" />
-                        </button>
-                      </div>
                     </div>
 
-                    <div className="grid gap-4">
-                      <FormField
-                        control={form.control}
-                        name="title"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Título</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder="Ex: Treino do dia (pernas)"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              Pense como uma postagem: curto, direto e específico.
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="caption"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Legenda</FormLabel>
-                            <FormControl>
-                              <Textarea
-                                placeholder="Ex: Hoje foi difícil, mas eu apareci. 1% melhor."
-                                className="min-h-[120px]"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              Conte como foi e o que você quer que as pessoas incentivem.
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full gap-2"
+                        onClick={() => cameraInputRef.current?.click()}
+                      >
+                        <Camera className="h-4 w-4" />
+                        Câmera
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full gap-2"
+                        onClick={() => galleryInputRef.current?.click()}
+                      >
+                        <ImagePlus className="h-4 w-4" />
+                        Galeria
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-10 w-10 rounded-full"
+                        onClick={() => {
+                          setImageDataUrl("");
+                          autoOpenedRef.current = false;
+                        }}
+                        aria-label="Remover imagem"
+                      >
+                        <X className="h-5 w-5" />
+                      </Button>
                     </div>
+                  </div>
+
+                  <div className="grid gap-4">
+                    <FormField
+                      control={form.control}
+                      name="title"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Título</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Ex: Treino do dia (pernas)" {...field} />
+                          </FormControl>
+                          <FormDescription>
+                            Pense como uma postagem: curto, direto e específico.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="caption"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Legenda</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Ex: Hoje foi difícil, mas eu apareci. 1% melhor."
+                              className="min-h-[120px]"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Conte como foi e o que você quer que as pessoas incentivem.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
