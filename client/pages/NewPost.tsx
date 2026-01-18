@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { createGoal, GoalCategory } from "@/lib/ritmofit";
+import { createGoal, getRoutines, GoalCategory, Routine } from "@/lib/ritmofit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -101,6 +101,7 @@ async function fileToDataUrl(file: File) {
 export default function NewPost() {
   const navigate = useNavigate();
   const [imageDataUrl, setImageDataUrl] = React.useState<string>("");
+  const [attachedRoutineId, setAttachedRoutineId] = React.useState<string>("");
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const autoOpenedRef = React.useRef(false);
 
@@ -160,6 +161,15 @@ export default function NewPost() {
     window.setTimeout(() => form.setFocus("title"), 50);
   };
 
+  const myRoutines = React.useMemo(() => {
+    return getRoutines().filter((r) => r.ownerHandle === "@voce");
+  }, []);
+
+  const selectedRoutine: Routine | null = React.useMemo(() => {
+    if (!attachedRoutineId) return null;
+    return myRoutines.find((r) => r.id === attachedRoutineId) ?? null;
+  }, [attachedRoutineId, myRoutines]);
+
   const onSubmit = (v: Values) => {
     if (!imageDataUrl) {
       toast({
@@ -179,6 +189,8 @@ export default function NewPost() {
       frequency: v.frequency,
       durationDays: Number(v.durationDays) as 7 | 21 | 30,
       visibility: "Público",
+      attachedRoutineId: selectedRoutine?.id,
+      attachedRoutineTitle: selectedRoutine?.title,
     });
 
     toast({
@@ -472,14 +484,71 @@ export default function NewPost() {
                       />
                     </div>
 
-                    <div className="flex flex-wrap justify-center gap-2 pt-2">
-                      <Button
-                        type="submit"
-                        className="w-full max-w-sm rounded-full gap-2"
-                      >
-                        <PlusSquare className="h-4 w-4" />
-                        Publicar
-                      </Button>
+                    <div className="grid gap-4">
+                      <div className="grid gap-2">
+                        <div className="text-sm font-medium">Rotina salva (opcional)</div>
+                        <div className="text-xs text-muted-foreground">
+                          Você pode anexar uma das suas rotinas para as pessoas verem.
+                        </div>
+
+                        <Select
+                          value={attachedRoutineId || "none"}
+                          onValueChange={(v) =>
+                            setAttachedRoutineId(v === "none" ? "" : v)
+                          }
+                        >
+                          <SelectTrigger>
+                            <span className="text-sm">
+                              {selectedRoutine ? selectedRoutine.title : "Nenhuma"}
+                            </span>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Nenhuma</SelectItem>
+                            {myRoutines.map((r) => (
+                              <SelectItem key={r.id} value={r.id}>
+                                {r.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        {selectedRoutine ? (
+                          <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
+                            <div className="text-sm font-semibold">
+                              {selectedRoutine.title}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {selectedRoutine.steps
+                                .map((s) => s.title.trim())
+                                .filter(Boolean)
+                                .slice(0, 6)
+                                .map((t) => (
+                                  <span
+                                    key={t}
+                                    className="rounded-full bg-background/70 px-3 py-1 text-xs text-foreground ring-1 ring-border/60"
+                                  >
+                                    {t}
+                                  </span>
+                                ))}
+                              {selectedRoutine.steps.length > 6 ? (
+                                <span className="rounded-full bg-background/40 px-3 py-1 text-xs text-muted-foreground ring-1 ring-border/60">
+                                  +{selectedRoutine.steps.length - 6}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-wrap justify-center gap-2 pt-2">
+                        <Button
+                          type="submit"
+                          className="w-full max-w-sm rounded-full gap-2"
+                        >
+                          <PlusSquare className="h-4 w-4" />
+                          Publicar
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </>
