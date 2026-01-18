@@ -1,6 +1,6 @@
 /* RitmoFit PWA service worker (simple, no Workbox) */
 
-const CACHE_NAME = "ritmofit-pwa-v1";
+const CACHE_NAME = "ritmofit-pwa-v2";
 
 const PRECACHE_URLS = [
   "/",
@@ -64,14 +64,27 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static assets: cache-first.
-  const isAsset =
-    req.destination === "script" ||
-    req.destination === "style" ||
-    req.destination === "image" ||
-    req.destination === "font";
+  // Static assets:
+  // - scripts/styles: network-first (avoid stale JS after deploy)
+  // - images/fonts: cache-first
 
-  if (isAsset) {
+  if (req.destination === "script" || req.destination === "style") {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(CACHE_NAME);
+        try {
+          const fresh = await fetch(req);
+          cache.put(req, fresh.clone());
+          return fresh;
+        } catch {
+          return (await cache.match(req)) || Response.error();
+        }
+      })(),
+    );
+    return;
+  }
+
+  if (req.destination === "image" || req.destination === "font") {
     event.respondWith(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
