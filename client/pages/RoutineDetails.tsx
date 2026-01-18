@@ -77,6 +77,7 @@ export default function RoutineDetails() {
       title: s.title.trim(),
       muscleGroup: (s.muscleGroup ?? "").trim() || undefined,
       imageUrl: (s.imageUrl ?? "").trim() || undefined,
+      exerciseId: (s.exerciseId ?? "").trim() || undefined,
     }))
     .filter((s) => Boolean(s.title));
 
