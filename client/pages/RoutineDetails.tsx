@@ -160,12 +160,27 @@ export default function RoutineDetails() {
                     )}
                   >
                     {hasImage ? (
-                      <img
-                        src={step.imageUrl}
-                        alt={step.title}
-                        className="h-16 w-16 rounded-2xl object-cover ring-1 ring-border/60"
-                        loading="lazy"
-                      />
+                      step.exerciseId ? (
+                        <Link
+                          to={`/exercicios/${step.exerciseId}`}
+                          className="h-16 w-16 shrink-0"
+                          aria-label={`Ver detalhes de ${step.title}`}
+                        >
+                          <img
+                            src={step.imageUrl}
+                            alt={step.title}
+                            className="h-16 w-16 rounded-2xl object-cover ring-1 ring-border/60"
+                            loading="lazy"
+                          />
+                        </Link>
+                      ) : (
+                        <img
+                          src={step.imageUrl}
+                          alt={step.title}
+                          className="h-16 w-16 rounded-2xl object-cover ring-1 ring-border/60"
+                          loading="lazy"
+                        />
+                      )
                     ) : (
                       <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                     )}
