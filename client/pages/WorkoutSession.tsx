@@ -1,10 +1,17 @@
 import * as React from "react";
 
-import { ArrowLeft, Pause, Play, RotateCcw, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Pause, Play, RotateCcw, Plus, Trash2, Search } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import type { Routine } from "@/lib/ritmofit";
-import { addStoryItem, createGoal, getRoutines, uid } from "@/lib/ritmofit";
+import type { MuscleGroup, Routine, WorkoutExercise } from "@/lib/ritmofit";
+import {
+  addStoryItem,
+  createGoal,
+  getRoutines,
+  uid,
+  WORKOUT_EXERCISES,
+  WORKOUT_MUSCLE_GROUPS,
+} from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +25,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
 
 type SetDraft = {
@@ -26,6 +40,7 @@ type SetDraft = {
   weight: string;
   completed: boolean;
   previous?: string;
+  restSeconds: number;
 };
 
 type StepLog = {
@@ -34,10 +49,26 @@ type StepLog = {
   sets: SetDraft[];
 };
 
+type SessionStep = {
+  id: string;
+  title: string;
+  muscleGroup?: string;
+  imageUrl?: string;
+  exerciseId?: string;
+  origin: "routine" | "added";
+};
+
+const REST_OPTIONS_SECONDS = [5, 10, 15, 20, 30, 45, 60, 75, 90] as const;
+
 function formatTime(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatRest(totalSeconds: number) {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "00:00";
+  return formatTime(totalSeconds);
 }
 
 function numberOrZero(v: string) {
@@ -55,6 +86,19 @@ function calcSetVolume(s: SetDraft) {
 
 function calcStepVolume(step: StepLog) {
   return step.sets.reduce((acc, s) => acc + calcSetVolume(s), 0);
+}
+
+function norm(s: string) {
+  return s
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+}
+
+function exerciseMatches(ex: WorkoutExercise, query: string) {
+  const q = norm(query.trim());
+  if (!q) return true;
+  return norm(ex.name).includes(q) || norm(ex.muscleGroup).includes(q);
 }
 
 function useStopwatch() {
@@ -88,26 +132,38 @@ export default function WorkoutSession() {
   const navigate = useNavigate();
 
   const [routine, setRoutine] = React.useState<Routine | null>(null);
-  const steps = React.useMemo(() => {
+  const baseSteps = React.useMemo(() => {
     return (routine?.steps ?? [])
       .map((s) => ({
-        ...s,
+        id: s.id,
         title: s.title.trim(),
         muscleGroup: (s.muscleGroup ?? "").trim() || undefined,
         imageUrl: (s.imageUrl ?? "").trim() || undefined,
         exerciseId: (s.exerciseId ?? "").trim() || undefined,
+        origin: "routine" as const,
       }))
       .filter((s) => Boolean(s.title));
   }, [routine]);
 
   const stopwatch = useStopwatch();
 
+  const [sessionSteps, setSessionSteps] = React.useState<SessionStep[]>([]);
   const [logs, setLogs] = React.useState<StepLog[]>([]);
   const [activeStepId, setActiveStepId] = React.useState<string | null>(null);
 
   const [summaryOpen, setSummaryOpen] = React.useState(false);
   const [postToFeed, setPostToFeed] = React.useState(true);
   const [postToStories, setPostToStories] = React.useState(true);
+
+  const [addExerciseOpen, setAddExerciseOpen] = React.useState(false);
+  const [addQuery, setAddQuery] = React.useState("");
+  const [addMuscleFilter, setAddMuscleFilter] = React.useState<MuscleGroup | "Todos">(
+    "Todos",
+  );
+
+  const [restRunning, setRestRunning] = React.useState(false);
+  const [restSecondsLeft, setRestSecondsLeft] = React.useState(0);
+  const [restLabel, setRestLabel] = React.useState("");
 
   const stepRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -130,23 +186,47 @@ export default function WorkoutSession() {
     return { ...log, completed: allSetsChecked };
   }, []);
 
-  const updateSet = React.useCallback(
-    (stepId: string, setId: string, updater: (s: SetDraft) => SetDraft) => {
-      setLogs((prev) =>
-        prev.map((p) => {
-          if (p.stepId !== stepId) return p;
-          const nextSets = p.sets.map((s) => (s.id === setId ? updater(s) : s));
-          return recomputeStepCompletion({ ...p, sets: nextSets });
-        }),
-      );
-    },
-    [recomputeStepCompletion],
-  );
+  const startRest = React.useCallback((seconds: number, label: string) => {
+    const safe = Math.max(0, Math.min(90, Math.floor(seconds)));
+    if (safe < 5) return;
+
+    setRestLabel(label);
+    setRestSecondsLeft(safe);
+    setRestRunning(true);
+  }, []);
+
+  const stopRest = React.useCallback(() => {
+    setRestRunning(false);
+    setRestSecondsLeft(0);
+    setRestLabel("");
+  }, []);
+
+  React.useEffect(() => {
+    if (!restRunning) return;
+    if (restSecondsLeft <= 0) return;
+
+    const id = window.setInterval(() => {
+      setRestSecondsLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => window.clearInterval(id);
+  }, [restRunning, restSecondsLeft]);
+
+  React.useEffect(() => {
+    if (!restRunning) return;
+    if (restSecondsLeft > 0) return;
+
+    setRestRunning(false);
+    setRestLabel("");
+    toast({ title: "Descanso finalizado", description: "Bora pra próxima série." });
+  }, [restRunning, restSecondsLeft]);
 
   React.useEffect(() => {
     if (!routine) return;
 
-    const nextLogs: StepLog[] = steps.map((s) => ({
+    setSessionSteps(baseSteps);
+
+    const nextLogs: StepLog[] = baseSteps.map((s) => ({
       stepId: s.id,
       completed: false,
       sets: [],
@@ -155,6 +235,8 @@ export default function WorkoutSession() {
     setLogs(nextLogs);
     setActiveStepId(nextLogs[0]?.stepId ?? null);
     setSummaryOpen(false);
+    setAddExerciseOpen(false);
+    stopRest();
     stopwatch.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routine?.id]);
@@ -172,7 +254,7 @@ export default function WorkoutSession() {
   const totalVolume = logs.reduce((acc, s) => acc + calcStepVolume(s), 0);
 
   const allDone = logs.length > 0 && logs.every((s) => s.completed);
-  const coverImage = steps.find((s) => Boolean(s.imageUrl))?.imageUrl ?? "";
+  const coverImage = sessionSteps.find((s) => Boolean(s.imageUrl))?.imageUrl ?? "";
 
   const estimatedCalories = React.useMemo(() => {
     const minutes = stopwatch.elapsedSeconds / 60;
@@ -183,6 +265,13 @@ export default function WorkoutSession() {
     const met = 6;
     return Math.max(0, Math.round((met * 3.5 * assumedWeightKg * minutes) / 200));
   }, [stopwatch.elapsedSeconds]);
+
+  const addExerciseFiltered = React.useMemo(() => {
+    return WORKOUT_EXERCISES.filter((ex) => {
+      if (addMuscleFilter !== "Todos" && ex.muscleGroup !== addMuscleFilter) return false;
+      return exerciseMatches(ex, addQuery);
+    });
+  }, [addMuscleFilter, addQuery]);
 
   if (!routine) {
     return (
@@ -235,13 +324,77 @@ export default function WorkoutSession() {
           </Link>
         </Button>
 
-        <div className="text-right">
-          <div className="text-xs text-muted-foreground">Progresso</div>
-          <div className="text-sm font-semibold">
-            {completedCount}/{totalCount} exercícios
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-full"
+            onClick={() => setAddExerciseOpen(true)}
+          >
+            <Plus className="h-4 w-4" />
+            Exercício
+          </Button>
+
+          <div className="text-right">
+            <div className="text-xs text-muted-foreground">Progresso</div>
+            <div className="text-sm font-semibold">
+              {completedCount}/{totalCount} exercícios
+            </div>
           </div>
         </div>
       </div>
+
+      {restSecondsLeft > 0 ? (
+        <Card className="border-border/60">
+          <CardContent className="flex flex-wrap items-center gap-2 p-4">
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold text-muted-foreground">Descanso</div>
+              <div className="truncate text-sm font-semibold">
+                {restLabel || "Próxima série"}
+              </div>
+            </div>
+
+            <div className="text-lg font-semibold tabular-nums">
+              {formatRest(restSecondsLeft)}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {restRunning ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => setRestRunning(false)}
+                >
+                  <Pause className="h-4 w-4" />
+                  Pausar
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-full"
+                  onClick={() => setRestRunning(true)}
+                >
+                  <Play className="h-4 w-4" />
+                  Continuar
+                </Button>
+              )}
+
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="rounded-full"
+                onClick={stopRest}
+              >
+                Pular
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card className="border-border/60">
         <CardHeader className="space-y-1">
@@ -279,7 +432,10 @@ export default function WorkoutSession() {
               type="button"
               variant="ghost"
               className="rounded-full"
-              onClick={stopwatch.reset}
+              onClick={() => {
+                stopwatch.reset();
+                stopRest();
+              }}
             >
               <RotateCcw className="h-4 w-4" />
               Zerar
@@ -300,6 +456,7 @@ export default function WorkoutSession() {
                 }
 
                 stopwatch.pause();
+                stopRest();
                 setSummaryOpen(true);
               }}
             >
@@ -308,14 +465,13 @@ export default function WorkoutSession() {
           </div>
 
           <div className="text-xs text-muted-foreground">
-            Dica: marque o checkbox de cada série quando finalizar — ao completar todas as séries,
-            a tela vai para o próximo exercício.
+            Dica: ao marcar uma série como concluída, o descanso inicia automaticamente.
           </div>
         </CardContent>
       </Card>
 
       <div className="grid gap-3">
-        {steps.map((step) => {
+        {sessionSteps.map((step) => {
           const log = logs.find((l) => l.stepId === step.id);
           if (!log) return null;
 
@@ -346,28 +502,61 @@ export default function WorkoutSession() {
                   ) : null}
 
                   <div className="min-w-0 flex-1">
-                    <button
-                      type="button"
-                      className="w-full text-left"
-                      onClick={() => setActiveStepId(step.id)}
-                    >
-                      <div
-                        className={cn(
-                          "truncate text-sm font-semibold",
-                          log.completed ? "line-through text-muted-foreground" : null,
-                        )}
+                    <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left"
+                        onClick={() => setActiveStepId(step.id)}
                       >
-                        {step.title}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {step.muscleGroup ?? "Exercício"}
-                        {stepVolume > 0 ? (
-                          <>
-                            {" "}· Volume: {Math.round(stepVolume)} kg
-                          </>
-                        ) : null}
-                      </div>
-                    </button>
+                        <div
+                          className={cn(
+                            "truncate text-sm font-semibold",
+                            log.completed ? "line-through text-muted-foreground" : null,
+                          )}
+                        >
+                          {step.title}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {step.muscleGroup ?? "Exercício"}
+                          {stepVolume > 0 ? (
+                            <>
+                              {" "}· Volume: {Math.round(stepVolume)} kg
+                            </>
+                          ) : null}
+                          {step.origin === "added" ? (
+                            <>
+                              {" "}· <span className="font-semibold">adicionado</span>
+                            </>
+                          ) : null}
+                        </div>
+                      </button>
+
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-9 w-9 shrink-0 rounded-full text-destructive hover:text-destructive"
+                        aria-label="Remover exercício"
+                        onClick={() => {
+                          setSessionSteps((prev) => {
+                            const idx = prev.findIndex((p) => p.id === step.id);
+                            const next = prev.filter((p) => p.id !== step.id);
+
+                            if (activeStepId === step.id) {
+                              const nextActive = next[idx] ?? next[idx - 1] ?? null;
+                              setActiveStepId(nextActive ? nextActive.id : null);
+                            }
+
+                            return next;
+                          });
+
+                          setLogs((prev) => prev.filter((p) => p.stepId !== step.id));
+                          stopRest();
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
 
                     <div className="mt-3 grid gap-2">
                       {log.sets.length ? (
@@ -375,7 +564,7 @@ export default function WorkoutSession() {
                           {log.sets.map((s, idx) => (
                             <div
                               key={s.id}
-                              className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 rounded-2xl border border-border/60 bg-muted/20 p-3"
+                              className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 rounded-2xl border border-border/60 bg-muted/20 p-3"
                             >
                               <Checkbox
                                 checked={s.completed}
@@ -404,6 +593,13 @@ export default function WorkoutSession() {
                                     });
 
                                     const updated = next.find((p) => p.stepId === step.id);
+                                    if (checked) {
+                                      startRest(
+                                        s.restSeconds,
+                                        `${step.title} · Série ${idx + 1}`,
+                                      );
+                                    }
+
                                     if (checked && updated?.completed && activeStepId === step.id) {
                                       const idxStep = next.findIndex((p) => p.stepId === step.id);
                                       const nextActive = next
@@ -429,15 +625,25 @@ export default function WorkoutSession() {
                                   placeholder="10"
                                   onChange={(e) => {
                                     const nextReps = e.target.value;
-                                    updateSet(step.id, s.id, (prevSet) => {
-                                      const next = { ...prevSet, reps: nextReps };
-                                      if (next.completed) {
-                                        next.previous =
-                                          formatPrevious(next.weight, next.reps) ||
-                                          next.previous;
-                                      }
-                                      return next;
-                                    });
+                                    setLogs((prev) =>
+                                      prev.map((p) => {
+                                        if (p.stepId !== step.id) return p;
+
+                                        const nextSets = p.sets.map((set) => {
+                                          if (set.id !== s.id) return set;
+
+                                          const next: SetDraft = { ...set, reps: nextReps };
+                                          if (next.completed) {
+                                            next.previous =
+                                              formatPrevious(next.weight, next.reps) ||
+                                              next.previous;
+                                          }
+                                          return next;
+                                        });
+
+                                        return recomputeStepCompletion({ ...p, sets: nextSets });
+                                      }),
+                                    );
                                   }}
                                 />
                               </div>
@@ -452,15 +658,25 @@ export default function WorkoutSession() {
                                   placeholder="20"
                                   onChange={(e) => {
                                     const nextWeight = e.target.value;
-                                    updateSet(step.id, s.id, (prevSet) => {
-                                      const next = { ...prevSet, weight: nextWeight };
-                                      if (next.completed) {
-                                        next.previous =
-                                          formatPrevious(next.weight, next.reps) ||
-                                          next.previous;
-                                      }
-                                      return next;
-                                    });
+                                    setLogs((prev) =>
+                                      prev.map((p) => {
+                                        if (p.stepId !== step.id) return p;
+
+                                        const nextSets = p.sets.map((set) => {
+                                          if (set.id !== s.id) return set;
+
+                                          const next: SetDraft = { ...set, weight: nextWeight };
+                                          if (next.completed) {
+                                            next.previous =
+                                              formatPrevious(next.weight, next.reps) ||
+                                              next.previous;
+                                          }
+                                          return next;
+                                        });
+
+                                        return recomputeStepCompletion({ ...p, sets: nextSets });
+                                      }),
+                                    );
                                   }}
                                 />
                               </div>
@@ -477,6 +693,42 @@ export default function WorkoutSession() {
                                 >
                                   {s.previous ? s.previous : "-"}
                                 </div>
+                              </div>
+
+                              <div className="grid gap-1">
+                                <div className="text-xs font-semibold text-muted-foreground">
+                                  Descanso
+                                </div>
+                                <Select
+                                  value={String(s.restSeconds)}
+                                  onValueChange={(v) => {
+                                    const nextSeconds = Number(v);
+                                    setLogs((prev) =>
+                                      prev.map((p) => {
+                                        if (p.stepId !== step.id) return p;
+
+                                        const nextSets = p.sets.map((set) =>
+                                          set.id === s.id
+                                            ? { ...set, restSeconds: nextSeconds }
+                                            : set,
+                                        );
+
+                                        return recomputeStepCompletion({ ...p, sets: nextSets });
+                                      }),
+                                    );
+                                  }}
+                                >
+                                  <SelectTrigger className="h-10">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {REST_OPTIONS_SECONDS.map((sec) => (
+                                      <SelectItem key={sec} value={String(sec)}>
+                                        {sec}s
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                               </div>
 
                               <Button
@@ -496,6 +748,7 @@ export default function WorkoutSession() {
                                       return recomputeStepCompletion(nextStep);
                                     }),
                                   );
+                                  stopRest();
                                 }}
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -509,7 +762,7 @@ export default function WorkoutSession() {
                         </div>
                       )}
 
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <Button
                           type="button"
                           size="sm"
@@ -529,6 +782,7 @@ export default function WorkoutSession() {
                                           weight: "",
                                           completed: false,
                                           previous: "",
+                                          restSeconds: 60,
                                         },
                                       ],
                                     }
@@ -542,12 +796,7 @@ export default function WorkoutSession() {
                         </Button>
 
                         {step.exerciseId ? (
-                          <Button
-                            asChild
-                            size="sm"
-                            variant="ghost"
-                            className="rounded-full"
-                          >
+                          <Button asChild size="sm" variant="ghost" className="rounded-full">
                             <Link to={`/exercicios/${step.exerciseId}`}>Ver detalhes</Link>
                           </Button>
                         ) : null}
@@ -561,6 +810,120 @@ export default function WorkoutSession() {
         })}
       </div>
 
+      {/* Add exercise dialog */}
+      <Dialog open={addExerciseOpen} onOpenChange={setAddExerciseOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Adicionar exercício</DialogTitle>
+            <DialogDescription>
+              Adicione um exercício extra sem alterar sua rotina salva.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3">
+            <div className="grid gap-2">
+              <div className="text-sm font-medium">Buscar</div>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={addQuery}
+                  onChange={(e) => setAddQuery(e.target.value)}
+                  placeholder="Ex: supino, costas, bíceps..."
+                  className="pl-9"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <div className="text-sm font-medium">Músculos</div>
+              <Select
+                value={addMuscleFilter}
+                onValueChange={(v) => setAddMuscleFilter(v as MuscleGroup | "Todos")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Todos">Todos</SelectItem>
+                  {WORKOUT_MUSCLE_GROUPS.map((g) => (
+                    <SelectItem key={g} value={g}>
+                      {g}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {addExerciseFiltered.length ? (
+              <div className="grid gap-2">
+                {addExerciseFiltered.slice(0, 40).map((ex) => (
+                  <button
+                    key={ex.id}
+                    type="button"
+                    className="flex items-center gap-3 rounded-2xl border border-border/60 bg-muted/20 p-3 text-left hover:bg-muted/30"
+                    onClick={() => {
+                      const stepId = uid("ws");
+                      const nextStep: SessionStep = {
+                        id: stepId,
+                        title: ex.name,
+                        muscleGroup: ex.muscleGroup,
+                        imageUrl: ex.imageUrl,
+                        exerciseId: ex.id,
+                        origin: "added",
+                      };
+
+                      setSessionSteps((prev) => [...prev, nextStep]);
+                      setLogs((prev) => [
+                        ...prev,
+                        { stepId, completed: false, sets: [] },
+                      ]);
+
+                      setActiveStepId(stepId);
+                      setAddExerciseOpen(false);
+                      setAddQuery("");
+                      setAddMuscleFilter("Todos");
+
+                      toast({
+                        title: "Exercício adicionado",
+                        description: `${ex.name} entrou na lista do treino atual.`,
+                      });
+                    }}
+                  >
+                    <img
+                      src={ex.imageUrl}
+                      alt={ex.name}
+                      className="h-12 w-12 shrink-0 rounded-2xl object-cover ring-1 ring-border/60"
+                      loading="lazy"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold">{ex.name}</div>
+                      <div className="text-xs text-muted-foreground">{ex.muscleGroup}</div>
+                    </div>
+                    <div className="text-xs font-semibold text-brand">Adicionar</div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                Nenhum exercício encontrado.
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-full"
+              onClick={() => setAddExerciseOpen(false)}
+            >
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Summary dialog */}
       <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -598,67 +961,41 @@ export default function WorkoutSession() {
             <div className="grid gap-2">
               <div className="text-sm font-semibold">Exercícios</div>
               <div className="grid gap-2">
-                {steps.map((s) => {
+                {sessionSteps.map((s) => {
                   const log = logs.find((l) => l.stepId === s.id);
                   if (!log) return null;
 
                   const doneSets = log.sets.filter((set) => set.completed);
+                  const summarySets = doneSets
+                    .map((set) => set.previous || formatPrevious(set.weight, set.reps))
+                    .map((t) => t.trim())
+                    .filter(Boolean);
+
+                  const preview = summarySets.slice(0, 4).join(" · ");
+                  const extra = summarySets.length - 4;
 
                   return (
                     <div
                       key={s.id}
-                      className="rounded-2xl border border-border/60 bg-background p-4"
+                      className="flex items-start justify-between gap-3 rounded-2xl border border-border/60 bg-background p-4"
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold">{s.title}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {s.muscleGroup ?? "Exercício"} · {doneSets.length}/
-                            {log.sets.length} séries
-                          </div>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {Math.round(calcStepVolume(log))} kg
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">{s.title}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          {s.muscleGroup ?? "Exercício"} · {doneSets.length}/{log.sets.length} séries
+                          {preview ? (
+                            <>
+                              {" "}· <span className="text-foreground">{preview}</span>
+                              {extra > 0 ? (
+                                <span className="text-muted-foreground"> · +{extra}</span>
+                              ) : null}
+                            </>
+                          ) : null}
                         </div>
                       </div>
-
-                      {log.sets.length ? (
-                        <div className="mt-2 grid gap-2">
-                          {log.sets.map((set, idx) => {
-                            const prev =
-                              set.previous ||
-                              (set.completed
-                                ? formatPrevious(set.weight, set.reps)
-                                : "");
-
-                            return (
-                              <div
-                                key={set.id}
-                                className={cn(
-                                  "flex items-center justify-between gap-3 rounded-xl border border-border/60 px-3 py-2",
-                                  set.completed ? "bg-muted/20" : "bg-muted/10",
-                                )}
-                              >
-                                <div className="text-xs text-muted-foreground">
-                                  Série {idx + 1}
-                                </div>
-                                <div
-                                  className={cn(
-                                    "text-sm font-medium",
-                                    !prev ? "text-muted-foreground" : null,
-                                  )}
-                                >
-                                  {prev ? prev : "-"}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="mt-2 text-sm text-muted-foreground">
-                          Sem séries registradas.
-                        </div>
-                      )}
+                      <div className="text-xs font-semibold text-muted-foreground">
+                        {Math.round(calcStepVolume(log))} kg
+                      </div>
                     </div>
                   );
                 })}
