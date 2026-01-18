@@ -16,7 +16,6 @@ import { useTheme } from "next-themes";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import { PwaInstallBanner } from "@/components/pwa-install-banner";
 
 type NavItem = {
   to: string;
@@ -265,7 +264,6 @@ export function AppLayout() {
       </header>
 
       <main className="mx-auto w-full max-w-6xl px-4 pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)] pt-6 lg:pb-10">
-        <PwaInstallBanner />
         <Outlet />
       </main>
 
