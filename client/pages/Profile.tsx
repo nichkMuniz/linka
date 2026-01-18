@@ -569,6 +569,12 @@ export default function Profile() {
                           key={r.id}
                           routine={r}
                           variant="mine"
+                          startHref={
+                            r.category === "Treino" &&
+                            r.steps.some((s) => Boolean(s.title.trim()))
+                              ? `/rotinas/${r.id}/iniciar`
+                              : undefined
+                          }
                           onShare={() => shareRoutine(r)}
                           onEdit={() => {
                             setEditingRoutine(r);
