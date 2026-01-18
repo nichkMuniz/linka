@@ -161,10 +161,12 @@ function WorkoutExerciseCard({
 function WorkoutPicker({
   selectedItems,
   onToggleExercise,
+  onRemoveItem,
   onAddCustom,
 }: {
   selectedItems: ItemDraft[];
   onToggleExercise: (ex: WorkoutExercise) => void;
+  onRemoveItem: (itemId: string) => void;
   onAddCustom: (name: string) => void;
 }) {
   const [query, setQuery] = React.useState("");
@@ -223,12 +225,7 @@ function WorkoutPicker({
                   variant="ghost"
                   className="h-8 w-8 rounded-full"
                   aria-label={`Remover ${it.name}`}
-                  onClick={() => onToggleExercise({
-                    id: it.exerciseId ?? it.id,
-                    name: it.name,
-                    muscleGroup: (it.muscleGroup ?? "Peito") as any,
-                    imageUrl: it.imageUrl ?? "",
-                  })}
+                  onClick={() => onRemoveItem(it.id)}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -460,6 +457,9 @@ export function RoutineEditorDialog({
               <WorkoutPicker
                 selectedItems={items}
                 onToggleExercise={toggleExercise}
+                onRemoveItem={(itemId) =>
+                  setItems((prev) => prev.filter((it) => it.id !== itemId))
+                }
                 onAddCustom={addCustomWorkoutItem}
               />
             ) : (
