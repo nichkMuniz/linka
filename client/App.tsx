@@ -57,6 +57,7 @@ const App = () => {
                 <Route path="/reels" element={<Reels />} />
                 <Route path="/instalar" element={<Install />} />
                 <Route path="/rotinas/:routineId" element={<RoutineDetails />} />
+                <Route path="/exercicios/:exerciseId" element={<ExerciseDetails />} />
 
                 {/* compatibility */}
                 <Route
