@@ -57,6 +57,10 @@ export type RoutineStep = {
   id: string;
   title: string;
   detail: string;
+  /** Presente principalmente quando category === "Treino" e o usuário escolheu da biblioteca. */
+  exerciseId?: string;
+  muscleGroup?: string;
+  imageUrl?: string;
 };
 
 export type Routine = {
@@ -173,6 +177,18 @@ function normalizeRoutine(raw: Routine): Routine {
       id: s.id ?? uid("rs"),
       title: s.title ?? "",
       detail: s.detail ?? "",
+      exerciseId:
+        typeof (s as any).exerciseId === "string"
+          ? ((s as any).exerciseId as string)
+          : undefined,
+      muscleGroup:
+        typeof (s as any).muscleGroup === "string"
+          ? ((s as any).muscleGroup as string)
+          : undefined,
+      imageUrl:
+        typeof (s as any).imageUrl === "string"
+          ? ((s as any).imageUrl as string)
+          : undefined,
     })),
     copiedFromRoutineId: raw.copiedFromRoutineId,
   };
@@ -654,7 +670,13 @@ export function createRoutine(input: {
   description?: string;
   category: GoalCategory;
   visibility: GoalVisibility;
-  steps: Array<{ title: string; detail: string }>;
+  steps: Array<{
+    title: string;
+    detail: string;
+    exerciseId?: string;
+    muscleGroup?: string;
+    imageUrl?: string;
+  }>;
 }): Routine {
   const state = getRitmoFitState();
 
@@ -675,6 +697,9 @@ export function createRoutine(input: {
         id: uid("rs"),
         title: s.title.trim(),
         detail: s.detail.trim(),
+        exerciseId: s.exerciseId,
+        muscleGroup: s.muscleGroup,
+        imageUrl: s.imageUrl,
       }))
       .filter((s) => s.title.length || s.detail.length),
   };
