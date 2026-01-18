@@ -1,7 +1,13 @@
 import * as React from "react";
-import { Plus, Trash2, Search, Check } from "lucide-react";
+import { Plus, Trash2, Search, Check, ListFilter } from "lucide-react";
 
-import type { GoalCategory, GoalVisibility, Routine, WorkoutExercise } from "@/lib/ritmofit";
+import type {
+  GoalCategory,
+  GoalVisibility,
+  Routine,
+  WorkoutExercise,
+  MuscleGroup,
+} from "@/lib/ritmofit";
 import {
   createRoutine,
   uid,
@@ -10,7 +16,6 @@ import {
   WORKOUT_MUSCLE_GROUPS,
 } from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -171,6 +176,9 @@ function WorkoutPicker({
 }) {
   const [query, setQuery] = React.useState("");
   const [custom, setCustom] = React.useState("");
+  const [muscleFilter, setMuscleFilter] = React.useState<MuscleGroup | "Todos">(
+    "Todos",
+  );
 
   const selectedByExerciseId = React.useMemo(() => {
     const set = new Set<string>();
@@ -181,30 +189,22 @@ function WorkoutPicker({
   }, [selectedItems]);
 
   const filtered = React.useMemo(() => {
-    return WORKOUT_EXERCISES.filter((ex) => exerciseMatches(ex, query));
-  }, [query]);
-
-  const byGroup = React.useMemo(() => {
-    const map = new Map<string, WorkoutExercise[]>();
-    for (const g of WORKOUT_MUSCLE_GROUPS) map.set(g, []);
-    for (const ex of filtered) {
-      const arr = map.get(ex.muscleGroup) ?? [];
-      arr.push(ex);
-      map.set(ex.muscleGroup, arr);
-    }
-    return map;
-  }, [filtered]);
+    return WORKOUT_EXERCISES.filter((ex) => {
+      if (muscleFilter !== "Todos" && ex.muscleGroup !== muscleFilter) return false;
+      return exerciseMatches(ex, query);
+    });
+  }, [query, muscleFilter]);
 
   return (
     <div className="grid gap-3">
       <div className="grid gap-2">
         <div className="text-sm font-medium">Selecionados</div>
         {selectedItems.length ? (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {selectedItems.map((it) => (
               <div
                 key={it.id}
-                className="flex items-center gap-2 rounded-full bg-muted/40 py-1 pl-1 pr-2 text-xs ring-1 ring-border/60"
+                className="flex shrink-0 items-center gap-2 rounded-full bg-muted/40 py-1 pl-1 pr-2 text-xs ring-1 ring-border/60"
               >
                 {it.imageUrl ? (
                   <img
@@ -240,51 +240,71 @@ function WorkoutPicker({
       </div>
 
       <div className="grid gap-2">
-        <div className="text-sm font-medium">Buscar</div>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Ex: peito, supino, costas..."
-            className="pl-9"
-          />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div className="grid flex-1 gap-2">
+            <div className="text-sm font-medium">Buscar</div>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Ex: supino, costas, bíceps..."
+                className="pl-9"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-2 sm:w-56">
+            <div className="text-sm font-medium">Músculos</div>
+            <Select
+              value={muscleFilter}
+              onValueChange={(v) => setMuscleFilter(v as MuscleGroup | "Todos")}
+            >
+              <SelectTrigger className="rounded-full">
+                <div className="flex items-center gap-2">
+                  <ListFilter className="h-4 w-4 text-muted-foreground" />
+                  <div className="text-sm">
+                    <span className="font-medium">Músculos:</span>{" "}
+                    <span className="text-muted-foreground">{muscleFilter}</span>
+                  </div>
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Todos">Todos</SelectItem>
+                {WORKOUT_MUSCLE_GROUPS.map((g) => (
+                  <SelectItem key={g} value={g}>
+                    {g}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
-      <Accordion
-        type="multiple"
-        defaultValue={WORKOUT_MUSCLE_GROUPS.slice(0, 3)}
-        className="rounded-2xl border border-border/60"
-      >
-        {WORKOUT_MUSCLE_GROUPS.map((group) => {
-          const list = byGroup.get(group) ?? [];
-          if (!list.length) return null;
+      <div className="grid gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-medium">Lista de exercícios</div>
+          <div className="text-xs text-muted-foreground">{filtered.length} opções</div>
+        </div>
 
-          return (
-            <AccordionItem key={group} value={group} className="border-border/60 px-4">
-              <AccordionTrigger className="hover:no-underline">
-                <div className="flex w-full items-center justify-between gap-3">
-                  <div className="text-sm font-semibold">{group}</div>
-                  <div className="text-xs text-muted-foreground">{list.length} opções</div>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {list.map((ex) => (
-                    <WorkoutExerciseCard
-                      key={ex.id}
-                      exercise={ex}
-                      selected={selectedByExerciseId.has(ex.id)}
-                      onToggle={() => onToggleExercise(ex)}
-                    />
-                  ))}
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          );
-        })}
-      </Accordion>
+        {filtered.length ? (
+          <div className="grid max-h-[38vh] gap-2 overflow-y-auto pr-1 md:grid-cols-2">
+            {filtered.map((ex) => (
+              <WorkoutExerciseCard
+                key={ex.id}
+                exercise={ex}
+                selected={selectedByExerciseId.has(ex.id)}
+                onToggle={() => onToggleExercise(ex)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+            Nenhum exercício encontrado.
+          </div>
+        )}
+      </div>
 
       <div className="grid gap-2">
         <div className="text-sm font-medium">Adicionar manualmente</div>
@@ -389,7 +409,7 @@ export function RoutineEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[min(92vw,720px)] rounded-3xl border-border/60">
+      <DialogContent className="max-h-[85vh] max-w-[min(96vw,760px)] overflow-y-auto rounded-3xl border-border/60">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Editar rotina" : "Nova rotina"}</DialogTitle>
           <DialogDescription>
