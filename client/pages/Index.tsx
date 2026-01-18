@@ -18,6 +18,7 @@ import { motion } from "framer-motion";
 import {
   addComment,
   blockUser,
+  copyRoutine,
   Goal,
   dayLabel,
   getRitmoFitState,
@@ -533,11 +534,31 @@ function PostCard({
               {attachedRoutineTitle}
             </div>
 
-            {attachedRoutine ? (
-              <Button asChild size="sm" variant="outline" className="shrink-0 rounded-full">
-                <Link to={`/rotinas/${attachedRoutine.id}`}>Ver rotina</Link>
-              </Button>
-            ) : null}
+            <div className="flex shrink-0 items-center gap-2">
+              {attachedRoutine && attachedRoutine.ownerHandle !== "@voce" ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => {
+                    copyRoutine(attachedRoutine.id);
+                    toast({
+                      title: "Rotina copiada",
+                      description: "Agora ela aparece em ‘Minhas’.",
+                    });
+                  }}
+                >
+                  Copiar
+                </Button>
+              ) : null}
+
+              {attachedRoutine ? (
+                <Button asChild size="sm" variant="outline" className="rounded-full">
+                  <Link to={`/rotinas/${attachedRoutine.id}`}>Ver rotina</Link>
+                </Button>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
