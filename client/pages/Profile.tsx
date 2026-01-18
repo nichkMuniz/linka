@@ -557,7 +557,7 @@ export default function Profile() {
                     value="discover"
                     className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
                   >
-                    Copiar
+                    Réplicas
                   </TabsTrigger>
                 </TabsList>
 
