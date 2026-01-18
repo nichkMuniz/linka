@@ -120,7 +120,7 @@ export default function WorkoutSession() {
     const w = weight.trim();
     const r = reps.trim();
     if (!w || !r) return "";
-    const repLabel = Number(r) === 1 ? "rep" : "rep";
+    const repLabel = Number(r) === 1 ? "rep" : "reps";
     return `${w}kg x ${r} ${repLabel}`;
   }, []);
 
@@ -382,26 +382,26 @@ export default function WorkoutSession() {
                                 onCheckedChange={(v) => {
                                   const checked = Boolean(v);
 
-                                  updateSet(step.id, s.id, (prevSet) => {
-                                    const nextPrevious = checked
-                                      ? formatPrevious(prevSet.weight, prevSet.reps) ||
-                                        prevSet.previous
-                                      : prevSet.previous;
-
-                                    return {
-                                      ...prevSet,
-                                      completed: checked,
-                                      previous: nextPrevious,
-                                    };
-                                  });
-
-                                  // se completou todas as séries, pula para o próximo exercício
                                   setLogs((prev) => {
-                                    const next = prev.map((p) =>
-                                      p.stepId === step.id
-                                        ? recomputeStepCompletion(p)
-                                        : p,
-                                    );
+                                    const next = prev.map((p) => {
+                                      if (p.stepId !== step.id) return p;
+
+                                      const nextSets = p.sets.map((set) => {
+                                        if (set.id !== s.id) return set;
+
+                                        const nextPrevious = checked
+                                          ? formatPrevious(set.weight, set.reps) || set.previous
+                                          : set.previous;
+
+                                        return {
+                                          ...set,
+                                          completed: checked,
+                                          previous: nextPrevious,
+                                        };
+                                      });
+
+                                      return recomputeStepCompletion({ ...p, sets: nextSets });
+                                    });
 
                                     const updated = next.find((p) => p.stepId === step.id);
                                     if (checked && updated?.completed && activeStepId === step.id) {
