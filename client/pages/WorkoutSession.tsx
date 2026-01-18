@@ -895,6 +895,16 @@ export default function WorkoutSession() {
         })}
       </div>
 
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full rounded-full"
+        onClick={() => setAddExerciseOpen(true)}
+      >
+        <Plus className="h-4 w-4" />
+        + Exercício
+      </Button>
+
       {/* Add exercise dialog */}
       <Dialog open={addExerciseOpen} onOpenChange={setAddExerciseOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
