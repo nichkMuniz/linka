@@ -92,7 +92,7 @@ function itemsMeta(category: GoalCategory) {
     return {
       label: "Exercícios",
       placeholder: "Ex: Supino reto",
-      help: "Escolha por grupo muscular (com imagem) ou adicione manualmente.",
+      help: "Escolha por grupo muscular (com imagem) e adicione na lista.",
     };
   }
 
@@ -178,16 +178,13 @@ function WorkoutPicker({
   selectedItems,
   onToggleExercise,
   onRemoveItem,
-  onAddCustom,
 }: {
   selectedItems: ItemDraft[];
   onToggleExercise: (ex: WorkoutExercise) => void;
   onRemoveItem: (itemId: string) => void;
-  onAddCustom: (name: string) => void;
 }) {
   const navigate = useNavigate();
   const [query, setQuery] = React.useState("");
-  const [custom, setCustom] = React.useState("");
   const [muscleFilter, setMuscleFilter] = React.useState<MuscleGroup | "Todos">(
     "Todos",
   );
@@ -319,32 +316,6 @@ function WorkoutPicker({
         )}
       </div>
 
-      <div className="grid gap-2">
-        <div className="text-sm font-medium">Adicionar manualmente</div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Input
-            value={custom}
-            onChange={(e) => setCustom(e.target.value)}
-            placeholder="Ex: Barra fixa supinada"
-          />
-          <Button
-            type="button"
-            className="rounded-full"
-            onClick={() => {
-              const trimmed = custom.trim();
-              if (!trimmed) return;
-              onAddCustom(trimmed);
-              setCustom("");
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            Adicionar
-          </Button>
-        </div>
-        <div className="text-xs text-muted-foreground">
-          Use isso se não encontrar na lista.
-        </div>
-      </div>
     </div>
   );
 }
@@ -414,11 +385,6 @@ export function RoutineEditorDialog({
     });
   }, []);
 
-  const addCustomWorkoutItem = React.useCallback((name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    setItems((prev) => [...prev, { id: uid("ri"), name: trimmed }]);
-  }, []);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -493,7 +459,6 @@ export function RoutineEditorDialog({
                 onRemoveItem={(itemId) =>
                   setItems((prev) => prev.filter((it) => it.id !== itemId))
                 }
-                onAddCustom={addCustomWorkoutItem}
               />
             ) : (
               <>
