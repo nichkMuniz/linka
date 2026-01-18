@@ -7,9 +7,8 @@ import {
   Settings,
   Utensils,
   Check,
-  Download,
-  Smartphone,
   ListChecks,
+  Droplets,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -25,7 +24,6 @@ import {
   updateGoal,
 } from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
-import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -221,9 +219,6 @@ function PostMini({
 }
 
 export default function Profile() {
-  const { platform, isSafariIOS, installed, isInstallable, promptInstall } =
-    usePwaInstall();
-
   const [posts, setPosts] = React.useState<Goal[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
   const [routineEditorOpen, setRoutineEditorOpen] = React.useState(false);
