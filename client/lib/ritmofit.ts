@@ -31,6 +31,9 @@ export type Goal = {
   createdAt: string; // ISO
   completedDays: number;
   incentives: GoalIncentives;
+  /** Opcional: rotina anexada ao post (ex: treino salvo). */
+  attachedRoutineId?: string;
+  attachedRoutineTitle?: string;
   /** MVP: incentivos que o usuário atual já deu (para manter o estado colorido). */
   myIncentives?: Partial<Record<GoalIncentiveKey, boolean>>;
   /** MVP: marca o dia em que o usuário atual atualizou o progresso (para pintar o check de verde). */
@@ -131,6 +134,14 @@ function normalizeGoal(g: Goal): Goal {
     caption: g.caption ?? "",
     imageDataUrl: image.length ? image : defaultImageForGoal(g),
     incentives: g.incentives ?? { apoio: 0, continua: 0, orgulho: 0 },
+    attachedRoutineId:
+      typeof (g as any).attachedRoutineId === "string"
+        ? (((g as any).attachedRoutineId as string).trim() || undefined)
+        : undefined,
+    attachedRoutineTitle:
+      typeof (g as any).attachedRoutineTitle === "string"
+        ? (((g as any).attachedRoutineTitle as string).trim() || undefined)
+        : undefined,
     myIncentives: g.myIncentives ?? {},
     myProgressToday: g.myProgressToday ?? "",
     comments,
@@ -469,6 +480,8 @@ export function createGoal(input: {
   frequency: string;
   durationDays: 7 | 21 | 30;
   visibility: GoalVisibility;
+  attachedRoutineId?: string;
+  attachedRoutineTitle?: string;
 }): Goal {
   const state = getRitmoFitState();
 
@@ -489,6 +502,8 @@ export function createGoal(input: {
     createdAt,
     completedDays: hasPhoto ? 1 : 0,
     incentives: { apoio: 0, continua: 0, orgulho: 0 },
+    attachedRoutineId: (input.attachedRoutineId ?? "").trim() || undefined,
+    attachedRoutineTitle: (input.attachedRoutineTitle ?? "").trim() || undefined,
     myIncentives: {},
     myProgressToday: hasPhoto ? todayKey(new Date(createdAt)) : "",
     comments: [],
