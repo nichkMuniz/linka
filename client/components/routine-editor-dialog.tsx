@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -22,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-type StepDraft = { id: string; title: string; detail: string };
+type ItemDraft = { id: string; name: string };
 
 const categoryOptions: Array<{ value: GoalCategory; label: string }> = [
   { value: "Treino", label: "Treino" },
@@ -34,6 +33,86 @@ const visibilityOptions: Array<{ value: GoalVisibility; label: string }> = [
   { value: "Público", label: "Público" },
   { value: "Seguidores", label: "Seguidores" },
 ];
+
+const suggestions: Record<GoalCategory, string[]> = {
+  Treino: [
+    "Supino reto",
+    "Supino inclinado",
+    "Crucifixo",
+    "Desenvolvimento",
+    "Elevação lateral",
+    "Remada curvada",
+    "Puxada na barra",
+    "Rosca direta",
+    "Rosca martelo",
+    "Tríceps corda",
+    "Tríceps testa",
+    "Agachamento",
+    "Leg press",
+    "Stiff",
+    "Cadeira extensora",
+    "Cadeira flexora",
+    "Panturrilha",
+    "Abdominal",
+    "Corrida",
+    "Bicicleta",
+  ],
+  "Alimentação": [
+    "Arroz",
+    "Feijão",
+    "Frango",
+    "Ovo",
+    "Carne",
+    "Peixe",
+    "Batata",
+    "Macarrão",
+    "Aveia",
+    "Iogurte",
+    "Banana",
+    "Maçã",
+    "Salada",
+    "Legumes",
+    "Castanhas",
+    "Whey",
+    "Água",
+  ],
+  "Hábito": [
+    "Beber 2L de água",
+    "Dormir 7–8 horas",
+    "Alongar 10 min",
+    "Caminhar 30 min",
+    "10k passos",
+    "Meditar 5 min",
+    "Ler 10 páginas",
+    "Sem refrigerante",
+    "Sem açúcar",
+    "Preparar marmita",
+  ],
+};
+
+function itemsMeta(category: GoalCategory) {
+  if (category === "Treino") {
+    return {
+      label: "Exercícios",
+      placeholder: "Ex: Supino reto",
+      help: "Digite e escolha da lista (ou escreva o seu).",
+    };
+  }
+
+  if (category === "Alimentação") {
+    return {
+      label: "Comidas",
+      placeholder: "Ex: Frango",
+      help: "Liste os alimentos que fazem parte dessa rotina.",
+    };
+  }
+
+  return {
+    label: "Hábitos",
+    placeholder: "Ex: Beber 2L de água",
+    help: "Liste hábitos simples que você quer repetir.",
+  };
+}
 
 export function RoutineEditorDialog({
   open,
@@ -49,29 +128,30 @@ export function RoutineEditorDialog({
   const isEdit = Boolean(routine);
 
   const [title, setTitle] = React.useState("");
-  const [description, setDescription] = React.useState("");
   const [category, setCategory] = React.useState<GoalCategory>("Treino");
   const [visibility, setVisibility] = React.useState<GoalVisibility>("Público");
-  const [steps, setSteps] = React.useState<StepDraft[]>([]);
+  const [items, setItems] = React.useState<ItemDraft[]>([]);
 
   React.useEffect(() => {
     if (!open) return;
 
     setTitle(routine?.title ?? "");
-    setDescription(routine?.description ?? "");
     setCategory(routine?.category ?? "Treino");
     setVisibility(routine?.visibility ?? "Público");
 
-    const nextSteps: StepDraft[] = (routine?.steps ?? []).map((s) => ({
+    const nextItems: ItemDraft[] = (routine?.steps ?? []).map((s) => ({
       id: s.id,
-      title: s.title,
-      detail: s.detail,
+      name: s.title,
     }));
 
-    setSteps(nextSteps.length ? nextSteps : [{ id: uid("rs"), title: "", detail: "" }]);
+    setItems(
+      nextItems.length ? nextItems : [{ id: uid("ri"), name: "" }],
+    );
   }, [open, routine]);
 
   const canSave = title.trim().length >= 2;
+  const meta = itemsMeta(category);
+  const datalistId = `ritmofit-${category}-items`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -79,22 +159,17 @@ export function RoutineEditorDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? "Editar rotina" : "Nova rotina"}</DialogTitle>
           <DialogDescription>
-            Crie uma rotina que outras pessoas podem copiar.
+            Coloque um nome e liste os itens. O resto fica fácil de copiar.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
           <div className="grid gap-2">
             <div className="text-sm font-medium">Título</div>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-          </div>
-
-          <div className="grid gap-2">
-            <div className="text-sm font-medium">Descrição</div>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="min-h-[92px]"
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Ex: Peito + tríceps"
             />
           </div>
 
@@ -140,75 +215,74 @@ export function RoutineEditorDialog({
 
           <div className="grid gap-2">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-medium">Passos</div>
+              <div>
+                <div className="text-sm font-medium">{meta.label}</div>
+                <div className="text-xs text-muted-foreground">{meta.help}</div>
+              </div>
+
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
                 className="rounded-full"
                 onClick={() =>
-                  setSteps((prev) => [...prev, { id: uid("rs"), title: "", detail: "" }])
+                  setItems((prev) => [...prev, { id: uid("ri"), name: "" }])
                 }
               >
                 <Plus className="h-4 w-4" />
-                Adicionar passo
+                Adicionar
               </Button>
             </div>
 
             <div className="grid gap-3">
-              {steps.map((s, idx) => (
+              {items.map((it, idx) => (
                 <div
-                  key={s.id}
-                  className="rounded-2xl border border-border/60 bg-muted/20 p-4"
+                  key={it.id}
+                  className="flex items-start gap-2 rounded-2xl border border-border/60 bg-muted/20 p-3"
                 >
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <div className="text-xs font-semibold text-muted-foreground">
-                      Passo {idx + 1}
-                    </div>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className={cn(
-                        "h-9 w-9 rounded-full",
-                        steps.length === 1 ? "opacity-50" : null,
-                      )}
-                      aria-label="Remover passo"
-                      disabled={steps.length === 1}
-                      onClick={() =>
-                        setSteps((prev) => prev.filter((p) => p.id !== s.id))
-                      }
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                  <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-background ring-1 ring-border/60">
+                    <span className="text-xs font-semibold">{idx + 1}</span>
                   </div>
 
-                  <div className="grid gap-2">
+                  <div className="flex-1">
                     <Input
-                      value={s.title}
-                      placeholder="Ex: Aquecimento 5 min"
+                      value={it.name}
+                      placeholder={meta.placeholder}
+                      list={datalistId}
                       onChange={(e) => {
                         const v = e.target.value;
-                        setSteps((prev) =>
-                          prev.map((p) => (p.id === s.id ? { ...p, title: v } : p)),
-                        );
-                      }}
-                    />
-                    <Textarea
-                      value={s.detail}
-                      placeholder="Detalhes (opcional)"
-                      className="min-h-[72px]"
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setSteps((prev) =>
-                          prev.map((p) => (p.id === s.id ? { ...p, detail: v } : p)),
+                        setItems((prev) =>
+                          prev.map((p) => (p.id === it.id ? { ...p, name: v } : p)),
                         );
                       }}
                     />
                   </div>
+
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className={cn(
+                      "h-9 w-9 rounded-full",
+                      items.length === 1 ? "opacity-50" : null,
+                    )}
+                    aria-label="Remover item"
+                    disabled={items.length === 1}
+                    onClick={() =>
+                      setItems((prev) => prev.filter((p) => p.id !== it.id))
+                    }
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               ))}
             </div>
+
+            <datalist id={datalistId}>
+              {suggestions[category].map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -228,28 +302,28 @@ export function RoutineEditorDialog({
               onClick={() => {
                 const trimmed = title.trim();
 
+                const nextSteps = items
+                  .map((i) => ({ id: i.id, title: i.name.trim(), detail: "" }))
+                  .filter((i) => i.title.length > 0);
+
                 if (isEdit && routine) {
                   updateRoutine(routine.id, (r) => ({
                     ...r,
                     title: trimmed,
-                    description: description.trim(),
+                    description: "",
                     category,
                     visibility,
-                    steps: steps.map((st) => ({
-                      id: st.id,
-                      title: st.title.trim(),
-                      detail: st.detail.trim(),
-                    })),
+                    steps: nextSteps,
                   }));
                 } else {
                   createRoutine({
                     title: trimmed,
-                    description: description.trim(),
+                    description: "",
                     category,
                     visibility,
-                    steps: steps.map((st) => ({
-                      title: st.title,
-                      detail: st.detail,
+                    steps: nextSteps.map((s) => ({
+                      title: s.title,
+                      detail: "",
                     })),
                   });
                 }
