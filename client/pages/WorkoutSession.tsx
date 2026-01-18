@@ -1,14 +1,22 @@
 import * as React from "react";
 
 import { ArrowLeft, Pause, Play, RotateCcw, Plus, Trash2 } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import type { Routine } from "@/lib/ritmofit";
-import { getRoutines, uid } from "@/lib/ritmofit";
+import { addStoryItem, createGoal, getRoutines, uid } from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 
@@ -16,6 +24,8 @@ type SetDraft = {
   id: string;
   reps: string;
   weight: string;
+  completed: boolean;
+  previous?: string;
 };
 
 type StepLog = {
@@ -36,6 +46,7 @@ function numberOrZero(v: string) {
 }
 
 function calcSetVolume(s: SetDraft) {
+  if (!s.completed) return 0;
   const reps = numberOrZero(s.reps);
   const weight = numberOrZero(s.weight);
   if (reps <= 0 || weight <= 0) return 0;
@@ -74,6 +85,7 @@ function useStopwatch() {
 
 export default function WorkoutSession() {
   const { routineId } = useParams();
+  const navigate = useNavigate();
 
   const [routine, setRoutine] = React.useState<Routine | null>(null);
   const steps = React.useMemo(() => {
@@ -93,12 +105,43 @@ export default function WorkoutSession() {
   const [logs, setLogs] = React.useState<StepLog[]>([]);
   const [activeStepId, setActiveStepId] = React.useState<string | null>(null);
 
+  const [summaryOpen, setSummaryOpen] = React.useState(false);
+  const [postToFeed, setPostToFeed] = React.useState(true);
+  const [postToStories, setPostToStories] = React.useState(true);
+
   const stepRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   React.useEffect(() => {
     const found = getRoutines().find((r) => r.id === routineId) ?? null;
     setRoutine(found);
   }, [routineId]);
+
+  const formatPrevious = React.useCallback((weight: string, reps: string) => {
+    const w = weight.trim();
+    const r = reps.trim();
+    if (!w || !r) return "";
+    const repLabel = Number(r) === 1 ? "rep" : "rep";
+    return `${w}kg x ${r} ${repLabel}`;
+  }, []);
+
+  const recomputeStepCompletion = React.useCallback((log: StepLog): StepLog => {
+    const hasAnySet = log.sets.length > 0;
+    const allSetsChecked = hasAnySet && log.sets.every((s) => s.completed);
+    return { ...log, completed: allSetsChecked };
+  }, []);
+
+  const updateSet = React.useCallback(
+    (stepId: string, setId: string, updater: (s: SetDraft) => SetDraft) => {
+      setLogs((prev) =>
+        prev.map((p) => {
+          if (p.stepId !== stepId) return p;
+          const nextSets = p.sets.map((s) => (s.id === setId ? updater(s) : s));
+          return recomputeStepCompletion({ ...p, sets: nextSets });
+        }),
+      );
+    },
+    [recomputeStepCompletion],
+  );
 
   React.useEffect(() => {
     if (!routine) return;
@@ -111,6 +154,7 @@ export default function WorkoutSession() {
 
     setLogs(nextLogs);
     setActiveStepId(nextLogs[0]?.stepId ?? null);
+    setSummaryOpen(false);
     stopwatch.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routine?.id]);
@@ -167,6 +211,19 @@ export default function WorkoutSession() {
   const totalCount = logs.length;
 
   const totalVolume = logs.reduce((acc, s) => acc + calcStepVolume(s), 0);
+
+  const allDone = logs.length > 0 && logs.every((s) => s.completed);
+  const coverImage = steps.find((s) => Boolean(s.imageUrl))?.imageUrl ?? "";
+
+  const estimatedCalories = React.useMemo(() => {
+    const minutes = stopwatch.elapsedSeconds / 60;
+    if (minutes <= 0) return 0;
+
+    // Estimativa simples (sem peso do usuário): assume 70kg e MET ~ 6 (treino moderado).
+    const assumedWeightKg = 70;
+    const met = 6;
+    return Math.max(0, Math.round((met * 3.5 * assumedWeightKg * minutes) / 200));
+  }, [stopwatch.elapsedSeconds]);
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-4">
@@ -233,11 +290,17 @@ export default function WorkoutSession() {
               variant="secondary"
               className="ml-auto rounded-full"
               onClick={() => {
+                if (!allDone) {
+                  toast({
+                    title: "Ainda falta",
+                    description:
+                      "Finalize todas as séries (marque o checkbox de cada série) para encerrar.",
+                  });
+                  return;
+                }
+
                 stopwatch.pause();
-                toast({
-                  title: "Treino encerrado",
-                  description: "Seu registro ficou nessa tela. Você pode iniciar de novo quando quiser.",
-                });
+                setSummaryOpen(true);
               }}
             >
               Encerrar
@@ -245,7 +308,8 @@ export default function WorkoutSession() {
           </div>
 
           <div className="text-xs text-muted-foreground">
-            Dica: marque o checkbox quando finalizar um exercício — o foco vai para o próximo.
+            Dica: marque o checkbox de cada série quando finalizar — ao completar todas as séries,
+            a tela vai para o próximo exercício.
           </div>
         </CardContent>
       </Card>
@@ -271,31 +335,6 @@ export default function WorkoutSession() {
             >
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">
-                  <Checkbox
-                    checked={log.completed}
-                    onCheckedChange={(v) => {
-                      const checked = Boolean(v);
-
-                      setLogs((prev) => {
-                        const next = prev.map((p) =>
-                          p.stepId === step.id ? { ...p, completed: checked } : p,
-                        );
-
-                        if (checked && activeStepId === step.id) {
-                          const idx = next.findIndex((p) => p.stepId === step.id);
-                          const nextActive = next
-                            .slice(idx + 1)
-                            .find((p) => !p.completed)?.stepId;
-                          setActiveStepId(nextActive ?? null);
-                        }
-
-                        return next;
-                      });
-                    }}
-                    className="mt-1"
-                    aria-label={`Marcar ${step.title} como concluído`}
-                  />
-
                   {step.imageUrl ? (
                     <img
                       src={step.imageUrl}
@@ -336,8 +375,50 @@ export default function WorkoutSession() {
                           {log.sets.map((s, idx) => (
                             <div
                               key={s.id}
-                              className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 rounded-2xl border border-border/60 bg-muted/20 p-3"
+                              className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 rounded-2xl border border-border/60 bg-muted/20 p-3"
                             >
+                              <Checkbox
+                                checked={s.completed}
+                                onCheckedChange={(v) => {
+                                  const checked = Boolean(v);
+
+                                  updateSet(step.id, s.id, (prevSet) => {
+                                    const nextPrevious = checked
+                                      ? formatPrevious(prevSet.weight, prevSet.reps) ||
+                                        prevSet.previous
+                                      : prevSet.previous;
+
+                                    return {
+                                      ...prevSet,
+                                      completed: checked,
+                                      previous: nextPrevious,
+                                    };
+                                  });
+
+                                  // se completou todas as séries, pula para o próximo exercício
+                                  setLogs((prev) => {
+                                    const next = prev.map((p) =>
+                                      p.stepId === step.id
+                                        ? recomputeStepCompletion(p)
+                                        : p,
+                                    );
+
+                                    const updated = next.find((p) => p.stepId === step.id);
+                                    if (checked && updated?.completed && activeStepId === step.id) {
+                                      const idxStep = next.findIndex((p) => p.stepId === step.id);
+                                      const nextActive = next
+                                        .slice(idxStep + 1)
+                                        .find((p) => !p.completed)?.stepId;
+                                      setActiveStepId(nextActive ?? null);
+                                    }
+
+                                    return next;
+                                  });
+                                }}
+                                className="mb-2"
+                                aria-label={`Marcar série ${idx + 1} como concluída`}
+                              />
+
                               <div className="grid gap-1">
                                 <div className="text-xs font-semibold text-muted-foreground">
                                   Série {idx + 1} · Reps
@@ -348,20 +429,15 @@ export default function WorkoutSession() {
                                   placeholder="10"
                                   onChange={(e) => {
                                     const nextReps = e.target.value;
-                                    setLogs((prev) =>
-                                      prev.map((p) =>
-                                        p.stepId === step.id
-                                          ? {
-                                              ...p,
-                                              sets: p.sets.map((set) =>
-                                                set.id === s.id
-                                                  ? { ...set, reps: nextReps }
-                                                  : set,
-                                              ),
-                                            }
-                                          : p,
-                                      ),
-                                    );
+                                    updateSet(step.id, s.id, (prevSet) => {
+                                      const next = { ...prevSet, reps: nextReps };
+                                      if (next.completed) {
+                                        next.previous =
+                                          formatPrevious(next.weight, next.reps) ||
+                                          next.previous;
+                                      }
+                                      return next;
+                                    });
                                   }}
                                 />
                               </div>
@@ -376,22 +452,31 @@ export default function WorkoutSession() {
                                   placeholder="20"
                                   onChange={(e) => {
                                     const nextWeight = e.target.value;
-                                    setLogs((prev) =>
-                                      prev.map((p) =>
-                                        p.stepId === step.id
-                                          ? {
-                                              ...p,
-                                              sets: p.sets.map((set) =>
-                                                set.id === s.id
-                                                  ? { ...set, weight: nextWeight }
-                                                  : set,
-                                              ),
-                                            }
-                                          : p,
-                                      ),
-                                    );
+                                    updateSet(step.id, s.id, (prevSet) => {
+                                      const next = { ...prevSet, weight: nextWeight };
+                                      if (next.completed) {
+                                        next.previous =
+                                          formatPrevious(next.weight, next.reps) ||
+                                          next.previous;
+                                      }
+                                      return next;
+                                    });
                                   }}
                                 />
+                              </div>
+
+                              <div className="grid gap-1">
+                                <div className="text-xs font-semibold text-muted-foreground">
+                                  Anterior
+                                </div>
+                                <div
+                                  className={cn(
+                                    "h-10 rounded-md border border-border bg-background px-3 text-sm leading-10",
+                                    !s.previous ? "text-muted-foreground" : null,
+                                  )}
+                                >
+                                  {s.previous ? s.previous : "-"}
+                                </div>
                               </div>
 
                               <Button
@@ -402,14 +487,14 @@ export default function WorkoutSession() {
                                 aria-label="Remover série"
                                 onClick={() => {
                                   setLogs((prev) =>
-                                    prev.map((p) =>
-                                      p.stepId === step.id
-                                        ? {
-                                            ...p,
-                                            sets: p.sets.filter((set) => set.id !== s.id),
-                                          }
-                                        : p,
-                                    ),
+                                    prev.map((p) => {
+                                      if (p.stepId !== step.id) return p;
+                                      const nextStep = {
+                                        ...p,
+                                        sets: p.sets.filter((set) => set.id !== s.id),
+                                      };
+                                      return recomputeStepCompletion(nextStep);
+                                    }),
                                   );
                                 }}
                               >
@@ -438,7 +523,13 @@ export default function WorkoutSession() {
                                       ...p,
                                       sets: [
                                         ...p.sets,
-                                        { id: uid("set"), reps: "", weight: "" },
+                                        {
+                                          id: uid("set"),
+                                          reps: "",
+                                          weight: "",
+                                          completed: false,
+                                          previous: "",
+                                        },
                                       ],
                                     }
                                   : p,
