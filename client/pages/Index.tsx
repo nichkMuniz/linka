@@ -19,8 +19,10 @@ import {
   Goal,
   dayLabel,
   getRitmoFitState,
+  getRoutines,
   goalProgressPercent,
   isBlocked,
+  Routine,
   timeAgo,
   updateGoal,
 } from "@/lib/ritmofit";
@@ -187,6 +189,15 @@ function PostCard({
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
   const isMine = goal.ownerHandle === "@voce" || goal.ownerName === "Você";
+
+  const attachedRoutine: Routine | null = React.useMemo(() => {
+    const routineId = (goal.attachedRoutineId ?? "").trim();
+    if (!routineId) return null;
+    return getRoutines().find((r) => r.id === routineId) ?? null;
+  }, [goal.attachedRoutineId]);
+
+  const attachedRoutineTitle =
+    attachedRoutine?.title ?? (goal.attachedRoutineTitle ?? "").trim();
   const updatedToday = goal.myProgressToday === todayKey();
   const [open, setOpen] = React.useState(false);
   const [pulse, setPulse] = React.useState<IncentiveKind | null>(null);
@@ -513,6 +524,58 @@ function PostCard({
             <div className="text-sm text-muted-foreground">{goal.caption}</div>
           ) : null}
         </div>
+
+        {attachedRoutineTitle ? (
+          <div className="rounded-2xl border border-border/60 bg-muted/20 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-muted-foreground">
+                  Rotina anexada
+                </div>
+                <div className="mt-0.5 truncate text-sm font-semibold">
+                  {attachedRoutineTitle}
+                </div>
+                {attachedRoutine ? (
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    {attachedRoutine.steps.length} itens
+                  </div>
+                ) : (
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    (rotina não encontrada)
+                  </div>
+                )}
+              </div>
+
+              {attachedRoutine ? (
+                <Button asChild size="sm" variant="outline" className="rounded-full">
+                  <Link to={`/rotinas/${attachedRoutine.id}`}>Ver rotina</Link>
+                </Button>
+              ) : null}
+            </div>
+
+            {attachedRoutine?.steps?.length ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {attachedRoutine.steps
+                  .map((s) => s.title.trim())
+                  .filter(Boolean)
+                  .slice(0, 6)
+                  .map((t) => (
+                    <span
+                      key={t}
+                      className="rounded-full bg-background/70 px-3 py-1 text-xs text-foreground ring-1 ring-border/60"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                {attachedRoutine.steps.length > 6 ? (
+                  <span className="rounded-full bg-background/40 px-3 py-1 text-xs text-muted-foreground ring-1 ring-border/60">
+                    +{attachedRoutine.steps.length - 6}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* progress */}
         <div className="space-y-2 rounded-2xl border border-border/60 bg-muted/30 p-3">
