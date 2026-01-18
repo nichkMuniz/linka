@@ -772,3 +772,248 @@ export function copyRoutine(
   setRitmoFitState(next);
   return next;
 }
+
+export type MuscleGroup =
+  | "Peito"
+  | "Costas"
+  | "Ombros"
+  | "Bíceps"
+  | "Tríceps"
+  | "Pernas"
+  | "Glúteos"
+  | "Core"
+  | "Cardio";
+
+export type WorkoutExercise = {
+  id: string;
+  name: string;
+  muscleGroup: MuscleGroup;
+  /** URL externa (royalty-free Pexels). */
+  imageUrl: string;
+};
+
+function pexels(url: string, width = 640) {
+  const base = url.split("?")[0];
+  return `${base}?auto=compress&cs=tinysrgb&w=${width}`;
+}
+
+export const WORKOUT_MUSCLE_GROUPS: MuscleGroup[] = [
+  "Peito",
+  "Costas",
+  "Ombros",
+  "Bíceps",
+  "Tríceps",
+  "Pernas",
+  "Glúteos",
+  "Core",
+  "Cardio",
+];
+
+export const WORKOUT_EXERCISES: WorkoutExercise[] = [
+  {
+    id: "supino-reto",
+    name: "Supino reto",
+    muscleGroup: "Peito",
+    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+  },
+  {
+    id: "supino-inclinado",
+    name: "Supino inclinado",
+    muscleGroup: "Peito",
+    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+  },
+  {
+    id: "crucifixo",
+    name: "Crucifixo",
+    muscleGroup: "Peito",
+    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+  },
+  {
+    id: "flexao",
+    name: "Flexão",
+    muscleGroup: "Peito",
+    imageUrl: pexels("https://images.pexels.com/photos/10360933/pexels-photo-10360933.jpeg"),
+  },
+  {
+    id: "crossover",
+    name: "Crossover (polia)",
+    muscleGroup: "Peito",
+    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+  },
+  {
+    id: "puxada-barra",
+    name: "Puxada na barra",
+    muscleGroup: "Costas",
+    imageUrl: pexels("https://images.pexels.com/photos/10518848/pexels-photo-10518848.jpeg"),
+  },
+  {
+    id: "pulldown",
+    name: "Puxada na polia (pulldown)",
+    muscleGroup: "Costas",
+    imageUrl: pexels("https://images.pexels.com/photos/10551484/pexels-photo-10551484.jpeg"),
+  },
+  {
+    id: "remada-curvada",
+    name: "Remada curvada",
+    muscleGroup: "Costas",
+    imageUrl: pexels("https://images.pexels.com/photos/9479153/pexels-photo-9479153.jpeg"),
+  },
+  {
+    id: "remada-unilateral",
+    name: "Remada unilateral (halter)",
+    muscleGroup: "Costas",
+    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+  },
+  {
+    id: "pullover",
+    name: "Pullover",
+    muscleGroup: "Costas",
+    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+  },
+  {
+    id: "desenvolvimento",
+    name: "Desenvolvimento (halteres)",
+    muscleGroup: "Ombros",
+    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+  },
+  {
+    id: "elevacao-lateral",
+    name: "Elevação lateral",
+    muscleGroup: "Ombros",
+    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+  },
+  {
+    id: "elevacao-frontal",
+    name: "Elevação frontal",
+    muscleGroup: "Ombros",
+    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+  },
+  {
+    id: "remada-alta",
+    name: "Remada alta",
+    muscleGroup: "Ombros",
+    imageUrl: pexels("https://images.pexels.com/photos/9479153/pexels-photo-9479153.jpeg"),
+  },
+  {
+    id: "rosca-direta",
+    name: "Rosca direta",
+    muscleGroup: "Bíceps",
+    imageUrl: pexels("https://images.pexels.com/photos/9073246/pexels-photo-9073246.jpeg"),
+  },
+  {
+    id: "rosca-martelo",
+    name: "Rosca martelo",
+    muscleGroup: "Bíceps",
+    imageUrl: pexels("https://images.pexels.com/photos/9073246/pexels-photo-9073246.jpeg"),
+  },
+  {
+    id: "rosca-alternada",
+    name: "Rosca alternada",
+    muscleGroup: "Bíceps",
+    imageUrl: pexels("https://images.pexels.com/photos/9073246/pexels-photo-9073246.jpeg"),
+  },
+  {
+    id: "triceps-corda",
+    name: "Tríceps corda",
+    muscleGroup: "Tríceps",
+    imageUrl: pexels("https://images.pexels.com/photos/4218662/pexels-photo-4218662.jpeg"),
+  },
+  {
+    id: "triceps-testa",
+    name: "Tríceps testa",
+    muscleGroup: "Tríceps",
+    imageUrl: pexels("https://images.pexels.com/photos/4218662/pexels-photo-4218662.jpeg"),
+  },
+  {
+    id: "mergulho",
+    name: "Mergulho (paralelas)",
+    muscleGroup: "Tríceps",
+    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+  },
+  {
+    id: "agachamento",
+    name: "Agachamento",
+    muscleGroup: "Pernas",
+    imageUrl: pexels("https://images.pexels.com/photos/5209197/pexels-photo-5209197.jpeg"),
+  },
+  {
+    id: "leg-press",
+    name: "Leg press",
+    muscleGroup: "Pernas",
+    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+  },
+  {
+    id: "cadeira-extensora",
+    name: "Cadeira extensora",
+    muscleGroup: "Pernas",
+    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+  },
+  {
+    id: "cadeira-flexora",
+    name: "Cadeira flexora",
+    muscleGroup: "Pernas",
+    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+  },
+  {
+    id: "stiff",
+    name: "Stiff (terra romeno)",
+    muscleGroup: "Pernas",
+    imageUrl: pexels("https://images.pexels.com/photos/9479153/pexels-photo-9479153.jpeg"),
+  },
+  {
+    id: "hip-thrust",
+    name: "Hip thrust",
+    muscleGroup: "Glúteos",
+    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+  },
+  {
+    id: "afundo",
+    name: "Afundo (avanço)",
+    muscleGroup: "Glúteos",
+    imageUrl: pexels("https://images.pexels.com/photos/5209197/pexels-photo-5209197.jpeg"),
+  },
+  {
+    id: "panturrilha",
+    name: "Panturrilha (em pé)",
+    muscleGroup: "Pernas",
+    imageUrl: pexels("https://images.pexels.com/photos/11241448/pexels-photo-11241448.jpeg"),
+  },
+  {
+    id: "prancha",
+    name: "Prancha",
+    muscleGroup: "Core",
+    imageUrl: pexels("https://images.pexels.com/photos/28970125/pexels-photo-28970125.jpeg"),
+  },
+  {
+    id: "abdominal-crunch",
+    name: "Abdominal (crunch)",
+    muscleGroup: "Core",
+    imageUrl: pexels("https://images.pexels.com/photos/16216727/pexels-photo-16216727.jpeg"),
+  },
+  {
+    id: "elevacao-pernas",
+    name: "Elevação de pernas",
+    muscleGroup: "Core",
+    imageUrl: pexels("https://images.pexels.com/photos/16216727/pexels-photo-16216727.jpeg"),
+  },
+  {
+    id: "corrida",
+    name: "Corrida",
+    muscleGroup: "Cardio",
+    imageUrl: pexels("https://images.pexels.com/photos/10518848/pexels-photo-10518848.jpeg"),
+  },
+  {
+    id: "bicicleta",
+    name: "Bicicleta",
+    muscleGroup: "Cardio",
+    imageUrl: pexels("https://images.pexels.com/photos/10518848/pexels-photo-10518848.jpeg"),
+  },
+];
+
+export function findWorkoutExerciseById(exerciseId: string) {
+  return WORKOUT_EXERCISES.find((ex) => ex.id === exerciseId) ?? null;
+}
+
+export function getWorkoutExercisesByGroup(group: MuscleGroup) {
+  return WORKOUT_EXERCISES.filter((ex) => ex.muscleGroup === group);
+}
