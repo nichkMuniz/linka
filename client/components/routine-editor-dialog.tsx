@@ -527,13 +527,11 @@ export function RoutineEditorDialog({
                   ))}
                 </div>
 
-                {category !== "Treino" ? (
-                  <datalist id={datalistId}>
-                    {suggestions[category as Exclude<GoalCategory, "Treino">].map((s) => (
-                      <option key={s} value={s} />
-                    ))}
-                  </datalist>
-                ) : null}
+                <datalist id={datalistId}>
+                  {suggestions[category as Exclude<GoalCategory, "Treino">].map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
               </>
             )}
           </div>
