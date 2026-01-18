@@ -21,6 +21,7 @@ import Rank from "@/pages/Rank";
 import Reels from "@/pages/Reels";
 import Install from "@/pages/Install";
 import RoutineDetails from "@/pages/RoutineDetails";
+import WorkoutSession from "@/pages/WorkoutSession";
 import ExerciseDetails from "@/pages/ExerciseDetails";
 import NotFound from "@/pages/NotFound";
 import Placeholder from "@/pages/Placeholder";
@@ -56,6 +57,10 @@ const App = () => {
                 <Route path="/rank" element={<Rank />} />
                 <Route path="/reels" element={<Reels />} />
                 <Route path="/instalar" element={<Install />} />
+                <Route
+                  path="/rotinas/:routineId/iniciar"
+                  element={<WorkoutSession />}
+                />
                 <Route path="/rotinas/:routineId" element={<RoutineDetails />} />
                 <Route path="/exercicios/:exerciseId" element={<ExerciseDetails />} />
 
