@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Plus, Trash2, Search, Check, ListFilter } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import type {
   GoalCategory,
@@ -127,21 +128,26 @@ function WorkoutExerciseCard({
   exercise,
   selected,
   onToggle,
+  onOpenDetails,
 }: {
   exercise: WorkoutExercise;
   selected: boolean;
   onToggle: () => void;
+  onOpenDetails: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
+    <div
       className={cn(
-        "group flex w-full items-center gap-3 rounded-2xl border border-border/60 bg-muted/20 p-3 text-left transition-colors hover:bg-muted/30",
+        "group flex w-full items-stretch gap-3 rounded-2xl border border-border/60 bg-muted/20 p-3 text-left transition-colors hover:bg-muted/30",
         selected ? "bg-brand/10 ring-2 ring-brand/30" : null,
       )}
     >
-      <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl ring-1 ring-border/60">
+      <button
+        type="button"
+        onClick={onOpenDetails}
+        className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl ring-1 ring-border/60 transition hover:opacity-95"
+        aria-label={`Ver detalhes de ${exercise.name}`}
+      >
         <img
           src={exercise.imageUrl}
           alt={exercise.name}
@@ -153,13 +159,18 @@ function WorkoutExerciseCard({
             <Check className="h-4 w-4" />
           </span>
         ) : null}
-      </div>
+      </button>
 
-      <div className="min-w-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex min-w-0 flex-1 flex-col justify-center rounded-xl px-1 text-left"
+        aria-label={selected ? `Remover ${exercise.name}` : `Adicionar ${exercise.name}`}
+      >
         <div className="truncate text-sm font-medium">{exercise.name}</div>
         <div className="text-xs text-muted-foreground">{exercise.muscleGroup}</div>
-      </div>
-    </button>
+      </button>
+    </div>
   );
 }
 
@@ -174,6 +185,7 @@ function WorkoutPicker({
   onRemoveItem: (itemId: string) => void;
   onAddCustom: (name: string) => void;
 }) {
+  const navigate = useNavigate();
   const [query, setQuery] = React.useState("");
   const [custom, setCustom] = React.useState("");
   const [muscleFilter, setMuscleFilter] = React.useState<MuscleGroup | "Todos">(
@@ -296,6 +308,7 @@ function WorkoutPicker({
                 exercise={ex}
                 selected={selectedByExerciseId.has(ex.id)}
                 onToggle={() => onToggleExercise(ex)}
+                onOpenDetails={() => navigate(`/exercicios/${ex.id}`)}
               />
             ))}
           </div>
