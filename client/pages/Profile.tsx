@@ -9,13 +9,18 @@ import {
   Check,
   Download,
   Smartphone,
+  ListChecks,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import {
+  copyRoutine,
   dayLabel,
+  deleteRoutine,
   getRitmoFitState,
+  getRoutines,
   Goal,
+  Routine,
   goalProgressPercent,
   updateGoal,
 } from "@/lib/ritmofit";
@@ -33,6 +38,8 @@ import { Progress } from "@/components/ui/progress";
 import { CompleteTodayDialog } from "@/components/complete-today-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
+import { RoutineCard } from "@/components/routine-card";
+import { RoutineEditorDialog } from "@/components/routine-editor-dialog";
 
 function todayKey(d = new Date()) {
   const y = d.getFullYear();
@@ -218,12 +225,51 @@ export default function Profile() {
     usePwaInstall();
 
   const [posts, setPosts] = React.useState<Goal[]>([]);
+  const [routines, setRoutines] = React.useState<Routine[]>([]);
+  const [routineEditorOpen, setRoutineEditorOpen] = React.useState(false);
+  const [editingRoutine, setEditingRoutine] = React.useState<Routine | null>(null);
+
+  const refreshRoutines = React.useCallback(() => {
+    setRoutines(getRoutines());
+  }, []);
+
+  const shareRoutine = React.useCallback(async (routine: Routine) => {
+    const url = new URL(`/rotinas/${routine.id}`, window.location.origin).toString();
+
+    const nav = navigator as any;
+    if (nav.share) {
+      try {
+        await nav.share({ title: routine.title, url });
+        toast({
+          title: "Compartilhado",
+          description: "Enviado para compartilhar.",
+        });
+        return;
+      } catch {
+        // fallthrough
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({
+        title: "Link copiado",
+        description: "Você já pode colar onde quiser.",
+      });
+    } catch {
+      toast({
+        title: "Não foi possível",
+        description: "Seu navegador não permite compartilhar/copiar agora.",
+      });
+    }
+  }, []);
 
   React.useEffect(() => {
-    const all = getRitmoFitState().goals;
+    const state = getRitmoFitState();
     setPosts(
-      all.filter((g) => g.ownerHandle === "@voce" || g.ownerName === "Você"),
+      state.goals.filter((g) => g.ownerHandle === "@voce" || g.ownerName === "Você"),
     );
+    setRoutines(state.routines);
   }, []);
 
   const profile = {
@@ -238,6 +284,9 @@ export default function Profile() {
     followers: 128,
     following: 93,
   };
+
+  const myRoutines = routines.filter((r) => r.ownerHandle === "@voce");
+  const discoverRoutines = routines.filter((r) => r.ownerHandle !== "@voce");
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
@@ -363,6 +412,115 @@ export default function Profile() {
           )}
         </CardContent>
       </Card>
+
+      <Card className="border-border/60">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ListChecks className="h-4 w-4 text-brand" />
+                Rotinas
+              </CardTitle>
+              <CardDescription>
+                Crie suas próprias rotinas para outras pessoas verem e copiarem.
+              </CardDescription>
+            </div>
+
+            <Button
+              type="button"
+              className="rounded-full"
+              onClick={() => {
+                setEditingRoutine(null);
+                setRoutineEditorOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              Nova rotina
+            </Button>
+          </div>
+        </CardHeader>
+
+        <CardContent className="grid gap-6">
+          <div className="grid gap-3">
+            <div className="text-sm font-semibold">Minhas rotinas</div>
+            {myRoutines.length ? (
+              <div className="grid gap-3">
+                {myRoutines.map((r) => (
+                  <RoutineCard
+                    key={r.id}
+                    routine={r}
+                    variant="mine"
+                    onShare={() => shareRoutine(r)}
+                    onEdit={() => {
+                      setEditingRoutine(r);
+                      setRoutineEditorOpen(true);
+                    }}
+                    onDelete={() => {
+                      deleteRoutine(r.id);
+                      refreshRoutines();
+                      toast({
+                        title: "Rotina excluída",
+                        description: "Removemos essa rotina do seu perfil.",
+                      });
+                    }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                Você ainda não criou rotinas. Crie uma para seus amigos copiarem.
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold">Descobrir</div>
+              <div className="text-xs text-muted-foreground">
+                {discoverRoutines.length} rotina{discoverRoutines.length === 1 ? "" : "s"}
+              </div>
+            </div>
+
+            {discoverRoutines.length ? (
+              <div className="grid gap-3">
+                {discoverRoutines.slice(0, 6).map((r) => (
+                  <RoutineCard
+                    key={r.id}
+                    routine={r}
+                    variant="discover"
+                    onShare={() => shareRoutine(r)}
+                    onCopy={() => {
+                      copyRoutine(r.id);
+                      refreshRoutines();
+                      toast({
+                        title: "Rotina copiada",
+                        description: "Agora ela aparece em ‘Minhas rotinas’.",
+                      });
+                    }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                Ainda não há rotinas públicas para descobrir.
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <RoutineEditorDialog
+        open={routineEditorOpen}
+        onOpenChange={setRoutineEditorOpen}
+        routine={editingRoutine}
+        onSaved={() => {
+          refreshRoutines();
+          toast({
+            title: "Rotina salva",
+            description: "Sua rotina já está no seu perfil.",
+          });
+        }}
+      />
 
       <div className="grid gap-4">
         {posts.length ? (
