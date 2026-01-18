@@ -166,6 +166,24 @@ export default function WorkoutSession() {
     el.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [activeStepId]);
 
+  const completedCount = logs.filter((s) => s.completed).length;
+  const totalCount = logs.length;
+
+  const totalVolume = logs.reduce((acc, s) => acc + calcStepVolume(s), 0);
+
+  const allDone = logs.length > 0 && logs.every((s) => s.completed);
+  const coverImage = steps.find((s) => Boolean(s.imageUrl))?.imageUrl ?? "";
+
+  const estimatedCalories = React.useMemo(() => {
+    const minutes = stopwatch.elapsedSeconds / 60;
+    if (minutes <= 0) return 0;
+
+    // Estimativa simples (sem peso do usuário): assume 70kg e MET ~ 6 (treino moderado).
+    const assumedWeightKg = 70;
+    const met = 6;
+    return Math.max(0, Math.round((met * 3.5 * assumedWeightKg * minutes) / 200));
+  }, [stopwatch.elapsedSeconds]);
+
   if (!routine) {
     return (
       <div className="mx-auto grid w-full max-w-3xl gap-4">
@@ -206,24 +224,6 @@ export default function WorkoutSession() {
       </div>
     );
   }
-
-  const completedCount = logs.filter((s) => s.completed).length;
-  const totalCount = logs.length;
-
-  const totalVolume = logs.reduce((acc, s) => acc + calcStepVolume(s), 0);
-
-  const allDone = logs.length > 0 && logs.every((s) => s.completed);
-  const coverImage = steps.find((s) => Boolean(s.imageUrl))?.imageUrl ?? "";
-
-  const estimatedCalories = React.useMemo(() => {
-    const minutes = stopwatch.elapsedSeconds / 60;
-    if (minutes <= 0) return 0;
-
-    // Estimativa simples (sem peso do usuário): assume 70kg e MET ~ 6 (treino moderado).
-    const assumedWeightKg = 70;
-    const met = 6;
-    return Math.max(0, Math.round((met * 3.5 * assumedWeightKg * minutes) / 200));
-  }, [stopwatch.elapsedSeconds]);
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-4">
