@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { ArrowLeft, Pause, Play, Plus, Trash2, Search } from "lucide-react";
+import { ArrowLeft, Pause, Play, Plus, Trash2, Search, ImagePlus } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import type { MuscleGroup, Routine, WorkoutExercise } from "@/lib/ritmofit";
@@ -176,6 +176,10 @@ export default function WorkoutSession() {
   const [restRunning, setRestRunning] = React.useState(false);
   const [restSecondsLeft, setRestSecondsLeft] = React.useState(0);
   const [restLabel, setRestLabel] = React.useState("");
+  const [restModalOpen, setRestModalOpen] = React.useState(false);
+
+  const [summaryImageDataUrl, setSummaryImageDataUrl] = React.useState<string>("");
+  const summaryFileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const stepRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -205,12 +209,14 @@ export default function WorkoutSession() {
     setRestLabel(label);
     setRestSecondsLeft(safe);
     setRestRunning(true);
+    setRestModalOpen(true);
   }, []);
 
   const stopRest = React.useCallback(() => {
     setRestRunning(false);
     setRestSecondsLeft(0);
     setRestLabel("");
+    setRestModalOpen(false);
   }, []);
 
   React.useEffect(() => {
