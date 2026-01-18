@@ -346,22 +346,10 @@ export default function WorkoutSession() {
           </Link>
         </Button>
 
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-full"
-            onClick={() => setAddExerciseOpen(true)}
-          >
-            <Plus className="h-4 w-4" />
-            Exercício
-          </Button>
-
-          <div className="text-right">
-            <div className="text-xs text-muted-foreground">Progresso</div>
-            <div className="text-sm font-semibold">
-              {completedCount}/{totalCount} exercícios
-            </div>
+        <div className="text-right">
+          <div className="text-xs text-muted-foreground">Progresso</div>
+          <div className="text-sm font-semibold">
+            {completedCount}/{totalCount} exercícios
           </div>
         </div>
       </div>
