@@ -105,16 +105,6 @@ export function StoriesBar() {
     <div className="grid gap-3">
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold">Stories</div>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="rounded-full"
-          onClick={() => setCreateOpen(true)}
-        >
-          <Plus className="h-4 w-4" />
-          Adicionar
-        </Button>
       </div>
 
       <div className="flex flex-nowrap gap-3 overflow-x-auto pb-1">
