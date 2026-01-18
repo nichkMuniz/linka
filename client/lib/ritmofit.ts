@@ -472,6 +472,9 @@ export function createGoal(input: {
 }): Goal {
   const state = getRitmoFitState();
 
+  const createdAt = new Date().toISOString();
+  const hasPhoto = Boolean((input.imageDataUrl ?? "").trim());
+
   const goal: Goal = {
     id: uid(),
     ownerName: input.ownerName ?? "Você",
@@ -483,11 +486,11 @@ export function createGoal(input: {
     frequency: input.frequency,
     durationDays: input.durationDays,
     visibility: input.visibility,
-    createdAt: new Date().toISOString(),
-    completedDays: 0,
+    createdAt,
+    completedDays: hasPhoto ? 1 : 0,
     incentives: { apoio: 0, continua: 0, orgulho: 0 },
     myIncentives: {},
-    myProgressToday: "",
+    myProgressToday: hasPhoto ? todayKey(new Date(createdAt)) : "",
     comments: [],
     commentsCount: 0,
   };
