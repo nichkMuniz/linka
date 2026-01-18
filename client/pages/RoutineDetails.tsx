@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Copy, Share2 } from "lucide-react";
+import { ArrowLeft, Copy, Share2, CheckCircle2 } from "lucide-react";
 
 import type { Routine } from "@/lib/ritmofit";
 import { copyRoutine, getRoutines } from "@/lib/ritmofit";
@@ -34,20 +34,10 @@ async function shareOrCopyUrl(title: string, url: string) {
   return { ok: false, kind: "none" as const };
 }
 
-function RoutineStepRow({ idx, title, detail }: { idx: number; title: string; detail: string }) {
-  return (
-    <div className="flex items-start gap-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
-      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-background ring-1 ring-border/60">
-        <span className="text-xs font-semibold">{idx}</span>
-      </div>
-      <div className="min-w-0">
-        <div className="text-sm font-semibold">{title || `Passo ${idx}`}</div>
-        {detail ? (
-          <div className="mt-1 text-sm text-muted-foreground">{detail}</div>
-        ) : null}
-      </div>
-    </div>
-  );
+function itemsLabel(category: Routine["category"]) {
+  if (category === "Treino") return "Exercícios";
+  if (category === "Alimentação") return "Comidas";
+  return "Hábitos";
 }
 
 export default function RoutineDetails() {
@@ -78,6 +68,11 @@ export default function RoutineDetails() {
   }
 
   const isMine = routine.ownerHandle === "@voce";
+  const label = itemsLabel(routine.category);
+
+  const items = routine.steps
+    .map((s) => s.title.trim())
+    .filter(Boolean);
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-4">
@@ -141,27 +136,27 @@ export default function RoutineDetails() {
             Por {routine.ownerName} ({routine.ownerHandle})
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {routine.description ? (
-            <div className="text-sm text-muted-foreground">{routine.description}</div>
-          ) : null}
 
-          <div className="grid gap-3">
-            {routine.steps.length ? (
-              routine.steps.map((s, idx) => (
-                <RoutineStepRow
-                  key={s.id}
-                  idx={idx + 1}
-                  title={s.title}
-                  detail={s.detail}
-                />
-              ))
-            ) : (
-              <div className="text-sm text-muted-foreground">
-                Essa rotina ainda não tem passos.
-              </div>
-            )}
-          </div>
+        <CardContent className="space-y-4">
+          <div className="text-sm font-semibold">{label}</div>
+
+          {items.length ? (
+            <div className="grid gap-2">
+              {items.map((name) => (
+                <div
+                  key={name}
+                  className="flex items-center gap-2 rounded-2xl border border-border/60 bg-muted/20 px-4 py-3"
+                >
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  <div className="text-sm">{name}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+              Essa rotina ainda não tem itens.
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
