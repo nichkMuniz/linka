@@ -39,12 +39,49 @@ export type Goal = {
   commentsCount: number;
 };
 
+export type StoryItem = {
+  id: string;
+  imageDataUrl?: string;
+  text?: string;
+  createdAt: string; // ISO
+};
+
+export type StoryGroup = {
+  id: string;
+  ownerName: string;
+  ownerHandle: string;
+  items: StoryItem[];
+};
+
+export type RoutineStep = {
+  id: string;
+  title: string;
+  detail: string;
+};
+
+export type Routine = {
+  id: string;
+  ownerName: string;
+  ownerHandle: string;
+  title: string;
+  description: string;
+  category: GoalCategory;
+  visibility: GoalVisibility;
+  createdAt: string; // ISO
+  updatedAt: string; // ISO
+  steps: RoutineStep[];
+  copiedFromRoutineId?: string;
+};
+
 type StorageShape = {
   goals: Goal[];
   blockedHandles: string[];
+  stories: StoryGroup[];
+  routines: Routine[];
 };
 
 const STORAGE_KEY = "ritmofit:v1";
+const STORY_TTL_MS = 24 * 60 * 60 * 1000;
 
 function safeParse(raw: string | null): StorageShape | null {
   if (!raw) return null;
@@ -99,22 +136,224 @@ function normalizeGoal(g: Goal): Goal {
   };
 }
 
+function normalizeStoryGroup(raw: StoryGroup): StoryGroup {
+  const items = Array.isArray((raw as any).items)
+    ? (((raw as any).items as StoryItem[]).filter(Boolean) ?? [])
+    : [];
+
+  return {
+    id: raw.id ?? uid("sg"),
+    ownerName: raw.ownerName ?? "",
+    ownerHandle: raw.ownerHandle ?? "",
+    items: items.map((it) => ({
+      id: it.id ?? uid("s"),
+      imageDataUrl: (it.imageDataUrl ?? "").trim() || undefined,
+      text: (it.text ?? "").trim() || undefined,
+      createdAt: it.createdAt ?? new Date().toISOString(),
+    })),
+  };
+}
+
+function normalizeRoutine(raw: Routine): Routine {
+  const steps = Array.isArray((raw as any).steps)
+    ? (((raw as any).steps as RoutineStep[]).filter(Boolean) ?? [])
+    : [];
+
+  return {
+    id: raw.id ?? uid("r"),
+    ownerName: raw.ownerName ?? "",
+    ownerHandle: raw.ownerHandle ?? "",
+    title: raw.title ?? "",
+    description: raw.description ?? "",
+    category: (raw.category ?? "Treino") as GoalCategory,
+    visibility: (raw.visibility ?? "Público") as GoalVisibility,
+    createdAt: raw.createdAt ?? new Date().toISOString(),
+    updatedAt: raw.updatedAt ?? raw.createdAt ?? new Date().toISOString(),
+    steps: steps.map((s) => ({
+      id: s.id ?? uid("rs"),
+      title: s.title ?? "",
+      detail: s.detail ?? "",
+    })),
+    copiedFromRoutineId: raw.copiedFromRoutineId,
+  };
+}
+
+function pruneStories(stories: StoryGroup[]) {
+  const now = Date.now();
+
+  const pruned = stories
+    .map((g) => {
+      const items = (g.items ?? []).filter((it) => {
+        const ts = new Date(it.createdAt).getTime();
+        if (!Number.isFinite(ts)) return true;
+        return now - ts <= STORY_TTL_MS;
+      });
+      return { ...g, items };
+    })
+    .filter((g) => g.items.length > 0);
+
+  return pruned;
+}
+
 export function getRitmoFitState(): StorageShape {
   const parsed = safeParse(localStorage.getItem(STORAGE_KEY));
-  if (parsed?.goals?.length) {
+
+  if (parsed) {
     const normalized: StorageShape = {
-      goals: parsed.goals.map(normalizeGoal),
+      goals: Array.isArray((parsed as any).goals)
+        ? ((parsed as any).goals as Goal[]).map(normalizeGoal)
+        : [],
       blockedHandles: Array.isArray((parsed as any).blockedHandles)
         ? ((parsed as any).blockedHandles as string[])
         : [],
+      stories: pruneStories(
+        Array.isArray((parsed as any).stories)
+          ? ((parsed as any).stories as StoryGroup[]).map(normalizeStoryGroup)
+          : [],
+      ),
+      routines: Array.isArray((parsed as any).routines)
+        ? ((parsed as any).routines as Routine[]).map(normalizeRoutine)
+        : [],
     };
+
     // keep storage upgraded (so future reads are consistent)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
     return normalized;
   }
 
+  const now = new Date();
   const seed: StorageShape = {
     blockedHandles: [],
+    stories: [
+      {
+        id: uid("sg"),
+        ownerName: "Nicholas",
+        ownerHandle: "@nicholas",
+        items: [
+          {
+            id: uid("s"),
+            imageDataUrl:
+              "https://images.pexels.com/photos/414029/pexels-photo-414029.jpeg",
+            text: "Cardio feito. Sem drama.",
+            createdAt: new Date(now.getTime() - 1000 * 60 * 22).toISOString(),
+          },
+        ],
+      },
+      {
+        id: uid("sg"),
+        ownerName: "Ana",
+        ownerHandle: "@ana.fit",
+        items: [
+          {
+            id: uid("s"),
+            imageDataUrl:
+              "https://images.pexels.com/photos/1552242/pexels-photo-1552242.jpeg",
+            text: "Alongamento + mobilidade hoje.",
+            createdAt: new Date(now.getTime() - 1000 * 60 * 50).toISOString(),
+          },
+        ],
+      },
+      {
+        id: uid("sg"),
+        ownerName: "Bruno",
+        ownerHandle: "@bruno.nutri",
+        items: [
+          {
+            id: uid("s"),
+            imageDataUrl:
+              "https://images.pexels.com/photos/1640774/pexels-photo-1640774.jpeg",
+            text: "Prato de verdade hoje. Simples e consistente.",
+            createdAt: new Date(now.getTime() - 1000 * 60 * 90).toISOString(),
+          },
+        ],
+      },
+    ],
+    routines: [
+      {
+        id: uid("r"),
+        ownerName: "Nicholas",
+        ownerHandle: "@nicholas",
+        title: "Treino 3x/semana (iniciante)",
+        description: "Rotina simples pra ganhar consistência. 45–60 min.",
+        category: "Treino",
+        visibility: "Público",
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        steps: [
+          {
+            id: uid("rs"),
+            title: "Aquecimento (5–8 min)",
+            detail: "Caminhada/esteira + mobilidade leve.",
+          },
+          {
+            id: uid("rs"),
+            title: "Treino A (superior)",
+            detail: "Supino/press + remada + desenvolvimento + tríceps.",
+          },
+          {
+            id: uid("rs"),
+            title: "Treino B (inferior)",
+            detail: "Agachamento + leg press + stiff + panturrilha.",
+          },
+        ],
+      },
+      {
+        id: uid("r"),
+        ownerName: "Ana",
+        ownerHandle: "@ana.fit",
+        title: "Hábito: 10k passos", 
+        description: "Rotina diária pra manter gasto calórico sem neura.",
+        category: "Hábito",
+        visibility: "Público",
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        steps: [
+          {
+            id: uid("rs"),
+            title: "Manhã (15 min)",
+            detail: "Caminhada rápida após o café.",
+          },
+          {
+            id: uid("rs"),
+            title: "Tarde (15 min)",
+            detail: "Pausa do trabalho: caminhada/escadas.",
+          },
+          {
+            id: uid("rs"),
+            title: "Noite (20 min)",
+            detail: "Fechar passos com caminhada leve.",
+          },
+        ],
+      },
+      {
+        id: uid("r"),
+        ownerName: "Bruno",
+        ownerHandle: "@bruno.nutri",
+        title: "Prato equilibrado (almoço)",
+        description: "Estrutura simples: proteína + carbo + fibra.",
+        category: "Alimentação",
+        visibility: "Público",
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        steps: [
+          {
+            id: uid("rs"),
+            title: "Proteína", 
+            detail: "Frango, ovos, peixe ou carne magra.",
+          },
+          {
+            id: uid("rs"),
+            title: "Carbo bom",
+            detail: "Arroz, batata, feijão, mandioca ou massa.",
+          },
+          {
+            id: uid("rs"),
+            title: "Fibra + água",
+            detail: "Salada/legumes e um copo d’água.",
+          },
+        ],
+      },
+    ],
     goals: [
       {
         id: uid(),
@@ -128,7 +367,7 @@ export function getRitmoFitState(): StorageShape {
         frequency: "5x/semana",
         durationDays: 21,
         visibility: "Público",
-        createdAt: new Date().toISOString(),
+        createdAt: now.toISOString(),
         completedDays: 6,
         incentives: { apoio: 12, continua: 8, orgulho: 5 },
         comments: [
@@ -137,14 +376,14 @@ export function getRitmoFitState(): StorageShape {
             authorName: "Ana",
             authorHandle: "@ana.fit",
             text: "Brabo! Continua assim 💪",
-            createdAt: new Date().toISOString(),
+            createdAt: now.toISOString(),
           },
           {
             id: uid("c"),
             authorName: "Bruno",
             authorHandle: "@bruno.nutri",
             text: "Treino bem feito. Descanso também conta.",
-            createdAt: new Date().toISOString(),
+            createdAt: now.toISOString(),
           },
         ],
         commentsCount: 2,
@@ -161,7 +400,7 @@ export function getRitmoFitState(): StorageShape {
         frequency: "Diário",
         durationDays: 30,
         visibility: "Público",
-        createdAt: new Date().toISOString(),
+        createdAt: now.toISOString(),
         completedDays: 11,
         incentives: { apoio: 21, continua: 13, orgulho: 10 },
         comments: [
@@ -170,7 +409,7 @@ export function getRitmoFitState(): StorageShape {
             authorName: "Você",
             authorHandle: "@voce",
             text: "Isso dá uma diferença enorme no dia.",
-            createdAt: new Date().toISOString(),
+            createdAt: now.toISOString(),
           },
         ],
         commentsCount: 1,
@@ -187,7 +426,7 @@ export function getRitmoFitState(): StorageShape {
         frequency: "Seg–Sex",
         durationDays: 21,
         visibility: "Seguidores",
-        createdAt: new Date().toISOString(),
+        createdAt: now.toISOString(),
         completedDays: 8,
         incentives: { apoio: 9, continua: 6, orgulho: 4 },
         comments: [],
@@ -322,4 +561,189 @@ export function timeAgo(iso: string) {
   if (h < 24) return `${h} h`;
   const d = Math.floor(h / 24);
   return `${d} d`;
+}
+
+export function getStories() {
+  const state = getRitmoFitState();
+  return state.stories;
+}
+
+export function addStoryItem(input: {
+  ownerName?: string;
+  ownerHandle?: string;
+  imageDataUrl?: string;
+  text?: string;
+}) {
+  const state = getRitmoFitState();
+
+  const ownerName = input.ownerName ?? "Você";
+  const ownerHandle = input.ownerHandle ?? "@voce";
+  const imageDataUrl = (input.imageDataUrl ?? "").trim();
+  const text = (input.text ?? "").trim();
+
+  if (!imageDataUrl && !text) return state;
+
+  const nextItem: StoryItem = {
+    id: uid("s"),
+    imageDataUrl: imageDataUrl || undefined,
+    text: text || undefined,
+    createdAt: new Date().toISOString(),
+  };
+
+  const existing = state.stories.find((g) => g.ownerHandle === ownerHandle);
+
+  let nextStories: StoryGroup[];
+  if (existing) {
+    nextStories = state.stories.map((g) =>
+      g.ownerHandle === ownerHandle
+        ? {
+            ...g,
+            ownerName,
+            items: [nextItem, ...g.items],
+          }
+        : g,
+    );
+  } else {
+    nextStories = [
+      {
+        id: uid("sg"),
+        ownerName,
+        ownerHandle,
+        items: [nextItem],
+      },
+      ...state.stories,
+    ];
+  }
+
+  nextStories = pruneStories(nextStories);
+
+  const next: StorageShape = {
+    ...state,
+    stories: nextStories,
+  };
+
+  setRitmoFitState(next);
+  return next;
+}
+
+export function deleteStoryItem(ownerHandle: string, storyItemId: string) {
+  const state = getRitmoFitState();
+
+  const nextStories = state.stories
+    .map((g) =>
+      g.ownerHandle !== ownerHandle
+        ? g
+        : { ...g, items: g.items.filter((it) => it.id !== storyItemId) },
+    )
+    .filter((g) => g.items.length > 0);
+
+  const next: StorageShape = { ...state, stories: nextStories };
+  setRitmoFitState(next);
+  return next;
+}
+
+export function getRoutines() {
+  const state = getRitmoFitState();
+  return state.routines;
+}
+
+export function createRoutine(input: {
+  ownerName?: string;
+  ownerHandle?: string;
+  title: string;
+  description?: string;
+  category: GoalCategory;
+  visibility: GoalVisibility;
+  steps: Array<{ title: string; detail: string }>;
+}): Routine {
+  const state = getRitmoFitState();
+
+  const now = new Date().toISOString();
+
+  const routine: Routine = {
+    id: uid("r"),
+    ownerName: input.ownerName ?? "Você",
+    ownerHandle: input.ownerHandle ?? "@voce",
+    title: input.title.trim(),
+    description: (input.description ?? "").trim(),
+    category: input.category,
+    visibility: input.visibility,
+    createdAt: now,
+    updatedAt: now,
+    steps: input.steps
+      .map((s) => ({
+        id: uid("rs"),
+        title: s.title.trim(),
+        detail: s.detail.trim(),
+      }))
+      .filter((s) => s.title.length || s.detail.length),
+  };
+
+  const next: StorageShape = {
+    ...state,
+    routines: [routine, ...state.routines],
+  };
+
+  setRitmoFitState(next);
+  return routine;
+}
+
+export function updateRoutine(routineId: string, updater: (r: Routine) => Routine) {
+  const state = getRitmoFitState();
+
+  const next: StorageShape = {
+    ...state,
+    routines: state.routines.map((r) => {
+      if (r.id !== routineId) return r;
+      const updated = updater(r);
+      return normalizeRoutine({
+        ...updated,
+        updatedAt: new Date().toISOString(),
+      });
+    }),
+  };
+
+  setRitmoFitState(next);
+  return next;
+}
+
+export function deleteRoutine(routineId: string) {
+  const state = getRitmoFitState();
+  const next: StorageShape = {
+    ...state,
+    routines: state.routines.filter((r) => r.id !== routineId),
+  };
+  setRitmoFitState(next);
+  return next;
+}
+
+export function copyRoutine(
+  routineId: string,
+  input?: { ownerName?: string; ownerHandle?: string },
+) {
+  const state = getRitmoFitState();
+  const original = state.routines.find((r) => r.id === routineId);
+  if (!original) return state;
+
+  const now = new Date().toISOString();
+
+  const copy: Routine = {
+    ...original,
+    id: uid("r"),
+    ownerName: input?.ownerName ?? "Você",
+    ownerHandle: input?.ownerHandle ?? "@voce",
+    title: `${original.title} (copiada)`,
+    createdAt: now,
+    updatedAt: now,
+    copiedFromRoutineId: original.id,
+    steps: original.steps.map((s) => ({ ...s, id: uid("rs") })),
+  };
+
+  const next: StorageShape = {
+    ...state,
+    routines: [copy, ...state.routines],
+  };
+
+  setRitmoFitState(next);
+  return next;
 }
