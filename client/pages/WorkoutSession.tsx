@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { ArrowLeft, Pause, Play, RotateCcw, Plus, Trash2, Search } from "lucide-react";
+import { ArrowLeft, Pause, Play, Plus, Trash2, Search } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import type { MuscleGroup, Routine, WorkoutExercise } from "@/lib/ritmofit";
@@ -46,6 +46,7 @@ type SetDraft = {
 type StepLog = {
   stepId: string;
   completed: boolean;
+  restSeconds: number;
   sets: SetDraft[];
 };
 
@@ -59,6 +60,17 @@ type SessionStep = {
 };
 
 const REST_OPTIONS_SECONDS = [5, 10, 15, 20, 30, 45, 60, 75, 90] as const;
+
+function createEmptySet(restSeconds: number): SetDraft {
+  return {
+    id: uid("set"),
+    reps: "",
+    weight: "",
+    completed: false,
+    previous: "",
+    restSeconds,
+  };
+}
 
 function formatTime(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
@@ -229,7 +241,8 @@ export default function WorkoutSession() {
     const nextLogs: StepLog[] = baseSteps.map((s) => ({
       stepId: s.id,
       completed: false,
-      sets: [],
+      restSeconds: 60,
+      sets: [createEmptySet(60)],
     }));
 
     setLogs(nextLogs);
@@ -238,6 +251,7 @@ export default function WorkoutSession() {
     setAddExerciseOpen(false);
     stopRest();
     stopwatch.reset();
+    stopwatch.start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routine?.id]);
 
@@ -430,19 +444,6 @@ export default function WorkoutSession() {
 
             <Button
               type="button"
-              variant="ghost"
-              className="rounded-full"
-              onClick={() => {
-                stopwatch.reset();
-                stopRest();
-              }}
-            >
-              <RotateCcw className="h-4 w-4" />
-              Zerar
-            </Button>
-
-            <Button
-              type="button"
               variant="secondary"
               className="ml-auto rounded-full"
               onClick={() => {
@@ -531,31 +532,70 @@ export default function WorkoutSession() {
                         </div>
                       </button>
 
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-9 w-9 shrink-0 rounded-full text-destructive hover:text-destructive"
-                        aria-label="Remover exercício"
-                        onClick={() => {
-                          setSessionSteps((prev) => {
-                            const idx = prev.findIndex((p) => p.id === step.id);
-                            const next = prev.filter((p) => p.id !== step.id);
+                      <div className="flex items-start gap-2">
+                        <div className="grid gap-1">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Descanso
+                          </div>
+                          <Select
+                            value={String(log.restSeconds)}
+                            onValueChange={(v) => {
+                              const nextSeconds = Number(v);
+                              setLogs((prev) =>
+                                prev.map((p) => {
+                                  if (p.stepId !== step.id) return p;
 
-                            if (activeStepId === step.id) {
-                              const nextActive = next[idx] ?? next[idx - 1] ?? null;
-                              setActiveStepId(nextActive ? nextActive.id : null);
-                            }
+                                  return recomputeStepCompletion({
+                                    ...p,
+                                    restSeconds: nextSeconds,
+                                    sets: p.sets.map((set) => ({
+                                      ...set,
+                                      restSeconds: nextSeconds,
+                                    })),
+                                  });
+                                }),
+                              );
+                            }}
+                          >
+                            <SelectTrigger className="h-9 w-[92px] rounded-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {REST_OPTIONS_SECONDS.map((sec) => (
+                                <SelectItem key={sec} value={String(sec)}>
+                                  {sec}s
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-                            return next;
-                          });
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-9 w-9 shrink-0 rounded-full text-destructive hover:text-destructive"
+                          aria-label="Remover exercício"
+                          onClick={() => {
+                            setSessionSteps((prev) => {
+                              const idx = prev.findIndex((p) => p.id === step.id);
+                              const next = prev.filter((p) => p.id !== step.id);
 
-                          setLogs((prev) => prev.filter((p) => p.stepId !== step.id));
-                          stopRest();
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                              if (activeStepId === step.id) {
+                                const nextActive = next[idx] ?? next[idx - 1] ?? null;
+                                setActiveStepId(nextActive ? nextActive.id : null);
+                              }
+
+                              return next;
+                            });
+
+                            setLogs((prev) => prev.filter((p) => p.stepId !== step.id));
+                            stopRest();
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="mt-3 grid gap-2">
@@ -564,195 +604,183 @@ export default function WorkoutSession() {
                           {log.sets.map((s, idx) => (
                             <div
                               key={s.id}
-                              className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 rounded-2xl border border-border/60 bg-muted/20 p-3"
+                              className="rounded-2xl border border-border/60 bg-muted/20 p-3 sm:p-4"
                             >
-                              <Checkbox
-                                checked={s.completed}
-                                onCheckedChange={(v) => {
-                                  const checked = Boolean(v);
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2">
+                                  <Checkbox
+                                    checked={s.completed}
+                                    onCheckedChange={(v) => {
+                                      const checked = Boolean(v);
 
-                                  setLogs((prev) => {
-                                    const next = prev.map((p) => {
-                                      if (p.stepId !== step.id) return p;
+                                      setLogs((prev) => {
+                                        const next = prev.map((p) => {
+                                          if (p.stepId !== step.id) return p;
 
-                                      const nextSets = p.sets.map((set) => {
-                                        if (set.id !== s.id) return set;
+                                          const nextSets = p.sets.map((set) => {
+                                            if (set.id !== s.id) return set;
 
-                                        const nextPrevious = checked
-                                          ? formatPrevious(set.weight, set.reps) || set.previous
-                                          : set.previous;
+                                            const nextPrevious = checked
+                                              ? formatPrevious(set.weight, set.reps) || set.previous
+                                              : set.previous;
 
-                                        return {
-                                          ...set,
-                                          completed: checked,
-                                          previous: nextPrevious,
-                                        };
+                                            return {
+                                              ...set,
+                                              completed: checked,
+                                              previous: nextPrevious,
+                                            };
+                                          });
+
+                                          return recomputeStepCompletion({ ...p, sets: nextSets });
+                                        });
+
+                                        const updated = next.find((p) => p.stepId === step.id);
+                                        if (checked) {
+                                          startRest(
+                                            s.restSeconds,
+                                            `${step.title} · Série ${idx + 1}`,
+                                          );
+                                        }
+
+                                        if (
+                                          checked &&
+                                          updated?.completed &&
+                                          activeStepId === step.id
+                                        ) {
+                                          const idxStep = next.findIndex(
+                                            (p) => p.stepId === step.id,
+                                          );
+                                          const nextActive = next
+                                            .slice(idxStep + 1)
+                                            .find((p) => !p.completed)?.stepId;
+                                          setActiveStepId(nextActive ?? null);
+                                        }
+
+                                        return next;
                                       });
+                                    }}
+                                    aria-label={`Marcar série ${idx + 1} como concluída`}
+                                  />
+                                  <div className="text-sm font-semibold">Série {idx + 1}</div>
+                                </div>
 
-                                      return recomputeStepCompletion({ ...p, sets: nextSets });
-                                    });
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-10 w-10 rounded-full text-destructive hover:text-destructive"
+                                  aria-label="Remover série"
+                                  onClick={() => {
+                                    setLogs((prev) =>
+                                      prev.map((p) => {
+                                        if (p.stepId !== step.id) return p;
+                                        const nextStep = {
+                                          ...p,
+                                          sets: p.sets.filter((set) => set.id !== s.id),
+                                        };
+                                        return recomputeStepCompletion(nextStep);
+                                      }),
+                                    );
+                                    stopRest();
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
 
-                                    const updated = next.find((p) => p.stepId === step.id);
-                                    if (checked) {
-                                      startRest(
-                                        s.restSeconds,
-                                        `${step.title} · Série ${idx + 1}`,
+                              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                                <div className="grid gap-1">
+                                  <div className="text-xs font-semibold text-muted-foreground">
+                                    Reps
+                                  </div>
+                                  <Input
+                                    value={s.reps}
+                                    inputMode="numeric"
+                                    placeholder="10"
+                                    onChange={(e) => {
+                                      const nextReps = e.target.value;
+                                      setLogs((prev) =>
+                                        prev.map((p) => {
+                                          if (p.stepId !== step.id) return p;
+
+                                          const nextSets = p.sets.map((set) => {
+                                            if (set.id !== s.id) return set;
+
+                                            const next: SetDraft = {
+                                              ...set,
+                                              reps: nextReps,
+                                            };
+                                            if (next.completed) {
+                                              next.previous =
+                                                formatPrevious(next.weight, next.reps) ||
+                                                next.previous;
+                                            }
+                                            return next;
+                                          });
+
+                                          return recomputeStepCompletion({
+                                            ...p,
+                                            sets: nextSets,
+                                          });
+                                        }),
                                       );
-                                    }
-
-                                    if (checked && updated?.completed && activeStepId === step.id) {
-                                      const idxStep = next.findIndex((p) => p.stepId === step.id);
-                                      const nextActive = next
-                                        .slice(idxStep + 1)
-                                        .find((p) => !p.completed)?.stepId;
-                                      setActiveStepId(nextActive ?? null);
-                                    }
-
-                                    return next;
-                                  });
-                                }}
-                                className="mb-2"
-                                aria-label={`Marcar série ${idx + 1} como concluída`}
-                              />
-
-                              <div className="grid gap-1">
-                                <div className="text-xs font-semibold text-muted-foreground">
-                                  Série {idx + 1} · Reps
+                                    }}
+                                  />
                                 </div>
-                                <Input
-                                  value={s.reps}
-                                  inputMode="numeric"
-                                  placeholder="10"
-                                  onChange={(e) => {
-                                    const nextReps = e.target.value;
-                                    setLogs((prev) =>
-                                      prev.map((p) => {
-                                        if (p.stepId !== step.id) return p;
 
-                                        const nextSets = p.sets.map((set) => {
-                                          if (set.id !== s.id) return set;
+                                <div className="grid gap-1">
+                                  <div className="text-xs font-semibold text-muted-foreground">
+                                    Carga (kg)
+                                  </div>
+                                  <Input
+                                    value={s.weight}
+                                    inputMode="decimal"
+                                    placeholder="20"
+                                    onChange={(e) => {
+                                      const nextWeight = e.target.value;
+                                      setLogs((prev) =>
+                                        prev.map((p) => {
+                                          if (p.stepId !== step.id) return p;
 
-                                          const next: SetDraft = { ...set, reps: nextReps };
-                                          if (next.completed) {
-                                            next.previous =
-                                              formatPrevious(next.weight, next.reps) ||
-                                              next.previous;
-                                          }
-                                          return next;
-                                        });
+                                          const nextSets = p.sets.map((set) => {
+                                            if (set.id !== s.id) return set;
 
-                                        return recomputeStepCompletion({ ...p, sets: nextSets });
-                                      }),
-                                    );
-                                  }}
-                                />
-                              </div>
+                                            const next: SetDraft = {
+                                              ...set,
+                                              weight: nextWeight,
+                                            };
+                                            if (next.completed) {
+                                              next.previous =
+                                                formatPrevious(next.weight, next.reps) ||
+                                                next.previous;
+                                            }
+                                            return next;
+                                          });
 
-                              <div className="grid gap-1">
-                                <div className="text-xs font-semibold text-muted-foreground">
-                                  Carga (kg)
+                                          return recomputeStepCompletion({
+                                            ...p,
+                                            sets: nextSets,
+                                          });
+                                        }),
+                                      );
+                                    }}
+                                  />
                                 </div>
-                                <Input
-                                  value={s.weight}
-                                  inputMode="decimal"
-                                  placeholder="20"
-                                  onChange={(e) => {
-                                    const nextWeight = e.target.value;
-                                    setLogs((prev) =>
-                                      prev.map((p) => {
-                                        if (p.stepId !== step.id) return p;
 
-                                        const nextSets = p.sets.map((set) => {
-                                          if (set.id !== s.id) return set;
-
-                                          const next: SetDraft = { ...set, weight: nextWeight };
-                                          if (next.completed) {
-                                            next.previous =
-                                              formatPrevious(next.weight, next.reps) ||
-                                              next.previous;
-                                          }
-                                          return next;
-                                        });
-
-                                        return recomputeStepCompletion({ ...p, sets: nextSets });
-                                      }),
-                                    );
-                                  }}
-                                />
-                              </div>
-
-                              <div className="grid gap-1">
-                                <div className="text-xs font-semibold text-muted-foreground">
-                                  Anterior
-                                </div>
-                                <div
-                                  className={cn(
-                                    "h-10 rounded-md border border-border bg-background px-3 text-sm leading-10",
-                                    !s.previous ? "text-muted-foreground" : null,
-                                  )}
-                                >
-                                  {s.previous ? s.previous : "-"}
+                                <div className="grid gap-1 col-span-2 sm:col-span-1">
+                                  <div className="text-xs font-semibold text-muted-foreground">
+                                    Anterior
+                                  </div>
+                                  <div
+                                    className={cn(
+                                      "h-10 rounded-md border border-border bg-background px-3 text-sm leading-10",
+                                      !s.previous ? "text-muted-foreground" : null,
+                                    )}
+                                  >
+                                    {s.previous ? s.previous : "-"}
+                                  </div>
                                 </div>
                               </div>
-
-                              <div className="grid gap-1">
-                                <div className="text-xs font-semibold text-muted-foreground">
-                                  Descanso
-                                </div>
-                                <Select
-                                  value={String(s.restSeconds)}
-                                  onValueChange={(v) => {
-                                    const nextSeconds = Number(v);
-                                    setLogs((prev) =>
-                                      prev.map((p) => {
-                                        if (p.stepId !== step.id) return p;
-
-                                        const nextSets = p.sets.map((set) =>
-                                          set.id === s.id
-                                            ? { ...set, restSeconds: nextSeconds }
-                                            : set,
-                                        );
-
-                                        return recomputeStepCompletion({ ...p, sets: nextSets });
-                                      }),
-                                    );
-                                  }}
-                                >
-                                  <SelectTrigger className="h-10">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {REST_OPTIONS_SECONDS.map((sec) => (
-                                      <SelectItem key={sec} value={String(sec)}>
-                                        {sec}s
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="h-10 w-10 rounded-full text-destructive hover:text-destructive"
-                                aria-label="Remover série"
-                                onClick={() => {
-                                  setLogs((prev) =>
-                                    prev.map((p) => {
-                                      if (p.stepId !== step.id) return p;
-                                      const nextStep = {
-                                        ...p,
-                                        sets: p.sets.filter((set) => set.id !== s.id),
-                                      };
-                                      return recomputeStepCompletion(nextStep);
-                                    }),
-                                  );
-                                  stopRest();
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
                             </div>
                           ))}
                         </div>
@@ -776,14 +804,7 @@ export default function WorkoutSession() {
                                       ...p,
                                       sets: [
                                         ...p.sets,
-                                        {
-                                          id: uid("set"),
-                                          reps: "",
-                                          weight: "",
-                                          completed: false,
-                                          previous: "",
-                                          restSeconds: 60,
-                                        },
+                                        createEmptySet(p.restSeconds),
                                       ],
                                     }
                                   : p,
@@ -875,7 +896,12 @@ export default function WorkoutSession() {
                       setSessionSteps((prev) => [...prev, nextStep]);
                       setLogs((prev) => [
                         ...prev,
-                        { stepId, completed: false, sets: [] },
+                        {
+                          stepId,
+                          completed: false,
+                          restSeconds: 60,
+                          sets: [createEmptySet(60)],
+                        },
                       ]);
 
                       setActiveStepId(stepId);
