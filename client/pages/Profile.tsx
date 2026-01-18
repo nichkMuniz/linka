@@ -347,69 +347,6 @@ export default function Profile() {
 
       <Card className="border-border/60">
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Smartphone className="h-4 w-4 text-brand" />
-            App do RitmoFit
-          </CardTitle>
-          <CardDescription>
-            Deixe o RitmoFit instalado e abra como um app no seu celular.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-muted-foreground">
-            {installed
-              ? "Já instalado. Abra pelo ícone da tela inicial."
-              : platform === "ios"
-                ? isSafariIOS
-                  ? "No iPhone/iPad, use ‘Compartilhar’ → ‘Adicionar à Tela de Início’."
-                  : "No iPhone/iPad, abra no Safari para aparecer ‘Adicionar à Tela de Início’."
-                : "No Android, toque em ‘Instalar’ ou use o menu do navegador."}
-          </div>
-
-          {installed ? (
-            <Button asChild variant="outline" className="rounded-full">
-              <Link to="/instalar">Ver dicas</Link>
-            </Button>
-          ) : isInstallable ? (
-            <Button
-              type="button"
-              className="rounded-full"
-              onClick={async () => {
-                const result = await promptInstall();
-                if (!result) {
-                  toast({
-                    title: "Instalação indisponível",
-                    description:
-                      "Abra o menu do navegador e procure por ‘Instalar app’.",
-                  });
-                  return;
-                }
-
-                toast({
-                  title:
-                    result.outcome === "accepted"
-                      ? "Boa!"
-                      : "Tudo certo",
-                  description:
-                    result.outcome === "accepted"
-                      ? "RitmoFit foi adicionado como app."
-                      : "Você pode instalar depois quando quiser.",
-                });
-              }}
-            >
-              <Download className="h-4 w-4" />
-              Instalar
-            </Button>
-          ) : (
-            <Button asChild className="rounded-full">
-              <Link to="/instalar">Ver instruções</Link>
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="border-border/60">
-        <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
             <div>
               <CardTitle className="flex items-center gap-2 text-base">
