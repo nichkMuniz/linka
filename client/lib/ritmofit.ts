@@ -790,6 +790,12 @@ export type WorkoutExercise = {
   muscleGroup: MuscleGroup;
   /** URL externa (royalty-free Pexels). */
   imageUrl: string;
+  /** Passo a passo simples (MVP). */
+  howTo: string[];
+  /** Dicas curtas para executar melhor. */
+  tips: string[];
+  /** Erros comuns para evitar. */
+  mistakes: string[];
 };
 
 function pexels(url: string, width = 640) {
@@ -814,199 +820,505 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
     id: "supino-reto",
     name: "Supino reto",
     muscleGroup: "Peito",
-    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg",
+    ),
+    howTo: [
+      "Deite no banco com os pés firmes no chão.",
+      "Pegue a barra com mãos um pouco mais abertas que os ombros.",
+      "Desça a barra controlando até perto do meio do peito.",
+      "Empurre para cima mantendo o tronco firme e as escápulas ‘presas’ no banco.",
+    ],
+    tips: [
+      "Pense em ‘peito alto’ e ombros para trás.",
+      "Use amplitude controlada: descer com controle vale mais que peso alto.",
+    ],
+    mistakes: [
+      "Quicar a barra no peito.",
+      "Deixar o punho dobrar para trás (perde força e sobrecarrega).",
+    ],
   },
   {
     id: "supino-inclinado",
     name: "Supino inclinado",
     muscleGroup: "Peito",
-    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg",
+    ),
+    howTo: [
+      "Ajuste o banco em inclinação moderada (não muito alto).",
+      "Pés no chão e escápulas encaixadas no banco.",
+      "Desça a barra/halteres na linha do alto do peito.",
+      "Suba sem perder o controle e sem ‘jogar’ o ombro pra frente.",
+    ],
+    tips: ["Inclinação exagerada vira ombro.", "Cotovelos levemente fechados ajudam."],
+    mistakes: ["Abrir demais os cotovelos.", "Perder a posição das escápulas."],
   },
   {
     id: "crucifixo",
     name: "Crucifixo",
     muscleGroup: "Peito",
-    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg",
+    ),
+    howTo: [
+      "Deite no banco e leve os halteres acima do peito.",
+      "Com cotovelos levemente flexionados, abra os braços em arco.",
+      "Desça até sentir alongar o peito sem perder o controle.",
+      "Feche os braços de volta em arco, espremendo o peito.",
+    ],
+    tips: ["Cotovelos ‘moles’, não travados.", "Movimento em arco, não reto."],
+    mistakes: ["Descer demais e forçar o ombro.", "Transformar em supino (dobrar o braço demais)."],
   },
   {
     id: "flexao",
     name: "Flexão",
     muscleGroup: "Peito",
-    imageUrl: pexels("https://images.pexels.com/photos/10360933/pexels-photo-10360933.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10360933/pexels-photo-10360933.jpeg",
+    ),
+    howTo: [
+      "Mãos no chão na linha do peito, corpo em prancha.",
+      "Desça mantendo barriga firme e cotovelos levemente para trás.",
+      "Toque próximo do chão e suba empurrando.",
+    ],
+    tips: ["Corpo reto (não deixa o quadril cair).", "Comece no joelho se precisar."],
+    mistakes: ["Deixar o quadril despencar.", "Abrir cotovelos para os lados demais."],
   },
   {
     id: "crossover",
     name: "Crossover (polia)",
     muscleGroup: "Peito",
-    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg",
+    ),
+    howTo: [
+      "Ajuste as polias e fique com um pé à frente para estabilidade.",
+      "Leve as mãos para frente e ‘junte’ na frente do peito.",
+      "Volte controlando até sentir alongar o peito.",
+    ],
+    tips: ["Foco em controle e contração no final.", "Evite balançar o tronco."],
+    mistakes: ["Usar impulso do corpo.", "Perder a postura e fechar ombros."],
   },
   {
     id: "puxada-barra",
     name: "Puxada na barra",
     muscleGroup: "Costas",
-    imageUrl: pexels("https://images.pexels.com/photos/10518848/pexels-photo-10518848.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10518848/pexels-photo-10518848.jpeg",
+    ),
+    howTo: [
+      "Segure a barra e fique com o peito ‘aberto’.",
+      "Puxe levando o peito em direção à barra.",
+      "Desça controlando até estender os braços.",
+    ],
+    tips: ["Pense em ‘cotovelo para baixo’.", "Comece com elástico/assistido se necessário."],
+    mistakes: ["Balançar o corpo.", "Encolher os ombros durante a puxada."],
   },
   {
     id: "pulldown",
     name: "Puxada na polia (pulldown)",
     muscleGroup: "Costas",
-    imageUrl: pexels("https://images.pexels.com/photos/10551484/pexels-photo-10551484.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10551484/pexels-photo-10551484.jpeg",
+    ),
+    howTo: [
+      "Sente e ajuste o apoio da coxa.",
+      "Puxe a barra até a altura do peito mantendo o tronco firme.",
+      "Suba a barra controlando sem ‘soltar’ o peso de uma vez.",
+    ],
+    tips: ["Comece puxando com as costas, não com o bíceps.", "Peito para cima."],
+    mistakes: ["Jogar o corpo para trás.", "Puxar atrás da nuca (desconfortável para muitos)."],
   },
   {
     id: "remada-curvada",
     name: "Remada curvada",
     muscleGroup: "Costas",
-    imageUrl: pexels("https://images.pexels.com/photos/9479153/pexels-photo-9479153.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/9479153/pexels-photo-9479153.jpeg",
+    ),
+    howTo: [
+      "Incline o tronco com a coluna neutra.",
+      "Puxe a barra em direção ao abdômen.",
+      "Desça controlando sem perder a postura.",
+    ],
+    tips: ["Barriga firme e costas ‘travadas’.", "Cotovelos perto do corpo."],
+    mistakes: ["Arredondar a lombar.", "Usar impulso do quadril."],
   },
   {
     id: "remada-unilateral",
     name: "Remada unilateral (halter)",
     muscleGroup: "Costas",
-    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg",
+    ),
+    howTo: [
+      "Apoie uma mão e um joelho no banco.",
+      "Puxe o halter para o quadril.",
+      "Desça controlando, mantendo o ombro longe da orelha.",
+    ],
+    tips: ["Pense em ‘cotovelo para trás’.", "Não gire o tronco."],
+    mistakes: ["Rodar o corpo para ajudar.", "Subir o ombro durante a puxada."],
   },
   {
     id: "pullover",
     name: "Pullover",
     muscleGroup: "Costas",
-    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg",
+    ),
+    howTo: [
+      "Deite no banco e segure um halter acima do peito.",
+      "Leve o halter para trás com leve flexão de cotovelo.",
+      "Volte controlando até acima do peito.",
+    ],
+    tips: ["Amplitude confortável (sem forçar ombro).", "Costas e core firmes."],
+    mistakes: ["Arquear demais a lombar.", "Descer rápido demais."],
   },
   {
     id: "desenvolvimento",
     name: "Desenvolvimento (halteres)",
     muscleGroup: "Ombros",
-    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg",
+    ),
+    howTo: [
+      "Sente com postura alta e core firme.",
+      "Suba os halteres acima da cabeça.",
+      "Desça controlando até a linha do queixo/orelha.",
+    ],
+    tips: ["Não deixe as costelas ‘abrirem’.", "Controle na descida faz diferença."],
+    mistakes: ["Arquear a lombar para compensar.", "Descer muito abaixo e perder controle."],
   },
   {
     id: "elevacao-lateral",
     name: "Elevação lateral",
     muscleGroup: "Ombros",
-    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg",
+    ),
+    howTo: [
+      "Com cotovelos levemente flexionados, eleve os halteres para o lado.",
+      "Suba até a linha do ombro (aprox.).",
+      "Desça devagar.",
+    ],
+    tips: ["Pense em ‘empurrar o chão’ com os pés (estabilidade).", "Carga leve e controle."],
+    mistakes: ["Balançar o corpo.", "Subir com trapézio (ombros nas orelhas)."],
   },
   {
     id: "elevacao-frontal",
     name: "Elevação frontal",
     muscleGroup: "Ombros",
-    imageUrl: pexels("https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/11433027/pexels-photo-11433027.jpeg",
+    ),
+    howTo: [
+      "Segure halteres à frente das coxas.",
+      "Eleve até a linha do ombro.",
+      "Desça controlando.",
+    ],
+    tips: ["Evite subir acima do ombro.", "Braços com leve flexão."],
+    mistakes: ["Usar impulso do tronco.", "Subir demais e irritar o ombro."],
   },
   {
     id: "remada-alta",
     name: "Remada alta",
     muscleGroup: "Ombros",
-    imageUrl: pexels("https://images.pexels.com/photos/9479153/pexels-photo-9479153.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/9479153/pexels-photo-9479153.jpeg",
+    ),
+    howTo: [
+      "Segure a barra/cabo à frente do corpo.",
+      "Puxe para cima mantendo a barra perto do corpo.",
+      "Desça controlando.",
+    ],
+    tips: ["Amplitude confortável.", "Cotovelos guiam o movimento."],
+    mistakes: ["Abrir demais os cotovelos e sentir dor.", "Fazer rápido e sem controle."],
   },
   {
     id: "rosca-direta",
     name: "Rosca direta",
     muscleGroup: "Bíceps",
-    imageUrl: pexels("https://images.pexels.com/photos/9073246/pexels-photo-9073246.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/9073246/pexels-photo-9073246.jpeg",
+    ),
+    howTo: [
+      "Cotovelos colados ao corpo.",
+      "Suba a barra/halter sem balançar.",
+      "Desça controlando.",
+    ],
+    tips: ["Punhos neutros e firmes.", "Controle na descida é metade do bíceps."],
+    mistakes: ["Balançar o tronco.", "Deixar cotovelos fugirem para frente."],
   },
   {
     id: "rosca-martelo",
     name: "Rosca martelo",
     muscleGroup: "Bíceps",
-    imageUrl: pexels("https://images.pexels.com/photos/9073246/pexels-photo-9073246.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/9073246/pexels-photo-9073246.jpeg",
+    ),
+    howTo: [
+      "Pegada neutra (polegares para cima).",
+      "Suba os halteres sem mexer o cotovelo.",
+      "Desça controlando.",
+    ],
+    tips: ["Ótimo para antebraço também.", "Cotovelos perto do corpo."],
+    mistakes: ["Girar o punho demais.", "Usar impulso."],
   },
   {
     id: "rosca-alternada",
     name: "Rosca alternada",
     muscleGroup: "Bíceps",
-    imageUrl: pexels("https://images.pexels.com/photos/9073246/pexels-photo-9073246.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/9073246/pexels-photo-9073246.jpeg",
+    ),
+    howTo: [
+      "Segure dois halteres ao lado do corpo.",
+      "Suba um braço de cada vez.",
+      "Desça controlando e repita do outro lado.",
+    ],
+    tips: ["Não ‘roube’ com o ombro.", "Movimento limpo e constante."],
+    mistakes: ["Balançar o corpo.", "Subir o cotovelo junto."],
   },
   {
     id: "triceps-corda",
     name: "Tríceps corda",
     muscleGroup: "Tríceps",
-    imageUrl: pexels("https://images.pexels.com/photos/4218662/pexels-photo-4218662.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/4218662/pexels-photo-4218662.jpeg",
+    ),
+    howTo: [
+      "Cotovelos colados ao corpo.",
+      "Empurre a corda para baixo até estender.",
+      "Volte devagar até perto de 90°.",
+    ],
+    tips: ["No final, ‘abra’ levemente a corda.", "Tronco firme."],
+    mistakes: ["Abrir cotovelos.", "Usar o corpo para empurrar."],
   },
   {
     id: "triceps-testa",
     name: "Tríceps testa",
     muscleGroup: "Tríceps",
-    imageUrl: pexels("https://images.pexels.com/photos/4218662/pexels-photo-4218662.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/4218662/pexels-photo-4218662.jpeg",
+    ),
+    howTo: [
+      "Deite no banco com halteres ou barra.",
+      "Flexione o cotovelo levando o peso em direção à testa.",
+      "Estenda o cotovelo para voltar.",
+    ],
+    tips: ["Cotovelos apontando para cima.", "Controle para não forçar o cotovelo."],
+    mistakes: ["Abrir cotovelos demais.", "Descer rápido e perder estabilidade."],
   },
   {
     id: "mergulho",
     name: "Mergulho (paralelas)",
     muscleGroup: "Tríceps",
-    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg",
+    ),
+    howTo: [
+      "Apoie as mãos nas barras paralelas.",
+      "Desça controlando até o cotovelo dobrar.",
+      "Suba empurrando até estender.",
+    ],
+    tips: ["Tronco mais reto = mais tríceps.", "Se doer ombro, reduza amplitude."],
+    mistakes: ["Descer demais e ‘travando’ ombro.", "Balançar o corpo."],
   },
   {
     id: "agachamento",
     name: "Agachamento",
     muscleGroup: "Pernas",
-    imageUrl: pexels("https://images.pexels.com/photos/5209197/pexels-photo-5209197.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/5209197/pexels-photo-5209197.jpeg",
+    ),
+    howTo: [
+      "Pés na largura confortável e tronco firme.",
+      "Desça empurrando o quadril para trás e joelhos acompanhando o pé.",
+      "Suba empurrando o chão.",
+    ],
+    tips: ["Comece leve e priorize técnica.", "Olhar no horizonte ajuda postura."],
+    mistakes: ["Deixar joelhos ‘cair’ para dentro.", "Arredondar a lombar."],
   },
   {
     id: "leg-press",
     name: "Leg press",
     muscleGroup: "Pernas",
-    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg",
+    ),
+    howTo: [
+      "Posicione os pés na plataforma.",
+      "Desça controlando até onde conseguir sem tirar o quadril do assento.",
+      "Empurre de volta sem travar os joelhos.",
+    ],
+    tips: ["Amplitude confortável > peso.", "Não deixe o joelho colapsar."],
+    mistakes: ["Tirar o quadril do banco.", "Travar joelhos no topo."],
   },
   {
     id: "cadeira-extensora",
     name: "Cadeira extensora",
     muscleGroup: "Pernas",
-    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg",
+    ),
+    howTo: [
+      "Ajuste o banco e o rolo na canela.",
+      "Estenda o joelho até quase travar.",
+      "Desça devagar.",
+    ],
+    tips: ["Segure 1s no topo.", "Movimento controlado."],
+    mistakes: ["Chutar (sem controle).", "Peso demais e amplitude curta."],
   },
   {
     id: "cadeira-flexora",
     name: "Cadeira flexora",
     muscleGroup: "Pernas",
-    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg",
+    ),
+    howTo: [
+      "Ajuste o rolo atrás do tornozelo.",
+      "Flexione o joelho puxando o rolo.",
+      "Volte controlando.",
+    ],
+    tips: ["Contraia no final.", "Não levante o quadril do banco."],
+    mistakes: ["Roubar com quadril.", "Descer rápido demais."],
   },
   {
     id: "stiff",
     name: "Stiff (terra romeno)",
     muscleGroup: "Pernas",
-    imageUrl: pexels("https://images.pexels.com/photos/9479153/pexels-photo-9479153.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/9479153/pexels-photo-9479153.jpeg",
+    ),
+    howTo: [
+      "Segure a barra/halteres e mantenha coluna neutra.",
+      "Desça com o quadril para trás, joelhos levemente flexionados.",
+      "Suba contraindo posterior e glúteo.",
+    ],
+    tips: ["Peso perto da perna o tempo todo.", "Amplitude até onde mantém a lombar neutra."],
+    mistakes: ["Arredondar as costas.", "Descer só dobrando joelho (vira agachamento)."],
   },
   {
     id: "hip-thrust",
     name: "Hip thrust",
     muscleGroup: "Glúteos",
-    imageUrl: pexels("https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10518845/pexels-photo-10518845.jpeg",
+    ),
+    howTo: [
+      "Costas altas apoiadas no banco.",
+      "Empurre o quadril para cima até alinhar tronco e coxa.",
+      "Desça controlando.",
+    ],
+    tips: ["Queixo levemente recolhido.", "Pausa 1s no topo ajuda."],
+    mistakes: ["Subir arqueando lombar.", "Pés longe demais e perder glúteo."],
   },
   {
     id: "afundo",
     name: "Afundo (avanço)",
     muscleGroup: "Glúteos",
-    imageUrl: pexels("https://images.pexels.com/photos/5209197/pexels-photo-5209197.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/5209197/pexels-photo-5209197.jpeg",
+    ),
+    howTo: [
+      "Dê um passo à frente.",
+      "Desça até ambos joelhos dobrarem controlando.",
+      "Suba empurrando o chão.",
+    ],
+    tips: ["Tronco firme e joelho alinhado.", "Comece sem peso."],
+    mistakes: ["Joelho da frente entrando para dentro.", "Passo curto demais."],
   },
   {
     id: "panturrilha",
     name: "Panturrilha (em pé)",
     muscleGroup: "Pernas",
-    imageUrl: pexels("https://images.pexels.com/photos/11241448/pexels-photo-11241448.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/11241448/pexels-photo-11241448.jpeg",
+    ),
+    howTo: [
+      "Apoie a ponta do pé em um degrau/plataforma.",
+      "Suba o calcanhar o máximo que conseguir.",
+      "Desça controlando alongando.",
+    ],
+    tips: ["Pausa 1s em cima e 1s embaixo.", "Não faça ‘pulinhos’."],
+    mistakes: ["Amplitude curtinha.", "Subir rápido e sem controle."],
   },
   {
     id: "prancha",
     name: "Prancha",
     muscleGroup: "Core",
-    imageUrl: pexels("https://images.pexels.com/photos/28970125/pexels-photo-28970125.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/28970125/pexels-photo-28970125.jpeg",
+    ),
+    howTo: [
+      "Antebraços no chão e corpo alinhado.",
+      "Contraia abdômen e glúteos.",
+      "Respire mantendo postura.",
+    ],
+    tips: ["Pense em ‘encaixar’ o quadril.", "Melhor 20s perfeito do que 1min torto."],
+    mistakes: ["Quadril caindo.", "Prender a respiração."],
   },
   {
     id: "abdominal-crunch",
     name: "Abdominal (crunch)",
     muscleGroup: "Core",
-    imageUrl: pexels("https://images.pexels.com/photos/16216727/pexels-photo-16216727.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/16216727/pexels-photo-16216727.jpeg",
+    ),
+    howTo: [
+      "Deite com joelhos flexionados.",
+      "Suba o tronco pequeno, tirando as escápulas do chão.",
+      "Desça controlando.",
+    ],
+    tips: ["Olhar para o teto, queixo neutro.", "Movimento curto e controlado."],
+    mistakes: ["Puxar o pescoço.", "Subir demais e perder a contração."],
   },
   {
     id: "elevacao-pernas",
     name: "Elevação de pernas",
     muscleGroup: "Core",
-    imageUrl: pexels("https://images.pexels.com/photos/16216727/pexels-photo-16216727.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/16216727/pexels-photo-16216727.jpeg",
+    ),
+    howTo: [
+      "Deite e mantenha a lombar encostada no chão.",
+      "Suba e desça as pernas sem perder o controle.",
+      "Se precisar, dobre os joelhos.",
+    ],
+    tips: ["A lombar é a regra: se descolou, reduza amplitude.", "Faça devagar."],
+    mistakes: ["Arqueiar a lombar.", "Descer rápido e ‘bater’ no chão."],
   },
   {
     id: "corrida",
     name: "Corrida",
     muscleGroup: "Cardio",
-    imageUrl: pexels("https://images.pexels.com/photos/10518848/pexels-photo-10518848.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10518848/pexels-photo-10518848.jpeg",
+    ),
+    howTo: [
+      "Comece com aquecimento leve (3–5 min).",
+      "Mantenha ritmo em que dá para falar frases curtas.",
+      "Finalize com desaceleração e hidratação.",
+    ],
+    tips: ["Aumente volume aos poucos semana a semana.", "Tênis confortável faz diferença."],
+    mistakes: ["Começar rápido demais e morrer no meio.", "Ignorar dor persistente."],
   },
   {
     id: "bicicleta",
     name: "Bicicleta",
     muscleGroup: "Cardio",
-    imageUrl: pexels("https://images.pexels.com/photos/10518848/pexels-photo-10518848.jpeg"),
+    imageUrl: pexels(
+      "https://images.pexels.com/photos/10518848/pexels-photo-10518848.jpeg",
+    ),
+    howTo: [
+      "Ajuste o banco para não travar o joelho.",
+      "Mantenha cadência estável e postura confortável.",
+      "Controle a resistência sem ‘se matar’ no começo.",
+    ],
+    tips: ["Uma cadência mais alta costuma poupar o joelho.", "Use respiração regular."],
+    mistakes: ["Banco muito baixo (sobrecarrega joelho).", "Resistência alta com técnica ruim."],
   },
 ];
 
