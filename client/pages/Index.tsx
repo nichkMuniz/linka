@@ -599,6 +599,7 @@ export default function Index() {
 
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-4">
+      <StoriesBar />
       <section className="grid gap-4">
         {goals
           .filter((g) => !isBlocked(g.ownerHandle))
