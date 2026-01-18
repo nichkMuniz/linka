@@ -1,4 +1,4 @@
-import { Copy, Pencil, Share2, Trash2, Eye } from "lucide-react";
+import { Copy, Pencil, Share2, Trash2, Eye, Play } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import type { Routine } from "@/lib/ritmofit";
@@ -35,6 +35,7 @@ export function RoutineCard({
   onEdit,
   onDelete,
   onShare,
+  startHref,
   className,
 }: {
   routine: Routine;
@@ -43,6 +44,7 @@ export function RoutineCard({
   onEdit?: () => void;
   onDelete?: () => void;
   onShare?: () => void;
+  startHref?: string;
   className?: string;
 }) {
   const meta = categoryMeta[routine.category];
@@ -194,6 +196,15 @@ export function RoutineCard({
             Sem itens ainda. Edite para adicionar.
           </div>
         )}
+
+        {startHref ? (
+          <Button asChild className="mt-3 w-full rounded-full">
+            <Link to={startHref}>
+              <Play className="h-4 w-4" />
+              Iniciar rotina
+            </Link>
+          </Button>
+        ) : null}
       </CardContent>
     </Card>
   );
