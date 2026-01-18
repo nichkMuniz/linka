@@ -236,6 +236,7 @@ export default function WorkoutSession() {
 
     setRestRunning(false);
     setRestLabel("");
+    setRestModalOpen(false);
     toast({ title: "Descanso finalizado", description: "Bora pra próxima série." });
   }, [restRunning, restSecondsLeft]);
 
@@ -255,6 +256,7 @@ export default function WorkoutSession() {
     setActiveStepId(nextLogs[0]?.stepId ?? null);
     setSummaryOpen(false);
     setAddExerciseOpen(false);
+    setSummaryImageDataUrl("");
     stopRest();
     stopwatch.reset();
     stopwatch.start();
