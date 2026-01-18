@@ -11,7 +11,11 @@ const categoryMeta: Record<
   Routine["category"],
   { label: string; className: string; itemsLabel: string }
 > = {
-  Treino: { label: "Treino", className: "bg-brand text-white", itemsLabel: "Exercícios" },
+  Treino: {
+    label: "Treino",
+    className: "bg-brand text-white",
+    itemsLabel: "Exercícios",
+  },
   "Alimentação": {
     label: "Alimentação",
     className: "bg-brand-2 text-white",
@@ -42,9 +46,20 @@ export function RoutineCard({
   className?: string;
 }) {
   const meta = categoryMeta[routine.category];
-  const items = routine.steps
-    .map((s) => s.title.trim())
-    .filter(Boolean);
+
+  const steps = routine.steps
+    .map((s) => ({
+      ...s,
+      title: s.title.trim(),
+      imageUrl: (s.imageUrl ?? "").trim() || undefined,
+    }))
+    .filter((s) => Boolean(s.title));
+
+  const items = steps.map((s) => s.title);
+  const exercisePreviews =
+    routine.category === "Treino"
+      ? steps.filter((s) => Boolean(s.imageUrl)).slice(0, 4)
+      : [];
 
   return (
     <Card className={cn("border-border/60", className)}>
@@ -62,7 +77,9 @@ export function RoutineCard({
                 {items.length} {meta.itemsLabel.toLowerCase()}
               </span>
               {routine.copiedFromRoutineId ? (
-                <span className="text-[11px] text-muted-foreground">(copiada)</span>
+                <span className="text-[11px] text-muted-foreground">
+                  (copiada)
+                </span>
               ) : null}
             </div>
           </div>
@@ -136,21 +153,41 @@ export function RoutineCard({
             <div className="text-xs font-semibold text-muted-foreground">
               {meta.itemsLabel}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {items.slice(0, 6).map((name) => (
-                <span
-                  key={name}
-                  className="rounded-full bg-muted/40 px-3 py-1 text-xs text-foreground ring-1 ring-border/60"
-                >
-                  {name}
-                </span>
-              ))}
-              {items.length > 6 ? (
-                <span className="rounded-full bg-muted/20 px-3 py-1 text-xs text-muted-foreground ring-1 ring-border/60">
-                  +{items.length - 6}
-                </span>
-              ) : null}
-            </div>
+
+            {exercisePreviews.length ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {exercisePreviews.map((s) => (
+                  <img
+                    key={s.id}
+                    src={s.imageUrl}
+                    alt={s.title}
+                    className="h-12 w-12 rounded-2xl object-cover ring-1 ring-border/60"
+                    loading="lazy"
+                  />
+                ))}
+                {items.length > exercisePreviews.length ? (
+                  <span className="rounded-full bg-muted/20 px-3 py-1 text-xs text-muted-foreground ring-1 ring-border/60">
+                    +{items.length - exercisePreviews.length}
+                  </span>
+                ) : null}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {items.slice(0, 6).map((name) => (
+                  <span
+                    key={name}
+                    className="rounded-full bg-muted/40 px-3 py-1 text-xs text-foreground ring-1 ring-border/60"
+                  >
+                    {name}
+                  </span>
+                ))}
+                {items.length > 6 ? (
+                  <span className="rounded-full bg-muted/20 px-3 py-1 text-xs text-muted-foreground ring-1 ring-border/60">
+                    +{items.length - 6}
+                  </span>
+                ) : null}
+              </div>
+            )}
           </div>
         ) : (
           <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
