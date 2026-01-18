@@ -1103,6 +1103,73 @@ export default function WorkoutSession() {
             </div>
 
             <div className="grid gap-2 rounded-2xl border border-border/60 bg-muted/20 p-4">
+              <div className="text-sm font-semibold">Foto do post</div>
+              <div className="text-xs text-muted-foreground">
+                Opcional. Se não escolher, usamos a imagem do treino.
+              </div>
+
+              <input
+                ref={summaryFileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const result = typeof reader.result === "string" ? reader.result : "";
+                    setSummaryImageDataUrl(result);
+                  };
+                  reader.readAsDataURL(file);
+                }}
+              />
+
+              {summaryImageDataUrl ? (
+                <div className="grid gap-2">
+                  <img
+                    src={summaryImageDataUrl}
+                    alt="Prévia da foto"
+                    className="aspect-video w-full rounded-2xl object-cover ring-1 ring-border/60"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={() => summaryFileInputRef.current?.click()}
+                    >
+                      <ImagePlus className="h-4 w-4" />
+                      Trocar
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="rounded-full"
+                      onClick={() => {
+                        setSummaryImageDataUrl("");
+                        if (summaryFileInputRef.current) summaryFileInputRef.current.value = "";
+                      }}
+                    >
+                      Remover
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => summaryFileInputRef.current?.click()}
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  Adicionar foto
+                </Button>
+              )}
+            </div>
+
+            <div className="grid gap-2 rounded-2xl border border-border/60 bg-muted/20 p-4">
               <div className="flex items-center gap-2">
                 <Checkbox
                   checked={postToFeed}
@@ -1151,11 +1218,13 @@ export default function WorkoutSession() {
                   totalVolume,
                 )} kg · Calorias: ~${estimatedCalories} kcal`;
 
+                const postImageDataUrl = summaryImageDataUrl || coverImage;
+
                 if (postToFeed) {
                   createGoal({
                     title: `Treino concluído: ${routine.title}`,
                     caption: summary,
-                    imageDataUrl: coverImage,
+                    imageDataUrl: postImageDataUrl,
                     category: "Treino",
                     frequency: "Hoje",
                     durationDays: 7,
@@ -1167,7 +1236,7 @@ export default function WorkoutSession() {
 
                 if (postToStories) {
                   addStoryItem({
-                    imageDataUrl: coverImage,
+                    imageDataUrl: postImageDataUrl,
                     text: `✅ ${routine.title}\n${summary}`,
                   });
                 }
