@@ -1,4 +1,3 @@
-import * as React from "react";
 import { Copy, Pencil, Share2, Trash2, Eye } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -10,11 +9,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const categoryMeta: Record<
   Routine["category"],
-  { label: string; className: string }
+  { label: string; className: string; itemsLabel: string }
 > = {
-  Treino: { label: "Treino", className: "bg-brand text-white" },
-  "Alimentação": { label: "Alimentação", className: "bg-brand-2 text-white" },
-  "Hábito": { label: "Hábito", className: "bg-emerald-600 text-white" },
+  Treino: { label: "Treino", className: "bg-brand text-white", itemsLabel: "Exercícios" },
+  "Alimentação": {
+    label: "Alimentação",
+    className: "bg-brand-2 text-white",
+    itemsLabel: "Comidas",
+  },
+  "Hábito": {
+    label: "Hábito",
+    className: "bg-emerald-600 text-white",
+    itemsLabel: "Hábitos",
+  },
 };
 
 export function RoutineCard({
@@ -35,6 +42,9 @@ export function RoutineCard({
   className?: string;
 }) {
   const meta = categoryMeta[routine.category];
+  const items = routine.steps
+    .map((s) => s.title.trim())
+    .filter(Boolean);
 
   return (
     <Card className={cn("border-border/60", className)}>
@@ -49,12 +59,10 @@ export function RoutineCard({
                 {meta.label}
               </Badge>
               <span className="text-[11px] text-muted-foreground">
-                {routine.steps.length} passo{routine.steps.length === 1 ? "" : "s"}
+                {items.length} {meta.itemsLabel.toLowerCase()}
               </span>
               {routine.copiedFromRoutineId ? (
-                <span className="text-[11px] text-muted-foreground">
-                  (copiada)
-                </span>
+                <span className="text-[11px] text-muted-foreground">(copiada)</span>
               ) : null}
             </div>
           </div>
@@ -120,43 +128,36 @@ export function RoutineCard({
             )}
           </div>
         </div>
-
-        {routine.description ? (
-          <div className="line-clamp-2 text-sm text-muted-foreground">
-            {routine.description}
-          </div>
-        ) : null}
       </CardHeader>
 
-      {routine.steps.length ? (
-        <CardContent className="pt-0">
+      <CardContent className="pt-0">
+        {items.length ? (
           <div className="grid gap-2">
-            {routine.steps.slice(0, 3).map((s, idx) => (
-              <div
-                key={s.id}
-                className="flex items-start gap-2 rounded-2xl bg-muted/30 p-3"
-              >
-                <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-background ring-1 ring-border/60">
-                  <span className="text-[11px] font-semibold">{idx + 1}</span>
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">{s.title}</div>
-                  {s.detail ? (
-                    <div className="line-clamp-2 text-sm text-muted-foreground">
-                      {s.detail}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-            {routine.steps.length > 3 ? (
-              <div className="text-xs text-muted-foreground">
-                +{routine.steps.length - 3} passo{routine.steps.length - 3 === 1 ? "" : "s"}
-              </div>
-            ) : null}
+            <div className="text-xs font-semibold text-muted-foreground">
+              {meta.itemsLabel}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {items.slice(0, 6).map((name) => (
+                <span
+                  key={name}
+                  className="rounded-full bg-muted/40 px-3 py-1 text-xs text-foreground ring-1 ring-border/60"
+                >
+                  {name}
+                </span>
+              ))}
+              {items.length > 6 ? (
+                <span className="rounded-full bg-muted/20 px-3 py-1 text-xs text-muted-foreground ring-1 ring-border/60">
+                  +{items.length - 6}
+                </span>
+              ) : null}
+            </div>
           </div>
-        </CardContent>
-      ) : null}
+        ) : (
+          <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+            Sem itens ainda. Edite para adicionar.
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }
