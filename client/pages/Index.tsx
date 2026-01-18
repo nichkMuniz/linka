@@ -24,6 +24,7 @@ import {
   timeAgo,
   updateGoal,
 } from "@/lib/ritmofit";
+import { StoriesBar } from "@/components/stories-bar";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
