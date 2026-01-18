@@ -369,6 +369,16 @@ export default function WorkoutSession() {
             </div>
 
             <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-full"
+                onClick={() => setRestModalOpen(true)}
+              >
+                Abrir
+              </Button>
+
               {restRunning ? (
                 <Button
                   type="button"
@@ -405,6 +415,64 @@ export default function WorkoutSession() {
           </CardContent>
         </Card>
       ) : null}
+
+      <Dialog open={restModalOpen && restSecondsLeft > 0} onOpenChange={setRestModalOpen}>
+        <DialogContent className="max-w-[min(96vw,420px)] rounded-3xl border-border/60">
+          <DialogHeader>
+            <DialogTitle>Descanso</DialogTitle>
+            <DialogDescription className="truncate">
+              {restLabel || "Próxima série"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <div className="text-center text-6xl font-semibold tabular-nums tracking-tight">
+              {formatRest(restSecondsLeft)}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {restRunning ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => setRestRunning(false)}
+                >
+                  <Pause className="h-4 w-4" />
+                  Pausar
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  className="rounded-full"
+                  onClick={() => setRestRunning(true)}
+                >
+                  <Play className="h-4 w-4" />
+                  Continuar
+                </Button>
+              )}
+
+              <Button
+                type="button"
+                variant="secondary"
+                className="rounded-full"
+                onClick={stopRest}
+              >
+                Pular
+              </Button>
+
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => setRestModalOpen(false)}
+              >
+                Minimizar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Card className="border-border/60">
         <CardHeader className="space-y-1">
