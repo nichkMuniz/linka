@@ -18,6 +18,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 
 import { createGoal, getRoutines, GoalCategory, Routine } from "@/lib/ritmofit";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -36,7 +37,6 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 
 const frequencyOptions = [
@@ -57,7 +57,6 @@ const schema = z.object({
     .string()
     .min(4, "Escreva um título curto (ex: Treino de hoje)")
     .max(80, "Título muito longo"),
-  caption: z.string().max(280, "Legenda muito longa").optional(),
   category: z.enum(["Treino", "Alimentação", "Hábito"]),
   frequency: z.enum(frequencyOptions),
   durationDays: z.enum(["7", "21", "30"]),
@@ -101,7 +100,7 @@ async function fileToDataUrl(file: File) {
 export default function NewPost() {
   const navigate = useNavigate();
   const [imageDataUrl, setImageDataUrl] = React.useState<string>("");
-  const [attachedRoutineId, setAttachedRoutineId] = React.useState<string>("");
+  const [attachedRoutineIds, setAttachedRoutineIds] = React.useState<string[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const autoOpenedRef = React.useRef(false);
 
@@ -123,7 +122,6 @@ export default function NewPost() {
     resolver: zodResolver(schema),
     defaultValues: {
       title: "",
-      caption: "",
       category: "Treino",
       frequency: "Diário",
       durationDays: "21",
@@ -165,10 +163,11 @@ export default function NewPost() {
     return getRoutines().filter((r) => r.ownerHandle === "@voce");
   }, []);
 
-  const selectedRoutine: Routine | null = React.useMemo(() => {
-    if (!attachedRoutineId) return null;
-    return myRoutines.find((r) => r.id === attachedRoutineId) ?? null;
-  }, [attachedRoutineId, myRoutines]);
+  const selectedRoutines: Routine[] = React.useMemo(() => {
+    if (!attachedRoutineIds.length) return [];
+    const set = new Set(attachedRoutineIds);
+    return myRoutines.filter((r) => set.has(r.id));
+  }, [attachedRoutineIds, myRoutines]);
 
   const onSubmit = (v: Values) => {
     if (!imageDataUrl) {
@@ -183,14 +182,14 @@ export default function NewPost() {
 
     createGoal({
       title: v.title,
-      caption: v.caption ?? "",
+      caption: "",
       imageDataUrl,
       category: v.category,
       frequency: v.frequency,
       durationDays: Number(v.durationDays) as 7 | 21 | 30,
       visibility: "Público",
-      attachedRoutineId: selectedRoutine?.id,
-      attachedRoutineTitle: selectedRoutine?.title,
+      attachedRoutineIds: selectedRoutines.map((r) => r.id),
+      attachedRoutineTitles: selectedRoutines.map((r) => r.title),
     });
 
     toast({
@@ -226,7 +225,6 @@ export default function NewPost() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture="environment"
                 className="sr-only"
                 onChange={onPickFile}
               />
@@ -256,8 +254,7 @@ export default function NewPost() {
                     </div>
 
                     <div className="mt-3 text-xs text-muted-foreground">
-                      Depois de escolher a foto, aparecem os campos de título,
-                      legenda e configurações.
+                      Depois de escolher a foto, aparece o campo de título e as configurações.
                     </div>
                   </div>
                 </div>
@@ -341,28 +338,6 @@ export default function NewPost() {
                         </div>
                       </div>
                     </div>
-
-                    <FormField
-                      control={form.control}
-                      name="caption"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Legenda</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Ex: Hoje foi difícil, mas eu apareci. 1% melhor."
-                              className="min-h-[120px]"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Conte como foi e o que você quer que as pessoas
-                            incentivem.
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
 
                     <div className="grid gap-4 md:grid-cols-3">
                       <FormField
@@ -486,56 +461,107 @@ export default function NewPost() {
 
                     <div className="grid gap-4">
                       <div className="grid gap-2">
-                        <div className="text-sm font-medium">Rotina salva (opcional)</div>
+                        <div className="text-sm font-medium">Rotinas salvas (opcional)</div>
                         <div className="text-xs text-muted-foreground">
-                          Você pode anexar uma das suas rotinas para as pessoas verem.
+                          Você pode anexar uma ou mais rotinas para as pessoas verem e copiarem.
                         </div>
 
-                        <Select
-                          value={attachedRoutineId || "none"}
-                          onValueChange={(v) =>
-                            setAttachedRoutineId(v === "none" ? "" : v)
-                          }
-                        >
-                          <SelectTrigger>
-                            <span className="text-sm">
-                              {selectedRoutine ? selectedRoutine.title : "Nenhuma"}
-                            </span>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Nenhuma</SelectItem>
-                            {myRoutines.map((r) => (
-                              <SelectItem key={r.id} value={r.id}>
-                                {r.title}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-
-                        {selectedRoutine ? (
-                          <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
-                            <div className="text-sm font-semibold">
-                              {selectedRoutine.title}
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {selectedRoutine.steps
+                        {myRoutines.length ? (
+                          <div className="grid gap-2 rounded-2xl border border-border/60 bg-muted/20 p-2">
+                            {myRoutines.map((r) => {
+                              const checked = attachedRoutineIds.includes(r.id);
+                              const stepsCount = r.steps
                                 .map((s) => s.title.trim())
-                                .filter(Boolean)
-                                .slice(0, 6)
-                                .map((t) => (
-                                  <span
-                                    key={t}
-                                    className="rounded-full bg-background/70 px-3 py-1 text-xs text-foreground ring-1 ring-border/60"
-                                  >
-                                    {t}
-                                  </span>
-                                ))}
-                              {selectedRoutine.steps.length > 6 ? (
-                                <span className="rounded-full bg-background/40 px-3 py-1 text-xs text-muted-foreground ring-1 ring-border/60">
-                                  +{selectedRoutine.steps.length - 6}
-                                </span>
-                              ) : null}
-                            </div>
+                                .filter(Boolean).length;
+
+                              return (
+                                <div
+                                  key={r.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  className="flex cursor-pointer items-start gap-3 rounded-2xl bg-background/60 p-3 ring-1 ring-border/60 transition hover:bg-background"
+                                  onClick={() => {
+                                    setAttachedRoutineIds((prev) =>
+                                      prev.includes(r.id)
+                                        ? prev.filter((id) => id !== r.id)
+                                        : [...prev, r.id],
+                                    );
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== "Enter" && e.key !== " ") return;
+                                    e.preventDefault();
+                                    setAttachedRoutineIds((prev) =>
+                                      prev.includes(r.id)
+                                        ? prev.filter((id) => id !== r.id)
+                                        : [...prev, r.id],
+                                    );
+                                  }}
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(v) => {
+                                      const next = Boolean(v);
+                                      setAttachedRoutineIds((prev) =>
+                                        next
+                                          ? prev.includes(r.id)
+                                            ? prev
+                                            : [...prev, r.id]
+                                          : prev.filter((id) => id !== r.id),
+                                      );
+                                    }}
+                                    aria-label={`Anexar rotina ${r.title}`}
+                                    className="mt-1"
+                                  />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="truncate text-sm font-semibold">{r.title}</div>
+                                    <div className="mt-0.5 text-xs text-muted-foreground">
+                                      {r.category} · {stepsCount} itens
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                            Você ainda não tem rotinas salvas.
+                          </div>
+                        )}
+
+                        {selectedRoutines.length ? (
+                          <div className="grid gap-2">
+                            {selectedRoutines.slice(0, 2).map((r) => (
+                              <div
+                                key={r.id}
+                                className="rounded-2xl border border-border/60 bg-muted/20 p-4"
+                              >
+                                <div className="text-sm font-semibold">{r.title}</div>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {r.steps
+                                    .map((s) => s.title.trim())
+                                    .filter(Boolean)
+                                    .slice(0, 6)
+                                    .map((t) => (
+                                      <span
+                                        key={t}
+                                        className="rounded-full bg-background/70 px-3 py-1 text-xs text-foreground ring-1 ring-border/60"
+                                      >
+                                        {t}
+                                      </span>
+                                    ))}
+                                  {r.steps.length > 6 ? (
+                                    <span className="rounded-full bg-background/40 px-3 py-1 text-xs text-muted-foreground ring-1 ring-border/60">
+                                      +{r.steps.length - 6}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                            {selectedRoutines.length > 2 ? (
+                              <div className="text-xs text-muted-foreground">
+                                +{selectedRoutines.length - 2} rotinas selecionadas
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
