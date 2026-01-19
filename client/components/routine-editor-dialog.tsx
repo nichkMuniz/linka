@@ -207,48 +207,6 @@ function WorkoutPicker({
   return (
     <div className="grid gap-3">
       <div className="grid gap-2">
-        <div className="text-sm font-medium">Selecionados</div>
-        {selectedItems.length ? (
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {selectedItems.map((it) => (
-              <div
-                key={it.id}
-                className="flex shrink-0 items-center gap-2 rounded-full bg-muted/40 py-1 pl-1 pr-2 text-xs ring-1 ring-border/60"
-              >
-                {it.imageUrl ? (
-                  <img
-                    src={it.imageUrl}
-                    alt=""
-                    className="h-8 w-8 rounded-full object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="grid h-8 w-8 place-items-center rounded-full bg-background text-[10px] font-semibold ring-1 ring-border/60">
-                    EX
-                  </div>
-                )}
-                <span className="max-w-[10rem] truncate">{it.name}</span>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 rounded-full"
-                  aria-label={`Remover ${it.name}`}
-                  onClick={() => onRemoveItem(it.id)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-            Nenhum exercício ainda. Selecione abaixo.
-          </div>
-        )}
-      </div>
-
-      <div className="grid gap-2">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div className="grid flex-1 gap-2">
             <div className="text-sm font-medium">Buscar</div>
@@ -291,6 +249,48 @@ function WorkoutPicker({
         </div>
       </div>
 
+      {selectedItems.length ? (
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-medium">Selecionados</div>
+            <div className="text-xs text-muted-foreground">{selectedItems.length}</div>
+          </div>
+
+          <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto rounded-2xl border border-border/60 bg-muted/20 p-3">
+            {selectedItems.map((it) => (
+              <div
+                key={it.id}
+                className="flex items-center gap-2 rounded-full bg-muted/40 py-1 pl-1 pr-2 text-xs ring-1 ring-border/60"
+              >
+                {it.imageUrl ? (
+                  <img
+                    src={it.imageUrl}
+                    alt=""
+                    className="h-8 w-8 rounded-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="grid h-8 w-8 place-items-center rounded-full bg-background text-[10px] font-semibold ring-1 ring-border/60">
+                    EX
+                  </div>
+                )}
+                <span className="max-w-[10rem] truncate">{it.name}</span>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 rounded-full"
+                  aria-label={`Remover ${it.name}`}
+                  onClick={() => onRemoveItem(it.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-2">
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm font-medium">Lista de exercícios</div>
@@ -315,7 +315,6 @@ function WorkoutPicker({
           </div>
         )}
       </div>
-
     </div>
   );
 }
@@ -367,6 +366,12 @@ export function RoutineEditorDialog({
   const meta = itemsMeta(category);
   const datalistId = `ritmofit-${category}-items`;
 
+  const titlePlaceholder = React.useMemo(() => {
+    if (category === "Treino") return "Ex: peito + tríceps";
+    if (category === "Alimentação") return "Ex: frango";
+    return "Ex: meditar";
+  }, [category]);
+
   const toggleExercise = React.useCallback((ex: WorkoutExercise) => {
     setItems((prev) => {
       const existing = prev.find((p) => p.exerciseId === ex.id);
@@ -402,7 +407,7 @@ export function RoutineEditorDialog({
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ex: Peito + tríceps"
+              placeholder={titlePlaceholder}
             />
           </div>
 
@@ -534,7 +539,7 @@ export function RoutineEditorDialog({
             )}
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button
               type="button"
               variant="ghost"
