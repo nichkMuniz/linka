@@ -1,4 +1,5 @@
 import * as React from "react";
+import * as React from "react";
 import {
   Check,
   Dumbbell,
@@ -30,15 +31,6 @@ import {
   updateGoal,
 } from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { CompleteTodayDialog } from "@/components/complete-today-dialog";
 import {
   AlertDialog,
@@ -51,6 +43,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
