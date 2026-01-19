@@ -58,12 +58,14 @@ export function StoryViewerDialog({
   story,
   canDelete,
   onStoriesChange,
+  onRequestNextStory,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   story: StoryGroup | null;
   canDelete?: boolean;
   onStoriesChange?: (next: StoryGroup[]) => void;
+  onRequestNextStory?: () => void;
 }) {
   const items = story?.items ?? [];
   const [index, setIndex] = React.useState(0);
@@ -77,6 +79,12 @@ export function StoryViewerDialog({
       setProgress(0);
     }
   }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setIndex(0);
+    setProgress(0);
+  }, [open, story?.id]);
 
   React.useEffect(() => {
     if (!open || !story || !items.length) return;
@@ -96,7 +104,11 @@ export function StoryViewerDialog({
         setIndex((prev) => {
           const atEnd = prev >= items.length - 1;
           if (atEnd) {
-            onOpenChange(false);
+            if (onRequestNextStory) {
+              onRequestNextStory();
+            } else {
+              onOpenChange(false);
+            }
             return prev;
           }
           return prev + 1;
@@ -106,7 +118,7 @@ export function StoryViewerDialog({
 
     const id = window.setInterval(tick, 50);
     return () => window.clearInterval(id);
-  }, [open, index, items.length, onOpenChange]);
+  }, [open, index, items.length, onOpenChange, onRequestNextStory]);
 
   const goPrev = React.useCallback(() => {
     setIndex((prev) => Math.max(0, prev - 1));
@@ -115,12 +127,16 @@ export function StoryViewerDialog({
   const goNext = React.useCallback(() => {
     setIndex((prev) => {
       if (prev >= items.length - 1) {
-        onOpenChange(false);
+        if (onRequestNextStory) {
+          onRequestNextStory();
+        } else {
+          onOpenChange(false);
+        }
         return prev;
       }
       return prev + 1;
     });
-  }, [items.length, onOpenChange]);
+  }, [items.length, onOpenChange, onRequestNextStory]);
 
   if (!story) return null;
 
