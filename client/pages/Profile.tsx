@@ -99,14 +99,29 @@ function Avatar({ src, initials }: { src?: string; initials: string }) {
 function PostMini({
   goal,
   onChange,
+  onDelete,
 }: {
   goal: Goal;
   onChange: (g: Goal) => void;
+  onDelete: (goalId: string) => void;
 }) {
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
   const updatedToday = goal.myProgressToday === todayKey();
+  const isHidden = Boolean((goal as any).hidden);
+
   const [open, setOpen] = React.useState(false);
+  const [editOpen, setEditOpen] = React.useState(false);
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
+
+  const [draftTitle, setDraftTitle] = React.useState(goal.title);
+  const [draftCaption, setDraftCaption] = React.useState(goal.caption ?? "");
+
+  React.useEffect(() => {
+    if (!editOpen) return;
+    setDraftTitle(goal.title);
+    setDraftCaption(goal.caption ?? "");
+  }, [editOpen, goal.title, goal.caption]);
 
   const quickProgressOnly = () => {
     if (done) return;
@@ -157,13 +172,87 @@ function PostMini({
     if (updated) onChange(updated);
   };
 
+  const canSaveEdit = draftTitle.trim().length >= 2;
+
   return (
-    <Card className="border-border/60">
+    <Card className={cn("border-border/60", isHidden ? "opacity-80" : null)}>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">{goal.title}</CardTitle>
-        <CardDescription className="line-clamp-2">
-          {goal.caption}
-        </CardDescription>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle className="truncate text-base">{goal.title}</CardTitle>
+            <CardDescription className="line-clamp-2">
+              {goal.caption}
+            </CardDescription>
+          </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-10 w-10 rounded-full"
+                aria-label="Ações do post"
+              >
+                <MoreHorizontal className="h-5 w-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem
+                onClick={() => {
+                  const nextState = updateGoal(goal.id, (g) => ({
+                    ...g,
+                    hidden: !Boolean((g as any).hidden),
+                  }));
+                  const updated = nextState.goals.find((g) => g.id === goal.id);
+                  if (updated) onChange(updated);
+                  toast({
+                    title: Boolean((updated as any)?.hidden)
+                      ? "Post ocultado"
+                      : "Post visível",
+                    description: Boolean((updated as any)?.hidden)
+                      ? "Ele não aparece mais no feed."
+                      : "Ele voltou a aparecer no feed.",
+                  });
+                }}
+              >
+                {isHidden ? (
+                  <>
+                    <Eye className="mr-2 h-4 w-4" />
+                    Mostrar no feed
+                  </>
+                ) : (
+                  <>
+                    <EyeOff className="mr-2 h-4 w-4" />
+                    Ocultar do feed
+                  </>
+                )}
+              </DropdownMenuItem>
+
+              <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Editar
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator />
+
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Excluir
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        {isHidden ? (
+          <div className="mt-2 inline-flex w-fit items-center gap-2 rounded-full border border-border/60 bg-muted px-3 py-1 text-[11px] font-semibold text-muted-foreground">
+            <EyeOff className="h-3.5 w-3.5" />
+            Oculto do feed
+          </div>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-3">
         <div
@@ -246,6 +335,99 @@ function PostMini({
           <Progress value={pct} className="h-2" />
         </div>
       </CardContent>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-[min(92vw,520px)] rounded-3xl border-border/60">
+          <DialogHeader>
+            <DialogTitle>Editar post</DialogTitle>
+            <DialogDescription>
+              Ajuste o título e a descrição. Progresso e foto continuam iguais.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3">
+            <div className="grid gap-2">
+              <div className="text-sm font-medium">Título</div>
+              <Input
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+                placeholder="Ex: Meta do mês"
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <div className="text-sm font-medium">Descrição</div>
+              <Textarea
+                value={draftCaption}
+                onChange={(e) => setDraftCaption(e.target.value)}
+                placeholder="Escreva algo curto sobre essa meta..."
+                className="min-h-24"
+              />
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => setEditOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                className="rounded-full"
+                disabled={!canSaveEdit}
+                onClick={() => {
+                  const nextState = updateGoal(goal.id, (g) => ({
+                    ...g,
+                    title: draftTitle.trim(),
+                    caption: draftCaption.trim(),
+                  }));
+
+                  const updated = nextState.goals.find((g) => g.id === goal.id);
+                  if (updated) onChange(updated);
+
+                  toast({
+                    title: "Post atualizado",
+                    description: "Salvamos suas alterações.",
+                  });
+                  setEditOpen(false);
+                }}
+              >
+                Salvar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent className="rounded-3xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir post?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso remove esse post do seu perfil e do feed. Essa ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-full">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                deleteGoal(goal.id);
+                onDelete(goal.id);
+                toast({
+                  title: "Post excluído",
+                  description: "Removemos esse post.",
+                });
+              }}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
