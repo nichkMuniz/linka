@@ -2,16 +2,18 @@ import * as React from "react";
 import { Link } from "react-router-dom";
 
 import {
+  ArrowUpRight,
+  Check,
+  Copy,
+  Droplets,
+  Dumbbell,
   Flame,
   HeartHandshake,
   MessageCircle,
   MoreHorizontal,
-  Trophy,
-  Dumbbell,
-  Utensils,
-  Droplets,
-  Check,
   Send,
+  Trophy,
+  Utensils,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -557,68 +559,84 @@ function PostCard({
 
         {attachedRoutineItems.length ? (
           <div className="grid gap-2 rounded-2xl border border-border/60 bg-muted/20 p-3">
-            <div className="text-xs font-semibold text-muted-foreground">Rotinas anexadas</div>
+            {(() => {
+              const visible = attachedRoutineItems.filter((it) => Boolean(it.title));
+              const extra = Math.max(0, visible.length - 3);
 
-            <div className="grid gap-2">
-              {attachedRoutineItems
-                .filter((it) => Boolean(it.title))
-                .slice(0, 3)
-                .map((it) => {
-                  const canCopy = Boolean(it.routine && it.routine.ownerHandle !== "@voce");
-
-                  return (
-                    <div
-                      key={it.id}
-                      className="flex items-center justify-between gap-3 rounded-2xl bg-background/60 p-3 ring-1 ring-border/60"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold">{it.title}</div>
-                        {it.routine ? (
-                          <div className="mt-0.5 text-xs text-muted-foreground">
-                            {it.routine.category} · {it.routine.ownerHandle}
-                          </div>
-                        ) : (
-                          <div className="mt-0.5 text-xs text-muted-foreground">
-                            Rotina não disponível
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex shrink-0 items-center gap-2">
-                        {canCopy && it.routine ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="rounded-full"
-                            onClick={() => {
-                              copyRoutine(it.routine.id);
-                              toast({
-                                title: "Rotina copiada",
-                                description: "Agora ela aparece em ‘Minhas’.",
-                              });
-                            }}
-                          >
-                            Copiar
-                          </Button>
-                        ) : null}
-
-                        {it.routine ? (
-                          <Button asChild size="sm" variant="outline" className="rounded-full">
-                            <Link to={`/rotinas/${it.routine.id}`}>Ver</Link>
-                          </Button>
-                        ) : null}
-                      </div>
+              return (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      Rotinas anexadas
                     </div>
-                  );
-                })}
+                    {extra > 0 ? (
+                      <div className="text-[11px] text-muted-foreground">+{extra} mais</div>
+                    ) : null}
+                  </div>
 
-              {attachedRoutineItems.filter((it) => Boolean(it.title)).length > 3 ? (
-                <div className="text-xs text-muted-foreground">
-                  +{attachedRoutineItems.filter((it) => Boolean(it.title)).length - 3} rotinas
-                </div>
-              ) : null}
-            </div>
+                  <div className="flex flex-wrap gap-2">
+                    {visible.slice(0, 3).map((it) => {
+                      const canCopy = Boolean(
+                        it.routine && it.routine.ownerHandle !== "@voce",
+                      );
+
+                      return (
+                        <div
+                          key={it.id}
+                          className="flex min-w-[min(16rem,100%)] flex-1 items-center justify-between gap-2 rounded-2xl bg-background/60 px-3 py-2 ring-1 ring-border/60"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-xs font-semibold">
+                              {it.title}
+                            </div>
+                            <div className="truncate text-[10px] text-muted-foreground">
+                              {it.routine
+                                ? `${it.routine.category} · ${it.routine.ownerHandle}`
+                                : "Rotina não disponível"}
+                            </div>
+                          </div>
+
+                          <div className="flex shrink-0 items-center gap-1">
+                            {canCopy && it.routine ? (
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-9 w-9 rounded-full"
+                                aria-label="Copiar rotina"
+                                onClick={() => {
+                                  copyRoutine(it.routine!.id);
+                                  toast({
+                                    title: "Rotina copiada",
+                                    description: "Agora ela aparece em ‘Minhas’.",
+                                  });
+                                }}
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                            ) : null}
+
+                            {it.routine ? (
+                              <Button
+                                asChild
+                                size="icon"
+                                variant="ghost"
+                                className="h-9 w-9 rounded-full"
+                                aria-label="Ver rotina"
+                              >
+                                <Link to={`/rotinas/${it.routine.id}`}>
+                                  <ArrowUpRight className="h-4 w-4" />
+                                </Link>
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         ) : null}
 
