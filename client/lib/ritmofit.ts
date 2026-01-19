@@ -24,6 +24,8 @@ export type Goal = {
   title: string;
   caption?: string;
   imageDataUrl?: string;
+  /** Histórico de fotos anexadas (ex: vários treinos vinculados na mesma meta). */
+  imageDataUrls?: string[];
   /** Se true, o post fica oculto do feed (aparece só no seu perfil). */
   hidden?: boolean;
   category: GoalCategory;
@@ -133,6 +135,11 @@ function defaultImageForGoal(g: Goal) {
 function normalizeGoal(g: Goal): Goal {
   const image = (g.imageDataUrl ?? "").trim();
   const hidden = Boolean((g as any).hidden);
+
+  const imageDataUrlsRaw = (g as any).imageDataUrls;
+  const imageDataUrls = Array.isArray(imageDataUrlsRaw)
+    ? imageDataUrlsRaw.map((v) => String(v).trim()).filter(Boolean)
+    : [];
   const comments = Array.isArray((g as any).comments)
     ? ((g as any).comments as GoalComment[])
     : [];
@@ -170,6 +177,7 @@ function normalizeGoal(g: Goal): Goal {
     ...g,
     caption: g.caption ?? "",
     imageDataUrl: image.length ? image : defaultImageForGoal(g),
+    imageDataUrls: imageDataUrls.length ? imageDataUrls : undefined,
     hidden,
     incentives: g.incentives ?? { apoio: 0, continua: 0, orgulho: 0 },
 
@@ -528,7 +536,9 @@ export function createGoal(input: {
   const state = getRitmoFitState();
 
   const createdAt = new Date().toISOString();
-  const hasPhoto = Boolean((input.imageDataUrl ?? "").trim());
+  const photo = (input.imageDataUrl ?? "").trim();
+  const hasPhoto = Boolean(photo);
+  const imageDataUrls = hasPhoto ? [photo] : undefined;
 
   const attachedRoutineIds = Array.isArray(input.attachedRoutineIds)
     ? input.attachedRoutineIds.map((v) => String(v).trim()).filter(Boolean)
@@ -550,6 +560,7 @@ export function createGoal(input: {
     title: input.title,
     caption: input.caption ?? "",
     imageDataUrl: input.imageDataUrl ?? "",
+    imageDataUrls,
     category: input.category,
     frequency: input.frequency,
     durationDays: input.durationDays,
