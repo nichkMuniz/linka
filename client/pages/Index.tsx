@@ -677,12 +677,16 @@ function PostCard({
               </div>
             </div>
 
-            <Dialog open={attachedRoutinesOpen} onOpenChange={setAttachedRoutinesOpen}>
+            <Dialog
+              open={attachedRoutinesOpen}
+              onOpenChange={setAttachedRoutinesOpen}
+            >
               <DialogContent className="max-w-[min(92vw,560px)] rounded-3xl border-border/60">
                 <DialogHeader>
                   <DialogTitle>Rotinas vinculadas</DialogTitle>
                   <DialogDescription>
-                    Todas as rotinas anexadas neste post (mais recente primeiro).
+                    Todas as rotinas anexadas neste post (mais recente
+                    primeiro).
                   </DialogDescription>
                 </DialogHeader>
 
@@ -696,7 +700,9 @@ function PostCard({
                         className="flex items-center justify-between gap-2 rounded-2xl border border-border/60 bg-muted/10 px-3 py-2"
                       >
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold">{it.title}</div>
+                          <div className="truncate text-sm font-semibold">
+                            {it.title}
+                          </div>
                           <div className="truncate text-xs text-muted-foreground">
                             {it.routine
                               ? `${it.routine.category} · ${it.routine.ownerHandle}`

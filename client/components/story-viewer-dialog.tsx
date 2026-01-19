@@ -185,7 +185,9 @@ export function StoryViewerDialog({
                 </div>
                 <div className="leading-tight">
                   <div className="text-sm font-semibold">{story.ownerName}</div>
-                  <div className="text-xs text-white/70">{story.ownerHandle}</div>
+                  <div className="text-xs text-white/70">
+                    {story.ownerHandle}
+                  </div>
                 </div>
               </div>
 
@@ -233,7 +235,9 @@ export function StoryViewerDialog({
           <div
             className="relative grid h-[70vh] min-h-[440px] w-full place-items-center bg-black"
             onClick={(e) => {
-              const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+              const rect = (
+                e.currentTarget as HTMLDivElement
+              ).getBoundingClientRect();
               const x = e.clientX - rect.left;
               if (x < rect.width / 2) goPrev();
               else goNext();

@@ -269,7 +269,8 @@ export function StoriesBar() {
         canDelete={activeStory?.ownerHandle === "@voce"}
         onStoriesChange={(nextGroups) => {
           setStories(nextGroups);
-          const still = nextGroups.find((g) => g.id === activeStory?.id) ?? null;
+          const still =
+            nextGroups.find((g) => g.id === activeStory?.id) ?? null;
           setActiveStory(still);
         }}
         onRequestNextStory={() => {
@@ -280,7 +281,10 @@ export function StoriesBar() {
           }
 
           const idx = stories.findIndex((s) => s.id === currentId);
-          const next = idx >= 0 ? stories.slice(idx + 1).find((s) => s.items.length) : null;
+          const next =
+            idx >= 0
+              ? stories.slice(idx + 1).find((s) => s.items.length)
+              : null;
           if (next) {
             setActiveStory(next);
             return;

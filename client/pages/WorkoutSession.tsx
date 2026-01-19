@@ -1,9 +1,22 @@
 import * as React from "react";
 
-import { ArrowLeft, Pause, Play, Plus, Trash2, Search, ImagePlus } from "lucide-react";
+import {
+  ArrowLeft,
+  Pause,
+  Play,
+  Plus,
+  Trash2,
+  Search,
+  ImagePlus,
+} from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import type { Goal, MuscleGroup, Routine, WorkoutExercise } from "@/lib/ritmofit";
+import type {
+  Goal,
+  MuscleGroup,
+  Routine,
+  WorkoutExercise,
+} from "@/lib/ritmofit";
 import {
   addStoryItem,
   getRitmoFitState,
@@ -181,16 +194,17 @@ export default function WorkoutSession() {
 
   const [addExerciseOpen, setAddExerciseOpen] = React.useState(false);
   const [addQuery, setAddQuery] = React.useState("");
-  const [addMuscleFilter, setAddMuscleFilter] = React.useState<MuscleGroup | "Todos">(
-    "Todos",
-  );
+  const [addMuscleFilter, setAddMuscleFilter] = React.useState<
+    MuscleGroup | "Todos"
+  >("Todos");
 
   const [restRunning, setRestRunning] = React.useState(false);
   const [restSecondsLeft, setRestSecondsLeft] = React.useState(0);
   const [restLabel, setRestLabel] = React.useState("");
   const [restModalOpen, setRestModalOpen] = React.useState(false);
 
-  const [summaryImageDataUrl, setSummaryImageDataUrl] = React.useState<string>("");
+  const [summaryImageDataUrl, setSummaryImageDataUrl] =
+    React.useState<string>("");
   const summaryFileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const stepRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
@@ -249,7 +263,10 @@ export default function WorkoutSession() {
     setRestRunning(false);
     setRestLabel("");
     setRestModalOpen(false);
-    toast({ title: "Descanso finalizado", description: "Bora pra próxima série." });
+    toast({
+      title: "Descanso finalizado",
+      description: "Bora pra próxima série.",
+    });
   }, [restRunning, restSecondsLeft]);
 
   React.useEffect(() => {
@@ -288,7 +305,8 @@ export default function WorkoutSession() {
   const totalVolume = logs.reduce((acc, s) => acc + calcStepVolume(s), 0);
 
   const allDone = logs.length > 0 && logs.every((s) => s.completed);
-  const coverImage = sessionSteps.find((s) => Boolean(s.imageUrl))?.imageUrl ?? "";
+  const coverImage =
+    sessionSteps.find((s) => Boolean(s.imageUrl))?.imageUrl ?? "";
 
   const estimatedCalories = React.useMemo(() => {
     const minutes = stopwatch.elapsedSeconds / 60;
@@ -297,12 +315,16 @@ export default function WorkoutSession() {
     // Estimativa simples (sem peso do usuário): assume 70kg e MET ~ 6 (treino moderado).
     const assumedWeightKg = 70;
     const met = 6;
-    return Math.max(0, Math.round((met * 3.5 * assumedWeightKg * minutes) / 200));
+    return Math.max(
+      0,
+      Math.round((met * 3.5 * assumedWeightKg * minutes) / 200),
+    );
   }, [stopwatch.elapsedSeconds]);
 
   const addExerciseFiltered = React.useMemo(() => {
     return WORKOUT_EXERCISES.filter((ex) => {
-      if (addMuscleFilter !== "Todos" && ex.muscleGroup !== addMuscleFilter) return false;
+      if (addMuscleFilter !== "Todos" && ex.muscleGroup !== addMuscleFilter)
+        return false;
       return exerciseMatches(ex, addQuery);
     });
   }, [addMuscleFilter, addQuery]);
@@ -340,8 +362,9 @@ export default function WorkoutSession() {
             <CardTitle className="text-xl">{routine.title}</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            No MVP, o modo “iniciar rotina” (timer + séries/carga) está disponível
-            apenas para rotinas do tipo <span className="font-semibold">Treino</span>.
+            No MVP, o modo “iniciar rotina” (timer + séries/carga) está
+            disponível apenas para rotinas do tipo{" "}
+            <span className="font-semibold">Treino</span>.
           </CardContent>
         </Card>
       </div>
@@ -370,7 +393,9 @@ export default function WorkoutSession() {
         <Card className="border-border/60">
           <CardContent className="flex flex-wrap items-center gap-2 p-4">
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold text-muted-foreground">Descanso</div>
+              <div className="text-xs font-semibold text-muted-foreground">
+                Descanso
+              </div>
               <div className="truncate text-sm font-semibold">
                 {restLabel || "Próxima série"}
               </div>
@@ -428,7 +453,10 @@ export default function WorkoutSession() {
         </Card>
       ) : null}
 
-      <Dialog open={restModalOpen && restSecondsLeft > 0} onOpenChange={setRestModalOpen}>
+      <Dialog
+        open={restModalOpen && restSecondsLeft > 0}
+        onOpenChange={setRestModalOpen}
+      >
         <DialogContent className="max-w-[min(96vw,420px)] rounded-3xl border-border/60">
           <DialogHeader>
             <DialogTitle>Descanso</DialogTitle>
@@ -490,10 +518,17 @@ export default function WorkoutSession() {
         <CardHeader className="space-y-1">
           <CardTitle className="text-xl">{routine.title}</CardTitle>
           <div className="text-xs text-muted-foreground">
-            Tempo: <span className="font-semibold">{formatTime(stopwatch.elapsedSeconds)}</span>
+            Tempo:{" "}
+            <span className="font-semibold">
+              {formatTime(stopwatch.elapsedSeconds)}
+            </span>
             {totalVolume > 0 ? (
               <>
-                {" "}· Volume: <span className="font-semibold">{Math.round(totalVolume)} kg</span>
+                {" "}
+                · Volume:{" "}
+                <span className="font-semibold">
+                  {Math.round(totalVolume)} kg
+                </span>
               </>
             ) : null}
           </div>
@@ -512,7 +547,11 @@ export default function WorkoutSession() {
                 Pausar
               </Button>
             ) : (
-              <Button type="button" className="rounded-full" onClick={stopwatch.start}>
+              <Button
+                type="button"
+                className="rounded-full"
+                onClick={stopwatch.start}
+              >
                 <Play className="h-4 w-4" />
                 Iniciar
               </Button>
@@ -554,7 +593,8 @@ export default function WorkoutSession() {
           </div>
 
           <div className="text-xs text-muted-foreground">
-            Dica: ao marcar uma série como concluída, o descanso inicia automaticamente.
+            Dica: ao marcar uma série como concluída, o descanso inicia
+            automaticamente.
           </div>
         </CardContent>
       </Card>
@@ -600,7 +640,9 @@ export default function WorkoutSession() {
                         <div
                           className={cn(
                             "truncate text-sm font-semibold",
-                            log.completed ? "line-through text-muted-foreground" : null,
+                            log.completed
+                              ? "line-through text-muted-foreground"
+                              : null,
                           )}
                         >
                           {step.title}
@@ -608,13 +650,13 @@ export default function WorkoutSession() {
                         <div className="text-xs text-muted-foreground">
                           {step.muscleGroup ?? "Exercício"}
                           {stepVolume > 0 ? (
-                            <>
-                              {" "}· Volume: {Math.round(stepVolume)} kg
-                            </>
+                            <> · Volume: {Math.round(stepVolume)} kg</>
                           ) : null}
                           {step.origin === "added" ? (
                             <>
-                              {" "}· <span className="font-semibold">adicionado</span>
+                              {" "}
+                              ·{" "}
+                              <span className="font-semibold">adicionado</span>
                             </>
                           ) : null}
                         </div>
@@ -666,18 +708,25 @@ export default function WorkoutSession() {
                           aria-label="Remover exercício"
                           onClick={() => {
                             setSessionSteps((prev) => {
-                              const idx = prev.findIndex((p) => p.id === step.id);
+                              const idx = prev.findIndex(
+                                (p) => p.id === step.id,
+                              );
                               const next = prev.filter((p) => p.id !== step.id);
 
                               if (activeStepId === step.id) {
-                                const nextActive = next[idx] ?? next[idx - 1] ?? null;
-                                setActiveStepId(nextActive ? nextActive.id : null);
+                                const nextActive =
+                                  next[idx] ?? next[idx - 1] ?? null;
+                                setActiveStepId(
+                                  nextActive ? nextActive.id : null,
+                                );
                               }
 
                               return next;
                             });
 
-                            setLogs((prev) => prev.filter((p) => p.stepId !== step.id));
+                            setLogs((prev) =>
+                              prev.filter((p) => p.stepId !== step.id),
+                            );
                             stopRest();
                           }}
                         >
@@ -709,7 +758,10 @@ export default function WorkoutSession() {
                                             if (set.id !== s.id) return set;
 
                                             const nextPrevious = checked
-                                              ? formatPrevious(set.weight, set.reps) || set.previous
+                                              ? formatPrevious(
+                                                  set.weight,
+                                                  set.reps,
+                                                ) || set.previous
                                               : set.previous;
 
                                             return {
@@ -719,10 +771,15 @@ export default function WorkoutSession() {
                                             };
                                           });
 
-                                          return recomputeStepCompletion({ ...p, sets: nextSets });
+                                          return recomputeStepCompletion({
+                                            ...p,
+                                            sets: nextSets,
+                                          });
                                         });
 
-                                        const updated = next.find((p) => p.stepId === step.id);
+                                        const updated = next.find(
+                                          (p) => p.stepId === step.id,
+                                        );
                                         if (checked) {
                                           startRest(
                                             s.restSeconds,
@@ -749,7 +806,9 @@ export default function WorkoutSession() {
                                     }}
                                     aria-label={`Marcar série ${idx + 1} como concluída`}
                                   />
-                                  <div className="text-sm font-semibold">Série {idx + 1}</div>
+                                  <div className="text-sm font-semibold">
+                                    Série {idx + 1}
+                                  </div>
                                 </div>
 
                                 <Button
@@ -764,9 +823,13 @@ export default function WorkoutSession() {
                                         if (p.stepId !== step.id) return p;
                                         const nextStep = {
                                           ...p,
-                                          sets: p.sets.filter((set) => set.id !== s.id),
+                                          sets: p.sets.filter(
+                                            (set) => set.id !== s.id,
+                                          ),
                                         };
-                                        return recomputeStepCompletion(nextStep);
+                                        return recomputeStepCompletion(
+                                          nextStep,
+                                        );
                                       }),
                                     );
                                     stopRest();
@@ -800,8 +863,10 @@ export default function WorkoutSession() {
                                             };
                                             if (next.completed) {
                                               next.previous =
-                                                formatPrevious(next.weight, next.reps) ||
-                                                next.previous;
+                                                formatPrevious(
+                                                  next.weight,
+                                                  next.reps,
+                                                ) || next.previous;
                                             }
                                             return next;
                                           });
@@ -839,8 +904,10 @@ export default function WorkoutSession() {
                                             };
                                             if (next.completed) {
                                               next.previous =
-                                                formatPrevious(next.weight, next.reps) ||
-                                                next.previous;
+                                                formatPrevious(
+                                                  next.weight,
+                                                  next.reps,
+                                                ) || next.previous;
                                             }
                                             return next;
                                           });
@@ -862,7 +929,9 @@ export default function WorkoutSession() {
                                   <div
                                     className={cn(
                                       "h-10 rounded-md border border-border bg-background px-3 text-sm leading-10",
-                                      !s.previous ? "text-muted-foreground" : null,
+                                      !s.previous
+                                        ? "text-muted-foreground"
+                                        : null,
                                     )}
                                   >
                                     {s.previous ? s.previous : "-"}
@@ -905,8 +974,15 @@ export default function WorkoutSession() {
                         </Button>
 
                         {step.exerciseId ? (
-                          <Button asChild size="sm" variant="ghost" className="rounded-full">
-                            <Link to={`/exercicios/${step.exerciseId}`}>Ver detalhes</Link>
+                          <Button
+                            asChild
+                            size="sm"
+                            variant="ghost"
+                            className="rounded-full"
+                          >
+                            <Link to={`/exercicios/${step.exerciseId}`}>
+                              Ver detalhes
+                            </Link>
                           </Button>
                         ) : null}
                       </div>
@@ -925,8 +1001,7 @@ export default function WorkoutSession() {
         className="w-full rounded-full"
         onClick={() => setAddExerciseOpen(true)}
       >
-        <Plus className="h-4 w-4" />
-        + Exercício
+        <Plus className="h-4 w-4" />+ Exercício
       </Button>
 
       {/* Add exercise dialog */}
@@ -957,7 +1032,9 @@ export default function WorkoutSession() {
               <div className="text-sm font-medium">Músculos</div>
               <Select
                 value={addMuscleFilter}
-                onValueChange={(v) => setAddMuscleFilter(v as MuscleGroup | "Todos")}
+                onValueChange={(v) =>
+                  setAddMuscleFilter(v as MuscleGroup | "Todos")
+                }
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione" />
@@ -1020,10 +1097,16 @@ export default function WorkoutSession() {
                       loading="lazy"
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold">{ex.name}</div>
-                      <div className="text-xs text-muted-foreground">{ex.muscleGroup}</div>
+                      <div className="truncate text-sm font-semibold">
+                        {ex.name}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {ex.muscleGroup}
+                      </div>
                     </div>
-                    <div className="text-xs font-semibold text-brand">Adicionar</div>
+                    <div className="text-xs font-semibold text-brand">
+                      Adicionar
+                    </div>
                   </button>
                 ))}
               </div>
@@ -1073,12 +1156,16 @@ export default function WorkoutSession() {
               </div>
               <div className="text-sm">
                 Volume total:{" "}
-                <span className="font-semibold">{Math.round(totalVolume)} kg</span>
+                <span className="font-semibold">
+                  {Math.round(totalVolume)} kg
+                </span>
               </div>
               <div className="text-sm">
                 Calorias:{" "}
                 <span className="font-semibold">~{estimatedCalories} kcal</span>{" "}
-                <span className="text-xs text-muted-foreground">(estimativa)</span>
+                <span className="text-xs text-muted-foreground">
+                  (estimativa)
+                </span>
               </div>
             </div>
 
@@ -1091,7 +1178,10 @@ export default function WorkoutSession() {
 
                   const doneSets = log.sets.filter((set) => set.completed);
                   const summarySets = doneSets
-                    .map((set) => set.previous || formatPrevious(set.weight, set.reps))
+                    .map(
+                      (set) =>
+                        set.previous || formatPrevious(set.weight, set.reps),
+                    )
                     .map((t) => t.trim())
                     .filter(Boolean);
 
@@ -1104,14 +1194,22 @@ export default function WorkoutSession() {
                       className="flex items-start justify-between gap-3 rounded-2xl border border-border/60 bg-background p-4"
                     >
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold">{s.title}</div>
+                        <div className="truncate text-sm font-semibold">
+                          {s.title}
+                        </div>
                         <div className="mt-0.5 text-xs text-muted-foreground">
-                          {s.muscleGroup ?? "Exercício"} · {doneSets.length}/{log.sets.length} séries
+                          {s.muscleGroup ?? "Exercício"} · {doneSets.length}/
+                          {log.sets.length} séries
                           {preview ? (
                             <>
-                              {" "}· <span className="text-foreground">{preview}</span>
+                              {" "}
+                              ·{" "}
+                              <span className="text-foreground">{preview}</span>
                               {extra > 0 ? (
-                                <span className="text-muted-foreground"> · +{extra}</span>
+                                <span className="text-muted-foreground">
+                                  {" "}
+                                  · +{extra}
+                                </span>
                               ) : null}
                             </>
                           ) : null}
@@ -1141,7 +1239,8 @@ export default function WorkoutSession() {
                 if (!myGoals.length) {
                   return (
                     <div className="rounded-2xl border border-border/60 bg-background p-3 text-sm text-muted-foreground">
-                      Você ainda não tem metas criadas. Faça um post primeiro para criar uma meta.
+                      Você ainda não tem metas criadas. Faça um post primeiro
+                      para criar uma meta.
                     </div>
                   );
                 }
@@ -1193,7 +1292,8 @@ export default function WorkoutSession() {
 
                   const reader = new FileReader();
                   reader.onload = () => {
-                    const result = typeof reader.result === "string" ? reader.result : "";
+                    const result =
+                      typeof reader.result === "string" ? reader.result : "";
                     setSummaryImageDataUrl(result);
                   };
                   reader.readAsDataURL(file);
@@ -1223,7 +1323,8 @@ export default function WorkoutSession() {
                       className="rounded-full"
                       onClick={() => {
                         setSummaryImageDataUrl("");
-                        if (summaryFileInputRef.current) summaryFileInputRef.current.value = "";
+                        if (summaryFileInputRef.current)
+                          summaryFileInputRef.current.value = "";
                       }}
                     >
                       Remover
@@ -1309,7 +1410,9 @@ export default function WorkoutSession() {
 
                     const rawImages = (g as any).imageDataUrls;
                     const prevImages = Array.isArray(rawImages)
-                      ? rawImages.map((v: unknown) => String(v).trim()).filter(Boolean)
+                      ? rawImages
+                          .map((v: unknown) => String(v).trim())
+                          .filter(Boolean)
                       : [(g.imageDataUrl ?? "").trim()].filter(Boolean);
                     const nextImages = prevImages.includes(postImageDataUrl)
                       ? prevImages
@@ -1317,12 +1420,16 @@ export default function WorkoutSession() {
 
                     const rawIds = (g as any).attachedRoutineIds;
                     const prevIds = Array.isArray(rawIds)
-                      ? rawIds.map((v: unknown) => String(v).trim()).filter(Boolean)
+                      ? rawIds
+                          .map((v: unknown) => String(v).trim())
+                          .filter(Boolean)
                       : [(g.attachedRoutineId ?? "").trim()].filter(Boolean);
 
                     const rawTitles = (g as any).attachedRoutineTitles;
                     const prevTitles = Array.isArray(rawTitles)
-                      ? rawTitles.map((v: unknown) => String(v).trim()).filter(Boolean)
+                      ? rawTitles
+                          .map((v: unknown) => String(v).trim())
+                          .filter(Boolean)
                       : [(g.attachedRoutineTitle ?? "").trim()].filter(Boolean);
 
                     const idToTitle = new Map<string, string>();
@@ -1335,10 +1442,13 @@ export default function WorkoutSession() {
                       ? prevIds
                       : [...prevIds, routine.id];
                     idToTitle.set(routine.id, routine.title);
-                    const nextTitles = nextIds.map((id) => idToTitle.get(id) ?? "");
+                    const nextTitles = nextIds.map(
+                      (id) => idToTitle.get(id) ?? "",
+                    );
 
                     const legacyAttachedRoutineId = nextIds[0] || undefined;
-                    const legacyAttachedRoutineTitle = nextTitles[0] || undefined;
+                    const legacyAttachedRoutineTitle =
+                      nextTitles[0] || undefined;
 
                     return {
                       ...g,
@@ -1346,7 +1456,9 @@ export default function WorkoutSession() {
                       imageDataUrl: postImageDataUrl,
                       imageDataUrls: nextImages.length ? nextImages : undefined,
                       attachedRoutineIds: nextIds.length ? nextIds : undefined,
-                      attachedRoutineTitles: nextTitles.length ? nextTitles : undefined,
+                      attachedRoutineTitles: nextTitles.length
+                        ? nextTitles
+                        : undefined,
                       attachedRoutineId: legacyAttachedRoutineId,
                       attachedRoutineTitle: legacyAttachedRoutineTitle,
                       completedDays: nextCompleted,

@@ -100,7 +100,9 @@ async function fileToDataUrl(file: File) {
 export default function NewPost() {
   const navigate = useNavigate();
   const [imageDataUrl, setImageDataUrl] = React.useState<string>("");
-  const [attachedRoutineIds, setAttachedRoutineIds] = React.useState<string[]>([]);
+  const [attachedRoutineIds, setAttachedRoutineIds] = React.useState<string[]>(
+    [],
+  );
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const autoOpenedRef = React.useRef(false);
 
@@ -254,7 +256,8 @@ export default function NewPost() {
                     </div>
 
                     <div className="mt-3 text-xs text-muted-foreground">
-                      Depois de escolher a foto, aparece o campo de título e as configurações.
+                      Depois de escolher a foto, aparece o campo de título e as
+                      configurações.
                     </div>
                   </div>
                 </div>
@@ -461,9 +464,12 @@ export default function NewPost() {
 
                     <div className="grid gap-4">
                       <div className="grid gap-2">
-                        <div className="text-sm font-medium">Rotinas salvas (opcional)</div>
+                        <div className="text-sm font-medium">
+                          Rotinas salvas (opcional)
+                        </div>
                         <div className="text-xs text-muted-foreground">
-                          Você pode anexar uma ou mais rotinas para as pessoas verem e copiarem.
+                          Você pode anexar uma ou mais rotinas para as pessoas
+                          verem e copiarem.
                         </div>
 
                         {myRoutines.length ? (
@@ -488,7 +494,8 @@ export default function NewPost() {
                                     );
                                   }}
                                   onKeyDown={(e) => {
-                                    if (e.key !== "Enter" && e.key !== " ") return;
+                                    if (e.key !== "Enter" && e.key !== " ")
+                                      return;
                                     e.preventDefault();
                                     setAttachedRoutineIds((prev) =>
                                       prev.includes(r.id)
@@ -513,7 +520,9 @@ export default function NewPost() {
                                     className="mt-1"
                                   />
                                   <div className="min-w-0 flex-1">
-                                    <div className="truncate text-sm font-semibold">{r.title}</div>
+                                    <div className="truncate text-sm font-semibold">
+                                      {r.title}
+                                    </div>
                                     <div className="mt-0.5 text-xs text-muted-foreground">
                                       {r.category} · {stepsCount} itens
                                     </div>
@@ -535,7 +544,9 @@ export default function NewPost() {
                                 key={r.id}
                                 className="rounded-2xl border border-border/60 bg-muted/20 p-4"
                               >
-                                <div className="text-sm font-semibold">{r.title}</div>
+                                <div className="text-sm font-semibold">
+                                  {r.title}
+                                </div>
                                 <div className="mt-2 flex flex-wrap gap-2">
                                   {r.steps
                                     .map((s) => s.title.trim())
@@ -559,7 +570,8 @@ export default function NewPost() {
                             ))}
                             {selectedRoutines.length > 2 ? (
                               <div className="text-xs text-muted-foreground">
-                                +{selectedRoutines.length - 2} rotinas selecionadas
+                                +{selectedRoutines.length - 2} rotinas
+                                selecionadas
                               </div>
                             ) : null}
                           </div>

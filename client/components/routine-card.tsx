@@ -16,12 +16,12 @@ const categoryMeta: Record<
     className: "bg-brand text-white",
     itemsLabel: "Exercícios",
   },
-  "Alimentação": {
+  Alimentação: {
     label: "Alimentação",
     className: "bg-brand-2 text-white",
     itemsLabel: "Comidas",
   },
-  "Hábito": {
+  Hábito: {
     label: "Hábito",
     className: "bg-emerald-600 text-white",
     itemsLabel: "Hábitos",
@@ -84,7 +84,9 @@ export function RoutineCard({
                 </span>
               ) : null}
               {routine.copiedFromRoutineId ? (
-                <span className="text-[11px] text-muted-foreground">(copiada)</span>
+                <span className="text-[11px] text-muted-foreground">
+                  (copiada)
+                </span>
               ) : null}
             </div>
           </div>

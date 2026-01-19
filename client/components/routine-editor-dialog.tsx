@@ -54,7 +54,7 @@ const visibilityOptions: Array<{ value: GoalVisibility; label: string }> = [
 ];
 
 const suggestions: Record<Exclude<GoalCategory, "Treino">, string[]> = {
-  "Alimentação": [
+  Alimentação: [
     "Arroz",
     "Feijão",
     "Frango",
@@ -73,7 +73,7 @@ const suggestions: Record<Exclude<GoalCategory, "Treino">, string[]> = {
     "Whey",
     "Água",
   ],
-  "Hábito": [
+  Hábito: [
     "Beber 2L de água",
     "Dormir 7–8 horas",
     "Alongar 10 min",
@@ -165,10 +165,14 @@ function WorkoutExerciseCard({
         type="button"
         onClick={onToggle}
         className="flex min-w-0 flex-1 flex-col justify-center rounded-xl px-1 text-left"
-        aria-label={selected ? `Remover ${exercise.name}` : `Adicionar ${exercise.name}`}
+        aria-label={
+          selected ? `Remover ${exercise.name}` : `Adicionar ${exercise.name}`
+        }
       >
         <div className="truncate text-sm font-medium">{exercise.name}</div>
-        <div className="text-xs text-muted-foreground">{exercise.muscleGroup}</div>
+        <div className="text-xs text-muted-foreground">
+          {exercise.muscleGroup}
+        </div>
       </button>
     </div>
   );
@@ -199,7 +203,8 @@ function WorkoutPicker({
 
   const filtered = React.useMemo(() => {
     return WORKOUT_EXERCISES.filter((ex) => {
-      if (muscleFilter !== "Todos" && ex.muscleGroup !== muscleFilter) return false;
+      if (muscleFilter !== "Todos" && ex.muscleGroup !== muscleFilter)
+        return false;
       return exerciseMatches(ex, query);
     });
   }, [query, muscleFilter]);
@@ -232,7 +237,9 @@ function WorkoutPicker({
                   <ListFilter className="h-4 w-4 text-muted-foreground" />
                   <div className="text-sm">
                     <span className="font-medium">Músculos:</span>{" "}
-                    <span className="text-muted-foreground">{muscleFilter}</span>
+                    <span className="text-muted-foreground">
+                      {muscleFilter}
+                    </span>
                   </div>
                 </div>
               </SelectTrigger>
@@ -253,7 +260,9 @@ function WorkoutPicker({
         <div className="grid gap-2">
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm font-medium">Selecionados</div>
-            <div className="text-xs text-muted-foreground">{selectedItems.length}</div>
+            <div className="text-xs text-muted-foreground">
+              {selectedItems.length}
+            </div>
           </div>
 
           <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto rounded-2xl border border-border/60 bg-muted/20 p-3">
@@ -294,7 +303,9 @@ function WorkoutPicker({
       <div className="grid gap-2">
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm font-medium">Lista de exercícios</div>
-          <div className="text-xs text-muted-foreground">{filtered.length} opções</div>
+          <div className="text-xs text-muted-foreground">
+            {filtered.length} opções
+          </div>
         </div>
 
         {filtered.length ? (
@@ -389,7 +400,6 @@ export function RoutineEditorDialog({
       ];
     });
   }, []);
-
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -531,9 +541,11 @@ export function RoutineEditorDialog({
                 </div>
 
                 <datalist id={datalistId}>
-                  {suggestions[category as Exclude<GoalCategory, "Treino">].map((s) => (
-                    <option key={s} value={s} />
-                  ))}
+                  {suggestions[category as Exclude<GoalCategory, "Treino">].map(
+                    (s) => (
+                      <option key={s} value={s} />
+                    ),
+                  )}
                 </datalist>
               </>
             )}

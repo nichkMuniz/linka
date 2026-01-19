@@ -150,17 +150,24 @@ export default function Rank() {
         const posts = v.goals.length;
 
         const routines = state.routines.filter((r) => r.ownerHandle === handle);
-        const routinesCreated = routines.filter((r) => !r.copiedFromRoutineId).length;
-        const routinesCopied = routines.filter((r) => Boolean(r.copiedFromRoutineId)).length;
+        const routinesCreated = routines.filter(
+          (r) => !r.copiedFromRoutineId,
+        ).length;
+        const routinesCopied = routines.filter((r) =>
+          Boolean(r.copiedFromRoutineId),
+        ).length;
 
         const commentsWritten = state.goals.reduce((acc, g) => {
-          const count = (g.comments ?? []).filter((c) => c.authorHandle === handle).length;
+          const count = (g.comments ?? []).filter(
+            (c) => c.authorHandle === handle,
+          ).length;
           return acc + count;
         }, 0);
 
         const incentivesReceived = v.goals.reduce((acc, g) => {
           const inc = g.incentives;
-          const total = (inc?.apoio ?? 0) + (inc?.continua ?? 0) + (inc?.orgulho ?? 0);
+          const total =
+            (inc?.apoio ?? 0) + (inc?.continua ?? 0) + (inc?.orgulho ?? 0);
           return acc + total;
         }, 0);
 
@@ -169,10 +176,7 @@ export default function Rank() {
           handle === "@voce"
             ? state.goals.reduce((acc, g) => {
                 const mine = g.myIncentives ?? {};
-                return (
-                  acc +
-                  (Object.values(mine).filter(Boolean).length ?? 0)
-                );
+                return acc + (Object.values(mine).filter(Boolean).length ?? 0);
               }, 0)
             : 0;
 
@@ -267,7 +271,9 @@ export default function Rank() {
       .flatMap((g) => g.comments ?? [])
       .filter((c) => c.authorHandle === meHandle);
 
-    const didPostToday = meGoals.some((g) => dayKeyFromIso(g.createdAt) === todayKey());
+    const didPostToday = meGoals.some(
+      (g) => dayKeyFromIso(g.createdAt) === todayKey(),
+    );
     const didRoutineToday = meRoutines.some(
       (r) => dayKeyFromIso(r.createdAt) === todayKey(),
     );
@@ -277,8 +283,16 @@ export default function Rank() {
 
     const tasks = [
       { label: "Faça 1 post hoje", done: didPostToday, xp: XP_PER_POST },
-      { label: "Crie 1 rotina", done: didRoutineToday, xp: XP_PER_ROUTINE_CREATED },
-      { label: "Escreva 1 comentário", done: didCommentToday, xp: XP_PER_COMMENT },
+      {
+        label: "Crie 1 rotina",
+        done: didRoutineToday,
+        xp: XP_PER_ROUTINE_CREATED,
+      },
+      {
+        label: "Escreva 1 comentário",
+        done: didCommentToday,
+        xp: XP_PER_COMMENT,
+      },
     ];
 
     const activeCount = tasks.filter((t) => !t.done).length;
@@ -292,7 +306,8 @@ export default function Rank() {
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">Ranking</h1>
           <p className="text-sm text-muted-foreground">
-            Pontos vêm de consistência e interação: posts, rotinas, comentários e incentivos.
+            Pontos vêm de consistência e interação: posts, rotinas, comentários
+            e incentivos.
           </p>
         </div>
 
@@ -330,7 +345,10 @@ export default function Rank() {
           <div className="grid gap-3">
             {missions.me ? (
               <div className="text-sm text-muted-foreground">
-                Seu streak atual: <span className="font-semibold">{missions.me.streakDays} dias</span>
+                Seu streak atual:{" "}
+                <span className="font-semibold">
+                  {missions.me.streakDays} dias
+                </span>
               </div>
             ) : null}
 
@@ -350,7 +368,12 @@ export default function Rank() {
                       <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                     )}
                     <div className="min-w-0">
-                      <div className={cn("text-sm font-medium", t.done ? "text-emerald-700" : null)}>
+                      <div
+                        className={cn(
+                          "text-sm font-medium",
+                          t.done ? "text-emerald-700" : null,
+                        )}
+                      >
                         {t.label}
                       </div>
                       <div className="text-xs text-muted-foreground">
@@ -359,7 +382,9 @@ export default function Rank() {
                     </div>
                   </div>
 
-                  <div className="shrink-0 text-xs font-semibold text-muted-foreground">+{t.xp} XP</div>
+                  <div className="shrink-0 text-xs font-semibold text-muted-foreground">
+                    +{t.xp} XP
+                  </div>
                 </div>
               ))}
             </div>
@@ -429,10 +454,15 @@ export default function Rank() {
                         </span>
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {e.handle} · {e.goals} posts · {e.routines} rotinas · {e.days} dias
+                        {e.handle} · {e.goals} posts · {e.routines} rotinas ·{" "}
+                        {e.days} dias
                         {e.streakDays > 0 ? (
                           <>
-                            {" "}· <span className="font-semibold">streak {e.streakDays}d</span>
+                            {" "}
+                            ·{" "}
+                            <span className="font-semibold">
+                              streak {e.streakDays}d
+                            </span>
                           </>
                         ) : null}
                       </div>

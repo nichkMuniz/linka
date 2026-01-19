@@ -146,29 +146,25 @@ function normalizeGoal(g: Goal): Goal {
 
   const legacyAttachedRoutineId =
     typeof (g as any).attachedRoutineId === "string"
-      ? (((g as any).attachedRoutineId as string).trim() || undefined)
+      ? ((g as any).attachedRoutineId as string).trim() || undefined
       : undefined;
 
   const legacyAttachedRoutineTitle =
     typeof (g as any).attachedRoutineTitle === "string"
-      ? (((g as any).attachedRoutineTitle as string).trim() || undefined)
+      ? ((g as any).attachedRoutineTitle as string).trim() || undefined
       : undefined;
 
   const attachedRoutineIdsRaw = (g as any).attachedRoutineIds;
   const attachedRoutineTitlesRaw = (g as any).attachedRoutineTitles;
 
   const attachedRoutineIds = Array.isArray(attachedRoutineIdsRaw)
-    ? attachedRoutineIdsRaw
-        .map((v) => String(v).trim())
-        .filter(Boolean)
+    ? attachedRoutineIdsRaw.map((v) => String(v).trim()).filter(Boolean)
     : legacyAttachedRoutineId
       ? [legacyAttachedRoutineId]
       : [];
 
   const attachedRoutineTitles = Array.isArray(attachedRoutineTitlesRaw)
-    ? attachedRoutineTitlesRaw
-        .map((v) => String(v).trim())
-        .filter(Boolean)
+    ? attachedRoutineTitlesRaw.map((v) => String(v).trim()).filter(Boolean)
     : legacyAttachedRoutineTitle
       ? [legacyAttachedRoutineTitle]
       : [];
@@ -181,8 +177,12 @@ function normalizeGoal(g: Goal): Goal {
     hidden,
     incentives: g.incentives ?? { apoio: 0, continua: 0, orgulho: 0 },
 
-    attachedRoutineIds: attachedRoutineIds.length ? attachedRoutineIds : undefined,
-    attachedRoutineTitles: attachedRoutineTitles.length ? attachedRoutineTitles : undefined,
+    attachedRoutineIds: attachedRoutineIds.length
+      ? attachedRoutineIds
+      : undefined,
+    attachedRoutineTitles: attachedRoutineTitles.length
+      ? attachedRoutineTitles
+      : undefined,
 
     // keep legacy fields populated for older UI paths
     attachedRoutineId: legacyAttachedRoutineId,
@@ -374,7 +374,7 @@ export function getRitmoFitState(): StorageShape {
         id: uid("r"),
         ownerName: "Ana",
         ownerHandle: "@ana.fit",
-        title: "Hábito: 10k passos", 
+        title: "Hábito: 10k passos",
         description: "Rotina diária pra manter gasto calórico sem neura.",
         category: "Hábito",
         visibility: "Público",
@@ -411,7 +411,7 @@ export function getRitmoFitState(): StorageShape {
         steps: [
           {
             id: uid("rs"),
-            title: "Proteína", 
+            title: "Proteína",
             detail: "Frango, ovos, peixe ou carne magra.",
           },
           {
@@ -548,7 +548,8 @@ export function createGoal(input: {
     ? input.attachedRoutineTitles.map((v) => String(v).trim()).filter(Boolean)
     : [];
 
-  const legacyAttachedRoutineId = (input.attachedRoutineId ?? "").trim() || undefined;
+  const legacyAttachedRoutineId =
+    (input.attachedRoutineId ?? "").trim() || undefined;
   const legacyAttachedRoutineTitle =
     (input.attachedRoutineTitle ?? "").trim() || undefined;
 
@@ -569,8 +570,12 @@ export function createGoal(input: {
     completedDays: hasPhoto ? 1 : 0,
     incentives: { apoio: 0, continua: 0, orgulho: 0 },
 
-    attachedRoutineIds: attachedRoutineIds.length ? attachedRoutineIds : undefined,
-    attachedRoutineTitles: attachedRoutineTitles.length ? attachedRoutineTitles : undefined,
+    attachedRoutineIds: attachedRoutineIds.length
+      ? attachedRoutineIds
+      : undefined,
+    attachedRoutineTitles: attachedRoutineTitles.length
+      ? attachedRoutineTitles
+      : undefined,
 
     attachedRoutineId: legacyAttachedRoutineId,
     attachedRoutineTitle: legacyAttachedRoutineTitle,
@@ -819,7 +824,10 @@ export function createRoutine(input: {
   return routine;
 }
 
-export function updateRoutine(routineId: string, updater: (r: Routine) => Routine) {
+export function updateRoutine(
+  routineId: string,
+  updater: (r: Routine) => Routine,
+) {
   const state = getRitmoFitState();
 
   const next: StorageShape = {
@@ -957,7 +965,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Desça a barra/halteres na linha do alto do peito.",
       "Suba sem perder o controle e sem ‘jogar’ o ombro pra frente.",
     ],
-    tips: ["Inclinação exagerada vira ombro.", "Cotovelos levemente fechados ajudam."],
+    tips: [
+      "Inclinação exagerada vira ombro.",
+      "Cotovelos levemente fechados ajudam.",
+    ],
     mistakes: ["Abrir demais os cotovelos.", "Perder a posição das escápulas."],
   },
   {
@@ -974,7 +985,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Feche os braços de volta em arco, espremendo o peito.",
     ],
     tips: ["Cotovelos ‘moles’, não travados.", "Movimento em arco, não reto."],
-    mistakes: ["Descer demais e forçar o ombro.", "Transformar em supino (dobrar o braço demais)."],
+    mistakes: [
+      "Descer demais e forçar o ombro.",
+      "Transformar em supino (dobrar o braço demais).",
+    ],
   },
   {
     id: "flexao",
@@ -988,8 +1002,14 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Desça mantendo barriga firme e cotovelos levemente para trás.",
       "Toque próximo do chão e suba empurrando.",
     ],
-    tips: ["Corpo reto (não deixa o quadril cair).", "Comece no joelho se precisar."],
-    mistakes: ["Deixar o quadril despencar.", "Abrir cotovelos para os lados demais."],
+    tips: [
+      "Corpo reto (não deixa o quadril cair).",
+      "Comece no joelho se precisar.",
+    ],
+    mistakes: [
+      "Deixar o quadril despencar.",
+      "Abrir cotovelos para os lados demais.",
+    ],
   },
   {
     id: "crossover",
@@ -1003,7 +1023,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Leve as mãos para frente e ‘junte’ na frente do peito.",
       "Volte controlando até sentir alongar o peito.",
     ],
-    tips: ["Foco em controle e contração no final.", "Evite balançar o tronco."],
+    tips: [
+      "Foco em controle e contração no final.",
+      "Evite balançar o tronco.",
+    ],
     mistakes: ["Usar impulso do corpo.", "Perder a postura e fechar ombros."],
   },
   {
@@ -1018,7 +1041,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Puxe levando o peito em direção à barra.",
       "Desça controlando até estender os braços.",
     ],
-    tips: ["Pense em ‘cotovelo para baixo’.", "Comece com elástico/assistido se necessário."],
+    tips: [
+      "Pense em ‘cotovelo para baixo’.",
+      "Comece com elástico/assistido se necessário.",
+    ],
     mistakes: ["Balançar o corpo.", "Encolher os ombros durante a puxada."],
   },
   {
@@ -1033,8 +1059,14 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Puxe a barra até a altura do peito mantendo o tronco firme.",
       "Suba a barra controlando sem ‘soltar’ o peso de uma vez.",
     ],
-    tips: ["Comece puxando com as costas, não com o bíceps.", "Peito para cima."],
-    mistakes: ["Jogar o corpo para trás.", "Puxar atrás da nuca (desconfortável para muitos)."],
+    tips: [
+      "Comece puxando com as costas, não com o bíceps.",
+      "Peito para cima.",
+    ],
+    mistakes: [
+      "Jogar o corpo para trás.",
+      "Puxar atrás da nuca (desconfortável para muitos).",
+    ],
   },
   {
     id: "remada-curvada",
@@ -1078,7 +1110,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Leve o halter para trás com leve flexão de cotovelo.",
       "Volte controlando até acima do peito.",
     ],
-    tips: ["Amplitude confortável (sem forçar ombro).", "Costas e core firmes."],
+    tips: [
+      "Amplitude confortável (sem forçar ombro).",
+      "Costas e core firmes.",
+    ],
     mistakes: ["Arquear demais a lombar.", "Descer rápido demais."],
   },
   {
@@ -1093,8 +1128,14 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Suba os halteres acima da cabeça.",
       "Desça controlando até a linha do queixo/orelha.",
     ],
-    tips: ["Não deixe as costelas ‘abrirem’.", "Controle na descida faz diferença."],
-    mistakes: ["Arquear a lombar para compensar.", "Descer muito abaixo e perder controle."],
+    tips: [
+      "Não deixe as costelas ‘abrirem’.",
+      "Controle na descida faz diferença.",
+    ],
+    mistakes: [
+      "Arquear a lombar para compensar.",
+      "Descer muito abaixo e perder controle.",
+    ],
   },
   {
     id: "elevacao-lateral",
@@ -1108,7 +1149,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Suba até a linha do ombro (aprox.).",
       "Desça devagar.",
     ],
-    tips: ["Pense em ‘empurrar o chão’ com os pés (estabilidade).", "Carga leve e controle."],
+    tips: [
+      "Pense em ‘empurrar o chão’ com os pés (estabilidade).",
+      "Carga leve e controle.",
+    ],
     mistakes: ["Balançar o corpo.", "Subir com trapézio (ombros nas orelhas)."],
   },
   {
@@ -1139,7 +1183,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Desça controlando.",
     ],
     tips: ["Amplitude confortável.", "Cotovelos guiam o movimento."],
-    mistakes: ["Abrir demais os cotovelos e sentir dor.", "Fazer rápido e sem controle."],
+    mistakes: [
+      "Abrir demais os cotovelos e sentir dor.",
+      "Fazer rápido e sem controle.",
+    ],
   },
   {
     id: "rosca-direta",
@@ -1153,7 +1200,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Suba a barra/halter sem balançar.",
       "Desça controlando.",
     ],
-    tips: ["Punhos neutros e firmes.", "Controle na descida é metade do bíceps."],
+    tips: [
+      "Punhos neutros e firmes.",
+      "Controle na descida é metade do bíceps.",
+    ],
     mistakes: ["Balançar o tronco.", "Deixar cotovelos fugirem para frente."],
   },
   {
@@ -1213,8 +1263,14 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Flexione o cotovelo levando o peso em direção à testa.",
       "Estenda o cotovelo para voltar.",
     ],
-    tips: ["Cotovelos apontando para cima.", "Controle para não forçar o cotovelo."],
-    mistakes: ["Abrir cotovelos demais.", "Descer rápido e perder estabilidade."],
+    tips: [
+      "Cotovelos apontando para cima.",
+      "Controle para não forçar o cotovelo.",
+    ],
+    mistakes: [
+      "Abrir cotovelos demais.",
+      "Descer rápido e perder estabilidade.",
+    ],
   },
   {
     id: "mergulho",
@@ -1228,7 +1284,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Desça controlando até o cotovelo dobrar.",
       "Suba empurrando até estender.",
     ],
-    tips: ["Tronco mais reto = mais tríceps.", "Se doer ombro, reduza amplitude."],
+    tips: [
+      "Tronco mais reto = mais tríceps.",
+      "Se doer ombro, reduza amplitude.",
+    ],
     mistakes: ["Descer demais e ‘travando’ ombro.", "Balançar o corpo."],
   },
   {
@@ -1243,7 +1302,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Desça empurrando o quadril para trás e joelhos acompanhando o pé.",
       "Suba empurrando o chão.",
     ],
-    tips: ["Comece leve e priorize técnica.", "Olhar no horizonte ajuda postura."],
+    tips: [
+      "Comece leve e priorize técnica.",
+      "Olhar no horizonte ajuda postura.",
+    ],
     mistakes: ["Deixar joelhos ‘cair’ para dentro.", "Arredondar a lombar."],
   },
   {
@@ -1303,8 +1365,14 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Desça com o quadril para trás, joelhos levemente flexionados.",
       "Suba contraindo posterior e glúteo.",
     ],
-    tips: ["Peso perto da perna o tempo todo.", "Amplitude até onde mantém a lombar neutra."],
-    mistakes: ["Arredondar as costas.", "Descer só dobrando joelho (vira agachamento)."],
+    tips: [
+      "Peso perto da perna o tempo todo.",
+      "Amplitude até onde mantém a lombar neutra.",
+    ],
+    mistakes: [
+      "Arredondar as costas.",
+      "Descer só dobrando joelho (vira agachamento).",
+    ],
   },
   {
     id: "hip-thrust",
@@ -1363,7 +1431,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Contraia abdômen e glúteos.",
       "Respire mantendo postura.",
     ],
-    tips: ["Pense em ‘encaixar’ o quadril.", "Melhor 20s perfeito do que 1min torto."],
+    tips: [
+      "Pense em ‘encaixar’ o quadril.",
+      "Melhor 20s perfeito do que 1min torto.",
+    ],
     mistakes: ["Quadril caindo.", "Prender a respiração."],
   },
   {
@@ -1378,7 +1449,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Suba o tronco pequeno, tirando as escápulas do chão.",
       "Desça controlando.",
     ],
-    tips: ["Olhar para o teto, queixo neutro.", "Movimento curto e controlado."],
+    tips: [
+      "Olhar para o teto, queixo neutro.",
+      "Movimento curto e controlado.",
+    ],
     mistakes: ["Puxar o pescoço.", "Subir demais e perder a contração."],
   },
   {
@@ -1393,7 +1467,10 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Suba e desça as pernas sem perder o controle.",
       "Se precisar, dobre os joelhos.",
     ],
-    tips: ["A lombar é a regra: se descolou, reduza amplitude.", "Faça devagar."],
+    tips: [
+      "A lombar é a regra: se descolou, reduza amplitude.",
+      "Faça devagar.",
+    ],
     mistakes: ["Arqueiar a lombar.", "Descer rápido e ‘bater’ no chão."],
   },
   {
@@ -1408,8 +1485,14 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Mantenha ritmo em que dá para falar frases curtas.",
       "Finalize com desaceleração e hidratação.",
     ],
-    tips: ["Aumente volume aos poucos semana a semana.", "Tênis confortável faz diferença."],
-    mistakes: ["Começar rápido demais e morrer no meio.", "Ignorar dor persistente."],
+    tips: [
+      "Aumente volume aos poucos semana a semana.",
+      "Tênis confortável faz diferença.",
+    ],
+    mistakes: [
+      "Começar rápido demais e morrer no meio.",
+      "Ignorar dor persistente.",
+    ],
   },
   {
     id: "bicicleta",
@@ -1423,8 +1506,14 @@ export const WORKOUT_EXERCISES: WorkoutExercise[] = [
       "Mantenha cadência estável e postura confortável.",
       "Controle a resistência sem ‘se matar’ no começo.",
     ],
-    tips: ["Uma cadência mais alta costuma poupar o joelho.", "Use respiração regular."],
-    mistakes: ["Banco muito baixo (sobrecarrega joelho).", "Resistência alta com técnica ruim."],
+    tips: [
+      "Uma cadência mais alta costuma poupar o joelho.",
+      "Use respiração regular.",
+    ],
+    mistakes: [
+      "Banco muito baixo (sobrecarrega joelho).",
+      "Resistência alta com técnica ruim.",
+    ],
   },
 ];
 

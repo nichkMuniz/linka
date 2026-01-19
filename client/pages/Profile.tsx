@@ -407,11 +407,14 @@ function PostMini({
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir post?</AlertDialogTitle>
             <AlertDialogDescription>
-              Isso remove esse post do seu perfil e do feed. Essa ação não pode ser desfeita.
+              Isso remove esse post do seu perfil e do feed. Essa ação não pode
+              ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-full">Cancelar</AlertDialogCancel>
+            <AlertDialogCancel className="rounded-full">
+              Cancelar
+            </AlertDialogCancel>
             <AlertDialogAction
               className="rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
@@ -436,14 +439,19 @@ export default function Profile() {
   const [posts, setPosts] = React.useState<Goal[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
   const [routineEditorOpen, setRoutineEditorOpen] = React.useState(false);
-  const [editingRoutine, setEditingRoutine] = React.useState<Routine | null>(null);
+  const [editingRoutine, setEditingRoutine] = React.useState<Routine | null>(
+    null,
+  );
 
   const refreshRoutines = React.useCallback(() => {
     setRoutines(getRoutines());
   }, []);
 
   const shareRoutine = React.useCallback(async (routine: Routine) => {
-    const url = new URL(`/rotinas/${routine.id}`, window.location.origin).toString();
+    const url = new URL(
+      `/rotinas/${routine.id}`,
+      window.location.origin,
+    ).toString();
 
     const nav = navigator as any;
     if (nav.share) {
@@ -476,7 +484,9 @@ export default function Profile() {
   React.useEffect(() => {
     const state = getRitmoFitState();
     setPosts(
-      state.goals.filter((g) => g.ownerHandle === "@voce" || g.ownerName === "Você"),
+      state.goals.filter(
+        (g) => g.ownerHandle === "@voce" || g.ownerName === "Você",
+      ),
     );
     setRoutines(state.routines);
   }, []);
@@ -496,7 +506,6 @@ export default function Profile() {
 
   const myRoutines = routines.filter((r) => r.ownerHandle === "@voce");
   const discoverRoutines = routines.filter((r) => r.ownerHandle !== "@voce");
-
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
@@ -655,7 +664,9 @@ export default function Profile() {
                             )
                           }
                           onDelete={(goalId) =>
-                            setPosts((prev) => prev.filter((g) => g.id !== goalId))
+                            setPosts((prev) =>
+                              prev.filter((g) => g.id !== goalId),
+                            )
                           }
                         />
                       ))}
@@ -684,7 +695,9 @@ export default function Profile() {
                             )
                           }
                           onDelete={(goalId) =>
-                            setPosts((prev) => prev.filter((g) => g.id !== goalId))
+                            setPosts((prev) =>
+                              prev.filter((g) => g.id !== goalId),
+                            )
                           }
                         />
                       ))}
@@ -713,7 +726,9 @@ export default function Profile() {
                             )
                           }
                           onDelete={(goalId) =>
-                            setPosts((prev) => prev.filter((g) => g.id !== goalId))
+                            setPosts((prev) =>
+                              prev.filter((g) => g.id !== goalId),
+                            )
                           }
                         />
                       ))}
@@ -730,10 +745,12 @@ export default function Profile() {
           ) : (
             <Card className="border-border/60">
               <CardContent className="space-y-3 p-6">
-                <div className="text-sm font-medium">Você ainda não postou.</div>
+                <div className="text-sm font-medium">
+                  Você ainda não postou.
+                </div>
                 <p className="text-sm text-muted-foreground">
-                  Poste sua rotina do dia para receber incentivo dos seus amigos e
-                  criar constância.
+                  Poste sua rotina do dia para receber incentivo dos seus amigos
+                  e criar constância.
                 </p>
                 <Button asChild className="rounded-full">
                   <Link to="/postar">Fazer primeira postagem</Link>
@@ -752,7 +769,8 @@ export default function Profile() {
                   Minhas rotinas
                 </CardTitle>
                 <CardDescription>
-                  Crie rotinas de treino, alimentação ou hábitos para repetir e compartilhar.
+                  Crie rotinas de treino, alimentação ou hábitos para repetir e
+                  compartilhar.
                 </CardDescription>
               </div>
             </CardHeader>
@@ -806,63 +824,71 @@ export default function Profile() {
                       </TabsTrigger>
                     </TabsList>
 
-                    {(["Treino", "Alimentação", "Hábito"] as const).map((cat) => {
-                      const mine = myRoutines.filter((r) => r.category === cat);
+                    {(["Treino", "Alimentação", "Hábito"] as const).map(
+                      (cat) => {
+                        const mine = myRoutines.filter(
+                          (r) => r.category === cat,
+                        );
 
-                      return (
-                        <TabsContent key={cat} value={cat} className="mt-4">
-                          {mine.length ? (
-                            <div className="grid gap-3">
-                              {mine.map((r) => (
-                                <RoutineCard
-                                  key={r.id}
-                                  routine={r}
-                                  variant="mine"
-                                  startHref={
-                                    r.category === "Treino" &&
-                                    r.steps.some((s) => Boolean(s.title.trim()))
-                                      ? `/rotinas/${r.id}/iniciar`
-                                      : undefined
-                                  }
-                                  onShare={() => shareRoutine(r)}
-                                  onEdit={() => {
-                                    setEditingRoutine(r);
-                                    setRoutineEditorOpen(true);
-                                  }}
-                                  onDelete={() => {
-                                    deleteRoutine(r.id);
-                                    refreshRoutines();
-                                    toast({
-                                      title: "Rotina excluída",
-                                      description: "Removemos essa rotina do seu perfil.",
-                                    });
-                                  }}
-                                />
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-                              Você ainda não tem rotinas de {cat.toLowerCase()}.
-                            </div>
-                          )}
+                        return (
+                          <TabsContent key={cat} value={cat} className="mt-4">
+                            {mine.length ? (
+                              <div className="grid gap-3">
+                                {mine.map((r) => (
+                                  <RoutineCard
+                                    key={r.id}
+                                    routine={r}
+                                    variant="mine"
+                                    startHref={
+                                      r.category === "Treino" &&
+                                      r.steps.some((s) =>
+                                        Boolean(s.title.trim()),
+                                      )
+                                        ? `/rotinas/${r.id}/iniciar`
+                                        : undefined
+                                    }
+                                    onShare={() => shareRoutine(r)}
+                                    onEdit={() => {
+                                      setEditingRoutine(r);
+                                      setRoutineEditorOpen(true);
+                                    }}
+                                    onDelete={() => {
+                                      deleteRoutine(r.id);
+                                      refreshRoutines();
+                                      toast({
+                                        title: "Rotina excluída",
+                                        description:
+                                          "Removemos essa rotina do seu perfil.",
+                                      });
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                                Você ainda não tem rotinas de{" "}
+                                {cat.toLowerCase()}.
+                              </div>
+                            )}
 
-                          <div className="mt-4 flex justify-center">
-                            <Button
-                              type="button"
-                              size="icon"
-                              className="h-12 w-12 rounded-full bg-orange-500 text-white shadow-sm hover:bg-orange-500/90"
-                              aria-label="Nova rotina"
-                              onClick={() => {
-                                setEditingRoutine(null);
-                                setRoutineEditorOpen(true);
-                              }}
-                            >
-                              <Plus className="h-5 w-5" />
-                            </Button>
-                          </div>
-                        </TabsContent>
-                      );
-                    })}
+                            <div className="mt-4 flex justify-center">
+                              <Button
+                                type="button"
+                                size="icon"
+                                className="h-12 w-12 rounded-full bg-orange-500 text-white shadow-sm hover:bg-orange-500/90"
+                                aria-label="Nova rotina"
+                                onClick={() => {
+                                  setEditingRoutine(null);
+                                  setRoutineEditorOpen(true);
+                                }}
+                              >
+                                <Plus className="h-5 w-5" />
+                              </Button>
+                            </div>
+                          </TabsContent>
+                        );
+                      },
+                    )}
                   </Tabs>
                 </TabsContent>
 
@@ -898,38 +924,44 @@ export default function Profile() {
                       </TabsTrigger>
                     </TabsList>
 
-                    {(["Treino", "Alimentação", "Hábito"] as const).map((cat) => {
-                      const discover = discoverRoutines.filter((r) => r.category === cat);
+                    {(["Treino", "Alimentação", "Hábito"] as const).map(
+                      (cat) => {
+                        const discover = discoverRoutines.filter(
+                          (r) => r.category === cat,
+                        );
 
-                      return (
-                        <TabsContent key={cat} value={cat} className="mt-4">
-                          {discover.length ? (
-                            <div className="grid gap-3">
-                              {discover.slice(0, 10).map((r) => (
-                                <RoutineCard
-                                  key={r.id}
-                                  routine={r}
-                                  variant="discover"
-                                  onShare={() => shareRoutine(r)}
-                                  onCopy={() => {
-                                    copyRoutine(r.id);
-                                    refreshRoutines();
-                                    toast({
-                                      title: "Rotina copiada",
-                                      description: "Agora ela aparece em ‘Minhas’.",
-                                    });
-                                  }}
-                                />
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-                              Ainda não há rotinas públicas de {cat.toLowerCase()} para copiar.
-                            </div>
-                          )}
-                        </TabsContent>
-                      );
-                    })}
+                        return (
+                          <TabsContent key={cat} value={cat} className="mt-4">
+                            {discover.length ? (
+                              <div className="grid gap-3">
+                                {discover.slice(0, 10).map((r) => (
+                                  <RoutineCard
+                                    key={r.id}
+                                    routine={r}
+                                    variant="discover"
+                                    onShare={() => shareRoutine(r)}
+                                    onCopy={() => {
+                                      copyRoutine(r.id);
+                                      refreshRoutines();
+                                      toast({
+                                        title: "Rotina copiada",
+                                        description:
+                                          "Agora ela aparece em ‘Minhas’.",
+                                      });
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                                Ainda não há rotinas públicas de{" "}
+                                {cat.toLowerCase()} para copiar.
+                              </div>
+                            )}
+                          </TabsContent>
+                        );
+                      },
+                    )}
                   </Tabs>
                 </TabsContent>
               </Tabs>
