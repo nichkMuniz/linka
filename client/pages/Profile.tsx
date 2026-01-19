@@ -518,29 +518,14 @@ export default function Profile() {
         <TabsContent value="routines" className="mt-4">
           <Card className="border-border/60">
             <CardHeader className="pb-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <ListChecks className="h-4 w-4 text-brand" />
-                    Minhas rotinas
-                  </CardTitle>
-                  <CardDescription>
-                    Crie rotinas de treino, alimentação ou hábitos para repetir e
-                    compartilhar.
-                  </CardDescription>
-                </div>
-
-                <Button
-                  type="button"
-                  className="rounded-full"
-                  onClick={() => {
-                    setEditingRoutine(null);
-                    setRoutineEditorOpen(true);
-                  }}
-                >
-                  <Plus className="h-4 w-4" />
-                  Nova rotina
-                </Button>
+              <div className="space-y-1">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ListChecks className="h-4 w-4 text-brand" />
+                  Minhas rotinas
+                </CardTitle>
+                <CardDescription>
+                  Crie rotinas de treino, alimentação ou hábitos para repetir e compartilhar.
+                </CardDescription>
               </div>
             </CardHeader>
 
@@ -550,23 +535,29 @@ export default function Profile() {
                   <TabsTrigger
                     value="Treino"
                     className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                    aria-label="Treino"
+                    title="Treino"
                   >
                     <Dumbbell className="h-4 w-4" />
-                    Treino
+                    <span className="sr-only">Treino</span>
                   </TabsTrigger>
                   <TabsTrigger
                     value="Alimentação"
                     className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                    aria-label="Alimentação"
+                    title="Alimentação"
                   >
                     <Utensils className="h-4 w-4" />
-                    Alimentação
+                    <span className="sr-only">Alimentação</span>
                   </TabsTrigger>
                   <TabsTrigger
                     value="Hábito"
                     className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                    aria-label="Hábito"
+                    title="Hábito"
                   >
                     <Droplets className="h-4 w-4" />
-                    Hábito
+                    <span className="sr-only">Hábito</span>
                   </TabsTrigger>
                 </TabsList>
 
@@ -592,7 +583,21 @@ export default function Profile() {
                           </TabsTrigger>
                         </TabsList>
 
-                        <TabsContent value="mine" className="mt-4">
+                        <TabsContent value="mine" className="mt-4 space-y-4">
+                          <div className="flex justify-end">
+                            <Button
+                              type="button"
+                              className="w-full rounded-full sm:w-auto"
+                              onClick={() => {
+                                setEditingRoutine(null);
+                                setRoutineEditorOpen(true);
+                              }}
+                            >
+                              <Plus className="h-4 w-4" />
+                              Nova rotina
+                            </Button>
+                          </div>
+
                           {mine.length ? (
                             <div className="grid gap-3">
                               {mine.map((r) => (
