@@ -1307,14 +1307,48 @@ export default function WorkoutSession() {
                       g.durationDays,
                     );
 
+                    const rawImages = (g as any).imageDataUrls;
+                    const prevImages = Array.isArray(rawImages)
+                      ? rawImages.map((v: unknown) => String(v).trim()).filter(Boolean)
+                      : [(g.imageDataUrl ?? "").trim()].filter(Boolean);
+                    const nextImages = prevImages.includes(postImageDataUrl)
+                      ? prevImages
+                      : [...prevImages, postImageDataUrl];
+
+                    const rawIds = (g as any).attachedRoutineIds;
+                    const prevIds = Array.isArray(rawIds)
+                      ? rawIds.map((v: unknown) => String(v).trim()).filter(Boolean)
+                      : [(g.attachedRoutineId ?? "").trim()].filter(Boolean);
+
+                    const rawTitles = (g as any).attachedRoutineTitles;
+                    const prevTitles = Array.isArray(rawTitles)
+                      ? rawTitles.map((v: unknown) => String(v).trim()).filter(Boolean)
+                      : [(g.attachedRoutineTitle ?? "").trim()].filter(Boolean);
+
+                    const idToTitle = new Map<string, string>();
+                    prevIds.forEach((id, idx) => {
+                      const t = prevTitles[idx];
+                      if (id && t) idToTitle.set(id, t);
+                    });
+
+                    const nextIds = prevIds.includes(routine.id)
+                      ? prevIds
+                      : [...prevIds, routine.id];
+                    idToTitle.set(routine.id, routine.title);
+                    const nextTitles = nextIds.map((id) => idToTitle.get(id) ?? "");
+
+                    const legacyAttachedRoutineId = nextIds[0] || undefined;
+                    const legacyAttachedRoutineTitle = nextTitles[0] || undefined;
+
                     return {
                       ...g,
                       caption,
                       imageDataUrl: postImageDataUrl,
-                      attachedRoutineIds: [routine.id],
-                      attachedRoutineTitles: [routine.title],
-                      attachedRoutineId: routine.id,
-                      attachedRoutineTitle: routine.title,
+                      imageDataUrls: nextImages.length ? nextImages : undefined,
+                      attachedRoutineIds: nextIds.length ? nextIds : undefined,
+                      attachedRoutineTitles: nextTitles.length ? nextTitles : undefined,
+                      attachedRoutineId: legacyAttachedRoutineId,
+                      attachedRoutineTitle: legacyAttachedRoutineTitle,
                       completedDays: nextCompleted,
                       myProgressToday: dayKey(),
                     };
