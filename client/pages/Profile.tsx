@@ -437,7 +437,6 @@ export default function Profile() {
   const [routines, setRoutines] = React.useState<Routine[]>([]);
   const [routineEditorOpen, setRoutineEditorOpen] = React.useState(false);
   const [editingRoutine, setEditingRoutine] = React.useState<Routine | null>(null);
-  const [pendingGoalsOpen, setPendingGoalsOpen] = React.useState(false);
 
   const refreshRoutines = React.useCallback(() => {
     setRoutines(getRoutines());
@@ -498,11 +497,6 @@ export default function Profile() {
   const myRoutines = routines.filter((r) => r.ownerHandle === "@voce");
   const discoverRoutines = routines.filter((r) => r.ownerHandle !== "@voce");
 
-  const pendingGoals = React.useMemo(
-    () => posts.filter((g) => (g.completedDays ?? 0) < g.durationDays),
-    [posts],
-  );
-  const pendingGoalsCount = pendingGoals.length;
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
@@ -525,22 +519,6 @@ export default function Profile() {
             <Avatar src={profile.avatarUrl} initials="V" />
 
             <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="absolute -top-1 -right-1 h-9 w-9 rounded-full bg-background/80 shadow-md backdrop-blur"
-              aria-label="Metas pendentes"
-              onClick={() => setPendingGoalsOpen(true)}
-            >
-              <ListChecks className="h-4 w-4" />
-              {pendingGoalsCount ? (
-                <span className="absolute -right-1 -top-1 grid h-6 min-w-6 place-items-center rounded-full bg-brand px-1 text-[11px] font-semibold text-white ring-2 ring-background">
-                  {pendingGoalsCount}
-                </span>
-              ) : null}
-            </Button>
-
-            <Button
               asChild
               size="icon"
               className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full shadow-md"
@@ -550,44 +528,6 @@ export default function Profile() {
                 <Plus className="h-4 w-4" />
               </Link>
             </Button>
-
-            <Dialog open={pendingGoalsOpen} onOpenChange={setPendingGoalsOpen}>
-              <DialogContent className="max-w-[min(92vw,520px)] rounded-3xl border-border/60">
-                <DialogHeader>
-                  <DialogTitle>Metas pendentes</DialogTitle>
-                  <DialogDescription>
-                    Toque em uma meta para lembrar do foco do dia.
-                  </DialogDescription>
-                </DialogHeader>
-
-                <div className="grid gap-2">
-                  {pendingGoals.length ? (
-                    pendingGoals.map((g) => (
-                      <button
-                        key={g.id}
-                        type="button"
-                        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border/60 bg-muted/10 p-3 text-left transition-colors hover:bg-muted/20"
-                        onClick={() => setPendingGoalsOpen(false)}
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold">{g.title}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {g.completedDays}/{g.durationDays} {dayLabel(g.durationDays)}
-                          </div>
-                        </div>
-                        <div className="rounded-full bg-muted px-3 py-1 text-[11px] font-semibold text-muted-foreground ring-1 ring-border/60">
-                          {goalProgressPercent(g)}%
-                        </div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-                      Nenhuma meta pendente no momento.
-                    </div>
-                  )}
-                </div>
-              </DialogContent>
-            </Dialog>
           </div>
 
           <div className="space-y-1">
