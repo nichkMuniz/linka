@@ -1,13 +1,5 @@
 import * as React from "react";
-import {
-  CheckCircle2,
-  Circle,
-  Crown,
-  ListChecks,
-  Medal,
-  Sparkles,
-  Zap,
-} from "lucide-react";
+import { CheckCircle2, Circle, Crown, Medal, Zap } from "lucide-react";
 
 import { Goal, getRitmoFitState } from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
@@ -303,84 +295,77 @@ export default function Rank() {
             Pontos vêm de consistência e interação: posts, rotinas, comentários e incentivos.
           </p>
         </div>
-        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand text-white shadow-sm ring-1 ring-brand/30">
-          <Sparkles className="h-6 w-6" />
-        </div>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="relative h-12 w-12 rounded-full bg-gradient-to-br from-brand-3 via-brand to-brand-2 text-sm font-semibold text-white shadow-sm ring-1 ring-brand/30 hover:bg-brand"
+          onClick={() => setMissionsOpen(true)}
+          aria-label="Abrir missões de hoje"
+        >
+          {initials(missions.me?.name ?? "Você")}
+          <span
+            className={cn(
+              "absolute -right-1 -top-1 grid h-6 min-w-6 place-items-center rounded-full px-1 text-[11px] font-semibold text-white ring-2 ring-background",
+              missions.activeCount === 0 ? "bg-emerald-500" : "bg-brand",
+            )}
+            aria-label={`${missions.activeCount} missões ativas`}
+            title={`${missions.activeCount} missões ativas`}
+          >
+            {missions.activeCount}
+          </span>
+        </Button>
       </header>
 
-      {entries.length ? (
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="relative h-11 w-11 rounded-full"
-            onClick={() => setMissionsOpen(true)}
-            aria-label="Abrir missões de hoje"
-          >
-            <ListChecks className="h-5 w-5" />
-            <span
-              className={cn(
-                "absolute -right-1 -top-1 grid h-6 min-w-6 place-items-center rounded-full px-1 text-[11px] font-semibold text-white ring-2 ring-background",
-                missions.activeCount === 0 ? "bg-emerald-500" : "bg-brand",
-              )}
-              aria-label={`${missions.activeCount} missões ativas`}
-              title={`${missions.activeCount} missões ativas`}
-            >
-              {missions.activeCount}
-            </span>
-          </Button>
+      <Dialog open={missionsOpen} onOpenChange={setMissionsOpen}>
+        <DialogContent className="max-w-[min(92vw,520px)] rounded-3xl border-border/60">
+          <DialogHeader>
+            <DialogTitle>Missões de hoje</DialogTitle>
+            <DialogDescription>
+              Complete ações simples para ganhar XP e manter consistência.
+            </DialogDescription>
+          </DialogHeader>
 
-          <Dialog open={missionsOpen} onOpenChange={setMissionsOpen}>
-            <DialogContent className="max-w-[min(92vw,520px)] rounded-3xl border-border/60">
-              <DialogHeader>
-                <DialogTitle>Missões de hoje</DialogTitle>
-                <DialogDescription>
-                  Complete ações simples para ganhar XP e manter consistência.
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="grid gap-3">
-                {missions.me ? (
-                  <div className="text-sm text-muted-foreground">
-                    Seu streak atual: <span className="font-semibold">{missions.me.streakDays} dias</span>
-                  </div>
-                ) : null}
-
-                <div className="grid gap-2">
-                  {missions.tasks.map((t) => (
-                    <div
-                      key={t.label}
-                      className={cn(
-                        "flex items-start justify-between gap-3 rounded-2xl border border-border/60 bg-muted/10 p-3",
-                        t.done ? "ring-1 ring-emerald-500/15" : null,
-                      )}
-                    >
-                      <div className="flex min-w-0 items-start gap-2">
-                        {t.done ? (
-                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                        ) : (
-                          <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                        )}
-                        <div className="min-w-0">
-                          <div className={cn("text-sm font-medium", t.done ? "text-emerald-700" : null)}>
-                            {t.label}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {t.done ? "Concluída hoje" : "Ativa"}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="shrink-0 text-xs font-semibold text-muted-foreground">+{t.xp} XP</div>
-                    </div>
-                  ))}
-                </div>
+          <div className="grid gap-3">
+            {missions.me ? (
+              <div className="text-sm text-muted-foreground">
+                Seu streak atual: <span className="font-semibold">{missions.me.streakDays} dias</span>
               </div>
-            </DialogContent>
-          </Dialog>
-        </div>
-      ) : null}
+            ) : null}
+
+            <div className="grid gap-2">
+              {missions.tasks.map((t) => (
+                <div
+                  key={t.label}
+                  className={cn(
+                    "flex items-start justify-between gap-3 rounded-2xl border border-border/60 bg-muted/10 p-3",
+                    t.done ? "ring-1 ring-emerald-500/15" : null,
+                  )}
+                >
+                  <div className="flex min-w-0 items-start gap-2">
+                    {t.done ? (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                    ) : (
+                      <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
+                    <div className="min-w-0">
+                      <div className={cn("text-sm font-medium", t.done ? "text-emerald-700" : null)}>
+                        {t.label}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t.done ? "Concluída hoje" : "Ativa"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 text-xs font-semibold text-muted-foreground">+{t.xp} XP</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <section className="grid gap-3">
         {entries.map((e, idx) => {
