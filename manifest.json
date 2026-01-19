@@ -1,0 +1,11 @@
+{
+  "background_color": "#ffffff",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "ritmofit.vercel",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "ritmofit.vercel",
+  "start_url": "/",
+  "theme_color": "#ffffff"
+}
