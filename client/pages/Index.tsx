@@ -697,7 +697,10 @@ export default function Index() {
   React.useEffect(() => {
     const state = getRitmoFitState();
     setGoals(
-      state.goals.filter((g) => !state.blockedHandles.includes(g.ownerHandle)),
+      state.goals.filter(
+        (g) =>
+          !state.blockedHandles.includes(g.ownerHandle) && !(g as any).hidden,
+      ),
     );
   }, []);
 
@@ -710,7 +713,7 @@ export default function Index() {
       <StoriesBar />
       <section className="grid gap-4">
         {goals
-          .filter((g) => !isBlocked(g.ownerHandle))
+          .filter((g) => !isBlocked(g.ownerHandle) && !(g as any).hidden)
           .map((goal) => (
             <PostCard
               key={goal.id}
