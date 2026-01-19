@@ -193,14 +193,41 @@ function PostCard({
   const done = goal.completedDays >= goal.durationDays;
   const isMine = goal.ownerHandle === "@voce" || goal.ownerName === "Você";
 
-  const attachedRoutine: Routine | null = React.useMemo(() => {
-    const routineId = (goal.attachedRoutineId ?? "").trim();
-    if (!routineId) return null;
-    return getRoutines().find((r) => r.id === routineId) ?? null;
-  }, [goal.attachedRoutineId]);
+  const attachedRoutineIds = React.useMemo(() => {
+    const raw = (goal as any).attachedRoutineIds;
+    if (Array.isArray(raw)) {
+      return raw.map((v) => String(v).trim()).filter(Boolean);
+    }
 
-  const attachedRoutineTitle =
-    attachedRoutine?.title ?? (goal.attachedRoutineTitle ?? "").trim();
+    const legacy = (goal.attachedRoutineId ?? "").trim();
+    return legacy ? [legacy] : [];
+  }, [goal]);
+
+  const attachedRoutineTitles = React.useMemo(() => {
+    const raw = (goal as any).attachedRoutineTitles;
+    if (Array.isArray(raw)) {
+      return raw.map((v) => String(v).trim()).filter(Boolean);
+    }
+
+    const legacy = (goal.attachedRoutineTitle ?? "").trim();
+    return legacy ? [legacy] : [];
+  }, [goal]);
+
+  const attachedRoutinesById = React.useMemo(() => {
+    const routines = getRoutines();
+    const map = new Map<string, Routine>();
+    routines.forEach((r) => map.set(r.id, r));
+    return map;
+  }, []);
+
+  const attachedRoutineItems = React.useMemo(() => {
+    return attachedRoutineIds.map((id, idx) => {
+      const routine = attachedRoutinesById.get(id) ?? null;
+      const fallbackTitle = attachedRoutineTitles[idx] ?? "";
+      const title = (routine?.title ?? fallbackTitle).trim();
+      return { id, routine, title };
+    });
+  }, [attachedRoutineIds, attachedRoutineTitles, attachedRoutinesById]);
   const updatedToday = goal.myProgressToday === todayKey();
   const [open, setOpen] = React.useState(false);
   const [pulse, setPulse] = React.useState<IncentiveKind | null>(null);
@@ -528,35 +555,68 @@ function PostCard({
           ) : null}
         </div>
 
-        {attachedRoutineTitle ? (
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-muted/20 p-3">
-            <div className="min-w-0 truncate text-sm font-semibold">
-              {attachedRoutineTitle}
-            </div>
+        {attachedRoutineItems.length ? (
+          <div className="grid gap-2 rounded-2xl border border-border/60 bg-muted/20 p-3">
+            <div className="text-xs font-semibold text-muted-foreground">Rotinas anexadas</div>
 
-            <div className="flex shrink-0 items-center gap-2">
-              {attachedRoutine && attachedRoutine.ownerHandle !== "@voce" ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="rounded-full"
-                  onClick={() => {
-                    copyRoutine(attachedRoutine.id);
-                    toast({
-                      title: "Rotina copiada",
-                      description: "Agora ela aparece em ‘Minhas’.",
-                    });
-                  }}
-                >
-                  Copiar
-                </Button>
-              ) : null}
+            <div className="grid gap-2">
+              {attachedRoutineItems
+                .filter((it) => Boolean(it.title))
+                .slice(0, 3)
+                .map((it) => {
+                  const canCopy = Boolean(it.routine && it.routine.ownerHandle !== "@voce");
 
-              {attachedRoutine ? (
-                <Button asChild size="sm" variant="outline" className="rounded-full">
-                  <Link to={`/rotinas/${attachedRoutine.id}`}>Ver rotina</Link>
-                </Button>
+                  return (
+                    <div
+                      key={it.id}
+                      className="flex items-center justify-between gap-3 rounded-2xl bg-background/60 p-3 ring-1 ring-border/60"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold">{it.title}</div>
+                        {it.routine ? (
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {it.routine.category} · {it.routine.ownerHandle}
+                          </div>
+                        ) : (
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            Rotina não disponível
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-2">
+                        {canCopy && it.routine ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="rounded-full"
+                            onClick={() => {
+                              copyRoutine(it.routine.id);
+                              toast({
+                                title: "Rotina copiada",
+                                description: "Agora ela aparece em ‘Minhas’.",
+                              });
+                            }}
+                          >
+                            Copiar
+                          </Button>
+                        ) : null}
+
+                        {it.routine ? (
+                          <Button asChild size="sm" variant="outline" className="rounded-full">
+                            <Link to={`/rotinas/${it.routine.id}`}>Ver</Link>
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+
+              {attachedRoutineItems.filter((it) => Boolean(it.title)).length > 3 ? (
+                <div className="text-xs text-muted-foreground">
+                  +{attachedRoutineItems.filter((it) => Boolean(it.title)).length - 3} rotinas
+                </div>
               ) : null}
             </div>
           </div>
