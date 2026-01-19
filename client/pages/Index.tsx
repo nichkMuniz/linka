@@ -195,6 +195,19 @@ function PostCard({
   const done = goal.completedDays >= goal.durationDays;
   const isMine = goal.ownerHandle === "@voce" || goal.ownerName === "Você";
 
+  const imageUrls = React.useMemo(() => {
+    const raw = (goal as any).imageDataUrls;
+    const urls = Array.isArray(raw)
+      ? raw.map((v) => String(v).trim()).filter(Boolean)
+      : [];
+
+    // Newest should appear on the left.
+    if (urls.length) return urls.slice().reverse();
+
+    const fallback = (goal.imageDataUrl ?? "").trim();
+    return fallback ? [fallback] : [];
+  }, [goal]);
+
   const attachedRoutineIds = React.useMemo(() => {
     const raw = (goal as any).attachedRoutineIds;
     if (Array.isArray(raw)) {
@@ -230,8 +243,24 @@ function PostCard({
       return { id, routine, title };
     });
   }, [attachedRoutineIds, attachedRoutineTitles, attachedRoutinesById]);
+
+  const visibleAttachedRoutines = React.useMemo(
+    () => attachedRoutineItems.filter((it) => Boolean(it.title)),
+    [attachedRoutineItems],
+  );
+
+  const latestAttachedRoutine =
+    visibleAttachedRoutines.length > 0
+      ? visibleAttachedRoutines[visibleAttachedRoutines.length - 1]
+      : null;
+  const extraAttachedRoutinesCount = Math.max(
+    0,
+    visibleAttachedRoutines.length - 1,
+  );
+
   const updatedToday = goal.myProgressToday === todayKey();
   const [open, setOpen] = React.useState(false);
+  const [attachedRoutinesOpen, setAttachedRoutinesOpen] = React.useState(false);
   const [pulse, setPulse] = React.useState<IncentiveKind | null>(null);
   const pulseTimer = React.useRef<number | null>(null);
   const [commentsOpen, setCommentsOpen] = React.useState(false);
@@ -412,9 +441,31 @@ function PostCard({
 
       {/* media */}
       <div className="relative aspect-square w-full overflow-hidden bg-muted">
-        {goal.imageDataUrl ? (
+        {imageUrls.length > 1 ? (
+          <>
+            <div className="flex h-full w-full snap-x snap-mandatory overflow-x-auto scroll-smooth [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {imageUrls.map((src, idx) => (
+                <div
+                  key={`${goal.id}_img_${idx}`}
+                  className="h-full w-full flex-none snap-start"
+                >
+                  <img
+                    src={src}
+                    alt={`Imagem da postagem (${idx + 1}/${imageUrls.length})`}
+                    className="h-full w-full object-cover"
+                    loading={idx === 0 ? "eager" : "lazy"}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="absolute left-3 top-3 rounded-full bg-foreground/50 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
+              {imageUrls.length} fotos
+            </div>
+          </>
+        ) : imageUrls[0] ? (
           <img
-            src={goal.imageDataUrl}
+            src={imageUrls[0]}
             alt="Imagem da postagem"
             className="h-full w-full object-cover"
           />
@@ -557,86 +608,141 @@ function PostCard({
           ) : null}
         </div>
 
-        {attachedRoutineItems.length ? (
+        {latestAttachedRoutine ? (
           <div className="grid gap-2 rounded-2xl border border-border/60 bg-muted/20 p-3">
-            {(() => {
-              const visible = attachedRoutineItems.filter((it) => Boolean(it.title));
-              const extra = Math.max(0, visible.length - 3);
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs font-semibold text-muted-foreground">
+                Rotina anexada
+              </div>
+              {extraAttachedRoutinesCount > 0 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-full px-2 text-[11px] font-semibold text-muted-foreground"
+                  onClick={() => setAttachedRoutinesOpen(true)}
+                  aria-label={`Ver mais ${extraAttachedRoutinesCount} rotinas anexadas`}
+                >
+                  {extraAttachedRoutinesCount}+
+                </Button>
+              ) : null}
+            </div>
 
-              return (
-                <>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs font-semibold text-muted-foreground">
-                      Rotinas anexadas
-                    </div>
-                    {extra > 0 ? (
-                      <div className="text-[11px] text-muted-foreground">+{extra} mais</div>
-                    ) : null}
-                  </div>
+            <div className="flex items-center justify-between gap-2 rounded-2xl bg-background/60 px-3 py-2 ring-1 ring-border/60">
+              <div className="min-w-0">
+                <div className="truncate text-xs font-semibold">
+                  {latestAttachedRoutine.title}
+                </div>
+                <div className="truncate text-[10px] text-muted-foreground">
+                  {latestAttachedRoutine.routine
+                    ? `${latestAttachedRoutine.routine.category} · ${latestAttachedRoutine.routine.ownerHandle}`
+                    : "Rotina não disponível"}
+                </div>
+              </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {visible.slice(0, 3).map((it) => {
-                      const canCopy = Boolean(
-                        it.routine && it.routine.ownerHandle !== "@voce",
-                      );
+              <div className="flex shrink-0 items-center gap-1">
+                {latestAttachedRoutine.routine &&
+                latestAttachedRoutine.routine.ownerHandle !== "@voce" ? (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-9 w-9 rounded-full"
+                    aria-label="Copiar rotina"
+                    onClick={() => {
+                      copyRoutine(latestAttachedRoutine.routine!.id);
+                      toast({
+                        title: "Rotina copiada",
+                        description: "Agora ela aparece em ‘Minhas’.",
+                      });
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                ) : null}
 
-                      return (
-                        <div
-                          key={it.id}
-                          className="flex min-w-[min(16rem,100%)] flex-1 items-center justify-between gap-2 rounded-2xl bg-background/60 px-3 py-2 ring-1 ring-border/60"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-xs font-semibold">
-                              {it.title}
-                            </div>
-                            <div className="truncate text-[10px] text-muted-foreground">
-                              {it.routine
-                                ? `${it.routine.category} · ${it.routine.ownerHandle}`
-                                : "Rotina não disponível"}
-                            </div>
-                          </div>
+                {latestAttachedRoutine.routine ? (
+                  <Button
+                    asChild
+                    size="icon"
+                    variant="ghost"
+                    className="h-9 w-9 rounded-full"
+                    aria-label="Ver rotina"
+                  >
+                    <Link to={`/rotinas/${latestAttachedRoutine.routine.id}`}>
+                      <ArrowUpRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                ) : null}
+              </div>
+            </div>
 
-                          <div className="flex shrink-0 items-center gap-1">
-                            {canCopy && it.routine ? (
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="h-9 w-9 rounded-full"
-                                aria-label="Copiar rotina"
-                                onClick={() => {
-                                  copyRoutine(it.routine!.id);
-                                  toast({
-                                    title: "Rotina copiada",
-                                    description: "Agora ela aparece em ‘Minhas’.",
-                                  });
-                                }}
-                              >
-                                <Copy className="h-4 w-4" />
-                              </Button>
-                            ) : null}
+            <Dialog open={attachedRoutinesOpen} onOpenChange={setAttachedRoutinesOpen}>
+              <DialogContent className="max-w-[min(92vw,560px)] rounded-3xl border-border/60">
+                <DialogHeader>
+                  <DialogTitle>Rotinas vinculadas</DialogTitle>
+                  <DialogDescription>
+                    Todas as rotinas anexadas neste post (mais recente primeiro).
+                  </DialogDescription>
+                </DialogHeader>
 
-                            {it.routine ? (
-                              <Button
-                                asChild
-                                size="icon"
-                                variant="ghost"
-                                className="h-9 w-9 rounded-full"
-                                aria-label="Ver rotina"
-                              >
-                                <Link to={`/rotinas/${it.routine.id}`}>
-                                  <ArrowUpRight className="h-4 w-4" />
-                                </Link>
-                              </Button>
-                            ) : null}
+                <div className="grid gap-2">
+                  {visibleAttachedRoutines
+                    .slice()
+                    .reverse()
+                    .map((it) => (
+                      <div
+                        key={it.id}
+                        className="flex items-center justify-between gap-2 rounded-2xl border border-border/60 bg-muted/10 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold">{it.title}</div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {it.routine
+                              ? `${it.routine.category} · ${it.routine.ownerHandle}`
+                              : "Rotina não disponível"}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </>
-              );
-            })()}
+
+                        <div className="flex shrink-0 items-center gap-1">
+                          {it.routine && it.routine.ownerHandle !== "@voce" ? (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-9 w-9 rounded-full"
+                              aria-label="Copiar rotina"
+                              onClick={() => {
+                                copyRoutine(it.routine!.id);
+                                toast({
+                                  title: "Rotina copiada",
+                                  description: "Agora ela aparece em ‘Minhas’.",
+                                });
+                              }}
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+
+                          {it.routine ? (
+                            <Button
+                              asChild
+                              size="icon"
+                              variant="ghost"
+                              className="h-9 w-9 rounded-full"
+                              aria-label="Ver rotina"
+                            >
+                              <Link to={`/rotinas/${it.routine.id}`}>
+                                <ArrowUpRight className="h-4 w-4" />
+                              </Link>
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         ) : null}
 
