@@ -78,10 +78,13 @@ export function RoutineCard({
               <span className="text-[11px] text-muted-foreground">
                 {items.length} {meta.itemsLabel.toLowerCase()}
               </span>
-              {routine.copiedFromRoutineId ? (
+              {variant === "discover" ? (
                 <span className="text-[11px] text-muted-foreground">
-                  (copiada)
+                  {routine.ownerName} · {routine.ownerHandle}
                 </span>
+              ) : null}
+              {routine.copiedFromRoutineId ? (
+                <span className="text-[11px] text-muted-foreground">(copiada)</span>
               ) : null}
             </div>
           </div>
