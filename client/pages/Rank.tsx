@@ -1,9 +1,25 @@
 import * as React from "react";
-import { Crown, Medal, Sparkles, Zap } from "lucide-react";
+import {
+  CheckCircle2,
+  Circle,
+  Crown,
+  ListChecks,
+  Medal,
+  Sparkles,
+  Zap,
+} from "lucide-react";
 
 import { Goal, getRitmoFitState } from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 
 type RankEntry = {
@@ -115,6 +131,7 @@ function rankBadgeMeta(rank: number) {
 export default function Rank() {
   const [entries, setEntries] = React.useState<RankEntry[]>([]);
   const [meHandle, setMeHandle] = React.useState("@voce");
+  const [missionsOpen, setMissionsOpen] = React.useState(false);
 
   React.useEffect(() => {
     const state = getRitmoFitState();
@@ -248,6 +265,35 @@ export default function Rank() {
     );
   }, []);
 
+  const missions = React.useMemo(() => {
+    const me = entries.find((e) => e.handle === meHandle) ?? null;
+    const state = getRitmoFitState();
+
+    const meGoals = state.goals.filter((g) => g.ownerHandle === meHandle);
+    const meRoutines = state.routines.filter((r) => r.ownerHandle === meHandle);
+    const meComments = state.goals
+      .flatMap((g) => g.comments ?? [])
+      .filter((c) => c.authorHandle === meHandle);
+
+    const didPostToday = meGoals.some((g) => dayKeyFromIso(g.createdAt) === todayKey());
+    const didRoutineToday = meRoutines.some(
+      (r) => dayKeyFromIso(r.createdAt) === todayKey(),
+    );
+    const didCommentToday = meComments.some(
+      (c) => dayKeyFromIso(c.createdAt) === todayKey(),
+    );
+
+    const tasks = [
+      { label: "Faça 1 post hoje", done: didPostToday, xp: XP_PER_POST },
+      { label: "Crie 1 rotina", done: didRoutineToday, xp: XP_PER_ROUTINE_CREATED },
+      { label: "Escreva 1 comentário", done: didCommentToday, xp: XP_PER_COMMENT },
+    ];
+
+    const activeCount = tasks.filter((t) => !t.done).length;
+
+    return { me, tasks, activeCount };
+  }, [entries, meHandle]);
+
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-4">
       <header className="flex items-start justify-between gap-4">
@@ -263,70 +309,77 @@ export default function Rank() {
       </header>
 
       {entries.length ? (
-        <Card className="border-border/60">
-          <CardContent className="grid gap-2 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold">Missões de hoje</div>
-                <div className="text-xs text-muted-foreground">
-                  Complete ações simples e mantenha a consistência.
-                </div>
-              </div>
-              <div className="rounded-full bg-muted px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                XP
-              </div>
-            </div>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="relative h-11 w-11 rounded-full"
+            onClick={() => setMissionsOpen(true)}
+            aria-label="Abrir missões de hoje"
+          >
+            <ListChecks className="h-5 w-5" />
+            <span
+              className={cn(
+                "absolute -right-1 -top-1 grid h-6 min-w-6 place-items-center rounded-full px-1 text-[11px] font-semibold text-white ring-2 ring-background",
+                missions.activeCount === 0 ? "bg-emerald-500" : "bg-brand",
+              )}
+              aria-label={`${missions.activeCount} missões ativas`}
+              title={`${missions.activeCount} missões ativas`}
+            >
+              {missions.activeCount}
+            </span>
+          </Button>
 
-            {(() => {
-              const me = entries.find((e) => e.handle === meHandle) ?? null;
-              const meGoals = getRitmoFitState().goals.filter((g) => g.ownerHandle === meHandle);
-              const meRoutines = getRitmoFitState().routines.filter((r) => r.ownerHandle === meHandle);
-              const meComments = getRitmoFitState()
-                .goals.flatMap((g) => g.comments ?? [])
-                .filter((c) => c.authorHandle === meHandle);
+          <Dialog open={missionsOpen} onOpenChange={setMissionsOpen}>
+            <DialogContent className="max-w-[min(92vw,520px)] rounded-3xl border-border/60">
+              <DialogHeader>
+                <DialogTitle>Missões de hoje</DialogTitle>
+                <DialogDescription>
+                  Complete ações simples para ganhar XP e manter consistência.
+                </DialogDescription>
+              </DialogHeader>
 
-              const didPostToday = meGoals.some((g) => dayKeyFromIso(g.createdAt) === todayKey());
-              const didRoutineToday = meRoutines.some((r) => dayKeyFromIso(r.createdAt) === todayKey());
-              const didCommentToday = meComments.some((c) => dayKeyFromIso(c.createdAt) === todayKey());
+              <div className="grid gap-3">
+                {missions.me ? (
+                  <div className="text-sm text-muted-foreground">
+                    Seu streak atual: <span className="font-semibold">{missions.me.streakDays} dias</span>
+                  </div>
+                ) : null}
 
-              const tasks = [
-                { label: "Faça 1 post hoje", done: didPostToday, xp: XP_PER_POST },
-                { label: "Crie 1 rotina", done: didRoutineToday, xp: XP_PER_ROUTINE_CREATED },
-                { label: "Escreva 1 comentário", done: didCommentToday, xp: XP_PER_COMMENT },
-              ];
-
-              return (
                 <div className="grid gap-2">
-                  {me ? (
-                    <div className="text-xs text-muted-foreground">
-                      Seu streak atual: <span className="font-semibold">{me.streakDays} dias</span>
-                    </div>
-                  ) : null}
-
-                  {tasks.map((t) => (
+                  {missions.tasks.map((t) => (
                     <div
                       key={t.label}
                       className={cn(
-                        "flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-background p-3",
-                        t.done ? "ring-1 ring-emerald-500/20" : null,
+                        "flex items-start justify-between gap-3 rounded-2xl border border-border/60 bg-muted/10 p-3",
+                        t.done ? "ring-1 ring-emerald-500/15" : null,
                       )}
                     >
-                      <div className="min-w-0">
-                        <div className={cn("text-sm font-medium", t.done ? "text-emerald-700" : null)}>
-                          {t.done ? "✅ " : ""}{t.label}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {t.done ? "Concluída hoje" : "Ainda não"}
+                      <div className="flex min-w-0 items-start gap-2">
+                        {t.done ? (
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                        ) : (
+                          <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <div className="min-w-0">
+                          <div className={cn("text-sm font-medium", t.done ? "text-emerald-700" : null)}>
+                            {t.label}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {t.done ? "Concluída hoje" : "Ativa"}
+                          </div>
                         </div>
                       </div>
-                      <div className="text-xs font-semibold text-muted-foreground">+{t.xp} XP</div>
+
+                      <div className="shrink-0 text-xs font-semibold text-muted-foreground">+{t.xp} XP</div>
                     </div>
                   ))}
                 </div>
-              );
-            })()}
-          </CardContent>
-        </Card>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
       ) : null}
 
       <section className="grid gap-3">
