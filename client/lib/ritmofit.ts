@@ -31,7 +31,11 @@ export type Goal = {
   createdAt: string; // ISO
   completedDays: number;
   incentives: GoalIncentives;
-  /** Opcional: rotina anexada ao post (ex: treino salvo). */
+  /** Opcional: rotinas anexadas ao post (ex: treinos salvos). */
+  attachedRoutineIds?: string[];
+  attachedRoutineTitles?: string[];
+
+  /** Legacy (MVP anterior): manter por compatibilidade. */
   attachedRoutineId?: string;
   attachedRoutineTitle?: string;
   /** MVP: incentivos que o usuário atual já deu (para manter o estado colorido). */
@@ -129,19 +133,49 @@ function normalizeGoal(g: Goal): Goal {
   const comments = Array.isArray((g as any).comments)
     ? ((g as any).comments as GoalComment[])
     : [];
+
+  const legacyAttachedRoutineId =
+    typeof (g as any).attachedRoutineId === "string"
+      ? (((g as any).attachedRoutineId as string).trim() || undefined)
+      : undefined;
+
+  const legacyAttachedRoutineTitle =
+    typeof (g as any).attachedRoutineTitle === "string"
+      ? (((g as any).attachedRoutineTitle as string).trim() || undefined)
+      : undefined;
+
+  const attachedRoutineIdsRaw = (g as any).attachedRoutineIds;
+  const attachedRoutineTitlesRaw = (g as any).attachedRoutineTitles;
+
+  const attachedRoutineIds = Array.isArray(attachedRoutineIdsRaw)
+    ? attachedRoutineIdsRaw
+        .map((v) => String(v).trim())
+        .filter(Boolean)
+    : legacyAttachedRoutineId
+      ? [legacyAttachedRoutineId]
+      : [];
+
+  const attachedRoutineTitles = Array.isArray(attachedRoutineTitlesRaw)
+    ? attachedRoutineTitlesRaw
+        .map((v) => String(v).trim())
+        .filter(Boolean)
+    : legacyAttachedRoutineTitle
+      ? [legacyAttachedRoutineTitle]
+      : [];
+
   return {
     ...g,
     caption: g.caption ?? "",
     imageDataUrl: image.length ? image : defaultImageForGoal(g),
     incentives: g.incentives ?? { apoio: 0, continua: 0, orgulho: 0 },
-    attachedRoutineId:
-      typeof (g as any).attachedRoutineId === "string"
-        ? (((g as any).attachedRoutineId as string).trim() || undefined)
-        : undefined,
-    attachedRoutineTitle:
-      typeof (g as any).attachedRoutineTitle === "string"
-        ? (((g as any).attachedRoutineTitle as string).trim() || undefined)
-        : undefined,
+
+    attachedRoutineIds: attachedRoutineIds.length ? attachedRoutineIds : undefined,
+    attachedRoutineTitles: attachedRoutineTitles.length ? attachedRoutineTitles : undefined,
+
+    // keep legacy fields populated for older UI paths
+    attachedRoutineId: legacyAttachedRoutineId,
+    attachedRoutineTitle: legacyAttachedRoutineTitle,
+
     myIncentives: g.myIncentives ?? {},
     myProgressToday: g.myProgressToday ?? "",
     comments,
@@ -480,6 +514,10 @@ export function createGoal(input: {
   frequency: string;
   durationDays: 7 | 21 | 30;
   visibility: GoalVisibility;
+  attachedRoutineIds?: string[];
+  attachedRoutineTitles?: string[];
+
+  /** Legacy (MVP anterior): manter compatibilidade */
   attachedRoutineId?: string;
   attachedRoutineTitle?: string;
 }): Goal {
@@ -487,6 +525,18 @@ export function createGoal(input: {
 
   const createdAt = new Date().toISOString();
   const hasPhoto = Boolean((input.imageDataUrl ?? "").trim());
+
+  const attachedRoutineIds = Array.isArray(input.attachedRoutineIds)
+    ? input.attachedRoutineIds.map((v) => String(v).trim()).filter(Boolean)
+    : [];
+
+  const attachedRoutineTitles = Array.isArray(input.attachedRoutineTitles)
+    ? input.attachedRoutineTitles.map((v) => String(v).trim()).filter(Boolean)
+    : [];
+
+  const legacyAttachedRoutineId = (input.attachedRoutineId ?? "").trim() || undefined;
+  const legacyAttachedRoutineTitle =
+    (input.attachedRoutineTitle ?? "").trim() || undefined;
 
   const goal: Goal = {
     id: uid(),
@@ -502,8 +552,13 @@ export function createGoal(input: {
     createdAt,
     completedDays: hasPhoto ? 1 : 0,
     incentives: { apoio: 0, continua: 0, orgulho: 0 },
-    attachedRoutineId: (input.attachedRoutineId ?? "").trim() || undefined,
-    attachedRoutineTitle: (input.attachedRoutineTitle ?? "").trim() || undefined,
+
+    attachedRoutineIds: attachedRoutineIds.length ? attachedRoutineIds : undefined,
+    attachedRoutineTitles: attachedRoutineTitles.length ? attachedRoutineTitles : undefined,
+
+    attachedRoutineId: legacyAttachedRoutineId,
+    attachedRoutineTitle: legacyAttachedRoutineTitle,
+
     myIncentives: {},
     myProgressToday: hasPhoto ? todayKey(new Date(createdAt)) : "",
     comments: [],
