@@ -24,7 +24,10 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'client')
+      '@': path.resolve(__dirname, './client')
     }
+  },
+  build: {
+    outDir: 'dist'
   }
 })
