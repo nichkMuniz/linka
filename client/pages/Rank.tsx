@@ -11,10 +11,22 @@ type RankEntry = {
   handle: string;
   days: number;
   goals: number;
+  routines: number;
+  commentsWritten: number;
+  incentivesReceived: number;
+  incentivesGiven: number;
+  streakDays: number;
   xp: number;
 };
 
 const XP_PER_DAY = 50;
+const XP_PER_POST = 200;
+const XP_PER_ROUTINE_CREATED = 300;
+const XP_PER_ROUTINE_COPIED = 120;
+const XP_PER_COMMENT = 10;
+const XP_PER_INCENTIVE_GIVEN = 2;
+const XP_PER_INCENTIVE_RECEIVED = 1;
+
 const XP_PER_LEVEL = 500;
 
 function initials(name: string) {
@@ -24,9 +36,44 @@ function initials(name: string) {
   );
 }
 
+function dayKeyFromIso(iso: string) {
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function todayKey(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function daysForGoals(goals: Goal[]) {
   // MVP: dias concluídos em todas as rotinas
   return goals.reduce((acc, g) => acc + (g.completedDays ?? 0), 0);
+}
+
+function streakFromDayKeys(dayKeys: string[]) {
+  const unique = Array.from(new Set(dayKeys.filter(Boolean)));
+  unique.sort((a, b) => (a > b ? -1 : a < b ? 1 : 0));
+
+  const today = todayKey();
+  let streak = 0;
+
+  for (let i = 0; i < unique.length; i++) {
+    const expected = new Date();
+    expected.setDate(expected.getDate() - i);
+    const expectedKey = todayKey(expected);
+    if (unique[i] !== expectedKey) break;
+    streak += 1;
+  }
+
+  // only count as streak if the user did something today
+  if (unique[0] !== today) return 0;
+  return streak;
 }
 
 function rankBadgeMeta(rank: number) {
@@ -83,26 +130,77 @@ export default function Rank() {
       }
     }
 
+    const me = state.goals.find(
+      (g) => g.ownerHandle === "@voce" || g.ownerName === "Você",
+    );
+    if (me?.ownerHandle) setMeHandle(me.ownerHandle);
+
     const all: RankEntry[] = Array.from(byOwner.entries()).map(
       ([handle, v]) => {
         const days = daysForGoals(v.goals);
+        const posts = v.goals.length;
+
+        const routines = state.routines.filter((r) => r.ownerHandle === handle);
+        const routinesCreated = routines.filter((r) => !r.copiedFromRoutineId).length;
+        const routinesCopied = routines.filter((r) => Boolean(r.copiedFromRoutineId)).length;
+
+        const commentsWritten = state.goals.reduce((acc, g) => {
+          const count = (g.comments ?? []).filter((c) => c.authorHandle === handle).length;
+          return acc + count;
+        }, 0);
+
+        const incentivesReceived = v.goals.reduce((acc, g) => {
+          const inc = g.incentives;
+          const total = (inc?.apoio ?? 0) + (inc?.continua ?? 0) + (inc?.orgulho ?? 0);
+          return acc + total;
+        }, 0);
+
+        // MVP: só conseguimos medir "incentivos dados" para o usuário atual.
+        const incentivesGiven =
+          handle === "@voce"
+            ? state.goals.reduce((acc, g) => {
+                const mine = g.myIncentives ?? {};
+                return (
+                  acc +
+                  (Object.values(mine).filter(Boolean).length ?? 0)
+                );
+              }, 0)
+            : 0;
+
+        const activityDays = [
+          ...v.goals.map((g) => dayKeyFromIso(g.createdAt)),
+          ...routines.map((r) => dayKeyFromIso(r.createdAt)),
+          ...state.goals
+            .flatMap((g) => g.comments ?? [])
+            .filter((c) => c.authorHandle === handle)
+            .map((c) => dayKeyFromIso(c.createdAt)),
+        ];
+
+        const streakDays = streakFromDayKeys(activityDays);
+
+        const xp =
+          days * XP_PER_DAY +
+          posts * XP_PER_POST +
+          routinesCreated * XP_PER_ROUTINE_CREATED +
+          routinesCopied * XP_PER_ROUTINE_COPIED +
+          commentsWritten * XP_PER_COMMENT +
+          incentivesGiven * XP_PER_INCENTIVE_GIVEN +
+          incentivesReceived * XP_PER_INCENTIVE_RECEIVED;
+
         return {
           handle,
           name: v.name,
-          goals: v.goals.length,
+          goals: posts,
           days,
-          xp: days * XP_PER_DAY,
+          routines: routines.length,
+          commentsWritten,
+          incentivesReceived,
+          incentivesGiven,
+          streakDays,
+          xp,
         };
       },
     );
-
-    // garante que o usuário atual aparece
-    const mine = state.goals.filter(
-      (g) => g.ownerHandle === "@voce" || g.ownerName === "Você",
-    );
-    if (mine.length) {
-      setMeHandle(mine[0].ownerHandle);
-    }
 
     const sorted = all.sort((a, b) => b.xp - a.xp);
 
@@ -110,9 +208,42 @@ export default function Rank() {
       sorted.length
         ? sorted
         : [
-            { name: "Você", handle: "@voce", xp: 0, days: 0, goals: 0 },
-            { name: "Ana", handle: "@ana.fit", xp: 0, days: 0, goals: 0 },
-            { name: "Bruno", handle: "@bruno.nutri", xp: 0, days: 0, goals: 0 },
+            {
+              name: "Você",
+              handle: "@voce",
+              xp: 0,
+              days: 0,
+              goals: 0,
+              routines: 0,
+              commentsWritten: 0,
+              incentivesReceived: 0,
+              incentivesGiven: 0,
+              streakDays: 0,
+            },
+            {
+              name: "Ana",
+              handle: "@ana.fit",
+              xp: 0,
+              days: 0,
+              goals: 0,
+              routines: 0,
+              commentsWritten: 0,
+              incentivesReceived: 0,
+              incentivesGiven: 0,
+              streakDays: 0,
+            },
+            {
+              name: "Bruno",
+              handle: "@bruno.nutri",
+              xp: 0,
+              days: 0,
+              goals: 0,
+              routines: 0,
+              commentsWritten: 0,
+              incentivesReceived: 0,
+              incentivesGiven: 0,
+              streakDays: 0,
+            },
           ],
     );
   }, []);
@@ -123,15 +254,80 @@ export default function Rank() {
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">Ranking</h1>
           <p className="text-sm text-muted-foreground">
-            Cada dia concluído vale{" "}
-            <span className="font-semibold">{XP_PER_DAY} XP</span>. Consistência
-            vira nível.
+            Pontos vêm de consistência e interação: posts, rotinas, comentários e incentivos.
           </p>
         </div>
         <div className="grid h-12 w-12 place-items-center rounded-2xl bg-brand text-white shadow-sm ring-1 ring-brand/30">
           <Sparkles className="h-6 w-6" />
         </div>
       </header>
+
+      {entries.length ? (
+        <Card className="border-border/60">
+          <CardContent className="grid gap-2 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Missões de hoje</div>
+                <div className="text-xs text-muted-foreground">
+                  Complete ações simples e mantenha a consistência.
+                </div>
+              </div>
+              <div className="rounded-full bg-muted px-3 py-1 text-[11px] font-semibold text-muted-foreground">
+                XP
+              </div>
+            </div>
+
+            {(() => {
+              const me = entries.find((e) => e.handle === meHandle) ?? null;
+              const meGoals = getRitmoFitState().goals.filter((g) => g.ownerHandle === meHandle);
+              const meRoutines = getRitmoFitState().routines.filter((r) => r.ownerHandle === meHandle);
+              const meComments = getRitmoFitState()
+                .goals.flatMap((g) => g.comments ?? [])
+                .filter((c) => c.authorHandle === meHandle);
+
+              const didPostToday = meGoals.some((g) => dayKeyFromIso(g.createdAt) === todayKey());
+              const didRoutineToday = meRoutines.some((r) => dayKeyFromIso(r.createdAt) === todayKey());
+              const didCommentToday = meComments.some((c) => dayKeyFromIso(c.createdAt) === todayKey());
+
+              const tasks = [
+                { label: "Faça 1 post hoje", done: didPostToday, xp: XP_PER_POST },
+                { label: "Crie 1 rotina", done: didRoutineToday, xp: XP_PER_ROUTINE_CREATED },
+                { label: "Escreva 1 comentário", done: didCommentToday, xp: XP_PER_COMMENT },
+              ];
+
+              return (
+                <div className="grid gap-2">
+                  {me ? (
+                    <div className="text-xs text-muted-foreground">
+                      Seu streak atual: <span className="font-semibold">{me.streakDays} dias</span>
+                    </div>
+                  ) : null}
+
+                  {tasks.map((t) => (
+                    <div
+                      key={t.label}
+                      className={cn(
+                        "flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-background p-3",
+                        t.done ? "ring-1 ring-emerald-500/20" : null,
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <div className={cn("text-sm font-medium", t.done ? "text-emerald-700" : null)}>
+                          {t.done ? "✅ " : ""}{t.label}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {t.done ? "Concluída hoje" : "Ainda não"}
+                        </div>
+                      </div>
+                      <div className="text-xs font-semibold text-muted-foreground">+{t.xp} XP</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <section className="grid gap-3">
         {entries.map((e, idx) => {
@@ -195,7 +391,25 @@ export default function Rank() {
                         </span>
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {e.handle} · {e.goals} rotinas · {e.days} dias
+                        {e.handle} · {e.goals} posts · {e.routines} rotinas · {e.days} dias
+                        {e.streakDays > 0 ? (
+                          <>
+                            {" "}· <span className="font-semibold">streak {e.streakDays}d</span>
+                          </>
+                        ) : null}
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                        <span className="rounded-full bg-muted px-2 py-0.5 ring-1 ring-border/60">
+                          {e.commentsWritten} comentários
+                        </span>
+                        <span className="rounded-full bg-muted px-2 py-0.5 ring-1 ring-border/60">
+                          {e.incentivesReceived} incentivos recebidos
+                        </span>
+                        {e.incentivesGiven > 0 ? (
+                          <span className="rounded-full bg-muted px-2 py-0.5 ring-1 ring-border/60">
+                            {e.incentivesGiven} incentivos dados
+                          </span>
+                        ) : null}
                       </div>
                     </div>
 
