@@ -630,6 +630,9 @@ export default function Profile() {
                           prev.map((g) => (g.id === next.id ? next : g)),
                         )
                       }
+                      onDelete={(goalId) =>
+                        setPosts((prev) => prev.filter((g) => g.id !== goalId))
+                      }
                     />
                   ))}
                 </div>
@@ -648,6 +651,9 @@ export default function Profile() {
                             setPosts((prev) =>
                               prev.map((g) => (g.id === next.id ? next : g)),
                             )
+                          }
+                          onDelete={(goalId) =>
+                            setPosts((prev) => prev.filter((g) => g.id !== goalId))
                           }
                         />
                       ))}
@@ -675,6 +681,9 @@ export default function Profile() {
                               prev.map((g) => (g.id === next.id ? next : g)),
                             )
                           }
+                          onDelete={(goalId) =>
+                            setPosts((prev) => prev.filter((g) => g.id !== goalId))
+                          }
                         />
                       ))}
                   </div>
@@ -700,6 +709,9 @@ export default function Profile() {
                             setPosts((prev) =>
                               prev.map((g) => (g.id === next.id ? next : g)),
                             )
+                          }
+                          onDelete={(goalId) =>
+                            setPosts((prev) => prev.filter((g) => g.id !== goalId))
                           }
                         />
                       ))}
