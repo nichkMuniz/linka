@@ -3,12 +3,13 @@ import * as React from "react";
 import { ArrowLeft, Pause, Play, Plus, Trash2, Search, ImagePlus } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import type { MuscleGroup, Routine, WorkoutExercise } from "@/lib/ritmofit";
+import type { Goal, MuscleGroup, Routine, WorkoutExercise } from "@/lib/ritmofit";
 import {
   addStoryItem,
-  createGoal,
+  getRitmoFitState,
   getRoutines,
   uid,
+  updateGoal,
   WORKOUT_EXERCISES,
   WORKOUT_MUSCLE_GROUPS,
 } from "@/lib/ritmofit";
@@ -25,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -81,6 +83,13 @@ function formatTime(totalSeconds: number) {
 function formatRest(totalSeconds: number) {
   if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "00:00";
   return formatTime(totalSeconds);
+}
+
+function dayKey(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function numberOrZero(v: string) {
@@ -166,6 +175,9 @@ export default function WorkoutSession() {
   const [summaryOpen, setSummaryOpen] = React.useState(false);
   const [postToFeed, setPostToFeed] = React.useState(true);
   const [postToStories, setPostToStories] = React.useState(true);
+
+  const [metaGoalId, setMetaGoalId] = React.useState<string>("");
+  const [customCaption, setCustomCaption] = React.useState<string>("");
 
   const [addExerciseOpen, setAddExerciseOpen] = React.useState(false);
   const [addQuery, setAddQuery] = React.useState("");
@@ -522,6 +534,18 @@ export default function WorkoutSession() {
 
                 stopwatch.pause();
                 stopRest();
+
+                const summary = `Tempo: ${formatTime(stopwatch.elapsedSeconds)} · Volume: ${Math.round(
+                  totalVolume,
+                )} kg · Calorias: ~${estimatedCalories} kcal`;
+
+                const state = getRitmoFitState();
+                const myGoals = state.goals.filter(
+                  (g) => g.ownerHandle === "@voce" || g.ownerName === "Você",
+                );
+
+                setMetaGoalId(myGoals[0]?.id ?? "");
+                setCustomCaption(summary);
                 setSummaryOpen(true);
               }}
             >
@@ -1103,6 +1127,56 @@ export default function WorkoutSession() {
             </div>
 
             <div className="grid gap-2 rounded-2xl border border-border/60 bg-muted/20 p-4">
+              <div className="text-sm font-semibold">Meta vinculada</div>
+              <div className="text-xs text-muted-foreground">
+                Escolha a meta que vai receber esse treino.
+              </div>
+
+              {(() => {
+                const state = getRitmoFitState();
+                const myGoals = state.goals.filter(
+                  (g) => g.ownerHandle === "@voce" || g.ownerName === "Você",
+                );
+
+                if (!myGoals.length) {
+                  return (
+                    <div className="rounded-2xl border border-border/60 bg-background p-3 text-sm text-muted-foreground">
+                      Você ainda não tem metas criadas. Faça um post primeiro para criar uma meta.
+                    </div>
+                  );
+                }
+
+                return (
+                  <Select value={metaGoalId} onValueChange={setMetaGoalId}>
+                    <SelectTrigger className="rounded-full">
+                      <SelectValue placeholder="Selecione uma meta" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {myGoals.map((g: Goal) => (
+                        <SelectItem key={g.id} value={g.id}>
+                          {g.category} · {g.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                );
+              })()}
+            </div>
+
+            <div className="grid gap-2 rounded-2xl border border-border/60 bg-muted/20 p-4">
+              <div className="text-sm font-semibold">Legenda</div>
+              <div className="text-xs text-muted-foreground">
+                Escreva do seu jeito (pode editar o texto sugerido).
+              </div>
+              <Textarea
+                value={customCaption}
+                onChange={(e) => setCustomCaption(e.target.value)}
+                placeholder="Ex: Treino concluído, foi pesado hoje…"
+                className="min-h-[120px]"
+              />
+            </div>
+
+            <div className="grid gap-2 rounded-2xl border border-border/60 bg-muted/20 p-4">
               <div className="text-sm font-semibold">Foto do post</div>
               <div className="text-xs text-muted-foreground">
                 Opcional. Se não escolher, usamos a imagem do treino.
@@ -1214,30 +1288,43 @@ export default function WorkoutSession() {
                   return;
                 }
 
-                const summary = `Tempo: ${formatTime(stopwatch.elapsedSeconds)} · Volume: ${Math.round(
-                  totalVolume,
-                )} kg · Calorias: ~${estimatedCalories} kcal`;
+                if (!metaGoalId) {
+                  toast({
+                    title: "Selecione uma meta",
+                    description: "Escolha qual meta vai receber este treino.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
 
                 const postImageDataUrl = summaryImageDataUrl || coverImage;
+                const caption = customCaption.trim() || `✅ ${routine.title}`;
 
                 if (postToFeed) {
-                  createGoal({
-                    title: `Treino concluído: ${routine.title}`,
-                    caption: summary,
-                    imageDataUrl: postImageDataUrl,
-                    category: "Treino",
-                    frequency: "Hoje",
-                    durationDays: 7,
-                    visibility: "Seguidores",
-                    attachedRoutineId: routine.id,
-                    attachedRoutineTitle: routine.title,
+                  updateGoal(metaGoalId, (g) => {
+                    const nextCompleted = Math.min(
+                      Math.max(0, (g.completedDays ?? 0) + 1),
+                      g.durationDays,
+                    );
+
+                    return {
+                      ...g,
+                      caption,
+                      imageDataUrl: postImageDataUrl,
+                      attachedRoutineIds: [routine.id],
+                      attachedRoutineTitles: [routine.title],
+                      attachedRoutineId: routine.id,
+                      attachedRoutineTitle: routine.title,
+                      completedDays: nextCompleted,
+                      myProgressToday: dayKey(),
+                    };
                   });
                 }
 
                 if (postToStories) {
                   addStoryItem({
                     imageDataUrl: postImageDataUrl,
-                    text: `✅ ${routine.title}\n${summary}`,
+                    text: caption,
                   });
                 }
 
