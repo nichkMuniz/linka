@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { StoryViewerDialog } from "@/components/story-viewer-dialog";
 
@@ -62,6 +61,7 @@ export function StoriesBar() {
   const [file, setFile] = React.useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = React.useState<string>("");
   const [caption, setCaption] = React.useState("");
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const [viewerOpen, setViewerOpen] = React.useState(false);
   const [activeStory, setActiveStory] = React.useState<StoryGroup | null>(null);
@@ -111,7 +111,10 @@ export function StoriesBar() {
         <button
           type="button"
           className="flex shrink-0 flex-col items-center gap-2"
-          onClick={() => setCreateOpen(true)}
+          onClick={() => {
+            setCreateOpen(true);
+            window.setTimeout(() => fileInputRef.current?.click(), 50);
+          }}
         >
           <div className="relative">
             <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-brand-3 via-brand to-brand-2 p-[2px]">
@@ -180,47 +183,54 @@ export function StoriesBar() {
           </DialogHeader>
 
           <div className="grid gap-4">
-            <div className="grid gap-2">
-              <div className="text-sm font-medium">Foto (opcional)</div>
-              <Input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
 
-            <div
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
               className={cn(
                 "relative overflow-hidden rounded-2xl border border-border/60 bg-muted/40",
                 previewUrl ? "bg-transparent" : null,
               )}
+              aria-label={previewUrl ? "Trocar foto" : "Abrir câmera"}
             >
               {previewUrl ? (
                 <img
                   src={previewUrl}
                   alt="Prévia"
-                  className="h-56 w-full object-cover"
+                  className="h-72 w-full object-cover"
                 />
               ) : (
-                <div className="grid h-56 place-items-center">
+                <div className="grid h-72 place-items-center">
                   <div className="flex items-center gap-2 rounded-full bg-background/80 px-4 py-2 text-xs text-muted-foreground ring-1 ring-border/60">
                     <ImageIcon className="h-4 w-4" />
-                    Sem foto
+                    Abrir câmera
                   </div>
                 </div>
               )}
-            </div>
 
-            <div className="grid gap-2">
-              <div className="text-sm font-medium">Texto</div>
-              <Textarea
-                value={caption}
-                onChange={(e) => setCaption(e.target.value)}
-                placeholder="Ex: Treino feito. Sem desculpas."
-                className="min-h-[92px]"
-              />
-            </div>
+              {previewUrl && caption.trim() ? (
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent p-4 text-left">
+                  <div className="text-sm font-semibold text-white drop-shadow">
+                    {caption}
+                  </div>
+                </div>
+              ) : null}
+            </button>
+
+            <Input
+              value={caption}
+              onChange={(e) => setCaption(e.target.value)}
+              placeholder="Escreva uma legenda (opcional)"
+              className="h-11 rounded-full"
+            />
 
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <Button
@@ -243,7 +253,7 @@ export function StoriesBar() {
                     description: "Aparece para os outros e expira em 24h.",
                   });
                 }}
-                disabled={!previewUrl && !caption.trim()}
+                disabled={!previewUrl}
               >
                 Publicar
               </Button>
