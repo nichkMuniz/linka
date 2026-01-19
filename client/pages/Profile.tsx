@@ -545,85 +545,120 @@ export default function Profile() {
             </CardHeader>
 
             <CardContent className="grid gap-4">
-              <Tabs defaultValue="mine" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
+              <Tabs defaultValue="Treino" className="w-full">
+                <TabsList className="grid w-full grid-cols-3 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
                   <TabsTrigger
-                    value="mine"
+                    value="Treino"
                     className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
                   >
-                    Minhas
+                    <Dumbbell className="h-4 w-4" />
+                    Treino
                   </TabsTrigger>
                   <TabsTrigger
-                    value="discover"
+                    value="Alimentação"
                     className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
                   >
-                    Réplicas
+                    <Utensils className="h-4 w-4" />
+                    Alimentação
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="Hábito"
+                    className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                  >
+                    <Droplets className="h-4 w-4" />
+                    Hábito
                   </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="mine" className="mt-4">
-                  {myRoutines.length ? (
-                    <div className="grid gap-3">
-                      {myRoutines.map((r) => (
-                        <RoutineCard
-                          key={r.id}
-                          routine={r}
-                          variant="mine"
-                          startHref={
-                            r.category === "Treino" &&
-                            r.steps.some((s) => Boolean(s.title.trim()))
-                              ? `/rotinas/${r.id}/iniciar`
-                              : undefined
-                          }
-                          onShare={() => shareRoutine(r)}
-                          onEdit={() => {
-                            setEditingRoutine(r);
-                            setRoutineEditorOpen(true);
-                          }}
-                          onDelete={() => {
-                            deleteRoutine(r.id);
-                            refreshRoutines();
-                            toast({
-                              title: "Rotina excluída",
-                              description: "Removemos essa rotina do seu perfil.",
-                            });
-                          }}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-                      Crie sua primeira rotina. Ex: “Treino A” e liste seus exercícios.
-                    </div>
-                  )}
-                </TabsContent>
+                {(["Treino", "Alimentação", "Hábito"] as const).map((cat) => {
+                  const mine = myRoutines.filter((r) => r.category === cat);
+                  const discover = discoverRoutines.filter((r) => r.category === cat);
 
-                <TabsContent value="discover" className="mt-4">
-                  {discoverRoutines.length ? (
-                    <div className="grid gap-3">
-                      {discoverRoutines.slice(0, 10).map((r) => (
-                        <RoutineCard
-                          key={r.id}
-                          routine={r}
-                          variant="discover"
-                          onShare={() => shareRoutine(r)}
-                          onCopy={() => {
-                            copyRoutine(r.id);
-                            refreshRoutines();
-                            toast({
-                              title: "Rotina copiada",
-                              description: "Agora ela aparece em ‘Minhas’.",
-                            });
-                          }}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-                      Ainda não há rotinas públicas para copiar.
-                    </div>
-                  )}
-                </TabsContent>
+                  return (
+                    <TabsContent key={cat} value={cat} className="mt-4">
+                      <Tabs defaultValue="mine" className="w-full">
+                        <TabsList className="grid w-full grid-cols-2 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
+                          <TabsTrigger
+                            value="mine"
+                            className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                          >
+                            Minhas
+                          </TabsTrigger>
+                          <TabsTrigger
+                            value="discover"
+                            className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                          >
+                            Réplicas
+                          </TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="mine" className="mt-4">
+                          {mine.length ? (
+                            <div className="grid gap-3">
+                              {mine.map((r) => (
+                                <RoutineCard
+                                  key={r.id}
+                                  routine={r}
+                                  variant="mine"
+                                  startHref={
+                                    r.category === "Treino" &&
+                                    r.steps.some((s) => Boolean(s.title.trim()))
+                                      ? `/rotinas/${r.id}/iniciar`
+                                      : undefined
+                                  }
+                                  onShare={() => shareRoutine(r)}
+                                  onEdit={() => {
+                                    setEditingRoutine(r);
+                                    setRoutineEditorOpen(true);
+                                  }}
+                                  onDelete={() => {
+                                    deleteRoutine(r.id);
+                                    refreshRoutines();
+                                    toast({
+                                      title: "Rotina excluída",
+                                      description: "Removemos essa rotina do seu perfil.",
+                                    });
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                              Você ainda não tem rotinas de {cat.toLowerCase()}.
+                            </div>
+                          )}
+                        </TabsContent>
+
+                        <TabsContent value="discover" className="mt-4">
+                          {discover.length ? (
+                            <div className="grid gap-3">
+                              {discover.slice(0, 10).map((r) => (
+                                <RoutineCard
+                                  key={r.id}
+                                  routine={r}
+                                  variant="discover"
+                                  onShare={() => shareRoutine(r)}
+                                  onCopy={() => {
+                                    copyRoutine(r.id);
+                                    refreshRoutines();
+                                    toast({
+                                      title: "Rotina copiada",
+                                      description: "Agora ela aparece em ‘Minhas’.",
+                                    });
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                              Ainda não há rotinas públicas de {cat.toLowerCase()} para copiar.
+                            </div>
+                          )}
+                        </TabsContent>
+                      </Tabs>
+                    </TabsContent>
+                  );
+                })}
               </Tabs>
             </CardContent>
           </Card>
