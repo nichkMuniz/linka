@@ -756,74 +756,59 @@ export default function Profile() {
             </CardHeader>
 
             <CardContent className="grid gap-4">
-              <Tabs defaultValue="Treino" className="w-full">
-                <TabsList className="grid w-full grid-cols-3 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
+              <Tabs defaultValue="mine" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
                   <TabsTrigger
-                    value="Treino"
+                    value="mine"
                     className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
-                    aria-label="Treino"
-                    title="Treino"
                   >
-                    <Dumbbell className="h-4 w-4" />
-                    <span className="sr-only">Treino</span>
+                    Minhas
                   </TabsTrigger>
                   <TabsTrigger
-                    value="Alimentação"
+                    value="discover"
                     className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
-                    aria-label="Alimentação"
-                    title="Alimentação"
                   >
-                    <Utensils className="h-4 w-4" />
-                    <span className="sr-only">Alimentação</span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="Hábito"
-                    className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
-                    aria-label="Hábito"
-                    title="Hábito"
-                  >
-                    <Droplets className="h-4 w-4" />
-                    <span className="sr-only">Hábito</span>
+                    Réplicas
                   </TabsTrigger>
                 </TabsList>
 
-                {(["Treino", "Alimentação", "Hábito"] as const).map((cat) => {
-                  const mine = myRoutines.filter((r) => r.category === cat);
-                  const discover = discoverRoutines.filter((r) => r.category === cat);
+                <TabsContent value="mine" className="mt-4">
+                  <Tabs defaultValue="Treino" className="w-full">
+                    <TabsList className="grid w-full grid-cols-3 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
+                      <TabsTrigger
+                        value="Treino"
+                        className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                        aria-label="Treino"
+                        title="Treino"
+                      >
+                        <Dumbbell className="h-4 w-4" />
+                        <span className="sr-only">Treino</span>
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="Alimentação"
+                        className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                        aria-label="Alimentação"
+                        title="Alimentação"
+                      >
+                        <Utensils className="h-4 w-4" />
+                        <span className="sr-only">Alimentação</span>
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="Hábito"
+                        className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                        aria-label="Hábito"
+                        title="Hábito"
+                      >
+                        <Droplets className="h-4 w-4" />
+                        <span className="sr-only">Hábito</span>
+                      </TabsTrigger>
+                    </TabsList>
 
-                  return (
-                    <TabsContent key={cat} value={cat} className="mt-4">
-                      <Tabs defaultValue="mine" className="w-full">
-                        <TabsList className="grid w-full grid-cols-2 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
-                          <TabsTrigger
-                            value="mine"
-                            className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
-                          >
-                            Minhas
-                          </TabsTrigger>
-                          <TabsTrigger
-                            value="discover"
-                            className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
-                          >
-                            Réplicas
-                          </TabsTrigger>
-                        </TabsList>
+                    {(["Treino", "Alimentação", "Hábito"] as const).map((cat) => {
+                      const mine = myRoutines.filter((r) => r.category === cat);
 
-                        <TabsContent value="mine" className="mt-4 space-y-4">
-                          <div className="flex justify-end">
-                            <Button
-                              type="button"
-                              className="w-full rounded-full sm:w-auto"
-                              onClick={() => {
-                                setEditingRoutine(null);
-                                setRoutineEditorOpen(true);
-                              }}
-                            >
-                              <Plus className="h-4 w-4" />
-                              Nova rotina
-                            </Button>
-                          </div>
-
+                      return (
+                        <TabsContent key={cat} value={cat} className="mt-4">
                           {mine.length ? (
                             <div className="grid gap-3">
                               {mine.map((r) => (
@@ -858,9 +843,64 @@ export default function Profile() {
                               Você ainda não tem rotinas de {cat.toLowerCase()}.
                             </div>
                           )}
-                        </TabsContent>
 
-                        <TabsContent value="discover" className="mt-4">
+                          <div className="mt-4 flex justify-center">
+                            <Button
+                              type="button"
+                              size="icon"
+                              className="h-12 w-12 rounded-full bg-orange-500 text-white shadow-sm hover:bg-orange-500/90"
+                              aria-label="Nova rotina"
+                              onClick={() => {
+                                setEditingRoutine(null);
+                                setRoutineEditorOpen(true);
+                              }}
+                            >
+                              <Plus className="h-5 w-5" />
+                            </Button>
+                          </div>
+                        </TabsContent>
+                      );
+                    })}
+                  </Tabs>
+                </TabsContent>
+
+                <TabsContent value="discover" className="mt-4">
+                  <Tabs defaultValue="Treino" className="w-full">
+                    <TabsList className="grid w-full grid-cols-3 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
+                      <TabsTrigger
+                        value="Treino"
+                        className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                        aria-label="Treino"
+                        title="Treino"
+                      >
+                        <Dumbbell className="h-4 w-4" />
+                        <span className="sr-only">Treino</span>
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="Alimentação"
+                        className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                        aria-label="Alimentação"
+                        title="Alimentação"
+                      >
+                        <Utensils className="h-4 w-4" />
+                        <span className="sr-only">Alimentação</span>
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="Hábito"
+                        className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                        aria-label="Hábito"
+                        title="Hábito"
+                      >
+                        <Droplets className="h-4 w-4" />
+                        <span className="sr-only">Hábito</span>
+                      </TabsTrigger>
+                    </TabsList>
+
+                    {(["Treino", "Alimentação", "Hábito"] as const).map((cat) => {
+                      const discover = discoverRoutines.filter((r) => r.category === cat);
+
+                      return (
+                        <TabsContent key={cat} value={cat} className="mt-4">
                           {discover.length ? (
                             <div className="grid gap-3">
                               {discover.slice(0, 10).map((r) => (
@@ -886,10 +926,10 @@ export default function Profile() {
                             </div>
                           )}
                         </TabsContent>
-                      </Tabs>
-                    </TabsContent>
-                  );
-                })}
+                      );
+                    })}
+                  </Tabs>
+                </TabsContent>
               </Tabs>
             </CardContent>
           </Card>
