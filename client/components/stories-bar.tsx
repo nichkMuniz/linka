@@ -262,6 +262,22 @@ export function StoriesBar() {
           const still = nextGroups.find((g) => g.id === activeStory?.id) ?? null;
           setActiveStory(still);
         }}
+        onRequestNextStory={() => {
+          const currentId = activeStory?.id;
+          if (!currentId) {
+            setViewerOpen(false);
+            return;
+          }
+
+          const idx = stories.findIndex((s) => s.id === currentId);
+          const next = idx >= 0 ? stories.slice(idx + 1).find((s) => s.items.length) : null;
+          if (next) {
+            setActiveStory(next);
+            return;
+          }
+
+          setViewerOpen(false);
+        }}
       />
     </div>
   );
