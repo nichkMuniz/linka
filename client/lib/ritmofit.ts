@@ -24,6 +24,8 @@ export type Goal = {
   title: string;
   caption?: string;
   imageDataUrl?: string;
+  /** Se true, o post fica oculto do feed (aparece só no seu perfil). */
+  hidden?: boolean;
   category: GoalCategory;
   frequency: string;
   durationDays: 7 | 21 | 30;
@@ -130,6 +132,7 @@ function defaultImageForGoal(g: Goal) {
 
 function normalizeGoal(g: Goal): Goal {
   const image = (g.imageDataUrl ?? "").trim();
+  const hidden = Boolean((g as any).hidden);
   const comments = Array.isArray((g as any).comments)
     ? ((g as any).comments as GoalComment[])
     : [];
@@ -167,6 +170,7 @@ function normalizeGoal(g: Goal): Goal {
     ...g,
     caption: g.caption ?? "",
     imageDataUrl: image.length ? image : defaultImageForGoal(g),
+    hidden,
     incentives: g.incentives ?? { apoio: 0, continua: 0, orgulho: 0 },
 
     attachedRoutineIds: attachedRoutineIds.length ? attachedRoutineIds : undefined,
@@ -540,6 +544,7 @@ export function createGoal(input: {
 
   const goal: Goal = {
     id: uid(),
+    hidden: false,
     ownerName: input.ownerName ?? "Você",
     ownerHandle: input.ownerHandle ?? "@voce",
     title: input.title,
@@ -574,6 +579,16 @@ export function updateGoal(goalId: string, updater: (g: Goal) => Goal) {
   const next: StorageShape = {
     ...state,
     goals: state.goals.map((g) => (g.id === goalId ? updater(g) : g)),
+  };
+  setRitmoFitState(next);
+  return next;
+}
+
+export function deleteGoal(goalId: string) {
+  const state = getRitmoFitState();
+  const next: StorageShape = {
+    ...state,
+    goals: state.goals.filter((g) => g.id !== goalId),
   };
   setRitmoFitState(next);
   return next;
