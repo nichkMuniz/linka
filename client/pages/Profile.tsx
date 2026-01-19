@@ -1,20 +1,26 @@
 import * as React from "react";
 import {
+  Check,
   Dumbbell,
+  Droplets,
+  Eye,
+  EyeOff,
   Image as ImageIcon,
   LayoutGrid,
+  ListChecks,
+  MoreHorizontal,
+  Pencil,
   Plus,
   Settings,
+  Trash2,
   Utensils,
-  Check,
-  ListChecks,
-  Droplets,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import {
   copyRoutine,
   dayLabel,
+  deleteGoal,
   deleteRoutine,
   getRitmoFitState,
   getRoutines,
@@ -34,7 +40,35 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { CompleteTodayDialog } from "@/components/complete-today-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { RoutineCard } from "@/components/routine-card";
 import { RoutineEditorDialog } from "@/components/routine-editor-dialog";
