@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import * as React from "react";
+
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -26,18 +28,17 @@ const NEEDS_GOAL_CHOICE_KEY = "ritmofit:needsGoalChoice";
 
 function BrandHeader() {
   return (
-    <div className="flex items-center justify-center gap-3">
-      <div className="relative grid h-10 w-10 place-items-center rounded-2xl bg-brand shadow-sm ring-1 ring-brand/30">
-        <div className="grid h-9 w-9 place-items-center rounded-xl bg-foreground">
-          <span className="text-sm font-semibold text-white">RF</span>
+    <div className="flex items-center justify-center gap-4">
+      <div className="relative grid h-16 w-16 place-items-center rounded-3xl bg-brand shadow-sm ring-1 ring-brand/30">
+        <div className="grid h-14 w-14 place-items-center rounded-2xl bg-foreground">
+          <span className="text-lg font-extrabold tracking-tight text-white">RF</span>
         </div>
-        <span className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-brand-2 ring-2 ring-background" />
+        <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-brand-2 ring-2 ring-background" />
       </div>
       <div className="leading-tight">
-        <div className="text-base font-semibold tracking-tight text-foreground">
+        <div className="text-2xl font-extrabold tracking-tight text-foreground">
           Ritmo<span className="text-brand">Fit</span>
         </div>
-        <div className="text-xs text-muted-foreground">Acesse sua conta</div>
       </div>
     </div>
   );
@@ -126,7 +127,7 @@ export default function Login() {
         return;
       }
 
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email: trimmedEmail,
         password: trimmedPassword,
       });
@@ -139,20 +140,30 @@ export default function Login() {
         return;
       }
 
-      if (data.user && data.session) {
-        localStorage.setItem(NEEDS_GOAL_CHOICE_KEY, "1");
+      // Tentamos logar imediatamente após o cadastro.
+      // OBS: se o seu projeto Supabase estiver com confirmação por email ligada,
+      // o sign-in pode falhar com "Email not confirmed".
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password: trimmedPassword,
+      });
+
+      if (signInError) {
         toast({
-          title: "Conta criada",
-          description: "Agora escolha sua primeira meta.",
+          title: "Conta criada, mas não foi possível entrar",
+          description:
+            signInError.message ||
+            "Verifique as configurações de autenticação do Supabase.",
         });
-        navigate("/escolher-meta", { replace: true });
         return;
       }
 
+      localStorage.setItem(NEEDS_GOAL_CHOICE_KEY, "1");
       toast({
         title: "Conta criada",
-        description: "Verifique seu email para confirmar a conta.",
+        description: "Agora escolha sua primeira meta.",
       });
+      navigate("/escolher-meta", { replace: true });
     } catch {
       toast({
         title: "Falha de conexão",
@@ -168,12 +179,6 @@ export default function Login() {
     <div className="grid min-h-dvh place-items-center bg-background p-6">
       <div className="mx-auto grid w-full max-w-md gap-6">
         <BrandHeader />
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Login / Cadastro</h1>
-        <p className="text-sm text-muted-foreground">
-          Entre para sincronizar seus dados e usar recursos conectados.
-        </p>
-      </div>
 
         <Card className="border-border/60">
         <CardHeader className="space-y-2">
@@ -304,6 +309,14 @@ export default function Login() {
                   >
                     {busy ? "Entrando..." : "Entrar"}
                   </Button>
+
+                  <button
+                    type="button"
+                    className="text-left text-sm font-semibold text-brand hover:underline"
+                    onClick={() => setTab("signup")}
+                  >
+                    Ainda não tem conta? Cadastre-se
+                  </button>
                 </form>
               </TabsContent>
 
@@ -347,10 +360,6 @@ export default function Login() {
                     {busy ? "Criando..." : "Criar conta"}
                   </Button>
 
-                  <div className="text-xs text-muted-foreground">
-                    Ao criar uma conta, pode ser necessário confirmar por email (depende
-                    das configurações do seu Supabase).
-                  </div>
                 </form>
               </TabsContent>
             </Tabs>
