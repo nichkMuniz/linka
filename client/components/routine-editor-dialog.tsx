@@ -611,7 +611,7 @@ export function RoutineEditorDialog({
                 }
               }}
             >
-              Salvar rotina
+              {saving ? "Salvando..." : "Salvar rotina"}
             </Button>
           </div>
         </div>
