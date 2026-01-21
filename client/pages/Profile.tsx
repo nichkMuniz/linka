@@ -434,7 +434,7 @@ export default function Profile() {
   );
 
   const refreshRoutines = React.useCallback(() => {
-    setRoutines(getRoutines());
+    getRoutinesDb().then((next) => setRoutines(next));
   }, []);
 
   const shareRoutine = React.useCallback(async (routine: Routine) => {
