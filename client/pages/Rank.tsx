@@ -164,18 +164,27 @@ export default function Rank() {
           const days = daysForGoals(v.goals);
           const posts = v.goals.length;
 
-          const routines = state.routines.filter((r) => r.ownerHandle === handle);
-          const routinesCreated = routines.filter((r) => !r.copiedFromRoutineId).length;
-          const routinesCopied = routines.filter((r) => Boolean(r.copiedFromRoutineId)).length;
+          const routines = state.routines.filter(
+            (r) => r.ownerHandle === handle,
+          );
+          const routinesCreated = routines.filter(
+            (r) => !r.copiedFromRoutineId,
+          ).length;
+          const routinesCopied = routines.filter((r) =>
+            Boolean(r.copiedFromRoutineId),
+          ).length;
 
           const commentsWritten = state.goals.reduce((acc, g) => {
-            const count = (g.comments ?? []).filter((c) => c.authorHandle === handle).length;
+            const count = (g.comments ?? []).filter(
+              (c) => c.authorHandle === handle,
+            ).length;
             return acc + count;
           }, 0);
 
           const incentivesReceived = v.goals.reduce((acc, g) => {
             const inc = g.incentives;
-            const total = (inc?.apoio ?? 0) + (inc?.continua ?? 0) + (inc?.orgulho ?? 0);
+            const total =
+              (inc?.apoio ?? 0) + (inc?.continua ?? 0) + (inc?.orgulho ?? 0);
             return acc + total;
           }, 0);
 
@@ -184,7 +193,9 @@ export default function Rank() {
             handle === myHandle
               ? state.goals.reduce((acc, g) => {
                   const mine = g.myIncentives ?? {};
-                  return acc + (Object.values(mine).filter(Boolean).length ?? 0);
+                  return (
+                    acc + (Object.values(mine).filter(Boolean).length ?? 0)
+                  );
                 }, 0)
               : 0;
 

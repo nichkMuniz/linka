@@ -236,7 +236,6 @@ function PostCard({
     return legacy ? [legacy] : [];
   }, [goal]);
 
-
   const attachedRoutineItems = React.useMemo(() => {
     return attachedRoutineIds.map((id, idx) => {
       const routine = routinesById.get(id) ?? null;
@@ -673,12 +672,16 @@ function PostCard({
               </div>
             </div>
 
-            <Dialog open={attachedRoutinesOpen} onOpenChange={setAttachedRoutinesOpen}>
+            <Dialog
+              open={attachedRoutinesOpen}
+              onOpenChange={setAttachedRoutinesOpen}
+            >
               <DialogContent className="max-w-[min(92vw,560px)] rounded-3xl border-border/60">
                 <DialogHeader>
                   <DialogTitle>Rotinas vinculadas</DialogTitle>
                   <DialogDescription>
-                    Todas as rotinas anexadas neste post (mais recente primeiro).
+                    Todas as rotinas anexadas neste post (mais recente
+                    primeiro).
                   </DialogDescription>
                 </DialogHeader>
 
@@ -692,7 +695,9 @@ function PostCard({
                         className="flex items-center justify-between gap-2 rounded-2xl border border-border/60 bg-muted/10 px-3 py-2"
                       >
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold">{it.title}</div>
+                          <div className="truncate text-sm font-semibold">
+                            {it.title}
+                          </div>
                           <div className="truncate text-xs text-muted-foreground">
                             {it.routine
                               ? `${it.routine.category} · ${it.routine.ownerHandle}`
@@ -872,7 +877,9 @@ export default function Index() {
                 setBlockedHandles((prev) =>
                   prev.includes(handle) ? prev : [...prev, handle],
                 );
-                setGoals((prev) => prev.filter((p) => p.ownerHandle !== handle));
+                setGoals((prev) =>
+                  prev.filter((p) => p.ownerHandle !== handle),
+                );
               }}
             />
           ))

@@ -2,7 +2,11 @@ import * as React from "react";
 import { Plus, Image as ImageIcon } from "lucide-react";
 
 import type { StoryGroup } from "@/lib/ritmofit";
-import { addStoryItemDb, getMyProfileDb, getStoriesDb } from "@/lib/ritmofit-db";
+import {
+  addStoryItemDb,
+  getMyProfileDb,
+  getStoriesDb,
+} from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,11 +74,13 @@ export function StoriesBar() {
   React.useEffect(() => {
     let canceled = false;
 
-    Promise.all([getStoriesDb(), getMyProfileDb()]).then(([nextStories, profile]) => {
-      if (canceled) return;
-      if (profile?.handle) setMyHandle(profile.handle);
-      setStories(nextStories);
-    });
+    Promise.all([getStoriesDb(), getMyProfileDb()]).then(
+      ([nextStories, profile]) => {
+        if (canceled) return;
+        if (profile?.handle) setMyHandle(profile.handle);
+        setStories(nextStories);
+      },
+    );
 
     return () => {
       canceled = true;
@@ -256,7 +262,10 @@ export function StoriesBar() {
                 type="button"
                 className="rounded-full"
                 onClick={async () => {
-                  await addStoryItemDb({ imageDataUrl: previewUrl, text: caption });
+                  await addStoryItemDb({
+                    imageDataUrl: previewUrl,
+                    text: caption,
+                  });
                   const next = await getStoriesDb();
                   setStories(next);
                   setCreateOpen(false);

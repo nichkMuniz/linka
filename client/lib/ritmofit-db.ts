@@ -63,7 +63,9 @@ async function ensureProfile(): Promise<DbProfile | null> {
     String((user.user_metadata as any)?.handle ?? "").trim() || emailPrefix,
   );
 
-  const avatarUrl = String((user.user_metadata as any)?.avatar_url ?? "").trim();
+  const avatarUrl = String(
+    (user.user_metadata as any)?.avatar_url ?? "",
+  ).trim();
 
   // profiles table must exist.
   const { data, error } = await supabase
@@ -119,7 +121,9 @@ function goalFromRow(row: any): Goal {
     frequency: String(row.frequency ?? ""),
     durationDays: Number(row.duration_days ?? row.durationDays) as 7 | 21 | 30,
     visibility: row.visibility as GoalVisibility,
-    createdAt: String(row.created_at ?? row.createdAt ?? new Date().toISOString()),
+    createdAt: String(
+      row.created_at ?? row.createdAt ?? new Date().toISOString(),
+    ),
     completedDays: Number(row.completed_days ?? row.completedDays ?? 0),
     incentives: {
       apoio: Number(row.apoio_count ?? row.apoio ?? 0),
@@ -133,7 +137,8 @@ function goalFromRow(row: any): Goal {
       ? (row.attached_routine_titles as string[])
       : undefined,
     attachedRoutineId: row.attached_routine_id ?? row.attachedRoutineId,
-    attachedRoutineTitle: row.attached_routine_title ?? row.attachedRoutineTitle,
+    attachedRoutineTitle:
+      row.attached_routine_title ?? row.attachedRoutineTitle,
     myIncentives: {},
     myProgressToday: String(row.my_progress_today ?? row.myProgressToday ?? ""),
     comments: [],
@@ -161,11 +166,17 @@ function routineFromRow(r: any, steps: any[] | null): Routine {
             title: String(s.title ?? ""),
             detail: String(s.detail ?? ""),
             exerciseId:
-              typeof s.exercise_id === "string" ? (s.exercise_id as string) : undefined,
+              typeof s.exercise_id === "string"
+                ? (s.exercise_id as string)
+                : undefined,
             muscleGroup:
-              typeof s.muscle_group === "string" ? (s.muscle_group as string) : undefined,
+              typeof s.muscle_group === "string"
+                ? (s.muscle_group as string)
+                : undefined,
             imageUrl:
-              typeof s.image_url === "string" ? (s.image_url as string) : undefined,
+              typeof s.image_url === "string"
+                ? (s.image_url as string)
+                : undefined,
           }))
       : [],
     copiedFromRoutineId:
@@ -263,7 +274,9 @@ export async function getRitmoFitStateDb(): Promise<StorageShape> {
     goals,
     routines,
     stories,
-    blockedHandles: (blocksRows ?? []).map((r: any) => String(r.blocked_handle)),
+    blockedHandles: (blocksRows ?? []).map((r: any) =>
+      String(r.blocked_handle),
+    ),
   };
 }
 
@@ -335,22 +348,27 @@ export async function updateGoalDb(goalId: string, patch: Partial<Goal>) {
   if (patch.caption !== undefined) update.caption = patch.caption;
   if (patch.category !== undefined) update.category = patch.category;
   if (patch.frequency !== undefined) update.frequency = patch.frequency;
-  if (patch.durationDays !== undefined) update.duration_days = patch.durationDays;
+  if (patch.durationDays !== undefined)
+    update.duration_days = patch.durationDays;
   if (patch.visibility !== undefined) update.visibility = patch.visibility;
-  if ((patch as any).hidden !== undefined) update.hidden = Boolean((patch as any).hidden);
+  if ((patch as any).hidden !== undefined)
+    update.hidden = Boolean((patch as any).hidden);
 
-  if (patch.completedDays !== undefined) update.completed_days = patch.completedDays;
+  if (patch.completedDays !== undefined)
+    update.completed_days = patch.completedDays;
   if (patch.myProgressToday !== undefined)
     update.my_progress_today = patch.myProgressToday || null;
 
-  if (patch.imageDataUrl !== undefined) update.image_url = patch.imageDataUrl || null;
+  if (patch.imageDataUrl !== undefined)
+    update.image_url = patch.imageDataUrl || null;
   if ((patch as any).imageDataUrls !== undefined)
     update.image_urls = (patch as any).imageDataUrls ?? null;
 
   if ((patch as any).attachedRoutineIds !== undefined)
     update.attached_routine_ids = (patch as any).attachedRoutineIds ?? null;
   if ((patch as any).attachedRoutineTitles !== undefined)
-    update.attached_routine_titles = (patch as any).attachedRoutineTitles ?? null;
+    update.attached_routine_titles =
+      (patch as any).attachedRoutineTitles ?? null;
 
   const { data, error } = await supabase
     .from("goals")
@@ -396,14 +414,15 @@ export async function listGoalComments(goalId: string) {
     return goal?.comments ?? [];
   }
 
-  return (data ?? []).map((row: any) =>
-    ({
-      id: String(row.id),
-      authorName: String(row.author_name ?? ""),
-      authorHandle: String(row.author_handle ?? ""),
-      text: String(row.text ?? ""),
-      createdAt: String(row.created_at ?? new Date().toISOString()),
-    }) satisfies GoalComment,
+  return (data ?? []).map(
+    (row: any) =>
+      ({
+        id: String(row.id),
+        authorName: String(row.author_name ?? ""),
+        authorHandle: String(row.author_handle ?? ""),
+        text: String(row.text ?? ""),
+        createdAt: String(row.created_at ?? new Date().toISOString()),
+      }) satisfies GoalComment,
   );
 }
 
@@ -438,10 +457,16 @@ export async function addGoalCommentDb(goalId: string, text: string) {
     .maybeSingle();
 
   const nextCount = Number((goalRow as any)?.comments_count ?? 0) + 1;
-  await supabase.from("goals").update({ comments_count: nextCount }).eq("id", goalId);
+  await supabase
+    .from("goals")
+    .update({ comments_count: nextCount })
+    .eq("id", goalId);
 }
 
-export async function toggleGoalIncentiveDb(goalId: string, kind: GoalIncentiveKey) {
+export async function toggleGoalIncentiveDb(
+  goalId: string,
+  kind: GoalIncentiveKey,
+) {
   if (!hasSupabaseConfig || !supabase) {
     const next = updateGoalLocal(goalId, (g) => {
       const alreadyGiven = Boolean(g.myIncentives?.[kind]);
@@ -497,7 +522,10 @@ export async function toggleGoalIncentiveDb(goalId: string, kind: GoalIncentiveK
       .maybeSingle();
 
     const nextCount = Math.max(0, Number((row as any)?.[col] ?? 0) - 1);
-    await supabase.from("goals").update({ [col]: nextCount }).eq("id", goalId);
+    await supabase
+      .from("goals")
+      .update({ [col]: nextCount })
+      .eq("id", goalId);
   } else {
     await supabase.from("goal_incentives").insert({
       goal_id: goalId,
@@ -512,7 +540,10 @@ export async function toggleGoalIncentiveDb(goalId: string, kind: GoalIncentiveK
       .maybeSingle();
 
     const nextCount = Number((row as any)?.[col] ?? 0) + 1;
-    await supabase.from("goals").update({ [col]: nextCount }).eq("id", goalId);
+    await supabase
+      .from("goals")
+      .update({ [col]: nextCount })
+      .eq("id", goalId);
   }
 
   const { data: goalRow, error: goalError } = await supabase
@@ -540,7 +571,9 @@ export async function getRoutinesDb() {
   return (data ?? []).map((r: any) => routineFromRow(r, r.routine_steps ?? []));
 }
 
-export async function createRoutineDb(input: Omit<Routine, "id" | "createdAt" | "updatedAt">) {
+export async function createRoutineDb(
+  input: Omit<Routine, "id" | "createdAt" | "updatedAt">,
+) {
   if (!hasSupabaseConfig || !supabase) {
     return createRoutineLocal(input);
   }
@@ -595,7 +628,10 @@ export async function createRoutineDb(input: Omit<Routine, "id" | "createdAt" | 
   return routineFromRow(full, (full as any).routine_steps ?? []);
 }
 
-export async function updateRoutineDb(routineId: string, updater: (r: Routine) => Routine) {
+export async function updateRoutineDb(
+  routineId: string,
+  updater: (r: Routine) => Routine,
+) {
   if (!hasSupabaseConfig || !supabase) {
     return updateRoutineLocal(routineId, updater);
   }
@@ -610,7 +646,9 @@ export async function updateRoutineDb(routineId: string, updater: (r: Routine) =
     return updateRoutineLocal(routineId, updater);
   }
 
-  const next = updater(routineFromRow(existing, (existing as any).routine_steps ?? []));
+  const next = updater(
+    routineFromRow(existing, (existing as any).routine_steps ?? []),
+  );
 
   await supabase
     .from("routines")
@@ -649,7 +687,10 @@ export async function deleteRoutineDb(routineId: string) {
   }
 
   await supabase.from("routine_steps").delete().eq("routine_id", routineId);
-  const { error } = await supabase.from("routines").delete().eq("id", routineId);
+  const { error } = await supabase
+    .from("routines")
+    .delete()
+    .eq("id", routineId);
   if (error) deleteRoutineLocal(routineId);
 }
 
@@ -759,7 +800,10 @@ export async function addStoryItemDb(input: {
   });
 }
 
-export async function deleteStoryItemDb(ownerHandle: string, storyItemId: string) {
+export async function deleteStoryItemDb(
+  ownerHandle: string,
+  storyItemId: string,
+) {
   if (!hasSupabaseConfig || !supabase) {
     deleteStoryItemLocal(ownerHandle, storyItemId);
     return;

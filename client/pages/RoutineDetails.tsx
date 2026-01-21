@@ -3,7 +3,11 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Copy, Share2, CheckCircle2 } from "lucide-react";
 
 import type { Routine } from "@/lib/ritmofit";
-import { copyRoutineDb, getMyProfileDb, getRoutinesDb } from "@/lib/ritmofit-db";
+import {
+  copyRoutineDb,
+  getMyProfileDb,
+  getRoutinesDb,
+} from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -167,7 +171,8 @@ export default function RoutineDetails() {
           {steps.length ? (
             <div className="grid gap-2">
               {steps.map((step) => {
-                const hasImage = routine.category === "Treino" && Boolean(step.imageUrl);
+                const hasImage =
+                  routine.category === "Treino" && Boolean(step.imageUrl);
 
                 return (
                   <div

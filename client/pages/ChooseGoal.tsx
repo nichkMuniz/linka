@@ -36,7 +36,8 @@ const PRESETS: GoalPreset[] = [
     id: "treino_21",
     title: "Treinar 3x/semana",
     caption: "Foco em consistência (sem perfeccionismo).",
-    imageUrl: "https://images.pexels.com/photos/841130/pexels-photo-841130.jpeg",
+    imageUrl:
+      "https://images.pexels.com/photos/841130/pexels-photo-841130.jpeg",
     category: "Treino",
     frequency: "3x/semana",
     durationDays: 21,
@@ -46,7 +47,8 @@ const PRESETS: GoalPreset[] = [
     id: "agua_21",
     title: "Beber água (2L/dia)",
     caption: "Energia, humor e performance começam aqui.",
-    imageUrl: "https://images.pexels.com/photos/416528/pexels-photo-416528.jpeg",
+    imageUrl:
+      "https://images.pexels.com/photos/416528/pexels-photo-416528.jpeg",
     category: "Hábito",
     frequency: "Todos os dias",
     durationDays: 21,
@@ -56,7 +58,8 @@ const PRESETS: GoalPreset[] = [
     id: "alimentacao_21",
     title: "Prato equilibrado no almoço",
     caption: "Proteína + carbo bom + salada.",
-    imageUrl: "https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg",
+    imageUrl:
+      "https://images.pexels.com/photos/1640777/pexels-photo-1640777.jpeg",
     category: "Alimentação",
     frequency: "Seg–Sex",
     durationDays: 21,
@@ -66,7 +69,8 @@ const PRESETS: GoalPreset[] = [
     id: "sono_30",
     title: "Dormir antes das 23h",
     caption: "Mais foco e recuperação (sem drama).",
-    imageUrl: "https://images.pexels.com/photos/935777/pexels-photo-935777.jpeg",
+    imageUrl:
+      "https://images.pexels.com/photos/935777/pexels-photo-935777.jpeg",
     category: "Hábito",
     frequency: "Todos os dias",
     durationDays: 30,
@@ -76,7 +80,8 @@ const PRESETS: GoalPreset[] = [
     id: "passos_21",
     title: "Caminhar 20 min",
     caption: "Movimento leve, todo dia, sem pressão.",
-    imageUrl: "https://images.pexels.com/photos/2402777/pexels-photo-2402777.jpeg",
+    imageUrl:
+      "https://images.pexels.com/photos/2402777/pexels-photo-2402777.jpeg",
     category: "Hábito",
     frequency: "Todos os dias",
     durationDays: 21,
@@ -161,7 +166,9 @@ function PresetCard({
           <div className="text-sm font-semibold text-foreground">
             {preset.title}
           </div>
-          <div className="mt-1 text-sm text-muted-foreground">{preset.caption}</div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            {preset.caption}
+          </div>
         </div>
       </div>
 
@@ -264,8 +271,8 @@ export default function ChooseGoal() {
               Suas metas iniciais
             </h1>
             <p className="text-sm text-muted-foreground">
-              Escolha algumas metas prontas para começar hoje. Depois você cria outras
-              do seu jeito.
+              Escolha algumas metas prontas para começar hoje. Depois você cria
+              outras do seu jeito.
             </p>
           </div>
 
@@ -284,15 +291,19 @@ export default function ChooseGoal() {
             <CardHeader>
               <CardTitle className="text-base">Continuar</CardTitle>
               <CardDescription>
-                Vamos criar suas metas e abrir a Home para você começar a postar e
-                receber incentivo.
+                Vamos criar suas metas e abrir a Home para você começar a postar
+                e receber incentivo.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap gap-2">
                 {selectedPresets.length ? (
                   selectedPresets.map((p) => (
-                    <Badge key={p.id} variant="secondary" className="rounded-full">
+                    <Badge
+                      key={p.id}
+                      variant="secondary"
+                      className="rounded-full"
+                    >
                       {p.title}
                     </Badge>
                   ))

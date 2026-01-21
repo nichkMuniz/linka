@@ -113,7 +113,10 @@ const App = () => {
                     path="/rotinas/:routineId/iniciar"
                     element={<WorkoutSession />}
                   />
-                  <Route path="/rotinas/:routineId" element={<RoutineDetails />} />
+                  <Route
+                    path="/rotinas/:routineId"
+                    element={<RoutineDetails />}
+                  />
                   <Route
                     path="/exercicios/:exerciseId"
                     element={<ExerciseDetails />}

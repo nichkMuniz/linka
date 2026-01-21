@@ -30,7 +30,9 @@ function BrandHeader() {
     <div className="flex items-center justify-center gap-4">
       <div className="relative grid h-16 w-16 place-items-center rounded-3xl bg-brand shadow-sm ring-1 ring-brand/30">
         <div className="grid h-14 w-14 place-items-center rounded-2xl bg-foreground">
-          <span className="text-lg font-extrabold tracking-tight text-white">RF</span>
+          <span className="text-lg font-extrabold tracking-tight text-white">
+            RF
+          </span>
         </div>
         <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-brand-2 ring-2 ring-background" />
       </div>
@@ -53,7 +55,10 @@ export default function Login() {
   const [busy, setBusy] = React.useState(false);
 
   const canSubmit =
-    !busy && email.trim().length > 0 && password.trim().length >= 6 && hasSupabaseConfig;
+    !busy &&
+    email.trim().length > 0 &&
+    password.trim().length >= 6 &&
+    hasSupabaseConfig;
 
   React.useEffect(() => {
     if (authLoading) return;
@@ -190,191 +195,193 @@ export default function Login() {
         <BrandHeader />
 
         <Card className="border-border/60">
-        <CardHeader className="space-y-2">
-          <CardTitle className="text-base">Acessar conta</CardTitle>
-          <CardDescription>
-            {hasSupabaseConfig
-              ? "Use email e senha."
-              : "Supabase ainda não foi configurado neste projeto."}
-          </CardDescription>
-        </CardHeader>
+          <CardHeader className="space-y-2">
+            <CardTitle className="text-base">Acessar conta</CardTitle>
+            <CardDescription>
+              {hasSupabaseConfig
+                ? "Use email e senha."
+                : "Supabase ainda não foi configurado neste projeto."}
+            </CardDescription>
+          </CardHeader>
 
-        <CardContent className="space-y-4">
-          {!hasSupabaseConfig ? (
-            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-              Para habilitar login, defina as variáveis:
-              <div className="mt-2 grid gap-1 font-mono text-[12px]">
-                <div>VITE_SUPABASE_URL</div>
-                <div>VITE_SUPABASE_ANON_KEY</div>
+          <CardContent className="space-y-4">
+            {!hasSupabaseConfig ? (
+              <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                Para habilitar login, defina as variáveis:
+                <div className="mt-2 grid gap-1 font-mono text-[12px]">
+                  <div>VITE_SUPABASE_URL</div>
+                  <div>VITE_SUPABASE_ANON_KEY</div>
+                </div>
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          {authLoading ? (
-            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-              Verificando sessão...
-            </div>
-          ) : user ? (
-            <div className="grid gap-3">
-              <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
-                <div className="text-sm font-semibold">Você já está logado</div>
-                <div className="mt-1 text-xs text-muted-foreground">{user.email}</div>
+            {authLoading ? (
+              <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                Verificando sessão...
               </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  className="rounded-full"
-                  onClick={() => navigate("/", { replace: true })}
-                >
-                  Ir para o app
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  disabled={busy || !supabase}
-                  onClick={async () => {
-                    if (!supabase) return;
-                    setBusy(true);
-                    try {
-                      const { error } = await supabase.auth.signOut();
-                      if (error) {
-                        toast({
-                          title: "Não foi possível sair",
-                          description: error.message,
-                        });
-                        return;
-                      }
-                      toast({ title: "Você saiu" });
-                    } catch {
-                      toast({
-                        title: "Falha de conexão",
-                        description:
-                          "Não foi possível conectar ao Supabase. Confira a URL e tente novamente.",
-                      });
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                >
-                  Sair
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
-              <TabsList className="grid w-full grid-cols-2 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
-                <TabsTrigger
-                  value="login"
-                  className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
-                >
-                  Entrar
-                </TabsTrigger>
-                <TabsTrigger
-                  value="signup"
-                  className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
-                >
-                  Criar conta
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="login" className="mt-4">
-                <form
-                  className="grid gap-3"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    submit("login");
-                  }}
-                >
-                  <div className="grid gap-2">
-                    <Label htmlFor="login_email">Email</Label>
-                    <Input
-                      id="login_email"
-                      type="text"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="voce@exemplo.com"
-                      autoComplete="email"
-                    />
+            ) : user ? (
+              <div className="grid gap-3">
+                <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
+                  <div className="text-sm font-semibold">
+                    Você já está logado
                   </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="login_password">Senha</Label>
-                    <Input
-                      id="login_password"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      autoComplete="current-password"
-                    />
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {user.email}
                   </div>
+                </div>
 
+                <div className="flex flex-wrap gap-2">
                   <Button
-                    type="submit"
-                    className="mt-1 rounded-full"
-                    disabled={!canSubmit}
-                  >
-                    {busy ? "Entrando..." : "Entrar"}
-                  </Button>
-
-                  <button
                     type="button"
-                    className="text-left text-sm font-semibold text-brand hover:underline"
-                    onClick={() => setTab("signup")}
+                    className="rounded-full"
+                    onClick={() => navigate("/", { replace: true })}
                   >
-                    Ainda não tem conta? Cadastre-se
-                  </button>
-                </form>
-              </TabsContent>
-
-              <TabsContent value="signup" className="mt-4">
-                <form
-                  className="grid gap-3"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    submit("signup");
-                  }}
-                >
-                  <div className="grid gap-2">
-                    <Label htmlFor="signup_email">Email</Label>
-                    <Input
-                      id="signup_email"
-                      type="text"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="voce@exemplo.com"
-                      autoComplete="email"
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="signup_password">Senha</Label>
-                    <Input
-                      id="signup_password"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Mínimo 6 caracteres"
-                      autoComplete="new-password"
-                    />
-                  </div>
-
-                  <Button
-                    type="submit"
-                    className="mt-1 rounded-full"
-                    disabled={!canSubmit}
-                  >
-                    {busy ? "Criando..." : "Criar conta"}
+                    Ir para o app
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full"
+                    disabled={busy || !supabase}
+                    onClick={async () => {
+                      if (!supabase) return;
+                      setBusy(true);
+                      try {
+                        const { error } = await supabase.auth.signOut();
+                        if (error) {
+                          toast({
+                            title: "Não foi possível sair",
+                            description: error.message,
+                          });
+                          return;
+                        }
+                        toast({ title: "Você saiu" });
+                      } catch {
+                        toast({
+                          title: "Falha de conexão",
+                          description:
+                            "Não foi possível conectar ao Supabase. Confira a URL e tente novamente.",
+                        });
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Sair
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
+                <TabsList className="grid w-full grid-cols-2 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
+                  <TabsTrigger
+                    value="login"
+                    className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                  >
+                    Entrar
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="signup"
+                    className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                  >
+                    Criar conta
+                  </TabsTrigger>
+                </TabsList>
 
-                </form>
-              </TabsContent>
-            </Tabs>
-          )}
+                <TabsContent value="login" className="mt-4">
+                  <form
+                    className="grid gap-3"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      submit("login");
+                    }}
+                  >
+                    <div className="grid gap-2">
+                      <Label htmlFor="login_email">Email</Label>
+                      <Input
+                        id="login_email"
+                        type="text"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="voce@exemplo.com"
+                        autoComplete="email"
+                      />
+                    </div>
 
-        </CardContent>
+                    <div className="grid gap-2">
+                      <Label htmlFor="login_password">Senha</Label>
+                      <Input
+                        id="login_password"
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••"
+                        autoComplete="current-password"
+                      />
+                    </div>
+
+                    <Button
+                      type="submit"
+                      className="mt-1 rounded-full"
+                      disabled={!canSubmit}
+                    >
+                      {busy ? "Entrando..." : "Entrar"}
+                    </Button>
+
+                    <button
+                      type="button"
+                      className="text-left text-sm font-semibold text-brand hover:underline"
+                      onClick={() => setTab("signup")}
+                    >
+                      Ainda não tem conta? Cadastre-se
+                    </button>
+                  </form>
+                </TabsContent>
+
+                <TabsContent value="signup" className="mt-4">
+                  <form
+                    className="grid gap-3"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      submit("signup");
+                    }}
+                  >
+                    <div className="grid gap-2">
+                      <Label htmlFor="signup_email">Email</Label>
+                      <Input
+                        id="signup_email"
+                        type="text"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="voce@exemplo.com"
+                        autoComplete="email"
+                      />
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label htmlFor="signup_password">Senha</Label>
+                      <Input
+                        id="signup_password"
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Mínimo 6 caracteres"
+                        autoComplete="new-password"
+                      />
+                    </div>
+
+                    <Button
+                      type="submit"
+                      className="mt-1 rounded-full"
+                      disabled={!canSubmit}
+                    >
+                      {busy ? "Criando..." : "Criar conta"}
+                    </Button>
+                  </form>
+                </TabsContent>
+              </Tabs>
+            )}
+          </CardContent>
         </Card>
       </div>
     </div>
