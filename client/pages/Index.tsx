@@ -182,10 +182,12 @@ function PostCard({
   goal,
   onChange,
   onBlockUser,
+  routinesById,
 }: {
   goal: Goal;
   onChange: (g: Goal) => void;
   onBlockUser: (ownerHandle: string) => void;
+  routinesById: Map<string, Routine>;
 }) {
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
@@ -224,12 +226,6 @@ function PostCard({
     return legacy ? [legacy] : [];
   }, [goal]);
 
-  const attachedRoutinesById = React.useMemo(() => {
-    const routines = getRoutines();
-    const map = new Map<string, Routine>();
-    routines.forEach((r) => map.set(r.id, r));
-    return map;
-  }, []);
 
   const attachedRoutineItems = React.useMemo(() => {
     return attachedRoutineIds.map((id, idx) => {
@@ -268,55 +264,26 @@ function PostCard({
     };
   }, []);
 
-  const bumpIncentive = (key: IncentiveKind) => {
+  const bumpIncentive = async (key: IncentiveKind) => {
     setPulse(key);
     if (pulseTimer.current) window.clearTimeout(pulseTimer.current);
     pulseTimer.current = window.setTimeout(() => setPulse(null), 450);
 
-    const nextState = updateGoal(goal.id, (g) => {
-      const alreadyGiven = Boolean(g.myIncentives?.[key]);
-
-      if (alreadyGiven) {
-        const nextMy = { ...(g.myIncentives ?? {}) };
-        delete nextMy[key];
-        return {
-          ...g,
-          incentives: {
-            ...g.incentives,
-            [key]: Math.max(0, g.incentives[key] - 1),
-          },
-          myIncentives: nextMy,
-        };
-      }
-
-      return {
-        ...g,
-        incentives: { ...g.incentives, [key]: g.incentives[key] + 1 },
-        myIncentives: { ...(g.myIncentives ?? {}), [key]: true },
-      };
-    });
-
-    const updated = nextState.goals.find((g) => g.id === goal.id);
-    if (updated) onChange(updated);
+    const next = await toggleGoalIncentiveDb(goal.id, key);
+    if (next) onChange(next);
   };
 
-  const quickProgressOnly = () => {
+  const quickProgressOnly = async () => {
     if (done) return;
 
     const key = todayKey();
+    if (goal.myProgressToday === key) return;
 
-    const nextState = updateGoal(goal.id, (g) => {
-      const already = g.myProgressToday === key;
-      if (already) return g;
-
-      return {
-        ...g,
-        completedDays: Math.min(g.completedDays + 1, g.durationDays),
-        myProgressToday: key,
-      };
+    const updated = await updateGoalDb(goal.id, {
+      completedDays: Math.min(goal.completedDays + 1, goal.durationDays),
+      myProgressToday: key,
     });
 
-    const updated = nextState.goals.find((g) => g.id === goal.id);
     if (updated) onChange(updated);
 
     toast({
@@ -325,27 +292,26 @@ function PostCard({
     });
   };
 
-  const completeToday = (next: {
+  const completeToday = async (next: {
     caption?: string;
     imageDataUrl?: string;
     incrementDays: number;
   }) => {
     const key = todayKey();
 
-    const nextState = updateGoal(goal.id, (g) => {
-      const inc = Math.max(0, next.incrementDays);
-      const completedDays = Math.min(g.completedDays + inc, g.durationDays);
-      return {
-        ...g,
-        completedDays,
-        myProgressToday: inc > 0 ? key : g.myProgressToday,
-        caption: next.caption !== undefined ? next.caption : g.caption,
-        imageDataUrl:
-          next.imageDataUrl !== undefined ? next.imageDataUrl : g.imageDataUrl,
-      };
-    });
+    const inc = Math.max(0, next.incrementDays);
+    const completedDays = Math.min(goal.completedDays + inc, goal.durationDays);
 
-    const updated = nextState.goals.find((g) => g.id === goal.id);
+    const patch: Partial<Goal> = {
+      completedDays,
+      caption: next.caption !== undefined ? next.caption : goal.caption,
+      imageDataUrl:
+        next.imageDataUrl !== undefined ? next.imageDataUrl : goal.imageDataUrl,
+    };
+
+    if (inc > 0) patch.myProgressToday = key;
+
+    const updated = await updateGoalDb(goal.id, patch);
     if (updated) onChange(updated);
 
     toast({
