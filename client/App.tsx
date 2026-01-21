@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import "./global.css";
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot, type Root } from "react-dom/client";
 import {
