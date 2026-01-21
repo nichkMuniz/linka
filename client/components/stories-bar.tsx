@@ -2,7 +2,7 @@ import * as React from "react";
 import { Plus, Image as ImageIcon } from "lucide-react";
 
 import type { StoryGroup } from "@/lib/ritmofit";
-import { addStoryItem, getStories } from "@/lib/ritmofit";
+import { addStoryItemDb, getStoriesDb } from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,7 +67,16 @@ export function StoriesBar() {
   const [activeStory, setActiveStory] = React.useState<StoryGroup | null>(null);
 
   React.useEffect(() => {
-    setStories(getStories());
+    let canceled = false;
+
+    getStoriesDb().then((next) => {
+      if (canceled) return;
+      setStories(next);
+    });
+
+    return () => {
+      canceled = true;
+    };
   }, []);
 
   React.useEffect(() => {
@@ -244,9 +253,10 @@ export function StoriesBar() {
               <Button
                 type="button"
                 className="rounded-full"
-                onClick={() => {
-                  addStoryItem({ imageDataUrl: previewUrl, text: caption });
-                  setStories(getStories());
+                onClick={async () => {
+                  await addStoryItemDb({ imageDataUrl: previewUrl, text: caption });
+                  const next = await getStoriesDb();
+                  setStories(next);
                   setCreateOpen(false);
                   toast({
                     title: "Story publicado",
