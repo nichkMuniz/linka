@@ -851,9 +851,13 @@ export default function Index() {
               key={goal.id}
               goal={goal}
               onChange={updateOne}
-              onBlockUser={(handle) =>
-                setGoals((prev) => prev.filter((p) => p.ownerHandle !== handle))
-              }
+              routinesById={routinesById}
+              onBlockUser={(handle) => {
+                setBlockedHandles((prev) =>
+                  prev.includes(handle) ? prev : [...prev, handle],
+                );
+                setGoals((prev) => prev.filter((p) => p.ownerHandle !== handle));
+              }}
             />
           ))
         ) : (
