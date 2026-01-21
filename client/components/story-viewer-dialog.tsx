@@ -2,7 +2,7 @@ import * as React from "react";
 import { Trash2, X } from "lucide-react";
 
 import type { StoryGroup, StoryItem } from "@/lib/ritmofit";
-import { deleteStoryItem, getStories } from "@/lib/ritmofit";
+import { deleteStoryItemDb, getStoriesDb } from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -199,9 +199,9 @@ export function StoryViewerDialog({
                     size="icon"
                     className="h-9 w-9 rounded-full text-white hover:bg-white/10"
                     aria-label="Excluir story"
-                    onClick={() => {
-                      deleteStoryItem(story.ownerHandle, current.id);
-                      const nextGroups = getStories();
+                    onClick={async () => {
+                      await deleteStoryItemDb(story.ownerHandle, current.id);
+                      const nextGroups = await getStoriesDb();
                       onStoriesChange?.(nextGroups);
 
                       toast({
