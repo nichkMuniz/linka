@@ -1,7 +1,8 @@
 import * as React from "react";
 import { CheckCircle2, Circle, Crown, Medal, Zap } from "lucide-react";
 
-import { Goal, getRitmoFitState } from "@/lib/ritmofit";
+import { Goal, type Routine } from "@/lib/ritmofit";
+import { getMyProfileDb, getRitmoFitStateDb } from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
