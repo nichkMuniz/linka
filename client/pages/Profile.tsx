@@ -514,8 +514,8 @@ export default function Profile() {
     following: 93,
   };
 
-  const myRoutines = routines.filter((r) => r.ownerHandle === "@voce");
-  const discoverRoutines = routines.filter((r) => r.ownerHandle !== "@voce");
+  const myRoutines = routines.filter((r) => r.ownerHandle === profile.handle);
+  const discoverRoutines = routines.filter((r) => r.ownerHandle !== profile.handle);
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
