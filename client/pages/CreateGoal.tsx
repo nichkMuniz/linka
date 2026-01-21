@@ -5,7 +5,8 @@ import { useForm } from "react-hook-form";
 import { Check, ChevronLeft, Plus, Sparkles } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { createGoal, GoalCategory, GoalVisibility } from "@/lib/ritmofit";
+import { GoalCategory, GoalVisibility } from "@/lib/ritmofit";
+import { createGoalDb } from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -107,8 +108,8 @@ export default function CreateGoal() {
 
   const values = form.watch();
 
-  const onSubmit = (v: Values) => {
-    createGoal({
+  const onSubmit = async (v: Values) => {
+    await createGoalDb({
       title: v.title,
       category: v.category,
       frequency: v.frequency,
