@@ -18,10 +18,6 @@ import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-}
-
 const NEEDS_GOAL_CHOICE_KEY = "ritmofit:needsGoalChoice";
 
 function BrandHeader() {
@@ -52,7 +48,7 @@ export default function Login() {
   const [busy, setBusy] = React.useState(false);
 
   const canSubmit =
-    !busy && isValidEmail(email) && password.trim().length >= 6 && hasSupabaseConfig;
+    !busy && email.trim().length > 0 && password.trim().length >= 6 && hasSupabaseConfig;
 
   React.useEffect(() => {
     if (authLoading) return;
@@ -78,14 +74,6 @@ export default function Login() {
 
     const trimmedEmail = email.trim();
     const trimmedPassword = password.trim();
-
-    if (!isValidEmail(trimmedEmail)) {
-      toast({
-        title: "Email inválido",
-        description: "Digite um email válido para continuar.",
-      });
-      return;
-    }
 
     if (trimmedPassword.length < 6) {
       toast({
@@ -280,7 +268,7 @@ export default function Login() {
                     <Label htmlFor="login_email">Email</Label>
                     <Input
                       id="login_email"
-                      type="email"
+                      type="text"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="voce@exemplo.com"
@@ -330,7 +318,7 @@ export default function Login() {
                     <Label htmlFor="signup_email">Email</Label>
                     <Input
                       id="signup_email"
-                      type="email"
+                      type="text"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="voce@exemplo.com"
