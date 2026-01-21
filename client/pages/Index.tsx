@@ -257,6 +257,17 @@ function PostCard({
   const pulseTimer = React.useRef<number | null>(null);
   const [commentsOpen, setCommentsOpen] = React.useState(false);
   const [commentDraft, setCommentDraft] = React.useState("");
+  const [commentsBusy, setCommentsBusy] = React.useState(false);
+  const [comments, setComments] = React.useState<GoalComment[]>([]);
+
+  React.useEffect(() => {
+    if (!commentsOpen) return;
+
+    setCommentsBusy(true);
+    listGoalComments(goal.id)
+      .then((next) => setComments(next))
+      .finally(() => setCommentsBusy(false));
+  }, [commentsOpen, goal.id]);
 
   React.useEffect(() => {
     return () => {
