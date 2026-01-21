@@ -123,23 +123,17 @@ function PostMini({
     setDraftCaption(goal.caption ?? "");
   }, [editOpen, goal.title, goal.caption]);
 
-  const quickProgressOnly = () => {
+  const quickProgressOnly = async () => {
     if (done) return;
 
     const key = todayKey();
+    if (goal.myProgressToday === key) return;
 
-    const nextState = updateGoal(goal.id, (g) => {
-      const already = g.myProgressToday === key;
-      if (already) return g;
-
-      return {
-        ...g,
-        completedDays: Math.min(g.completedDays + 1, g.durationDays),
-        myProgressToday: key,
-      };
+    const updated = await updateGoalDb(goal.id, {
+      completedDays: Math.min(goal.completedDays + 1, goal.durationDays),
+      myProgressToday: key,
     });
 
-    const updated = nextState.goals.find((g) => g.id === goal.id);
     if (updated) onChange(updated);
 
     toast({
@@ -148,27 +142,25 @@ function PostMini({
     });
   };
 
-  const completeToday = (next: {
+  const completeToday = async (next: {
     caption?: string;
     imageDataUrl?: string;
     incrementDays: number;
   }) => {
     const key = todayKey();
+    const inc = Math.max(0, next.incrementDays);
+    const completedDays = Math.min(goal.completedDays + inc, goal.durationDays);
 
-    const nextState = updateGoal(goal.id, (g) => {
-      const inc = Math.max(0, next.incrementDays);
-      const completedDays = Math.min(g.completedDays + inc, g.durationDays);
-      return {
-        ...g,
-        completedDays,
-        myProgressToday: inc > 0 ? key : g.myProgressToday,
-        caption: next.caption !== undefined ? next.caption : g.caption,
-        imageDataUrl:
-          next.imageDataUrl !== undefined ? next.imageDataUrl : g.imageDataUrl,
-      };
-    });
+    const patch: Partial<Goal> = {
+      completedDays,
+      caption: next.caption !== undefined ? next.caption : goal.caption,
+      imageDataUrl:
+        next.imageDataUrl !== undefined ? next.imageDataUrl : goal.imageDataUrl,
+    };
 
-    const updated = nextState.goals.find((g) => g.id === goal.id);
+    if (inc > 0) patch.myProgressToday = key;
+
+    const updated = await updateGoalDb(goal.id, patch);
     if (updated) onChange(updated);
   };
 
@@ -199,13 +191,12 @@ function PostMini({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem
-                onClick={() => {
-                  const nextState = updateGoal(goal.id, (g) => ({
-                    ...g,
-                    hidden: !Boolean((g as any).hidden),
-                  }));
-                  const updated = nextState.goals.find((g) => g.id === goal.id);
+                onClick={async () => {
+                  const updated = await updateGoalDb(goal.id, {
+                    hidden: !Boolean((goal as any).hidden),
+                  } as any);
                   if (updated) onChange(updated);
+
                   toast({
                     title: Boolean((updated as any)?.hidden)
                       ? "Post ocultado"
@@ -378,14 +369,12 @@ function PostMini({
                 type="button"
                 className="rounded-full"
                 disabled={!canSaveEdit}
-                onClick={() => {
-                  const nextState = updateGoal(goal.id, (g) => ({
-                    ...g,
+                onClick={async () => {
+                  const updated = await updateGoalDb(goal.id, {
                     title: draftTitle.trim(),
                     caption: draftCaption.trim(),
-                  }));
+                  });
 
-                  const updated = nextState.goals.find((g) => g.id === goal.id);
                   if (updated) onChange(updated);
 
                   toast({
@@ -417,8 +406,8 @@ function PostMini({
             </AlertDialogCancel>
             <AlertDialogAction
               className="rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                deleteGoal(goal.id);
+              onClick={async () => {
+                await deleteGoalDb(goal.id);
                 onDelete(goal.id);
                 toast({
                   title: "Post excluído",
