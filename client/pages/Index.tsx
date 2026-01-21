@@ -832,13 +832,17 @@ export default function Index() {
     setGoals((prev) => prev.map((g) => (g.id === next.id ? next : g)));
   };
 
+  const visibleGoals = React.useMemo(
+    () => goals.filter((g) => !isBlocked(g.ownerHandle) && !(g as any).hidden),
+    [goals],
+  );
+
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-4">
       <StoriesBar />
       <section className="grid gap-4">
-        {goals
-          .filter((g) => !isBlocked(g.ownerHandle) && !(g as any).hidden)
-          .map((goal) => (
+        {visibleGoals.length ? (
+          visibleGoals.map((goal) => (
             <PostCard
               key={goal.id}
               goal={goal}
@@ -847,7 +851,27 @@ export default function Index() {
                 setGoals((prev) => prev.filter((p) => p.ownerHandle !== handle))
               }
             />
-          ))}
+          ))
+        ) : (
+          <Card className="border-border/60">
+            <CardContent className="grid gap-3 p-6">
+              <div className="text-base font-semibold tracking-tight">
+                Ainda não há postagens
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Você pode postar sua primeira atualização ou procurar amigos.
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild className="rounded-full">
+                  <Link to="/postar">Fazer minha postagem</Link>
+                </Button>
+                <Button asChild variant="outline" className="rounded-full">
+                  <Link to="/buscar">Procurar amigos</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </section>
     </div>
   );
