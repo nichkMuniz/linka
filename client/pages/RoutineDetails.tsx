@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Copy, Share2, CheckCircle2 } from "lucide-react";
 
 import type { Routine } from "@/lib/ritmofit";
-import { copyRoutine, getRoutines } from "@/lib/ritmofit";
+import { copyRoutineDb, getMyProfileDb, getRoutinesDb } from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,10 +44,27 @@ function itemsLabel(category: Routine["category"]) {
 export default function RoutineDetails() {
   const { routineId } = useParams();
   const [routine, setRoutine] = React.useState<Routine | null>(null);
+  const [myHandle, setMyHandle] = React.useState("@voce");
 
   React.useEffect(() => {
-    const found = getRoutines().find((r) => r.id === routineId) ?? null;
-    setRoutine(found);
+    let canceled = false;
+
+    (async () => {
+      const [routines, profile] = await Promise.all([
+        getRoutinesDb(),
+        getMyProfileDb(),
+      ]);
+
+      if (canceled) return;
+
+      if (profile?.handle) setMyHandle(profile.handle);
+      const found = routines.find((r) => r.id === routineId) ?? null;
+      setRoutine(found);
+    })();
+
+    return () => {
+      canceled = true;
+    };
   }, [routineId]);
 
   if (!routine) {
@@ -68,7 +85,7 @@ export default function RoutineDetails() {
     );
   }
 
-  const isMine = routine.ownerHandle === "@voce";
+  const isMine = routine.ownerHandle === myHandle;
   const label = itemsLabel(routine.category);
 
   const steps = routine.steps
@@ -121,8 +138,8 @@ export default function RoutineDetails() {
             <Button
               type="button"
               className="rounded-full"
-              onClick={() => {
-                copyRoutine(routine.id);
+              onClick={async () => {
+                await copyRoutineDb(routine.id);
                 toast({
                   title: "Copiada",
                   description: "A rotina foi adicionada no seu perfil.",
