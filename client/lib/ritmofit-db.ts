@@ -99,6 +99,10 @@ async function ensureProfile(): Promise<DbProfile | null> {
   };
 }
 
+export async function getMyProfileDb(): Promise<DbProfile | null> {
+  return ensureProfile();
+}
+
 function goalFromRow(row: any): Goal {
   return {
     id: String(row.id),
