@@ -211,8 +211,31 @@ export default function WorkoutSession() {
   const stepRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   React.useEffect(() => {
-    const found = getRoutines().find((r) => r.id === routineId) ?? null;
-    setRoutine(found);
+    let canceled = false;
+
+    (async () => {
+      const [routines, state, profile] = await Promise.all([
+        getRoutinesDb(),
+        getRitmoFitStateDb(),
+        getMyProfileDb(),
+      ]);
+
+      if (canceled) return;
+
+      const handle = profile?.handle ?? "@voce";
+      if (profile?.handle) setMyHandle(profile.handle);
+
+      const mineGoals = state.goals.filter((g) => g.ownerHandle === handle);
+      setMyGoals(mineGoals);
+      setMetaGoalId((prev) => prev || mineGoals[0]?.id || "");
+
+      const found = routines.find((r) => r.id === routineId) ?? null;
+      setRoutine(found);
+    })();
+
+    return () => {
+      canceled = true;
+    };
   }, [routineId]);
 
   const formatPrevious = React.useCallback((weight: string, reps: string) => {
