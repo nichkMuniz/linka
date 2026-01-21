@@ -25,6 +25,12 @@ import WorkoutSession from "@/pages/WorkoutSession";
 import ExerciseDetails from "@/pages/ExerciseDetails";
 import NotFound from "@/pages/NotFound";
 import Placeholder from "@/pages/Placeholder";
+import { supabase } from './lib/supabase'
+
+useEffect(() => {
+  supabase.from('posts').select('*').then(console.log)
+}, [])
+
 
 const queryClient = new QueryClient();
 
