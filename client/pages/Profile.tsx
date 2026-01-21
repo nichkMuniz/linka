@@ -8,6 +8,7 @@ import {
   Image as ImageIcon,
   LayoutGrid,
   ListChecks,
+  LogOut,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -15,7 +16,7 @@ import {
   Trash2,
   Utensils,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import {
   copyRoutine,
@@ -29,6 +30,7 @@ import {
   goalProgressPercent,
   updateGoal,
 } from "@/lib/ritmofit";
+import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { CompleteTodayDialog } from "@/components/complete-today-dialog";
 import {
@@ -436,6 +438,7 @@ function PostMini({
 }
 
 export default function Profile() {
+  const navigate = useNavigate();
   const [posts, setPosts] = React.useState<Goal[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
   const [routineEditorOpen, setRoutineEditorOpen] = React.useState(false);
@@ -510,18 +513,55 @@ export default function Profile() {
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
       <div className="relative flex flex-col gap-4 rounded-3xl border border-border/60 bg-gradient-to-br from-brand/10 via-background to-brand-2/10 p-6 md:flex-row md:items-center md:justify-between">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="absolute right-4 top-4 h-11 w-11 rounded-full"
-          aria-label="Configurações"
-          onClick={() => {
-            // MVP: configurações ainda não implementadas
-          }}
-        >
-          <Settings className="h-5 w-5" />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-4 top-4 h-11 w-11 rounded-full"
+              aria-label="Configurações"
+            >
+              <Settings className="h-5 w-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem
+              onClick={async () => {
+                if (!hasSupabaseConfig || !supabase) {
+                  toast({
+                    title: "Supabase não configurado",
+                    description:
+                      "Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para usar login/logoff.",
+                  });
+                  return;
+                }
+
+                try {
+                  const { error } = await supabase.auth.signOut();
+                  if (error) {
+                    toast({
+                      title: "Não foi possível sair",
+                      description: error.message,
+                    });
+                    return;
+                  }
+                  toast({ title: "Você saiu" });
+                  navigate("/login", { replace: true });
+                } catch {
+                  toast({
+                    title: "Falha de conexão",
+                    description:
+                      "Não foi possível conectar ao Supabase. Confira a URL e tente novamente.",
+                  });
+                }
+              }}
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              Sair
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <div className="flex items-center gap-4">
           <div className="relative">
