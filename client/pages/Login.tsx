@@ -20,6 +20,11 @@ import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 const NEEDS_GOAL_CHOICE_KEY = "ritmofit:needsGoalChoice";
 
+function isEmailNotConfirmed(message: string | undefined) {
+  const m = (message ?? "").toLowerCase();
+  return m.includes("email not confirmed") || m.includes("not confirmed");
+}
+
 function BrandHeader() {
   return (
     <div className="flex items-center justify-center gap-4">
@@ -93,6 +98,15 @@ export default function Login() {
         });
 
         if (error) {
+          if (isEmailNotConfirmed(error.message)) {
+            toast({
+              title: "Email não confirmado",
+              description:
+                "Seu Supabase está exigindo confirmação por email. Para desativar: Supabase Dashboard → Authentication → Providers → Email → desmarque “Confirm email”.",
+            });
+            return;
+          }
+
           toast({
             title: "Não foi possível entrar",
             description: error.message,
@@ -135,6 +149,15 @@ export default function Login() {
       });
 
       if (signInError) {
+        if (isEmailNotConfirmed(signInError.message)) {
+          toast({
+            title: "Conta criada, mas o email não foi confirmado",
+            description:
+              "Para entrar sem confirmar email, desative no Supabase: Authentication → Providers → Email → “Confirm email”.",
+          });
+          return;
+        }
+
         toast({
           title: "Conta criada, mas não foi possível entrar",
           description:
