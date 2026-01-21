@@ -397,8 +397,8 @@ function PostCard({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
-              onClick={() => {
-                blockUser(goal.ownerHandle);
+              onClick={async () => {
+                await blockUserDb(goal.ownerHandle);
                 onBlockUser(goal.ownerHandle);
                 toast({
                   title: "Usuário bloqueado",
