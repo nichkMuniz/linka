@@ -17,7 +17,14 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 
-import { Goal, dayLabel, goalProgressPercent, Routine, timeAgo } from "@/lib/ritmofit";
+import {
+  Goal,
+  dayLabel,
+  goalProgressPercent,
+  Routine,
+  timeAgo,
+  type GoalComment,
+} from "@/lib/ritmofit";
 import {
   addGoalCommentDb,
   blockUserDb,
