@@ -276,11 +276,11 @@ export default function Rank() {
 
   const missions = React.useMemo(() => {
     const me = entries.find((e) => e.handle === meHandle) ?? null;
-    const state = getRitmoFitState();
+    if (!ritmo) return { me, tasks: [], activeCount: 0 };
 
-    const meGoals = state.goals.filter((g) => g.ownerHandle === meHandle);
-    const meRoutines = state.routines.filter((r) => r.ownerHandle === meHandle);
-    const meComments = state.goals
+    const meGoals = ritmo.goals.filter((g) => g.ownerHandle === meHandle);
+    const meRoutines = ritmo.routines.filter((r) => r.ownerHandle === meHandle);
+    const meComments = ritmo.goals
       .flatMap((g) => g.comments ?? [])
       .filter((c) => c.authorHandle === meHandle);
 
