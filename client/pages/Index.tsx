@@ -803,24 +803,42 @@ function PostCard({
 
 export default function Index() {
   const [goals, setGoals] = React.useState<Goal[]>([]);
+  const [blockedHandles, setBlockedHandles] = React.useState<string[]>([]);
+  const [routines, setRoutines] = React.useState<Routine[]>([]);
 
   React.useEffect(() => {
-    const state = getRitmoFitState();
-    setGoals(
-      state.goals.filter(
-        (g) =>
-          !state.blockedHandles.includes(g.ownerHandle) && !(g as any).hidden,
-      ),
-    );
+    let canceled = false;
+
+    (async () => {
+      const state = await getRitmoFitStateDb();
+      if (canceled) return;
+
+      setBlockedHandles(state.blockedHandles);
+      setRoutines(state.routines);
+      setGoals(state.goals);
+    })();
+
+    return () => {
+      canceled = true;
+    };
   }, []);
+
+  const routinesById = React.useMemo(() => {
+    const map = new Map<string, Routine>();
+    routines.forEach((r) => map.set(r.id, r));
+    return map;
+  }, [routines]);
 
   const updateOne = (next: Goal) => {
     setGoals((prev) => prev.map((g) => (g.id === next.id ? next : g)));
   };
 
   const visibleGoals = React.useMemo(
-    () => goals.filter((g) => !isBlocked(g.ownerHandle) && !(g as any).hidden),
-    [goals],
+    () =>
+      goals.filter(
+        (g) => !blockedHandles.includes(g.ownerHandle) && !(g as any).hidden,
+      ),
+    [goals, blockedHandles],
   );
 
   return (
