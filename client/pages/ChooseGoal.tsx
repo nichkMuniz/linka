@@ -14,7 +14,8 @@ import {
 } from "@/components/ui/card";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { toast } from "@/components/ui/use-toast";
-import { createGoal, type Goal, type GoalVisibility } from "@/lib/ritmofit";
+import { createGoalDb } from "@/lib/ritmofit-db";
+import { type Goal, type GoalVisibility } from "@/lib/ritmofit";
 import { cn } from "@/lib/utils";
 
 const NEEDS_GOAL_CHOICE_KEY = "ritmofit:needsGoalChoice";
@@ -202,7 +203,7 @@ export default function ChooseGoal() {
     });
   };
 
-  const onConfirm = () => {
+  const onConfirm = async () => {
     if (busy) return;
 
     if (!selectedPresets.length) {
@@ -216,7 +217,7 @@ export default function ChooseGoal() {
     setBusy(true);
     try {
       for (const preset of selectedPresets) {
-        createGoal({
+        await createGoalDb({
           title: preset.title,
           caption: preset.caption,
           category: preset.category,
@@ -237,6 +238,11 @@ export default function ChooseGoal() {
       });
 
       navigate("/", { replace: true });
+    } catch {
+      toast({
+        title: "Não foi possível criar",
+        description: "Falha ao salvar no banco. Tente novamente.",
+      });
     } finally {
       setBusy(false);
     }
