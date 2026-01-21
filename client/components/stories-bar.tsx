@@ -2,7 +2,7 @@ import * as React from "react";
 import { Plus, Image as ImageIcon } from "lucide-react";
 
 import type { StoryGroup } from "@/lib/ritmofit";
-import { addStoryItemDb, getStoriesDb } from "@/lib/ritmofit-db";
+import { addStoryItemDb, getMyProfileDb, getStoriesDb } from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -65,13 +65,15 @@ export function StoriesBar() {
 
   const [viewerOpen, setViewerOpen] = React.useState(false);
   const [activeStory, setActiveStory] = React.useState<StoryGroup | null>(null);
+  const [myHandle, setMyHandle] = React.useState("@voce");
 
   React.useEffect(() => {
     let canceled = false;
 
-    getStoriesDb().then((next) => {
+    Promise.all([getStoriesDb(), getMyProfileDb()]).then(([nextStories, profile]) => {
       if (canceled) return;
-      setStories(next);
+      if (profile?.handle) setMyHandle(profile.handle);
+      setStories(nextStories);
     });
 
     return () => {
@@ -276,7 +278,7 @@ export function StoriesBar() {
         open={viewerOpen}
         onOpenChange={setViewerOpen}
         story={activeStory}
-        canDelete={activeStory?.ownerHandle === "@voce"}
+        canDelete={activeStory?.ownerHandle === myHandle}
         onStoriesChange={(nextGroups) => {
           setStories(nextGroups);
           const still =
