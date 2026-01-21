@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +22,27 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
+const NEEDS_GOAL_CHOICE_KEY = "ritmofit:needsGoalChoice";
+
+function BrandHeader() {
+  return (
+    <div className="flex items-center justify-center gap-3">
+      <div className="relative grid h-10 w-10 place-items-center rounded-2xl bg-brand shadow-sm ring-1 ring-brand/30">
+        <div className="grid h-9 w-9 place-items-center rounded-xl bg-foreground">
+          <span className="text-sm font-semibold text-white">RF</span>
+        </div>
+        <span className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-brand-2 ring-2 ring-background" />
+      </div>
+      <div className="leading-tight">
+        <div className="text-base font-semibold tracking-tight text-foreground">
+          Ritmo<span className="text-brand">Fit</span>
+        </div>
+        <div className="text-xs text-muted-foreground">Acesse sua conta</div>
+      </div>
+    </div>
+  );
+}
+
 export default function Login() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
@@ -33,6 +54,18 @@ export default function Login() {
 
   const canSubmit =
     !busy && isValidEmail(email) && password.trim().length >= 6 && hasSupabaseConfig;
+
+  React.useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
+
+    if (localStorage.getItem(NEEDS_GOAL_CHOICE_KEY) === "1") {
+      navigate("/escolher-meta", { replace: true });
+      return;
+    }
+
+    navigate("/", { replace: true });
+  }, [authLoading, user, navigate]);
 
   const submit = async (mode: "login" | "signup") => {
     if (!hasSupabaseConfig || !supabase) {
@@ -84,7 +117,12 @@ export default function Login() {
           title: "Login feito",
           description: "Bem-vindo de volta.",
         });
-        navigate("/", { replace: true });
+
+        if (localStorage.getItem(NEEDS_GOAL_CHOICE_KEY) === "1") {
+          navigate("/escolher-meta", { replace: true });
+        } else {
+          navigate("/", { replace: true });
+        }
         return;
       }
 
@@ -102,11 +140,12 @@ export default function Login() {
       }
 
       if (data.user && data.session) {
+        localStorage.setItem(NEEDS_GOAL_CHOICE_KEY, "1");
         toast({
           title: "Conta criada",
-          description: "Você já está logado.",
+          description: "Agora escolha sua primeira meta.",
         });
-        navigate("/", { replace: true });
+        navigate("/escolher-meta", { replace: true });
         return;
       }
 
@@ -126,7 +165,9 @@ export default function Login() {
   };
 
   return (
-    <div className="mx-auto grid w-full max-w-md gap-6">
+    <div className="grid min-h-dvh place-items-center bg-background p-6">
+      <div className="mx-auto grid w-full max-w-md gap-6">
+        <BrandHeader />
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">Login / Cadastro</h1>
         <p className="text-sm text-muted-foreground">
@@ -134,7 +175,7 @@ export default function Login() {
         </p>
       </div>
 
-      <Card className="border-border/60">
+        <Card className="border-border/60">
         <CardHeader className="space-y-2">
           <CardTitle className="text-base">Acessar conta</CardTitle>
           <CardDescription>
@@ -315,15 +356,9 @@ export default function Login() {
             </Tabs>
           )}
 
-          <Separator />
-
-          <div className="flex items-center justify-between gap-2 text-sm">
-            <Button asChild variant="ghost" className="rounded-full px-3">
-              <Link to="/">Voltar ao feed</Link>
-            </Button>
-          </div>
         </CardContent>
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }

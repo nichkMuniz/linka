@@ -1,10 +1,15 @@
-import "./global.css";
-
 import * as React from "react";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot, type Root } from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 
 import { AppLayout } from "@/components/app-layout";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -12,23 +17,63 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import { useAuth } from "@/hooks/useAuth";
+
+import ChooseGoal from "@/pages/ChooseGoal";
+import ExerciseDetails from "@/pages/ExerciseDetails";
 import Index from "@/pages/Index";
-import NewPost from "@/pages/NewPost";
-import Search from "@/pages/Search";
-import Profile from "@/pages/Profile";
+import Login from "@/pages/Login";
 import Messages from "@/pages/Messages";
+import NewPost from "@/pages/NewPost";
+import NotFound from "@/pages/NotFound";
+import Profile from "@/pages/Profile";
 import Rank from "@/pages/Rank";
 import Reels from "@/pages/Reels";
-import Install from "@/pages/Install";
 import RoutineDetails from "@/pages/RoutineDetails";
+import Search from "@/pages/Search";
 import WorkoutSession from "@/pages/WorkoutSession";
-import ExerciseDetails from "@/pages/ExerciseDetails";
-import NotFound from "@/pages/NotFound";
-import Login from "@/pages/Login";
-import Placeholder from "@/pages/Placeholder";
-
 
 const queryClient = new QueryClient();
+
+const NEEDS_GOAL_CHOICE_KEY = "ritmofit:needsGoalChoice";
+
+function needsGoalChoice() {
+  return localStorage.getItem(NEEDS_GOAL_CHOICE_KEY) === "1";
+}
+
+function AuthLoadingScreen() {
+  return (
+    <div className="grid min-h-dvh place-items-center bg-background p-6">
+      <div className="text-center">
+        <div className="text-lg font-semibold tracking-tight">RitmoFit</div>
+        <div className="mt-1 text-sm text-muted-foreground">Carregando…</div>
+      </div>
+    </div>
+  );
+}
+
+function RequireAuth() {
+  const location = useLocation();
+  const { user, loading } = useAuth();
+
+  if (loading) return <AuthLoadingScreen />;
+
+  if (!user) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: location.pathname + location.search }}
+      />
+    );
+  }
+
+  if (needsGoalChoice() && location.pathname !== "/escolher-meta") {
+    return <Navigate to="/escolher-meta" replace />;
+  }
+
+  return <Outlet />;
+}
 
 const App = () => {
   React.useEffect(() => {
@@ -41,7 +86,6 @@ const App = () => {
       .catch((err) => console.warn("SW registration failed", err));
   }, []);
 
-
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
@@ -50,37 +94,37 @@ const App = () => {
           <Sonner />
           <BrowserRouter>
             <Routes>
-              <Route element={<AppLayout />}>
-                <Route path="/" element={<Index />} />
-                <Route path="/postar" element={<NewPost />} />
-                <Route path="/buscar" element={<Search />} />
-                <Route path="/perfil" element={<Profile />} />
-                <Route path="/mensagens" element={<Messages />} />
-                <Route path="/rank" element={<Rank />} />
-                <Route path="/reels" element={<Reels />} />
-                <Route path="/instalar" element={<Install />} />
-                <Route
-                  path="/rotinas/:routineId/iniciar"
-                  element={<WorkoutSession />}
-                />
-                <Route
-                  path="/rotinas/:routineId"
-                  element={<RoutineDetails />}
-                />
-                <Route
-                  path="/exercicios/:exerciseId"
-                  element={<ExerciseDetails />}
-                />
+              <Route path="/login" element={<Login />} />
 
-                {/* compatibility */}
-                <Route
-                  path="/criar"
-                  element={<Navigate to="/postar" replace />}
-                />
+              <Route element={<RequireAuth />}>
+                <Route path="/escolher-meta" element={<ChooseGoal />} />
 
-                <Route path="/login" element={<Login />} />
+                <Route element={<AppLayout />}>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/postar" element={<NewPost />} />
+                  <Route path="/buscar" element={<Search />} />
+                  <Route path="/perfil" element={<Profile />} />
+                  <Route path="/mensagens" element={<Messages />} />
+                  <Route path="/rank" element={<Rank />} />
+                  <Route path="/reels" element={<Reels />} />
+                  <Route
+                    path="/rotinas/:routineId/iniciar"
+                    element={<WorkoutSession />}
+                  />
+                  <Route path="/rotinas/:routineId" element={<RoutineDetails />} />
+                  <Route
+                    path="/exercicios/:exerciseId"
+                    element={<ExerciseDetails />}
+                  />
 
-                <Route path="*" element={<NotFound />} />
+                  {/* compatibility */}
+                  <Route
+                    path="/criar"
+                    element={<Navigate to="/postar" replace />}
+                  />
+
+                  <Route path="*" element={<NotFound />} />
+                </Route>
               </Route>
             </Routes>
           </BrowserRouter>
