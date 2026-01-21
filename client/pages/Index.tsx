@@ -510,9 +510,13 @@ function PostCard({
 
             <div className="px-6 pb-4">
               <div className="max-h-[50vh] overflow-auto rounded-2xl border border-border/60 bg-muted/20 p-3">
-                {(goal.comments ?? []).length ? (
+                {commentsBusy ? (
+                  <div className="text-sm text-muted-foreground">
+                    Carregando comentários...
+                  </div>
+                ) : comments.length ? (
                   <div className="grid gap-3">
-                    {(goal.comments ?? []).map((c) => (
+                    {comments.map((c) => (
                       <div key={c.id} className="grid gap-1">
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0 truncate text-xs font-semibold">
