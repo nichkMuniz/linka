@@ -987,8 +987,8 @@ export default function Profile() {
                                     routine={r}
                                     variant="discover"
                                     onShare={() => shareRoutine(r)}
-                                    onCopy={() => {
-                                      copyRoutine(r.id);
+                                    onCopy={async () => {
+                                      await copyRoutineDb(r.id);
                                       refreshRoutines();
                                       toast({
                                         title: "Rotina copiada",
