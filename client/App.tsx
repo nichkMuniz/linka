@@ -25,12 +25,8 @@ import WorkoutSession from "@/pages/WorkoutSession";
 import ExerciseDetails from "@/pages/ExerciseDetails";
 import NotFound from "@/pages/NotFound";
 import Placeholder from "@/pages/Placeholder";
-import { supabase } from './lib/supabase'
 
-useEffect(() => {
-  supabase.from('posts').select('*').then(console.log)
-}, [])
-
+import { supabase } from "@/lib/supabase";
 
 const queryClient = new QueryClient();
 
@@ -42,8 +38,18 @@ const App = () => {
 
     navigator.serviceWorker
       .register("/sw.js")
-      // eslint-disable-next-line no-console
       .catch((err) => console.warn("SW registration failed", err));
+  }, []);
+
+  // 🔥 Teste Supabase ao carregar o app
+  React.useEffect(() => {
+    const testConnection = async () => {
+      const { data, error } = await supabase.from("posts").select("*").limit(1);
+      if (error) console.error("Supabase error:", error.message);
+      else console.log("Supabase conectado ✅", data);
+    };
+
+    testConnection();
   }, []);
 
   return (
@@ -68,13 +74,13 @@ const App = () => {
                   element={<WorkoutSession />}
                 />
                 <Route path="/rotinas/:routineId" element={<RoutineDetails />} />
-                <Route path="/exercicios/:exerciseId" element={<ExerciseDetails />} />
+                <Route
+                  path="/exercicios/:exerciseId"
+                  element={<ExerciseDetails />}
+                />
 
                 {/* compatibility */}
-                <Route
-                  path="/criar"
-                  element={<Navigate to="/postar" replace />}
-                />
+                <Route path="/criar" element={<Navigate to="/postar" replace />} />
 
                 <Route
                   path="/login"
