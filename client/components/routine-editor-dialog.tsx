@@ -9,13 +9,8 @@ import type {
   WorkoutExercise,
   MuscleGroup,
 } from "@/lib/ritmofit";
-import {
-  createRoutine,
-  uid,
-  updateRoutine,
-  WORKOUT_EXERCISES,
-  WORKOUT_MUSCLE_GROUPS,
-} from "@/lib/ritmofit";
+import { uid, WORKOUT_EXERCISES, WORKOUT_MUSCLE_GROUPS } from "@/lib/ritmofit";
+import { createRoutineDb, updateRoutineDb } from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -347,6 +342,7 @@ export function RoutineEditorDialog({
   const [category, setCategory] = React.useState<GoalCategory>("Treino");
   const [visibility, setVisibility] = React.useState<GoalVisibility>("Público");
   const [items, setItems] = React.useState<ItemDraft[]>([]);
+  const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
     if (!open) return;
@@ -373,7 +369,7 @@ export function RoutineEditorDialog({
     setItems(nextItems.length ? nextItems : [{ id: uid("ri"), name: "" }]);
   }, [open, routine]);
 
-  const canSave = title.trim().length >= 2;
+  const canSave = title.trim().length >= 2 && !saving;
   const meta = itemsMeta(category);
   const datalistId = `ritmofit-${category}-items`;
 
@@ -565,7 +561,7 @@ export function RoutineEditorDialog({
               type="button"
               className="rounded-full"
               disabled={!canSave}
-              onClick={() => {
+              onClick={async () => {
                 const trimmed = title.trim();
 
                 const nextSteps = items
@@ -579,33 +575,40 @@ export function RoutineEditorDialog({
                   }))
                   .filter((i) => i.title.length > 0);
 
-                if (isEdit && routine) {
-                  updateRoutine(routine.id, (r) => ({
-                    ...r,
-                    title: trimmed,
-                    description: "",
-                    category,
-                    visibility,
-                    steps: nextSteps,
-                  }));
-                } else {
-                  createRoutine({
-                    title: trimmed,
-                    description: "",
-                    category,
-                    visibility,
-                    steps: nextSteps.map((s) => ({
-                      title: s.title,
-                      detail: "",
-                      exerciseId: s.exerciseId,
-                      muscleGroup: s.muscleGroup,
-                      imageUrl: s.imageUrl,
-                    })),
-                  });
-                }
+                setSaving(true);
+                try {
+                  if (isEdit && routine) {
+                    await updateRoutineDb(routine.id, (r) => ({
+                      ...r,
+                      title: trimmed,
+                      description: "",
+                      category,
+                      visibility,
+                      steps: nextSteps,
+                    }));
+                  } else {
+                    await createRoutineDb({
+                      ownerName: "",
+                      ownerHandle: "",
+                      title: trimmed,
+                      description: "",
+                      category,
+                      visibility,
+                      steps: nextSteps.map((s) => ({
+                        title: s.title,
+                        detail: "",
+                        exerciseId: s.exerciseId,
+                        muscleGroup: s.muscleGroup,
+                        imageUrl: s.imageUrl,
+                      })),
+                    } as any);
+                  }
 
-                onSaved();
-                onOpenChange(false);
+                  onSaved();
+                  onOpenChange(false);
+                } finally {
+                  setSaving(false);
+                }
               }}
             >
               Salvar rotina
