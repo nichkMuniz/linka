@@ -229,12 +229,12 @@ function PostCard({
 
   const attachedRoutineItems = React.useMemo(() => {
     return attachedRoutineIds.map((id, idx) => {
-      const routine = attachedRoutinesById.get(id) ?? null;
+      const routine = routinesById.get(id) ?? null;
       const fallbackTitle = attachedRoutineTitles[idx] ?? "";
       const title = (routine?.title ?? fallbackTitle).trim();
       return { id, routine, title };
     });
-  }, [attachedRoutineIds, attachedRoutineTitles, attachedRoutinesById]);
+  }, [attachedRoutineIds, attachedRoutineTitles, routinesById]);
 
   const visibleAttachedRoutines = React.useMemo(
     () => attachedRoutineItems.filter((it) => Boolean(it.title)),
