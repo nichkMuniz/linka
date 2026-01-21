@@ -552,19 +552,28 @@ function PostCard({
                   size="icon"
                   className="h-11 w-11 rounded-full"
                   aria-label="Enviar comentário"
-                  onClick={() => {
+                  onClick={async () => {
                     const text = commentDraft.trim();
-                    if (!text) return;
+                    if (!text || commentsBusy) return;
 
-                    const next = addComment(goal.id, { text });
-                    const updated = next.goals.find((g) => g.id === goal.id);
-                    if (updated) onChange(updated);
-                    setCommentDraft("");
+                    setCommentsBusy(true);
+                    try {
+                      await addGoalCommentDb(goal.id, text);
+                      const next = await listGoalComments(goal.id);
+                      setComments(next);
+                      setCommentDraft("");
+                      onChange({
+                        ...goal,
+                        commentsCount: (goal.commentsCount ?? 0) + 1,
+                      });
 
-                    toast({
-                      title: "Comentário publicado",
-                      description: "Seu comentário já aparece no post.",
-                    });
+                      toast({
+                        title: "Comentário publicado",
+                        description: "Seu comentário já aparece no post.",
+                      });
+                    } finally {
+                      setCommentsBusy(false);
+                    }
                   }}
                 >
                   <Send className="h-5 w-5" />
