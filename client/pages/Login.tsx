@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import * as React from "react";
+
 import { Link, useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -114,6 +116,12 @@ export default function Login() {
         title: "Conta criada",
         description: "Verifique seu email para confirmar a conta.",
       });
+    } catch {
+      toast({
+        title: "Falha de conexão",
+        description:
+          "Não foi possível conectar ao Supabase. Confira a URL e tente novamente.",
+      });
     } finally {
       setBusy(false);
     }
@@ -186,6 +194,12 @@ export default function Login() {
                         return;
                       }
                       toast({ title: "Você saiu" });
+                    } catch {
+                      toast({
+                        title: "Falha de conexão",
+                        description:
+                          "Não foi possível conectar ao Supabase. Confira a URL e tente novamente.",
+                      });
                     } finally {
                       setBusy(false);
                     }

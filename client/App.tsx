@@ -27,7 +27,6 @@ import NotFound from "@/pages/NotFound";
 import Login from "@/pages/Login";
 import Placeholder from "@/pages/Placeholder";
 
-import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 const queryClient = new QueryClient();
 
@@ -42,31 +41,6 @@ const App = () => {
       .catch((err) => console.warn("SW registration failed", err));
   }, []);
 
-  // 🔥 Teste Supabase ao carregar o app (não quebra o app se não estiver configurado)
-  React.useEffect(() => {
-    if (!hasSupabaseConfig || !supabase) {
-      console.warn(
-        "Supabase não configurado: defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para habilitar.",
-      );
-      return;
-    }
-
-    const testConnection = async () => {
-      try {
-        const { data, error } = await supabase
-          .from("posts")
-          .select("*")
-          .limit(1);
-
-        if (error) console.error("Supabase error:", error.message);
-        else console.log("Supabase conectado ✅", data);
-      } catch (err) {
-        console.error("Supabase error:", err);
-      }
-    };
-
-    testConnection();
-  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import * as React from "react";
+
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -84,6 +86,12 @@ export default function NewPost() {
       setFile(null);
       setCaption("");
       navigate("/", { replace: true });
+    } catch {
+      toast({
+        title: "Falha ao publicar",
+        description:
+          "Não foi possível conectar ao Supabase. Confira a URL e tente novamente.",
+      });
     } finally {
       setBusy(false);
     }

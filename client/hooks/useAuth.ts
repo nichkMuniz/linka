@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { useEffect, useState } from "react";
+
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 export function useAuth() {
@@ -19,6 +21,9 @@ export function useAuth() {
       .getUser()
       .then(({ data }) => {
         setUser(data.user);
+      })
+      .catch(() => {
+        setUser(null);
       })
       .finally(() => {
         setLoading(false);
