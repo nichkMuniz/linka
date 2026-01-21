@@ -638,7 +638,7 @@ function PostCard({
 
               <div className="flex shrink-0 items-center gap-1">
                 {latestAttachedRoutine.routine &&
-                latestAttachedRoutine.routine.ownerHandle !== "@voce" ? (
+                latestAttachedRoutine.routine.ownerHandle !== myHandle ? (
                   <Button
                     type="button"
                     size="icon"
@@ -701,7 +701,7 @@ function PostCard({
                         </div>
 
                         <div className="flex shrink-0 items-center gap-1">
-                          {it.routine && it.routine.ownerHandle !== "@voce" ? (
+                          {it.routine && it.routine.ownerHandle !== myHandle ? (
                             <Button
                               type="button"
                               size="icon"
