@@ -24,6 +24,7 @@ import RoutineDetails from "@/pages/RoutineDetails";
 import WorkoutSession from "@/pages/WorkoutSession";
 import ExerciseDetails from "@/pages/ExerciseDetails";
 import NotFound from "@/pages/NotFound";
+import Login from "@/pages/Login";
 import Placeholder from "@/pages/Placeholder";
 
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
@@ -103,15 +104,7 @@ const App = () => {
                   element={<Navigate to="/postar" replace />}
                 />
 
-                <Route
-                  path="/login"
-                  element={
-                    <Placeholder
-                      title="Login / Cadastro"
-                      subtitle="No MVP, vamos conectar autenticação (ex: Supabase) quando você quiser."
-                    />
-                  }
-                />
+                <Route path="/login" element={<Login />} />
 
                 <Route path="*" element={<NotFound />} />
               </Route>
