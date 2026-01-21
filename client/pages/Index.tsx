@@ -635,8 +635,8 @@ function PostCard({
                     variant="ghost"
                     className="h-9 w-9 rounded-full"
                     aria-label="Copiar rotina"
-                    onClick={() => {
-                      copyRoutine(latestAttachedRoutine.routine!.id);
+                    onClick={async () => {
+                      await copyRoutineDb(latestAttachedRoutine.routine!.id);
                       toast({
                         title: "Rotina copiada",
                         description: "Agora ela aparece em ‘Minhas’.",
