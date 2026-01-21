@@ -899,8 +899,8 @@ export default function Profile() {
                                       setEditingRoutine(r);
                                       setRoutineEditorOpen(true);
                                     }}
-                                    onDelete={() => {
-                                      deleteRoutine(r.id);
+                                    onDelete={async () => {
+                                      await deleteRoutineDb(r.id);
                                       refreshRoutines();
                                       toast({
                                         title: "Rotina excluída",
