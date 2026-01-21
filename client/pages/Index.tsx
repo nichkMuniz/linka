@@ -29,6 +29,7 @@ import {
   addGoalCommentDb,
   blockUserDb,
   copyRoutineDb,
+  getMyProfileDb,
   getRitmoFitStateDb,
   listGoalComments,
   toggleGoalIncentiveDb,
@@ -190,15 +191,17 @@ function PostCard({
   onChange,
   onBlockUser,
   routinesById,
+  myHandle,
 }: {
   goal: Goal;
   onChange: (g: Goal) => void;
   onBlockUser: (ownerHandle: string) => void;
   routinesById: Map<string, Routine>;
+  myHandle: string;
 }) {
   const pct = goalProgressPercent(goal);
   const done = goal.completedDays >= goal.durationDays;
-  const isMine = goal.ownerHandle === "@voce" || goal.ownerName === "Você";
+  const isMine = goal.ownerHandle === myHandle;
 
   const imageUrls = React.useMemo(() => {
     const raw = (goal as any).imageDataUrls;
@@ -812,14 +815,19 @@ export default function Index() {
   const [goals, setGoals] = React.useState<Goal[]>([]);
   const [blockedHandles, setBlockedHandles] = React.useState<string[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
+  const [myHandle, setMyHandle] = React.useState("@voce");
 
   React.useEffect(() => {
     let canceled = false;
 
     (async () => {
-      const state = await getRitmoFitStateDb();
+      const [state, profile] = await Promise.all([
+        getRitmoFitStateDb(),
+        getMyProfileDb(),
+      ]);
       if (canceled) return;
 
+      if (profile?.handle) setMyHandle(profile.handle);
       setBlockedHandles(state.blockedHandles);
       setRoutines(state.routines);
       setGoals(state.goals);
@@ -859,6 +867,7 @@ export default function Index() {
               goal={goal}
               onChange={updateOne}
               routinesById={routinesById}
+              myHandle={myHandle}
               onBlockUser={(handle) => {
                 setBlockedHandles((prev) =>
                   prev.includes(handle) ? prev : [...prev, handle],
