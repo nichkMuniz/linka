@@ -132,139 +132,146 @@ export default function Rank() {
   } | null>(null);
 
   React.useEffect(() => {
-    const state = getRitmoFitState();
+    let canceled = false;
 
-    const byOwner = new Map<string, { name: string; goals: Goal[] }>();
-    for (const g of state.goals) {
-      if (state.blockedHandles.includes(g.ownerHandle)) continue;
-      const prev = byOwner.get(g.ownerHandle);
-      if (!prev) {
-        byOwner.set(g.ownerHandle, { name: g.ownerName, goals: [g] });
-      } else {
-        prev.goals.push(g);
+    (async () => {
+      const [state, profile] = await Promise.all([
+        getRitmoFitStateDb(),
+        getMyProfileDb(),
+      ]);
+
+      if (canceled) return;
+
+      setRitmo(state as any);
+
+      const myHandle = profile?.handle ?? "@voce";
+      const myName = profile?.displayName ?? "Você";
+      setMeHandle(myHandle);
+
+      const byOwner = new Map<string, { name: string; goals: Goal[] }>();
+      for (const g of state.goals) {
+        if (state.blockedHandles.includes(g.ownerHandle)) continue;
+        const prev = byOwner.get(g.ownerHandle);
+        if (!prev) {
+          byOwner.set(g.ownerHandle, { name: g.ownerName, goals: [g] });
+        } else {
+          prev.goals.push(g);
+        }
       }
-    }
 
-    const me = state.goals.find(
-      (g) => g.ownerHandle === "@voce" || g.ownerName === "Você",
-    );
-    if (me?.ownerHandle) setMeHandle(me.ownerHandle);
+      const all: RankEntry[] = Array.from(byOwner.entries()).map(
+        ([handle, v]) => {
+          const days = daysForGoals(v.goals);
+          const posts = v.goals.length;
 
-    const all: RankEntry[] = Array.from(byOwner.entries()).map(
-      ([handle, v]) => {
-        const days = daysForGoals(v.goals);
-        const posts = v.goals.length;
+          const routines = state.routines.filter((r) => r.ownerHandle === handle);
+          const routinesCreated = routines.filter((r) => !r.copiedFromRoutineId).length;
+          const routinesCopied = routines.filter((r) => Boolean(r.copiedFromRoutineId)).length;
 
-        const routines = state.routines.filter((r) => r.ownerHandle === handle);
-        const routinesCreated = routines.filter(
-          (r) => !r.copiedFromRoutineId,
-        ).length;
-        const routinesCopied = routines.filter((r) =>
-          Boolean(r.copiedFromRoutineId),
-        ).length;
+          const commentsWritten = state.goals.reduce((acc, g) => {
+            const count = (g.comments ?? []).filter((c) => c.authorHandle === handle).length;
+            return acc + count;
+          }, 0);
 
-        const commentsWritten = state.goals.reduce((acc, g) => {
-          const count = (g.comments ?? []).filter(
-            (c) => c.authorHandle === handle,
-          ).length;
-          return acc + count;
-        }, 0);
+          const incentivesReceived = v.goals.reduce((acc, g) => {
+            const inc = g.incentives;
+            const total = (inc?.apoio ?? 0) + (inc?.continua ?? 0) + (inc?.orgulho ?? 0);
+            return acc + total;
+          }, 0);
 
-        const incentivesReceived = v.goals.reduce((acc, g) => {
-          const inc = g.incentives;
-          const total =
-            (inc?.apoio ?? 0) + (inc?.continua ?? 0) + (inc?.orgulho ?? 0);
-          return acc + total;
-        }, 0);
+          // MVP: só conseguimos medir "incentivos dados" para o usuário atual.
+          const incentivesGiven =
+            handle === myHandle
+              ? state.goals.reduce((acc, g) => {
+                  const mine = g.myIncentives ?? {};
+                  return acc + (Object.values(mine).filter(Boolean).length ?? 0);
+                }, 0)
+              : 0;
 
-        // MVP: só conseguimos medir "incentivos dados" para o usuário atual.
-        const incentivesGiven =
-          handle === "@voce"
-            ? state.goals.reduce((acc, g) => {
-                const mine = g.myIncentives ?? {};
-                return acc + (Object.values(mine).filter(Boolean).length ?? 0);
-              }, 0)
-            : 0;
+          const activityDays = [
+            ...v.goals.map((g) => dayKeyFromIso(g.createdAt)),
+            ...routines.map((r) => dayKeyFromIso(r.createdAt)),
+            ...state.goals
+              .flatMap((g) => g.comments ?? [])
+              .filter((c) => c.authorHandle === handle)
+              .map((c) => dayKeyFromIso(c.createdAt)),
+          ];
 
-        const activityDays = [
-          ...v.goals.map((g) => dayKeyFromIso(g.createdAt)),
-          ...routines.map((r) => dayKeyFromIso(r.createdAt)),
-          ...state.goals
-            .flatMap((g) => g.comments ?? [])
-            .filter((c) => c.authorHandle === handle)
-            .map((c) => dayKeyFromIso(c.createdAt)),
-        ];
+          const streakDays = streakFromDayKeys(activityDays);
 
-        const streakDays = streakFromDayKeys(activityDays);
+          const xp =
+            days * XP_PER_DAY +
+            posts * XP_PER_POST +
+            routinesCreated * XP_PER_ROUTINE_CREATED +
+            routinesCopied * XP_PER_ROUTINE_COPIED +
+            commentsWritten * XP_PER_COMMENT +
+            incentivesGiven * XP_PER_INCENTIVE_GIVEN +
+            incentivesReceived * XP_PER_INCENTIVE_RECEIVED;
 
-        const xp =
-          days * XP_PER_DAY +
-          posts * XP_PER_POST +
-          routinesCreated * XP_PER_ROUTINE_CREATED +
-          routinesCopied * XP_PER_ROUTINE_COPIED +
-          commentsWritten * XP_PER_COMMENT +
-          incentivesGiven * XP_PER_INCENTIVE_GIVEN +
-          incentivesReceived * XP_PER_INCENTIVE_RECEIVED;
+          return {
+            handle,
+            name: v.name,
+            goals: posts,
+            days,
+            routines: routines.length,
+            commentsWritten,
+            incentivesReceived,
+            incentivesGiven,
+            streakDays,
+            xp,
+          };
+        },
+      );
 
-        return {
-          handle,
-          name: v.name,
-          goals: posts,
-          days,
-          routines: routines.length,
-          commentsWritten,
-          incentivesReceived,
-          incentivesGiven,
-          streakDays,
-          xp,
-        };
-      },
-    );
+      const sorted = all.sort((a, b) => b.xp - a.xp);
 
-    const sorted = all.sort((a, b) => b.xp - a.xp);
+      setEntries(
+        sorted.length
+          ? sorted
+          : [
+              {
+                name: myName,
+                handle: myHandle,
+                xp: 0,
+                days: 0,
+                goals: 0,
+                routines: 0,
+                commentsWritten: 0,
+                incentivesReceived: 0,
+                incentivesGiven: 0,
+                streakDays: 0,
+              },
+              {
+                name: "Ana",
+                handle: "@ana.fit",
+                xp: 0,
+                days: 0,
+                goals: 0,
+                routines: 0,
+                commentsWritten: 0,
+                incentivesReceived: 0,
+                incentivesGiven: 0,
+                streakDays: 0,
+              },
+              {
+                name: "Bruno",
+                handle: "@bruno.nutri",
+                xp: 0,
+                days: 0,
+                goals: 0,
+                routines: 0,
+                commentsWritten: 0,
+                incentivesReceived: 0,
+                incentivesGiven: 0,
+                streakDays: 0,
+              },
+            ],
+      );
+    })();
 
-    setEntries(
-      sorted.length
-        ? sorted
-        : [
-            {
-              name: "Você",
-              handle: "@voce",
-              xp: 0,
-              days: 0,
-              goals: 0,
-              routines: 0,
-              commentsWritten: 0,
-              incentivesReceived: 0,
-              incentivesGiven: 0,
-              streakDays: 0,
-            },
-            {
-              name: "Ana",
-              handle: "@ana.fit",
-              xp: 0,
-              days: 0,
-              goals: 0,
-              routines: 0,
-              commentsWritten: 0,
-              incentivesReceived: 0,
-              incentivesGiven: 0,
-              streakDays: 0,
-            },
-            {
-              name: "Bruno",
-              handle: "@bruno.nutri",
-              xp: 0,
-              days: 0,
-              goals: 0,
-              routines: 0,
-              commentsWritten: 0,
-              incentivesReceived: 0,
-              incentivesGiven: 0,
-              streakDays: 0,
-            },
-          ],
-    );
+    return () => {
+      canceled = true;
+    };
   }, []);
 
   const missions = React.useMemo(() => {
