@@ -88,14 +88,20 @@ const App = () => {
                   path="/rotinas/:routineId/iniciar"
                   element={<WorkoutSession />}
                 />
-                <Route path="/rotinas/:routineId" element={<RoutineDetails />} />
+                <Route
+                  path="/rotinas/:routineId"
+                  element={<RoutineDetails />}
+                />
                 <Route
                   path="/exercicios/:exerciseId"
                   element={<ExerciseDetails />}
                 />
 
                 {/* compatibility */}
-                <Route path="/criar" element={<Navigate to="/postar" replace />} />
+                <Route
+                  path="/criar"
+                  element={<Navigate to="/postar" replace />}
+                />
 
                 <Route
                   path="/login"
