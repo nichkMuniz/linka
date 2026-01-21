@@ -17,20 +17,16 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 
+import { Goal, dayLabel, goalProgressPercent, Routine, timeAgo } from "@/lib/ritmofit";
 import {
-  addComment,
-  blockUser,
-  copyRoutine,
-  Goal,
-  dayLabel,
-  getRitmoFitState,
-  getRoutines,
-  goalProgressPercent,
-  isBlocked,
-  Routine,
-  timeAgo,
-  updateGoal,
-} from "@/lib/ritmofit";
+  addGoalCommentDb,
+  blockUserDb,
+  copyRoutineDb,
+  getRitmoFitStateDb,
+  listGoalComments,
+  toggleGoalIncentiveDb,
+  updateGoalDb,
+} from "@/lib/ritmofit-db";
 import { StoriesBar } from "@/components/stories-bar";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
