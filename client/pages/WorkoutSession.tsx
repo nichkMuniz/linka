@@ -17,15 +17,14 @@ import type {
   Routine,
   WorkoutExercise,
 } from "@/lib/ritmofit";
+import { uid, WORKOUT_EXERCISES, WORKOUT_MUSCLE_GROUPS } from "@/lib/ritmofit";
 import {
-  addStoryItem,
-  getRitmoFitState,
-  getRoutines,
-  uid,
-  updateGoal,
-  WORKOUT_EXERCISES,
-  WORKOUT_MUSCLE_GROUPS,
-} from "@/lib/ritmofit";
+  addStoryItemDb,
+  getMyProfileDb,
+  getRitmoFitStateDb,
+  getRoutinesDb,
+  updateGoalDb,
+} from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
