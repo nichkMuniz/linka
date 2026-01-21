@@ -125,6 +125,11 @@ export default function Rank() {
   const [entries, setEntries] = React.useState<RankEntry[]>([]);
   const [meHandle, setMeHandle] = React.useState("@voce");
   const [missionsOpen, setMissionsOpen] = React.useState(false);
+  const [ritmo, setRitmo] = React.useState<{
+    goals: Goal[];
+    routines: Routine[];
+    blockedHandles: string[];
+  } | null>(null);
 
   React.useEffect(() => {
     const state = getRitmoFitState();
