@@ -471,21 +471,41 @@ export default function Profile() {
     }
   }, []);
 
+  const [myName, setMyName] = React.useState("Você");
+  const [myHandle, setMyHandle] = React.useState("@voce");
+  const [myAvatarUrl, setMyAvatarUrl] = React.useState("");
+
   React.useEffect(() => {
-    const state = getRitmoFitState();
-    setPosts(
-      state.goals.filter(
-        (g) => g.ownerHandle === "@voce" || g.ownerName === "Você",
-      ),
-    );
-    setRoutines(state.routines);
+    let canceled = false;
+
+    (async () => {
+      const [state, dbProfile] = await Promise.all([
+        getRitmoFitStateDb(),
+        getMyProfileDb(),
+      ]);
+      if (canceled) return;
+
+      const handle = dbProfile?.handle ?? "@voce";
+      const name = dbProfile?.displayName ?? "Você";
+
+      setMyHandle(handle);
+      setMyName(name);
+      setMyAvatarUrl(dbProfile?.avatarUrl ?? "");
+
+      setPosts(state.goals.filter((g) => g.ownerHandle === handle));
+      setRoutines(state.routines);
+    })();
+
+    return () => {
+      canceled = true;
+    };
   }, []);
 
   const profile = {
-    name: "Você",
-    handle: "@voce",
+    name: myName,
+    handle: myHandle,
     bio: "Não sou influencer fitness. Sou alguém que cansou de desistir e criou um sistema.",
-    avatarUrl: "",
+    avatarUrl: myAvatarUrl,
   };
 
   const stats = {
