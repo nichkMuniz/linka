@@ -311,7 +311,7 @@ export default function Rank() {
     const activeCount = tasks.filter((t) => !t.done).length;
 
     return { me, tasks, activeCount };
-  }, [entries, meHandle]);
+  }, [entries, meHandle, ritmo]);
 
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-4">
