@@ -18,18 +18,16 @@ import {
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { dayLabel, Goal, Routine, goalProgressPercent } from "@/lib/ritmofit";
 import {
-  copyRoutine,
-  dayLabel,
-  deleteGoal,
-  deleteRoutine,
-  getRitmoFitState,
-  getRoutines,
-  Goal,
-  Routine,
-  goalProgressPercent,
-  updateGoal,
-} from "@/lib/ritmofit";
+  copyRoutineDb,
+  deleteGoalDb,
+  deleteRoutineDb,
+  getMyProfileDb,
+  getRitmoFitStateDb,
+  getRoutinesDb,
+  updateGoalDb,
+} from "@/lib/ritmofit-db";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { CompleteTodayDialog } from "@/components/complete-today-dialog";
