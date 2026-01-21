@@ -190,6 +190,8 @@ export default function WorkoutSession() {
 
   const [metaGoalId, setMetaGoalId] = React.useState<string>("");
   const [customCaption, setCustomCaption] = React.useState<string>("");
+  const [myHandle, setMyHandle] = React.useState("@voce");
+  const [myGoals, setMyGoals] = React.useState<Goal[]>([]);
 
   const [addExerciseOpen, setAddExerciseOpen] = React.useState(false);
   const [addQuery, setAddQuery] = React.useState("");
