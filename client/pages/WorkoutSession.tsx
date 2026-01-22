@@ -187,6 +187,7 @@ export default function WorkoutSession() {
   const [summaryOpen, setSummaryOpen] = React.useState(false);
   const [postToFeed, setPostToFeed] = React.useState(true);
   const [postToStories, setPostToStories] = React.useState(true);
+  const [posting, setPosting] = React.useState(false);
 
   const [metaGoalId, setMetaGoalId] = React.useState<string>("");
   const [customCaption, setCustomCaption] = React.useState<string>("");
@@ -1405,106 +1406,140 @@ export default function WorkoutSession() {
               type="button"
               className="rounded-full"
               onClick={() => {
-                if (!postToFeed && !postToStories) {
-                  toast({
-                    title: "Selecione onde postar",
-                    description: "Marque Feed e/ou Stories para publicar.",
-                  });
-                  return;
-                }
+                if (posting) return;
 
-                if (!metaGoalId) {
-                  toast({
-                    title: "Selecione uma meta",
-                    description: "Escolha qual meta vai receber este treino.",
-                    variant: "destructive",
-                  });
-                  return;
-                }
+                void (async () => {
+                  if (!postToFeed && !postToStories) {
+                    toast({
+                      title: "Selecione onde postar",
+                      description: "Marque Feed e/ou Stories para publicar.",
+                    });
+                    return;
+                  }
 
-                const postImageDataUrl = summaryImageDataUrl || coverImage;
-                const caption = customCaption.trim() || `✅ ${routine.title}`;
+                  if (!metaGoalId) {
+                    toast({
+                      title: "Selecione uma meta",
+                      description: "Escolha qual meta vai receber este treino.",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
 
-                if (postToFeed) {
-                  updateGoal(metaGoalId, (g) => {
-                    const nextCompleted = Math.min(
-                      Math.max(0, (g.completedDays ?? 0) + 1),
-                      g.durationDays,
-                    );
+                  setPosting(true);
 
-                    const rawImages = (g as any).imageDataUrls;
-                    const prevImages = Array.isArray(rawImages)
-                      ? rawImages
-                          .map((v: unknown) => String(v).trim())
-                          .filter(Boolean)
-                      : [(g.imageDataUrl ?? "").trim()].filter(Boolean);
-                    const nextImages = prevImages.includes(postImageDataUrl)
-                      ? prevImages
-                      : [...prevImages, postImageDataUrl];
+                  try {
+                    const postImageDataUrl = (summaryImageDataUrl || coverImage)
+                      .trim()
+                      .slice(0, 2_000_000);
+                    const caption = customCaption.trim() || `✅ ${routine.title}`;
 
-                    const rawIds = (g as any).attachedRoutineIds;
-                    const prevIds = Array.isArray(rawIds)
-                      ? rawIds
-                          .map((v: unknown) => String(v).trim())
-                          .filter(Boolean)
-                      : [(g.attachedRoutineId ?? "").trim()].filter(Boolean);
+                    const selectedGoal =
+                      myGoals.find((g) => g.id === metaGoalId) ??
+                      (await getRitmoFitStateDb()).goals.find(
+                        (g) => g.id === metaGoalId,
+                      ) ??
+                      null;
 
-                    const rawTitles = (g as any).attachedRoutineTitles;
-                    const prevTitles = Array.isArray(rawTitles)
-                      ? rawTitles
-                          .map((v: unknown) => String(v).trim())
-                          .filter(Boolean)
-                      : [(g.attachedRoutineTitle ?? "").trim()].filter(Boolean);
+                    if (postToFeed) {
+                      if (!selectedGoal) {
+                        toast({
+                          title: "Meta não encontrada",
+                          description:
+                            "Não foi possível localizar a meta para atualizar.",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
 
-                    const idToTitle = new Map<string, string>();
-                    prevIds.forEach((id, idx) => {
-                      const t = prevTitles[idx];
-                      if (id && t) idToTitle.set(id, t);
+                      const nextCompleted = Math.min(
+                        Math.max(0, (selectedGoal.completedDays ?? 0) + 1),
+                        selectedGoal.durationDays,
+                      );
+
+                      const prevImagesRaw = (selectedGoal as any).imageDataUrls;
+                      const prevImages = Array.isArray(prevImagesRaw)
+                        ? prevImagesRaw
+                            .map((v: unknown) => String(v).trim())
+                            .filter(Boolean)
+                        : [(selectedGoal.imageDataUrl ?? "").trim()].filter(Boolean);
+
+                      const nextImages = postImageDataUrl
+                        ? prevImages.includes(postImageDataUrl)
+                          ? prevImages
+                          : [...prevImages, postImageDataUrl]
+                        : prevImages;
+
+                      const prevIdsRaw = (selectedGoal as any).attachedRoutineIds;
+                      const prevIds = Array.isArray(prevIdsRaw)
+                        ? prevIdsRaw
+                            .map((v: unknown) => String(v).trim())
+                            .filter(Boolean)
+                        : [(selectedGoal.attachedRoutineId ?? "").trim()].filter(
+                            Boolean,
+                          );
+
+                      const prevTitlesRaw = (selectedGoal as any).attachedRoutineTitles;
+                      const prevTitles = Array.isArray(prevTitlesRaw)
+                        ? prevTitlesRaw
+                            .map((v: unknown) => String(v).trim())
+                            .filter(Boolean)
+                        : [(selectedGoal.attachedRoutineTitle ?? "").trim()].filter(
+                            Boolean,
+                          );
+
+                      const idToTitle = new Map<string, string>();
+                      prevIds.forEach((id, idx) => {
+                        const t = prevTitles[idx];
+                        if (id && t) idToTitle.set(id, t);
+                      });
+
+                      const nextIds = prevIds.includes(routine.id)
+                        ? prevIds
+                        : [...prevIds, routine.id];
+                      idToTitle.set(routine.id, routine.title);
+                      const nextTitles = nextIds.map((id) => idToTitle.get(id) ?? "");
+
+                      await updateGoalDb(metaGoalId, {
+                        caption,
+                        imageDataUrl: postImageDataUrl || undefined,
+                        imageDataUrls: nextImages.length ? nextImages : undefined,
+                        attachedRoutineIds: nextIds.length ? nextIds : undefined,
+                        attachedRoutineTitles: nextTitles.length
+                          ? nextTitles
+                          : undefined,
+                        completedDays: nextCompleted,
+                        myProgressToday: dayKey(),
+                      } as Partial<Goal>);
+                    }
+
+                    if (postToStories) {
+                      await addStoryItemDb({
+                        imageDataUrl: postImageDataUrl || undefined,
+                        text: caption,
+                      });
+                    }
+
+                    toast({
+                      title: "Publicado!",
+                      description: "Seu resumo já foi enviado.",
                     });
 
-                    const nextIds = prevIds.includes(routine.id)
-                      ? prevIds
-                      : [...prevIds, routine.id];
-                    idToTitle.set(routine.id, routine.title);
-                    const nextTitles = nextIds.map(
-                      (id) => idToTitle.get(id) ?? "",
-                    );
-
-                    const legacyAttachedRoutineId = nextIds[0] || undefined;
-                    const legacyAttachedRoutineTitle =
-                      nextTitles[0] || undefined;
-
-                    return {
-                      ...g,
-                      caption,
-                      imageDataUrl: postImageDataUrl,
-                      imageDataUrls: nextImages.length ? nextImages : undefined,
-                      attachedRoutineIds: nextIds.length ? nextIds : undefined,
-                      attachedRoutineTitles: nextTitles.length
-                        ? nextTitles
-                        : undefined,
-                      attachedRoutineId: legacyAttachedRoutineId,
-                      attachedRoutineTitle: legacyAttachedRoutineTitle,
-                      completedDays: nextCompleted,
-                      myProgressToday: dayKey(),
-                    };
-                  });
-                }
-
-                if (postToStories) {
-                  addStoryItem({
-                    imageDataUrl: postImageDataUrl,
-                    text: caption,
-                  });
-                }
-
-                toast({
-                  title: "Publicado!",
-                  description: "Seu resumo já foi enviado.",
-                });
-
-                setSummaryOpen(false);
-                navigate("/");
+                    setSummaryOpen(false);
+                    navigate("/");
+                  } catch (err) {
+                    toast({
+                      title: "Erro ao publicar",
+                      description:
+                        err instanceof Error
+                          ? err.message
+                          : "Tente novamente em instantes.",
+                      variant: "destructive",
+                    });
+                  } finally {
+                    setPosting(false);
+                  }
+                })();
               }}
             >
               Postar
