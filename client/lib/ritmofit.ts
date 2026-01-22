@@ -88,7 +88,7 @@ export type Routine = {
   copiedFromRoutineId?: string;
 };
 
-type StorageShape = {
+export type StorageShape = {
   goals: Goal[];
   blockedHandles: string[];
   stories: StoryGroup[];
