@@ -906,3 +906,72 @@ export async function listConversationsDb() {
     })) ?? []
   );
 }
+
+export async function listFollowersDb() {
+  const client = sb();
+
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+
+  if (!user) return [];
+
+  const { data, error } = await client
+    .from("followers")
+    .select("id, users:user_id(name, avatar_url)")
+    .eq("user_id", user.id);
+
+  if (error) throw error;
+
+  return data ?? [];
+}
+
+export async function listFollowingDb() {
+  const client = sb();
+
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+
+  if (!user) return [];
+
+  const { data, error } = await client
+    .from("following")
+    .select("id, users:user_id(name, avatar_url)")
+    .eq("user_id", user.id);
+
+  if (error) throw error;
+
+  return data ?? [];
+}
+
+export async function listRankingDb() {
+  const client = sb();
+
+  const { data, error } = await client
+    .from("ranking")
+    .select(
+      `
+      id,
+      points,
+      level,
+      users:user_id (
+        name
+      )
+    `,
+    )
+    .order("points", { ascending: false })
+    .limit(50);
+
+  if (error) throw error;
+
+  return (
+    data?.map((r: any) => ({
+      id: r.id,
+      name: r.users?.name ?? "Usuário",
+      level: r.level,
+      points: r.points,
+    })) ?? []
+  );
+}
+
