@@ -1,9 +1,10 @@
-import { supabase } from "@/lib/supabase";
+import { getUserSafe, supabase } from "@/lib/supabase";
 
 export const getConversations = async () => {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  const user = await getUserSafe();
+  if (!user) throw new Error("Faça login para ver mensagens");
 
   const { data, error } = await supabase
     .from("messages")
@@ -14,7 +15,7 @@ export const getConversations = async () => {
       receiver:receiver_id (id, username, avatar_url)
     `,
     )
-    .or(`sender_id.eq.${user?.id},receiver_id.eq.${user?.id}`)
+    .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -22,12 +23,13 @@ export const getConversations = async () => {
 };
 
 export const sendMessage = async (toUserId: string, text: string) => {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  const user = await getUserSafe();
+  if (!user) throw new Error("Faça login para enviar mensagens");
 
   const { error } = await supabase.from("messages").insert({
-    sender_id: user?.id,
+    sender_id: user.id,
     receiver_id: toUserId,
     content: text,
   });
