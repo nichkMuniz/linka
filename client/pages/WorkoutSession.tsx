@@ -603,11 +603,6 @@ export default function WorkoutSession() {
                   totalVolume,
                 )} kg · Calorias: ~${estimatedCalories} kcal`;
 
-                const state = getRitmoFitState();
-                const myGoals = state.goals.filter(
-                  (g) => g.ownerHandle === "@voce" || g.ownerName === "Você",
-                );
-
                 setMetaGoalId(myGoals[0]?.id ?? "");
                 setCustomCaption(summary);
                 setSummaryOpen(true);
@@ -1255,36 +1250,25 @@ export default function WorkoutSession() {
                 Escolha a meta que vai receber esse treino.
               </div>
 
-              {(() => {
-                const state = getRitmoFitState();
-                const myGoals = state.goals.filter(
-                  (g) => g.ownerHandle === "@voce" || g.ownerName === "Você",
-                );
-
-                if (!myGoals.length) {
-                  return (
-                    <div className="rounded-2xl border border-border/60 bg-background p-3 text-sm text-muted-foreground">
-                      Você ainda não tem metas criadas. Faça um post primeiro
-                      para criar uma meta.
-                    </div>
-                  );
-                }
-
-                return (
-                  <Select value={metaGoalId} onValueChange={setMetaGoalId}>
-                    <SelectTrigger className="rounded-full">
-                      <SelectValue placeholder="Selecione uma meta" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {myGoals.map((g: Goal) => (
-                        <SelectItem key={g.id} value={g.id}>
-                          {g.category} · {g.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                );
-              })()}
+              {myGoals.length ? (
+                <Select value={metaGoalId} onValueChange={setMetaGoalId}>
+                  <SelectTrigger className="rounded-full">
+                    <SelectValue placeholder="Selecione uma meta" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {myGoals.map((g: Goal) => (
+                      <SelectItem key={g.id} value={g.id}>
+                        {g.category} · {g.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="rounded-2xl border border-border/60 bg-background p-3 text-sm text-muted-foreground">
+                  Você ainda não tem metas criadas. Faça um post primeiro para
+                  criar uma meta.
+                </div>
+              )}
             </div>
 
             <div className="grid gap-2 rounded-2xl border border-border/60 bg-muted/20 p-4">
