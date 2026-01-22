@@ -843,135 +843,176 @@ export async function unblockUserDb(ownerHandle: string) {
   if (error) unblockUserLocal(ownerHandle);
 }
 
-export async function listReelsDb() {
-  const client = sb();
+export type ReelSummary = {
+  id: string;
+  description: string;
+  video: string;
+  /** Username without '@' (the UI adds it). */
+  author: string;
+};
 
-  const { data, error } = await client
+export async function listReelsDb(): Promise<ReelSummary[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
     .from("reels")
-    .select(
-      `
-      id,
-      description,
-      video,
-      users:user_id (
-        name
-      )
-    `,
-    )
+    .select("*")
+    .order("created_at", { ascending: false })
     .order("id", { ascending: false });
 
-  if (error) throw error;
+  if (error) return [];
 
-  return (
-    data?.map((r: any) => ({
-      id: r.id,
-      description: r.description,
-      video: r.video,
-      author: r.users?.name ?? "user",
-    })) ?? []
-  );
+  return (data ?? [])
+    .map((row: any) => {
+      const rawAuthor = String(
+        row.author ?? row.owner_name ?? row.owner_handle ?? row.handle ?? "user",
+      );
+
+      return {
+        id: String(row.id),
+        description: String(row.description ?? ""),
+        video: String(row.video ?? row.video_url ?? row.url ?? ""),
+        author: rawAuthor.replace(/^@/, ""),
+      } satisfies ReelSummary;
+    })
+    .filter((r) => Boolean(r.video));
 }
 
-export async function listConversationsDb() {
-  const client = sb();
+export type ConversationSummary = {
+  id: string;
+  name: string;
+  lastMessage: string;
+};
 
-  const {
-    data: { user },
-  } = await client.auth.getUser();
+export async function listConversationsDb(): Promise<ConversationSummary[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
 
-  if (!user) return [];
+  const viewer = await getViewer();
+  if (!viewer) return [];
 
-  const { data, error } = await client
+  // Schema-agnostic: try to read from a "conversations" table first.
+  const convAttempt = await supabase
+    .from("conversations")
+    .select("*")
+    .or(`user_id.eq.${viewer.id},owner_id.eq.${viewer.id}`)
+    .order("updated_at", { ascending: false })
+    .limit(50);
+
+  if (!convAttempt.error && Array.isArray(convAttempt.data)) {
+    return (convAttempt.data ?? []).map((row: any) =>
+      ({
+        id: String(row.id),
+        name: String(row.name ?? row.title ?? row.other_name ?? "Conversa"),
+        lastMessage: String(row.last_message ?? row.lastMessage ?? ""),
+      }) satisfies ConversationSummary,
+    );
+  }
+
+  // Fallback: show latest messages as a simple conversation list.
+  const { data, error } = await supabase
     .from("messages")
-    .select(
-      `
-      id,
-      text,
-      updated_at,
-      users:user_id (
-        name
-      )
-    `,
+    .select("*")
+    .or(
+      `sender_id.eq.${viewer.id},recipient_id.eq.${viewer.id},user_id.eq.${viewer.id}`,
     )
-    .eq("user_id", user.id)
-    .order("updated_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(50);
 
-  if (error) throw error;
+  if (error) return [];
 
-  return (
-    data?.map((m: any) => ({
-      id: m.id,
-      name: m.users?.name ?? "Usuário",
-      lastMessage: m.text,
-    })) ?? []
+  return (data ?? []).map((row: any) => {
+    const name = String(
+      row.name ??
+        row.sender_name ??
+        row.recipient_name ??
+        row.author_name ??
+        "Usuário",
+    );
+
+    return {
+      id: String(row.conversation_id ?? row.thread_id ?? row.id),
+      name,
+      lastMessage: String(row.text ?? row.last_message ?? row.message ?? ""),
+    } satisfies ConversationSummary;
+  });
+}
+
+export type FollowSummary = {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+};
+
+export async function listFollowersDb(): Promise<FollowSummary[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const { data, error } = await supabase
+    .from("followers")
+    .select("*")
+    .eq("user_id", viewer.id);
+
+  if (error) return [];
+
+  return (data ?? []).map((row: any) =>
+    ({
+      id: String(row.id),
+      name: String(row.name ?? row.follower_name ?? "Usuário"),
+      avatarUrl:
+        typeof row.avatar_url === "string" ? (row.avatar_url as string) : undefined,
+    }) satisfies FollowSummary,
   );
 }
 
-export async function listFollowersDb() {
-  const client = sb();
+export async function listFollowingDb(): Promise<FollowSummary[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
 
-  const {
-    data: { user },
-  } = await client.auth.getUser();
+  const viewer = await getViewer();
+  if (!viewer) return [];
 
-  if (!user) return [];
-
-  const { data, error } = await client
-    .from("followers")
-    .select("id, users:user_id(name, avatar_url)")
-    .eq("user_id", user.id);
-
-  if (error) throw error;
-
-  return data ?? [];
-}
-
-export async function listFollowingDb() {
-  const client = sb();
-
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-
-  if (!user) return [];
-
-  const { data, error } = await client
+  const { data, error } = await supabase
     .from("following")
-    .select("id, users:user_id(name, avatar_url)")
-    .eq("user_id", user.id);
+    .select("*")
+    .eq("user_id", viewer.id);
 
-  if (error) throw error;
+  if (error) return [];
 
-  return data ?? [];
+  return (data ?? []).map((row: any) =>
+    ({
+      id: String(row.id),
+      name: String(row.name ?? row.following_name ?? "Usuário"),
+      avatarUrl:
+        typeof row.avatar_url === "string" ? (row.avatar_url as string) : undefined,
+    }) satisfies FollowSummary,
+  );
 }
 
-export async function listRankingDb() {
-  const client = sb();
+export type RankingEntry = {
+  id: string;
+  name: string;
+  level: number;
+  points: number;
+};
 
-  const { data, error } = await client
+export async function listRankingDb(): Promise<RankingEntry[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
     .from("ranking")
-    .select(
-      `
-      id,
-      points,
-      level,
-      users:user_id (
-        name
-      )
-    `,
-    )
+    .select("*")
     .order("points", { ascending: false })
     .limit(50);
 
-  if (error) throw error;
+  if (error) return [];
 
-  return (
-    data?.map((r: any) => ({
-      id: r.id,
-      name: r.users?.name ?? "Usuário",
-      level: r.level,
-      points: r.points,
-    })) ?? []
+  return (data ?? []).map((row: any) =>
+    ({
+      id: String(row.id),
+      name: String(row.name ?? row.user_name ?? row.owner_name ?? "Usuário"),
+      level: Number(row.level ?? 1),
+      points: Number(row.points ?? 0),
+    }) satisfies RankingEntry,
   );
 }
-
