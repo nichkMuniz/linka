@@ -1429,9 +1429,7 @@ export default function WorkoutSession() {
                   setPosting(true);
 
                   try {
-                    const postImageDataUrl = (summaryImageDataUrl || coverImage)
-                      .trim()
-                      .slice(0, 2_000_000);
+                    const postImageDataUrl = (summaryImageDataUrl || coverImage).trim();
                     const caption = customCaption.trim() || `✅ ${routine.title}`;
 
                     const selectedGoal =
