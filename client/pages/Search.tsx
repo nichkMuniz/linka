@@ -133,8 +133,8 @@ export default function Search() {
       .map((r) => ({
         type: "workout",
         title: r.title,
-        subtitle: `${r.ownerHandle} · ${r.visibility === "public" ? "público" : "privado"}`,
-        tags: ["rotina", r.visibility === "public" ? "público" : "privado"],
+        subtitle: `${r.ownerHandle} · ${r.visibility === "Público" ? "público" : "seguidores"}`,
+        tags: ["rotina", r.visibility === "Público" ? "público" : "seguidores"],
       }));
 
     return [
