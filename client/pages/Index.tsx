@@ -289,7 +289,7 @@ function PostCard({
     if (pulseTimer.current) window.clearTimeout(pulseTimer.current);
     pulseTimer.current = window.setTimeout(() => setPulse(null), 450);
 
-    const next = await toggleGoalIncentiveDb(goal.id, key);
+    const next = await toggleGoalIncentive(goal.id, key);
     if (next) onChange(next);
   };
 
@@ -299,7 +299,7 @@ function PostCard({
     const key = todayKey();
     if (goal.myProgressToday === key) return;
 
-    const updated = await updateGoalDb(goal.id, {
+    const updated = await updateGoal(goal.id, {
       completedDays: Math.min(goal.completedDays + 1, goal.durationDays),
       myProgressToday: key,
     });
@@ -331,7 +331,7 @@ function PostCard({
 
     if (inc > 0) patch.myProgressToday = key;
 
-    const updated = await updateGoalDb(goal.id, patch);
+    const updated = await updateGoal(goal.id, patch);
     if (updated) onChange(updated);
 
     toast({
@@ -407,7 +407,7 @@ function PostCard({
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
               onClick={async () => {
-                await blockUserDb(goal.ownerHandle);
+                await blockUser(goal.ownerHandle);
                 onBlockUser(goal.ownerHandle);
                 toast({
                   title: "Usuário bloqueado",
@@ -567,7 +567,7 @@ function PostCard({
 
                     setCommentsBusy(true);
                     try {
-                      await addGoalCommentDb(goal.id, text);
+                      await addGoalComment(goal.id, text);
                       const next = await listGoalComments(goal.id);
                       setComments(next);
                       setCommentDraft("");
@@ -645,7 +645,7 @@ function PostCard({
                     className="h-9 w-9 rounded-full"
                     aria-label="Copiar rotina"
                     onClick={async () => {
-                      await copyRoutineDb(latestAttachedRoutine.routine!.id);
+                      await copyRoutine(latestAttachedRoutine.routine!.id);
                       toast({
                         title: "Rotina copiada",
                         description: "Agora ela aparece em ‘Minhas’.",
@@ -822,26 +822,24 @@ export default function Index() {
   const [routines, setRoutines] = React.useState<Routine[]>([]);
   const [myHandle, setMyHandle] = React.useState("@voce");
 
-  React.useEffect(() => {
-    let canceled = false;
+React.useEffect(() => {
+  let canceled = false;
 
-    (async () => {
-      const [state, profile] = await Promise.all([
-        getRitmoFitStateDb(),
-        getMyProfileDb(),
-      ]);
-      if (canceled) return;
+  (async () => {
+    const state = await getFeedState();
+    if (canceled) return;
 
-      if (profile?.handle) setMyHandle(profile.handle);
-      setBlockedHandles(state.blockedHandles);
-      setRoutines(state.routines);
-      setGoals(state.goals);
-    })();
+    setMyHandle(state.myHandle);
+    setBlockedHandles(state.blockedHandles);
+    setRoutines(state.routines);
+    setGoals(state.goals);
+  })();
 
-    return () => {
-      canceled = true;
-    };
-  }, []);
+  return () => {
+    canceled = true;
+  };
+}, []);
+
 
   const routinesById = React.useMemo(() => {
     const map = new Map<string, Routine>();
