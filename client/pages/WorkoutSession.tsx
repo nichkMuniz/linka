@@ -1430,8 +1430,11 @@ export default function WorkoutSession() {
                   setPosting(true);
 
                   try {
-                    const postImageDataUrl = (summaryImageDataUrl || coverImage).trim();
-                    const caption = customCaption.trim() || `✅ ${routine.title}`;
+                    const postImageDataUrl = (
+                      summaryImageDataUrl || coverImage
+                    ).trim();
+                    const caption =
+                      customCaption.trim() || `✅ ${routine.title}`;
 
                     const selectedGoal =
                       myGoals.find((g) => g.id === metaGoalId) ??
@@ -1461,7 +1464,9 @@ export default function WorkoutSession() {
                         ? prevImagesRaw
                             .map((v: unknown) => String(v).trim())
                             .filter(Boolean)
-                        : [(selectedGoal.imageDataUrl ?? "").trim()].filter(Boolean);
+                        : [(selectedGoal.imageDataUrl ?? "").trim()].filter(
+                            Boolean,
+                          );
 
                       const nextImages = postImageDataUrl
                         ? prevImages.includes(postImageDataUrl)
@@ -1469,23 +1474,25 @@ export default function WorkoutSession() {
                           : [...prevImages, postImageDataUrl]
                         : prevImages;
 
-                      const prevIdsRaw = (selectedGoal as any).attachedRoutineIds;
+                      const prevIdsRaw = (selectedGoal as any)
+                        .attachedRoutineIds;
                       const prevIds = Array.isArray(prevIdsRaw)
                         ? prevIdsRaw
                             .map((v: unknown) => String(v).trim())
                             .filter(Boolean)
-                        : [(selectedGoal.attachedRoutineId ?? "").trim()].filter(
-                            Boolean,
-                          );
+                        : [
+                            (selectedGoal.attachedRoutineId ?? "").trim(),
+                          ].filter(Boolean);
 
-                      const prevTitlesRaw = (selectedGoal as any).attachedRoutineTitles;
+                      const prevTitlesRaw = (selectedGoal as any)
+                        .attachedRoutineTitles;
                       const prevTitles = Array.isArray(prevTitlesRaw)
                         ? prevTitlesRaw
                             .map((v: unknown) => String(v).trim())
                             .filter(Boolean)
-                        : [(selectedGoal.attachedRoutineTitle ?? "").trim()].filter(
-                            Boolean,
-                          );
+                        : [
+                            (selectedGoal.attachedRoutineTitle ?? "").trim(),
+                          ].filter(Boolean);
 
                       const idToTitle = new Map<string, string>();
                       prevIds.forEach((id, idx) => {
@@ -1497,13 +1504,19 @@ export default function WorkoutSession() {
                         ? prevIds
                         : [...prevIds, routine.id];
                       idToTitle.set(routine.id, routine.title);
-                      const nextTitles = nextIds.map((id) => idToTitle.get(id) ?? "");
+                      const nextTitles = nextIds.map(
+                        (id) => idToTitle.get(id) ?? "",
+                      );
 
                       await updateGoalDb(metaGoalId, {
                         caption,
                         imageDataUrl: postImageDataUrl || undefined,
-                        imageDataUrls: nextImages.length ? nextImages : undefined,
-                        attachedRoutineIds: nextIds.length ? nextIds : undefined,
+                        imageDataUrls: nextImages.length
+                          ? nextImages
+                          : undefined,
+                        attachedRoutineIds: nextIds.length
+                          ? nextIds
+                          : undefined,
                         attachedRoutineTitles: nextTitles.length
                           ? nextTitles
                           : undefined,

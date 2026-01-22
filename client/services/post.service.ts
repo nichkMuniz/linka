@@ -3,12 +3,14 @@ import { supabase } from "@/lib/supabase";
 export const getFeedPosts = async () => {
   const { data, error } = await supabase
     .from("posts")
-    .select(`
+    .select(
+      `
       *,
       user:user_id (id, username, avatar_url),
       likes(count),
       comments(count)
-    `)
+    `,
+    )
     .order("created_at", { ascending: false });
 
   if (error) throw error;

@@ -7,11 +7,13 @@ export const getConversations = async () => {
 
   const { data, error } = await supabase
     .from("messages")
-    .select(`
+    .select(
+      `
       *,
       sender:sender_id (id, username, avatar_url),
       receiver:receiver_id (id, username, avatar_url)
-    `)
+    `,
+    )
     .or(`sender_id.eq.${user?.id},receiver_id.eq.${user?.id}`)
     .order("created_at", { ascending: false });
 

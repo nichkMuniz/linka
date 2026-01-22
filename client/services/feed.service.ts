@@ -11,12 +11,14 @@ export async function getFeedState() {
 
   const { data: goals } = await supabase
     .from("posts")
-    .select(`
+    .select(
+      `
       *,
       user:user_id (id, name, handle, avatar_url),
       likes(count),
       comments(count)
-    `)
+    `,
+    )
     .order("created_at", { ascending: false });
 
   const { data: routines } = await supabase.from("routines").select("*");

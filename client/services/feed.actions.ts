@@ -25,10 +25,12 @@ export async function updateGoal(goalId: string, patch: any) {
 export async function listGoalComments(goalId: string) {
   const { data, error } = await supabase
     .from("comments")
-    .select(`
+    .select(
+      `
       *,
       user:user_id (id, name, handle, avatar_url)
-    `)
+    `,
+    )
     .eq("post_id", goalId)
     .order("created_at");
 
