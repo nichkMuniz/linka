@@ -1,0 +1,24 @@
+src/
+ ├─ lib/
+ │   └─ supabase.ts
+ │
+ ├─ services/
+ │   ├─ auth.service.ts
+ │   ├─ post.service.ts
+ │   ├─ story.service.ts
+ │   ├─ reel.service.ts
+ │   ├─ routine.service.ts
+ │   ├─ workout.service.ts
+ │   ├─ message.service.ts
+ │   ├─ ranking.service.ts
+ │   └─ profile.service.ts
+ │
+ ├─ hooks/
+ │   ├─ useFeed.ts
+ │   ├─ useProfile.ts
+ │   ├─ useMessages.ts
+ │   ├─ useRoutines.ts
+ │   └─ useStories.ts
+ │
+ ├─ pages/
+ │   └─ (suas telas)
