@@ -1405,6 +1405,7 @@ export default function WorkoutSession() {
             <Button
               type="button"
               className="rounded-full"
+              disabled={posting}
               onClick={() => {
                 if (posting) return;
 
@@ -1540,7 +1541,7 @@ export default function WorkoutSession() {
                 })();
               }}
             >
-              Postar
+              {posting ? "Postando..." : "Postar"}
             </Button>
           </DialogFooter>
         </DialogContent>
