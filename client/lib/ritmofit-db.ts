@@ -74,4 +74,150 @@ export async function getRitmoFitStateDb() {
       ownerHandle: "@" + p.users?.name?.toLowerCase().replace(/\s+/g, ""),
       ownerName: p.users?.name ?? "Usuário",
       incentives: { apoio: 0, continua: 0, orgulho: 0 },
-      myInce
+      myIncentives: {},
+      commentsCount: 0,
+      completedDays: 0,
+      durationDays: 30,
+      category: "Treino",
+      visibility: "public",
+      frequency: "Diária",
+    })) ?? [];
+
+  return {
+    goals,
+    routines: [],
+    blockedHandles: [],
+  };
+}
+
+/* ============================
+   POSTS
+============================ */
+
+export async function updateGoalDb(id: string, payload: any) {
+  const client = sb();
+
+  const { data, error } = await client
+    .from("posts")
+    .update({
+      description: payload.caption,
+      photo: payload.imageDataUrl,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
+}
+
+/* ============================
+   CURTIDAS
+============================ */
+
+export async function toggleGoalIncentiveDb(postId: string) {
+  const client = sb();
+
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+
+  if (!user) throw new Error("Não autenticado");
+
+  const { data: existing } = await client
+    .from("likes")
+    .select("id")
+    .eq("post_id", postId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (existing) {
+    await client.from("likes").delete().eq("id", existing.id);
+  } else {
+    await client.from("likes").insert({
+      post_id: postId,
+      user_id: user.id,
+    });
+  }
+
+  const { data: all } = await client
+    .from("likes")
+    .select("id")
+    .eq("post_id", postId);
+
+  return {
+    incentives: {
+      apoio: all?.length ?? 0,
+      continua: 0,
+      orgulho: 0,
+    },
+    myIncentives: {
+      apoio: !existing,
+    },
+  };
+}
+
+/* ============================
+   COMENTÁRIOS
+============================ */
+
+export async function addGoalCommentDb(postId: string, text: string) {
+  const client = sb();
+
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+
+  if (!user) throw new Error("Não autenticado");
+
+  const { error } = await client.from("comments").insert({
+    post_id: postId,
+    user_id: user.id,
+    text,
+  });
+
+  if (error) throw error;
+}
+
+export async function listGoalComments(postId: string) {
+  const client = sb();
+
+  const { data, error } = await client
+    .from("comments")
+    .select(
+      `
+      id,
+      text,
+      created_at,
+      users:user_id (
+        id,
+        name,
+        avatar_url
+      )
+    `,
+    )
+    .eq("post_id", postId)
+    .order("created_at");
+
+  if (error) throw error;
+
+  return (
+    data?.map((c: any) => ({
+      id: c.id,
+      text: c.text,
+      createdAt: c.created_at,
+      authorName: c.users?.name ?? "Usuário",
+      authorHandle:
+        "@" + c.users?.name?.toLowerCase().replace(/\s+/g, "") ?? "@user",
+    })) ?? []
+  );
+}
+
+/* ============================
+   STUBS
+============================ */
+
+export async function blockUserDb() {}
+export async function copyRoutineDb() {}
