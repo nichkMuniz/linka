@@ -1,6 +1,8 @@
-import { supabase } from "@/lib/supabase";
+import { getUserSafe, supabase } from "@/lib/supabase";
 
 export const getFeedPosts = async () => {
+  if (!supabase) throw new Error("Supabase não configurado");
+
   const { data, error } = await supabase
     .from("posts")
     .select(
@@ -18,12 +20,13 @@ export const getFeedPosts = async () => {
 };
 
 export const createPost = async (content: string, image?: string) => {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  const user = await getUserSafe();
+  if (!user) throw new Error("Faça login para publicar");
 
   const { error } = await supabase.from("posts").insert({
-    user_id: user?.id,
+    user_id: user.id,
     content,
     image_url: image,
   });
