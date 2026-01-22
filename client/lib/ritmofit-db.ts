@@ -1,4 +1,4 @@
-import { hasSupabaseConfig, supabase } from "@/lib/supabase";
+import { getUserSafe, hasSupabaseConfig, supabase } from "@/lib/supabase";
 import {
   addComment as addCommentLocal,
   blockUser as blockUserLocal,
