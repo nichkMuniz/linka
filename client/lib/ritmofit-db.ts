@@ -4,7 +4,7 @@ import { supabase } from "./supabase";
    HELPERS
 ============================ */
 
-function ensureSupabase() {
+function sb() {
   if (!supabase) throw new Error("Supabase não configurado");
   return supabase;
 }
@@ -14,21 +14,28 @@ function ensureSupabase() {
 ============================ */
 
 export async function getMyProfileDb() {
-  const sb = ensureSupabase();
-
+  const client = sb();
   const {
     data: { user },
-  } = await sb.auth.getUser();
+  } = await client.auth.getUser();
 
   if (!user) return null;
 
-  const { data } = await sb
-    .from("user")
+  const { data, error } = await client
+    .from("users")
     .select("*")
     .eq("id", user.id)
     .single();
 
-  return data;
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    name: data.name,
+    handle: "@" + data.name.toLowerCase().replace(/\s+/g, ""),
+    avatarUrl: data.avatar_url,
+    bio: data.bio,
+  };
 }
 
 /* ============================
@@ -36,28 +43,41 @@ export async function getMyProfileDb() {
 ============================ */
 
 export async function getRitmoFitStateDb() {
-  const sb = ensureSupabase();
+  const client = sb();
 
-  const { data: goals, error } = await sb
+  const { data, error } = await client
     .from("posts")
-    .select(`
+    .select(
+      `
       *,
-      user:user_id (
+      users:user_id (
         id,
         name,
-        handle,
         avatar_url
       )
-    `)
-    .order("created_at", { ascending: false });
+    `,
+    )
+    .order("updated_at", { ascending: false });
 
   if (error) throw error;
 
   const formatted =
-    goals?.map((p: any) => ({
-      ...p,
-      ownerName: p.user?.name ?? "Usuário",
-      ownerHandle: p.user?.handle ?? "@user",
+    data?.map((p: any) => ({
+      id: p.id,
+      title: p.description,
+      caption: p.description,
+      imageDataUrl: p.photo,
+      createdAt: p.updated_at,
+      ownerHandle: "@" + p.users?.name?.toLowerCase().replace(/\s+/g, ""),
+      ownerName: p.users?.name ?? "Usuário",
+      incentives: { apoio: 0, continua: 0, orgulho: 0 },
+      myIncentives: {},
+      commentsCount: 0,
+      completedDays: 0,
+      durationDays: 30,
+      category: "Treino",
+      visibility: "public",
+      frequency: "Diária",
     })) ?? [];
 
   return {
@@ -67,12 +87,20 @@ export async function getRitmoFitStateDb() {
   };
 }
 
-export async function updateGoalDb(id: string, payload: any) {
-  const sb = ensureSupabase();
+/* ============================
+   POSTS
+============================ */
 
-  const { data, error } = await sb
+export async function updateGoalDb(id: string, payload: any) {
+  const client = sb();
+
+  const { data, error } = await client
     .from("posts")
-    .update(payload)
+    .update({
+      description: payload.caption,
+      photo: payload.imageDataUrl,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", id)
     .select()
     .single();
@@ -83,58 +111,47 @@ export async function updateGoalDb(id: string, payload: any) {
 }
 
 /* ============================
-   INCENTIVOS / CURTIDAS
+   CURTIDAS
 ============================ */
 
 export async function toggleGoalIncentiveDb(postId: string, type: string) {
-  const sb = ensureSupabase();
+  const client = sb();
 
   const {
     data: { user },
-  } = await sb.auth.getUser();
+  } = await client.auth.getUser();
 
-  if (!user) throw new Error("Not authenticated");
+  if (!user) throw new Error("Não autenticado");
 
-  const { data: existing } = await sb
+  const { data: existing } = await client
     .from("likes")
     .select("*")
     .eq("post_id", postId)
     .eq("user_id", user.id)
-    .eq("type", type)
     .maybeSingle();
 
   if (existing) {
-    await sb.from("likes").delete().eq("id", existing.id);
+    await client.from("likes").delete().eq("id", existing.id);
   } else {
-    await sb.from("likes").insert({
+    await client.from("likes").insert({
       post_id: postId,
       user_id: user.id,
-      type,
     });
   }
 
-  const { data: counts } = await sb
+  const { data: all } = await client
     .from("likes")
-    .select("type")
+    .select("id")
     .eq("post_id", postId);
 
-  const incentives = { apoio: 0, continua: 0, orgulho: 0 };
-  counts?.forEach((l: any) => {
-    incentives[l.type] = (incentives[l.type] ?? 0) + 1;
-  });
-
-  const { data: my } = await sb
-    .from("likes")
-    .select("type")
-    .eq("post_id", postId)
-    .eq("user_id", user.id);
-
   return {
-    incentives,
+    incentives: {
+      apoio: all?.length ?? 0,
+      continua: 0,
+      orgulho: 0,
+    },
     myIncentives: {
-      apoio: my?.some((l) => l.type === "apoio") ?? false,
-      continua: my?.some((l) => l.type === "continua") ?? false,
-      orgulho: my?.some((l) => l.type === "orgulho") ?? false,
+      apoio: !existing,
     },
   };
 }
@@ -144,15 +161,15 @@ export async function toggleGoalIncentiveDb(postId: string, type: string) {
 ============================ */
 
 export async function addGoalCommentDb(postId: string, text: string) {
-  const sb = ensureSupabase();
+  const client = sb();
 
   const {
     data: { user },
-  } = await sb.auth.getUser();
+  } = await client.auth.getUser();
 
-  if (!user) throw new Error("Not authenticated");
+  if (!user) throw new Error("Não autenticado");
 
-  const { error } = await sb.from("comments").insert({
+  const { error } = await client.from("comments").insert({
     post_id: postId,
     user_id: user.id,
     text,
@@ -162,17 +179,16 @@ export async function addGoalCommentDb(postId: string, text: string) {
 }
 
 export async function listGoalComments(postId: string) {
-  const sb = ensureSupabase();
+  const client = sb();
 
-  const { data, error } = await sb
+  const { data, error } = await client
     .from("comments")
     .select(
       `
       *,
-      user:user_id (
+      users:user_id (
         id,
         name,
-        handle,
         avatar_url
       )
     `,
@@ -184,15 +200,18 @@ export async function listGoalComments(postId: string) {
 
   return (
     data?.map((c: any) => ({
-      ...c,
-      authorName: c.user?.name ?? "Usuário",
-      authorHandle: c.user?.handle ?? "@user",
+      id: c.id,
+      text: c.text,
+      createdAt: c.created_at,
+      authorName: c.users?.name ?? "Usuário",
+      authorHandle:
+        "@" + c.users?.name?.toLowerCase().replace(/\s+/g, "") ?? "@user",
     })) ?? []
   );
 }
 
 /* ============================
-   BLOQUEIO / ROTINAS (stub)
+   STUBS (por enquanto)
 ============================ */
 
 export async function blockUserDb() {
