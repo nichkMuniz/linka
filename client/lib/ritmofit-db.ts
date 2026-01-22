@@ -842,3 +842,33 @@ export async function unblockUserDb(ownerHandle: string) {
 
   if (error) unblockUserLocal(ownerHandle);
 }
+
+export async function listReelsDb() {
+  const client = sb();
+
+  const { data, error } = await client
+    .from("reels")
+    .select(
+      `
+      id,
+      description,
+      video,
+      users:user_id (
+        name
+      )
+    `,
+    )
+    .order("id", { ascending: false });
+
+  if (error) throw error;
+
+  return (
+    data?.map((r: any) => ({
+      id: r.id,
+      description: r.description,
+      video: r.video,
+      author: r.users?.name ?? "user",
+    })) ?? []
+  );
+}
+
