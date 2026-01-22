@@ -36,8 +36,12 @@ function cleanHandle(raw: string) {
 
 async function getViewer() {
   if (!hasSupabaseConfig || !supabase) return null;
-  const { data } = await supabase.auth.getUser();
-  return data.user ?? null;
+
+  try {
+    return await getUserSafe();
+  } catch {
+    return null;
+  }
 }
 
 export type DbProfile = {
