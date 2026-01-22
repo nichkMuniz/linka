@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 
-import { useEffect, useState } from "react";
-
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 export function useAuth() {
