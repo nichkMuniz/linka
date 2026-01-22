@@ -1,4 +1,3 @@
-export {};
 import { supabase } from "@/lib/supabase";
 
 export const getFeedPosts = async () => {
