@@ -15,10 +15,9 @@ export function useAuth() {
 
     let unsubscribe: (() => void) | null = null;
 
-    supabase.auth
-      .getUser()
-      .then(({ data }) => {
-        setUser(data.user);
+    getUserSafe()
+      .then((u) => {
+        setUser(u);
       })
       .catch(() => {
         setUser(null);
