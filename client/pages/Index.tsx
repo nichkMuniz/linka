@@ -26,15 +26,15 @@ import {
   type GoalComment,
 } from "@/lib/ritmofit";
 import {
-  addGoalCommentDb,
-  blockUserDb,
-  copyRoutineDb,
-  getMyProfileDb,
-  getRitmoFitStateDb,
+  addGoalComment,
+  blockUser,
+  copyRoutine,
   listGoalComments,
-  toggleGoalIncentiveDb,
-  updateGoalDb,
-} from "@/lib/ritmofit-db";
+  toggleGoalIncentive,
+  updateGoal,
+} from "@/services/feed.actions";
+
+import { getFeedState } from "@/services/feed.service";
 import { StoriesBar } from "@/components/stories-bar";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
