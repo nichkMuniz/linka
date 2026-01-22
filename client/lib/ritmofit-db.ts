@@ -872,3 +872,37 @@ export async function listReelsDb() {
   );
 }
 
+export async function listConversationsDb() {
+  const client = sb();
+
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+
+  if (!user) return [];
+
+  const { data, error } = await client
+    .from("messages")
+    .select(
+      `
+      id,
+      text,
+      updated_at,
+      users:user_id (
+        name
+      )
+    `,
+    )
+    .eq("user_id", user.id)
+    .order("updated_at", { ascending: false });
+
+  if (error) throw error;
+
+  return (
+    data?.map((m: any) => ({
+      id: m.id,
+      name: m.users?.name ?? "Usuário",
+      lastMessage: m.text,
+    })) ?? []
+  );
+}
