@@ -1,6 +1,8 @@
 import * as React from "react";
 import { Dumbbell, Search as SearchIcon, User, Utensils } from "lucide-react";
 
+import type { StorageShape } from "@/lib/ritmofit";
+import { getRitmoFitStateDb } from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,7 +29,7 @@ type SearchResult =
       tags: string[];
     };
 
-const seed: SearchResult[] = [
+const seedFallback: SearchResult[] = [
   {
     type: "user",
     name: "Ana",
@@ -76,6 +78,71 @@ function AvatarCircle({ label }: { label: string }) {
 
 export default function Search() {
   const [q, setQ] = React.useState("");
+  const [dbState, setDbState] = React.useState<StorageShape | null>(null);
+
+  React.useEffect(() => {
+    let canceled = false;
+
+    getRitmoFitStateDb()
+      .then((next) => {
+        if (canceled) return;
+        setDbState(next);
+      })
+      .catch(() => {
+        if (canceled) return;
+        setDbState(null);
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  const seed = React.useMemo<SearchResult[]>(() => {
+    const fallbackDiets = seedFallback.filter((r) => r.type === "diet");
+    const fallbackPeople = seedFallback.filter((r) => r.type === "user");
+    const fallbackWorkouts = seedFallback.filter((r) => r.type === "workout");
+
+    if (!dbState) return seedFallback;
+
+    const owners = new Map<string, { name: string; handle: string }>();
+
+    const addOwner = (name: string, handle: string) => {
+      const h = String(handle || "").trim();
+      if (!h) return;
+      if (owners.has(h)) return;
+      owners.set(h, {
+        name: String(name || "").trim() || h,
+        handle: h,
+      });
+    };
+
+    dbState.goals.forEach((g) => addOwner(g.ownerName, g.ownerHandle));
+    dbState.routines.forEach((r) => addOwner(r.ownerName, r.ownerHandle));
+    dbState.stories.forEach((s) => addOwner(s.ownerName, s.ownerHandle));
+
+    const people: SearchResult[] = Array.from(owners.values()).map((p) => ({
+      type: "user",
+      name: p.name,
+      handle: p.handle,
+      bio: "",
+    }));
+
+    const workouts: SearchResult[] = dbState.routines
+      .filter((r) => r.category === "Treino")
+      .map((r) => ({
+        type: "workout",
+        title: r.title,
+        subtitle: `${r.ownerHandle} · ${r.visibility === "public" ? "público" : "privado"}`,
+        tags: ["rotina", r.visibility === "public" ? "público" : "privado"],
+      }));
+
+    return [
+      ...(people.length ? people : fallbackPeople),
+      ...(workouts.length ? workouts : fallbackWorkouts),
+      ...fallbackDiets,
+    ];
+  }, [dbState]);
 
   const results = React.useMemo(() => {
     const term = q.trim().toLowerCase();
