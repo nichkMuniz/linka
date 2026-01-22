@@ -1,6 +1,7 @@
 import * as React from "react";
 import { ChevronLeft, MessageCircle, Plus, Send, User } from "lucide-react";
 
+import { getRitmoFitStateDb } from "@/lib/ritmofit-db";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -77,7 +78,7 @@ const messagesSeed: Record<string, Message[]> = {
   ],
 };
 
-const suggestedPeople: Array<{ name: string; handle: string }> = [
+const suggestedPeopleFallback: Array<{ name: string; handle: string }> = [
   { name: "Ana", handle: "@ana.fit" },
   { name: "Bruno", handle: "@bruno.nutri" },
   { name: "Camila", handle: "@camila.run" },
@@ -109,6 +110,47 @@ export default function Messages() {
   const [text, setText] = React.useState("");
   const [newDialogOpen, setNewDialogOpen] = React.useState(false);
   const [newQuery, setNewQuery] = React.useState("");
+  const [suggestedPeople, setSuggestedPeople] = React.useState(
+    suggestedPeopleFallback,
+  );
+
+  React.useEffect(() => {
+    let canceled = false;
+
+    getRitmoFitStateDb()
+      .then((state) => {
+        if (canceled) return;
+
+        const owners = new Map<string, { name: string; handle: string }>();
+        const addOwner = (name: string, handle: string) => {
+          const h = String(handle || "").trim();
+          if (!h) return;
+          if (owners.has(h)) return;
+          owners.set(h, {
+            name: String(name || "").trim() || h,
+            handle: h,
+          });
+        };
+
+        state.goals.forEach((g) => addOwner(g.ownerName, g.ownerHandle));
+        state.routines.forEach((r) => addOwner(r.ownerName, r.ownerHandle));
+        state.stories.forEach((s) => addOwner(s.ownerName, s.ownerHandle));
+
+        const list = Array.from(owners.values())
+          .filter((p) => Boolean(p.handle))
+          .slice(0, 20);
+
+        setSuggestedPeople(list.length ? list : suggestedPeopleFallback);
+      })
+      .catch(() => {
+        if (canceled) return;
+        setSuggestedPeople(suggestedPeopleFallback);
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
 
   const active = React.useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
