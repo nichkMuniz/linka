@@ -67,7 +67,9 @@ async function ensureProfile(): Promise<DbProfile | null> {
     String((user.user_metadata as any)?.handle ?? "").trim() || emailPrefix,
   );
 
-  const avatarUrl = String((user.user_metadata as any)?.avatar_url ?? "").trim();
+  const avatarUrl = String(
+    (user.user_metadata as any)?.avatar_url ?? "",
+  ).trim();
 
   const { data, error } = await supabase
     .from("profiles")
@@ -121,7 +123,9 @@ function goalFromRow(row: any): Goal {
     frequency: String(row.frequency ?? ""),
     durationDays: Number(row.duration_days ?? row.durationDays) as 7 | 21 | 30,
     visibility: row.visibility as GoalVisibility,
-    createdAt: String(row.created_at ?? row.createdAt ?? new Date().toISOString()),
+    createdAt: String(
+      row.created_at ?? row.createdAt ?? new Date().toISOString(),
+    ),
     completedDays: Number(row.completed_days ?? row.completedDays ?? 0),
     incentives: {
       apoio: Number(row.apoio_count ?? row.apoio ?? 0),
@@ -135,7 +139,8 @@ function goalFromRow(row: any): Goal {
       ? (row.attached_routine_titles as string[])
       : undefined,
     attachedRoutineId: row.attached_routine_id ?? row.attachedRoutineId,
-    attachedRoutineTitle: row.attached_routine_title ?? row.attachedRoutineTitle,
+    attachedRoutineTitle:
+      row.attached_routine_title ?? row.attachedRoutineTitle,
     myIncentives: {},
     myProgressToday: String(row.my_progress_today ?? row.myProgressToday ?? ""),
     comments: [],
@@ -163,14 +168,23 @@ function routineFromRow(r: any, steps: any[] | null): Routine {
             title: String(s.title ?? ""),
             detail: String(s.detail ?? ""),
             exerciseId:
-              typeof s.exercise_id === "string" ? (s.exercise_id as string) : undefined,
+              typeof s.exercise_id === "string"
+                ? (s.exercise_id as string)
+                : undefined,
             muscleGroup:
-              typeof s.muscle_group === "string" ? (s.muscle_group as string) : undefined,
-            imageUrl: typeof s.image_url === "string" ? (s.image_url as string) : undefined,
+              typeof s.muscle_group === "string"
+                ? (s.muscle_group as string)
+                : undefined,
+            imageUrl:
+              typeof s.image_url === "string"
+                ? (s.image_url as string)
+                : undefined,
           }))
       : [],
     copiedFromRoutineId:
-      typeof r.copied_from_routine_id === "string" ? r.copied_from_routine_id : undefined,
+      typeof r.copied_from_routine_id === "string"
+        ? r.copied_from_routine_id
+        : undefined,
   };
 }
 
@@ -259,7 +273,9 @@ export async function getRitmoFitStateDb(): Promise<StorageShape> {
     goals,
     routines,
     stories,
-    blockedHandles: (blocksRows ?? []).map((r: any) => String(r.blocked_handle)),
+    blockedHandles: (blocksRows ?? []).map((r: any) =>
+      String(r.blocked_handle),
+    ),
   };
 }
 
@@ -298,7 +314,9 @@ export async function createGoalDb(input: {
       visibility: input.visibility,
       created_at: new Date().toISOString(),
       completed_days: input.imageDataUrl ? 1 : 0,
-      my_progress_today: input.imageDataUrl ? new Date().toISOString().slice(0, 10) : null,
+      my_progress_today: input.imageDataUrl
+        ? new Date().toISOString().slice(0, 10)
+        : null,
       hidden: false,
       attached_routine_ids: input.attachedRoutineIds ?? null,
       attached_routine_titles: input.attachedRoutineTitles ?? null,
@@ -330,22 +348,27 @@ export async function updateGoalDb(goalId: string, patch: Partial<Goal>) {
   if (patch.caption !== undefined) update.caption = patch.caption;
   if (patch.category !== undefined) update.category = patch.category;
   if (patch.frequency !== undefined) update.frequency = patch.frequency;
-  if (patch.durationDays !== undefined) update.duration_days = patch.durationDays;
+  if (patch.durationDays !== undefined)
+    update.duration_days = patch.durationDays;
   if (patch.visibility !== undefined) update.visibility = patch.visibility;
-  if ((patch as any).hidden !== undefined) update.hidden = Boolean((patch as any).hidden);
+  if ((patch as any).hidden !== undefined)
+    update.hidden = Boolean((patch as any).hidden);
 
-  if (patch.completedDays !== undefined) update.completed_days = patch.completedDays;
+  if (patch.completedDays !== undefined)
+    update.completed_days = patch.completedDays;
   if (patch.myProgressToday !== undefined)
     update.my_progress_today = patch.myProgressToday || null;
 
-  if (patch.imageDataUrl !== undefined) update.image_url = patch.imageDataUrl || null;
+  if (patch.imageDataUrl !== undefined)
+    update.image_url = patch.imageDataUrl || null;
   if ((patch as any).imageDataUrls !== undefined)
     update.image_urls = (patch as any).imageDataUrls ?? null;
 
   if ((patch as any).attachedRoutineIds !== undefined)
     update.attached_routine_ids = (patch as any).attachedRoutineIds ?? null;
   if ((patch as any).attachedRoutineTitles !== undefined)
-    update.attached_routine_titles = (patch as any).attachedRoutineTitles ?? null;
+    update.attached_routine_titles =
+      (patch as any).attachedRoutineTitles ?? null;
 
   const { data, error } = await supabase
     .from("goals")
@@ -438,7 +461,10 @@ export async function addGoalCommentDb(goalId: string, text: string) {
     .eq("id", goalId);
 }
 
-export async function toggleGoalIncentiveDb(goalId: string, kind: GoalIncentiveKey) {
+export async function toggleGoalIncentiveDb(
+  goalId: string,
+  kind: GoalIncentiveKey,
+) {
   if (!hasSupabaseConfig || !supabase) {
     // Local fallback cannot reliably toggle for multi-user; keep existing behavior.
     const next = updateGoalLocal(goalId, (g) => ({ ...g }));
@@ -528,7 +554,10 @@ export async function getStoriesDb() {
   }));
 }
 
-export async function addStoryItemDb(input: { imageDataUrl?: string; text?: string }) {
+export async function addStoryItemDb(input: {
+  imageDataUrl?: string;
+  text?: string;
+}) {
   if (!hasSupabaseConfig || !supabase) {
     addStoryItemLocal(input);
     return;
@@ -572,13 +601,19 @@ export async function addStoryItemDb(input: { imageDataUrl?: string; text?: stri
   });
 }
 
-export async function deleteStoryItemDb(ownerHandle: string, storyItemId: string) {
+export async function deleteStoryItemDb(
+  ownerHandle: string,
+  storyItemId: string,
+) {
   if (!hasSupabaseConfig || !supabase) {
     deleteStoryItemLocal(ownerHandle, storyItemId);
     return;
   }
 
-  const { error } = await supabase.from("story_items").delete().eq("id", storyItemId);
+  const { error } = await supabase
+    .from("story_items")
+    .delete()
+    .eq("id", storyItemId);
   if (error) deleteStoryItemLocal(ownerHandle, storyItemId);
 }
 
@@ -592,7 +627,9 @@ export async function getRoutinesDb() {
 
   if (error) return getRoutinesLocal();
 
-  return (data ?? []).map((r: any) => routineFromRow(r, (r as any).routine_steps ?? []));
+  return (data ?? []).map((r: any) =>
+    routineFromRow(r, (r as any).routine_steps ?? []),
+  );
 }
 
 export async function createRoutineDb(input: {
@@ -650,10 +687,16 @@ export async function createRoutineDb(input: {
     .eq("id", routineId)
     .single();
 
-  return routineFromRow(withSteps ?? routineRow, (withSteps as any)?.routine_steps ?? []);
+  return routineFromRow(
+    withSteps ?? routineRow,
+    (withSteps as any)?.routine_steps ?? [],
+  );
 }
 
-export async function updateRoutineDb(routineId: string, patch: Partial<Routine>) {
+export async function updateRoutineDb(
+  routineId: string,
+  patch: Partial<Routine>,
+) {
   if (!hasSupabaseConfig || !supabase) {
     const next = updateRoutineLocal(routineId, (r) => ({ ...r, ...patch }));
     return next.routines.find((r) => r.id === routineId) ?? null;
@@ -704,7 +747,10 @@ export async function updateRoutineDb(routineId: string, patch: Partial<Routine>
     .eq("id", routineId)
     .single();
 
-  return routineFromRow(withSteps ?? routineRow, (withSteps as any)?.routine_steps ?? []);
+  return routineFromRow(
+    withSteps ?? routineRow,
+    (withSteps as any)?.routine_steps ?? [],
+  );
 }
 
 export async function deleteRoutineDb(routineId: string) {
@@ -713,7 +759,10 @@ export async function deleteRoutineDb(routineId: string) {
     return;
   }
 
-  const { error } = await supabase.from("routines").delete().eq("id", routineId);
+  const { error } = await supabase
+    .from("routines")
+    .delete()
+    .eq("id", routineId);
   if (error) deleteRoutineLocal(routineId);
 }
 
