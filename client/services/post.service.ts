@@ -62,8 +62,8 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
 
       // Get the goal data if post has a goal_id
       let userGoal = undefined;
-      if (post.goal_id) {
-        const goal = userGoals.find((g) => g.goal_id === post.goal_id);
+      if (post.goals_id) {
+        const goal = userGoals.find((g) => g.goal_id === post.goals_id);
         if (goal) {
           userGoal = {
             id: goal.id,
@@ -79,7 +79,7 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
         userLikes,
         commentCount: commentCount ?? 0,
         hasActivity,
-        goal_id: post.goal_id || null,
+        goal_id: post.goals_id || null,
         userNickname: userProfile?.nickname || "Usuário",
         userPhoto: userProfile?.photo || null,
         userGoal,
