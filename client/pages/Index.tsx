@@ -182,23 +182,6 @@ export default function Index() {
                 <span className="text-sm font-medium">{post.userNickname}</span>
               </div>
 
-              {/* Goal Progress Block */}
-              {post.userGoal && (
-                <div className="absolute top-4 right-4 bg-background/90 rounded-lg p-3 backdrop-blur-sm">
-                  <button
-                    onClick={() => openGoalModal(post)}
-                    className="flex flex-col items-center gap-1 hover:opacity-80 transition-opacity"
-                  >
-                    <div className="text-2xl font-bold text-brand">
-                      {post.userGoal.perc}%
-                    </div>
-                    <div className="text-xs text-muted-foreground max-w-[80px] line-clamp-1">
-                      {post.userGoal.description}
-                    </div>
-                  </button>
-                </div>
-              )}
-
               <img
                 src={post.photo}
                 alt="Post"
