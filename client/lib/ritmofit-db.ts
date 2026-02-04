@@ -989,6 +989,99 @@ export async function listFollowingDb(): Promise<FollowSummary[]> {
   );
 }
 
+/**
+ * Post incentive types:
+ * 1 = "te apoio" (HeartHandshake)
+ * 2 = "continua" (Flame)
+ * 3 = "ganhador" (Trophy)
+ */
+export type PostIncentiveType = 1 | 2 | 3;
+
+export type PostLikeStats = {
+  apoio: number; // type 1
+  continua: number; // type 2
+  ganhador: number; // type 3
+};
+
+export type PostWithLikes = {
+  id: string;
+  description: string;
+  photo: string;
+  created_at: string;
+  user_id: string;
+  likes: PostLikeStats;
+  userLikes: PostIncentiveType[]; // Types the current user has liked with
+};
+
+export async function togglePostIncentiveDb(
+  postId: string,
+  incentiveType: PostIncentiveType,
+) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const { data: existing } = await supabase
+    .from("post_likes")
+    .select("id")
+    .eq("post_id", postId)
+    .eq("user_id", viewer.id)
+    .eq("incentive_type", incentiveType)
+    .maybeSingle();
+
+  if (existing?.id) {
+    // Remove the like
+    await supabase.from("post_likes").delete().eq("id", existing.id);
+  } else {
+    // Add the like
+    await supabase.from("post_likes").insert({
+      post_id: postId,
+      user_id: viewer.id,
+      incentive_type: incentiveType,
+    });
+  }
+}
+
+export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
+  if (!hasSupabaseConfig || !supabase) {
+    return { apoio: 0, continua: 0, ganhador: 0 };
+  }
+
+  const { data } = await supabase
+    .from("post_likes")
+    .select("incentive_type")
+    .eq("post_id", postId);
+
+  const stats: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0 };
+
+  (data ?? []).forEach((row: any) => {
+    const type = Number(row.incentive_type) as PostIncentiveType;
+    if (type === 1) stats.apoio += 1;
+    else if (type === 2) stats.continua += 1;
+    else if (type === 3) stats.ganhador += 1;
+  });
+
+  return stats;
+}
+
+export async function getUserPostLikesDb(postId: string): Promise<PostIncentiveType[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const { data } = await supabase
+    .from("post_likes")
+    .select("incentive_type")
+    .eq("post_id", postId)
+    .eq("user_id", viewer.id);
+
+  return (data ?? [])
+    .map((row: any) => Number(row.incentive_type) as PostIncentiveType)
+    .filter((type): type is PostIncentiveType => [1, 2, 3].includes(type));
+}
+
 export type RankingEntry = {
   id: string;
   name: string;
