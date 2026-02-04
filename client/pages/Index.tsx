@@ -30,6 +30,7 @@ export default function Index() {
     React.useState<PostWithStats | null>(null);
   const [linkedRoutines, setLinkedRoutines] = React.useState<any[]>([]);
   const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
+  const [expandedRoutines, setExpandedRoutines] = React.useState(false);
 
   React.useEffect(() => {
     (async () => {
