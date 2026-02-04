@@ -55,10 +55,6 @@ function RequireAuth() {
     );
   }
 
-  if (needsGoalChoice() && location.pathname !== "/escolher-meta") {
-    return <Navigate to="/escolher-meta" replace />;
-  }
-
   return <Outlet />;
 }
 
