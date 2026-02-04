@@ -148,38 +148,6 @@ export function AppLayout() {
             </Button>
           </div>
 
-          <div className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 lg:hidden">
-            <Button
-              asChild
-              variant={
-                isActivePath(location.pathname, "/buscar")
-                  ? "secondary"
-                  : "ghost"
-              }
-              className="h-11 w-11 rounded-full p-0"
-            >
-              <Link to="/buscar" aria-label="Buscar">
-                <Search className="h-5 w-5" />
-              </Link>
-            </Button>
-
-            <Button
-              asChild
-              variant={
-                isActivePath(location.pathname, MESSAGES_PATH)
-                  ? "secondary"
-                  : "ghost"
-              }
-              className="h-11 w-11 rounded-full p-0"
-            >
-              <Link to={MESSAGES_PATH} aria-label="Mensagens">
-                <span className="relative">
-                  <MessagesSquare className="h-5 w-5" />
-                  <UnreadBadge count={unreadMessages} />
-                </span>
-              </Link>
-            </Button>
-          </div>
 
           <nav className="hidden items-center justify-center gap-2 lg:flex">
             {desktopNavItems.map((item) => {
