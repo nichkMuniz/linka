@@ -58,17 +58,19 @@ export default function Profile() {
     if (!user) return;
 
     try {
-      const [profileData, postsData, statsData, routinesData] = await Promise.all([
+      const [profileData, postsData, statsData, routinesData, userWorkoutsData] = await Promise.all([
         getUserProfileDb(user.id),
         getUserPostsDb(user.id),
         getUserStatsDb(user.id),
         getUserRoutinesDb(user.id),
+        getUserWorkoutsDb(user.id),
       ]);
 
       setProfile(profileData);
       setPosts(postsData);
       setStats(statsData);
       setRoutines(routinesData);
+      setUserWorkouts(userWorkoutsData);
     } catch (err: any) {
       console.error("Error loading profile:", err);
       toast({
