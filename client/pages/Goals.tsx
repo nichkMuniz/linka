@@ -19,10 +19,11 @@ export default function Goals() {
         const data = await getProgrammedGoalsDb();
         setGoals(data);
       } catch (err: any) {
-        console.error("Erro ao carregar metas:", err);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        console.error("Erro ao carregar metas:", errorMessage);
         toast({
           title: "Erro ao carregar metas",
-          description: err?.message || "Tente novamente.",
+          description: errorMessage || "Tente novamente.",
           variant: "destructive",
         });
       } finally {
