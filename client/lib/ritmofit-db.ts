@@ -131,7 +131,7 @@ export async function togglePostIncentiveDb(
     await supabase.from("likes").insert({
       post_id: postId,
       user_id: viewer.id,
-      type: type,
+      type: type
     });
   }
 }
