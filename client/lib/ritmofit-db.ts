@@ -327,7 +327,7 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
 
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, goals(description)")
+    .select("id, goal_id, duration, quantity, type_goal")
     .eq("user_id", viewer.id)
     .order("created_at", { ascending: false });
 
@@ -338,11 +338,30 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
     return [];
   }
 
-  return (data ?? []).map((row: any) =>
+  const userGoalsData = data ?? [];
+
+  // Fetch goal descriptions for all goal_ids
+  const goalIds = userGoalsData.map(row => row.goal_id);
+  const goalsDescriptions: Map<string, string> = new Map();
+
+  if (goalIds.length > 0) {
+    const { data: goalsData, error: goalsError } = await supabase
+      .from("goals")
+      .select("id, description")
+      .in("id", goalIds);
+
+    if (!goalsError && goalsData) {
+      goalsData.forEach((goal: any) => {
+        goalsDescriptions.set(String(goal.id), String(goal.description ?? ""));
+      });
+    }
+  }
+
+  return userGoalsData.map((row: any) =>
     ({
       id: String(row.id),
       goal_id: String(row.goal_id ?? ""),
-      description: String((row.goals as any)?.description ?? ""),
+      description: goalsDescriptions.get(String(row.goal_id)) ?? "",
       duration: Number(row.duration ?? 0),
       quantity: Number(row.quantity ?? 0),
       type_goal: Number(row.type_goal ?? 0),
