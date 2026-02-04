@@ -421,6 +421,33 @@ export async function getUserProfileDb(userId: string): Promise<UserProfile | nu
   };
 }
 
+export async function updateUserProfileDb(userId: string, updates: { nickname?: string; bio?: string; photo?: string | null }): Promise<UserProfile | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .update(updates)
+    .eq("user_id", userId)
+    .select("id, nickname, bio, photo")
+    .maybeSingle();
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error updating user profile [${errorCode}]:`, errorMsg);
+    throw new Error(`Erro ao atualizar perfil: ${errorMsg}`);
+  }
+
+  if (!data) return null;
+
+  return {
+    id: String(data.id ?? ""),
+    nickname: String(data.nickname ?? ""),
+    bio: String(data.bio ?? ""),
+    photo: data.photo ? String(data.photo) : null,
+  };
+}
+
 export type PostWithUser = {
   id: string;
   description: string;
