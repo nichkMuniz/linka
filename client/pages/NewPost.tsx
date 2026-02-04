@@ -157,7 +157,14 @@ export default function NewPost() {
             ) : userGoals.length > 0 ? (
               <Select value={selectedGoalId} onValueChange={setSelectedGoalId}>
                 <SelectTrigger>
-                  <SelectValue placeholder={selectedGoalId ? userGoals.find(g => g.id === selectedGoalId)?.description : "Selecione uma meta"} />
+                  <SelectValue
+                    placeholder={
+                      selectedGoalId
+                        ? userGoals.find((g) => g.id === selectedGoalId)
+                            ?.description
+                        : "Selecione uma meta"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {userGoals.map((goal) => (

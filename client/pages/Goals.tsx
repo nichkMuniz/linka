@@ -1,7 +1,18 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { getProgrammedGoalsDb, createUserGoalDb, getUserSelectedGoalIdsDb, type ProgrammedGoal } from "@/lib/ritmofit-db";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  getProgrammedGoalsDb,
+  createUserGoalDb,
+  getUserSelectedGoalIdsDb,
+  type ProgrammedGoal,
+} from "@/lib/ritmofit-db";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -11,7 +22,9 @@ export default function Goals() {
   const { user } = useAuth();
   const [goals, setGoals] = React.useState<ProgrammedGoal[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [selectingGoalId, setSelectingGoalId] = React.useState<string | null>(null);
+  const [selectingGoalId, setSelectingGoalId] = React.useState<string | null>(
+    null,
+  );
   const [selectedGoalIds, setSelectedGoalIds] = React.useState<string[]>([]);
 
   React.useEffect(() => {
@@ -59,7 +72,13 @@ export default function Goals() {
     setSelectingGoalId(goal.id);
 
     try {
-      await createUserGoalDb(goal.id, user.id, goal.type, goal.duration, goal.quantity);
+      await createUserGoalDb(
+        goal.id,
+        user.id,
+        goal.type,
+        goal.duration,
+        goal.quantity,
+      );
 
       toast({
         title: "Meta selecionada!",
@@ -85,7 +104,11 @@ export default function Goals() {
   };
 
   if (loading) {
-    return <div className="p-6 text-sm text-muted-foreground">Carregando metas...</div>;
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        Carregando metas...
+      </div>
+    );
   }
 
   return (
@@ -100,10 +123,15 @@ export default function Goals() {
       {goals.length ? (
         <div className="grid gap-4 md:grid-cols-2">
           {goals.map((goal) => (
-            <Card key={goal.id} className="border-border/60 hover:border-border/80 transition-colors cursor-pointer">
+            <Card
+              key={goal.id}
+              className="border-border/60 hover:border-border/80 transition-colors cursor-pointer"
+            >
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg">{goal.description}</CardTitle>
-                <CardDescription className="capitalize">{goal.type}</CardDescription>
+                <CardDescription className="capitalize">
+                  {goal.type}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
@@ -120,7 +148,10 @@ export default function Goals() {
                 <Button
                   type="button"
                   className="w-full rounded-full"
-                  disabled={selectingGoalId === goal.id || selectedGoalIds.includes(goal.id)}
+                  disabled={
+                    selectingGoalId === goal.id ||
+                    selectedGoalIds.includes(goal.id)
+                  }
                   onClick={() => handleSelectGoal(goal)}
                 >
                   {selectingGoalId === goal.id
@@ -135,7 +166,9 @@ export default function Goals() {
         </div>
       ) : (
         <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
-          <p className="text-sm text-muted-foreground">Nenhuma meta disponível no momento.</p>
+          <p className="text-sm text-muted-foreground">
+            Nenhuma meta disponível no momento.
+          </p>
         </div>
       )}
     </div>

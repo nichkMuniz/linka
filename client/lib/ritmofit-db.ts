@@ -282,18 +282,25 @@ export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
     throw new Error(`Falha ao carregar metas: ${errorMsg}`);
   }
 
-  return (data ?? []).map((row: any) =>
-    ({
-      id: String(row.id),
-      description: String(row.description ?? ""),
-      duration: Number(row.duration ?? 0),
-      quantity: Number(row.quantity ?? 0),
-      type: Number(row.type ?? ""),
-    }) satisfies ProgrammedGoal,
+  return (data ?? []).map(
+    (row: any) =>
+      ({
+        id: String(row.id),
+        description: String(row.description ?? ""),
+        duration: Number(row.duration ?? 0),
+        quantity: Number(row.quantity ?? 0),
+        type: Number(row.type ?? ""),
+      }) satisfies ProgrammedGoal,
   );
 }
 
-export async function createUserGoalDb(goalId: string, userId: string, typeGoal: string | number, duration: number, quantity: number) {
+export async function createUserGoalDb(
+  goalId: string,
+  userId: string,
+  typeGoal: string | number,
+  duration: number,
+  quantity: number,
+) {
   if (!hasSupabaseConfig || !supabase) return;
 
   const { error } = await supabase.from("user_goals").insert({
@@ -369,7 +376,7 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
   const userGoalsData = data ?? [];
 
   // Fetch goal descriptions for all goal_ids
-  const goalIds = userGoalsData.map(row => row.goal_id);
+  const goalIds = userGoalsData.map((row) => row.goal_id);
   const goalsDescriptions: Map<string, string> = new Map();
 
   if (goalIds.length > 0) {
@@ -385,15 +392,16 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
     }
   }
 
-  return userGoalsData.map((row: any) =>
-    ({
-      id: String(row.id),
-      goal_id: String(row.goal_id ?? ""),
-      description: goalsDescriptions.get(String(row.goal_id)) ?? "",
-      duration: Number(row.duration ?? 0),
-      quantity: Number(row.quantity ?? 0),
-      type_goal: Number(row.type_goal ?? 0),
-    }) satisfies UserGoal,
+  return userGoalsData.map(
+    (row: any) =>
+      ({
+        id: String(row.id),
+        goal_id: String(row.goal_id ?? ""),
+        description: goalsDescriptions.get(String(row.goal_id)) ?? "",
+        duration: Number(row.duration ?? 0),
+        quantity: Number(row.quantity ?? 0),
+        type_goal: Number(row.type_goal ?? 0),
+      }) satisfies UserGoal,
   );
 }
 
@@ -423,7 +431,9 @@ export type UserProfile = {
   photo: string | null;
 };
 
-export async function getUserProfileDb(userId: string): Promise<UserProfile | null> {
+export async function getUserProfileDb(
+  userId: string,
+): Promise<UserProfile | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
   const { data, error } = await supabase
@@ -449,7 +459,10 @@ export async function getUserProfileDb(userId: string): Promise<UserProfile | nu
   };
 }
 
-export async function updateUserProfileDb(userId: string, updates: { nickname?: string; bio?: string; photo?: string | null }): Promise<UserProfile | null> {
+export async function updateUserProfileDb(
+  userId: string,
+  updates: { nickname?: string; bio?: string; photo?: string | null },
+): Promise<UserProfile | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
   const { data, error } = await supabase
@@ -575,9 +588,10 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
   }
 
   if (postsRes.error) {
-    const errorMsg = postsRes.error instanceof Error
-      ? postsRes.error.message
-      : (postsRes.error?.message || postsRes.error?.details || "Unknown error");
+    const errorMsg =
+      postsRes.error instanceof Error
+        ? postsRes.error.message
+        : postsRes.error?.message || postsRes.error?.details || "Unknown error";
     const errorCode = postsRes.error?.code || "UNKNOWN";
     console.error(`Error fetching posts stats [${errorCode}]:`, errorMsg);
   }
@@ -600,7 +614,7 @@ export const ROUTINE_TYPES = {
 } as const;
 
 export type RoutineTypeCode = 1 | 2 | 3;
-export type RoutineType = typeof ROUTINE_TYPES[RoutineTypeCode];
+export type RoutineType = (typeof ROUTINE_TYPES)[RoutineTypeCode];
 
 export function getRoutineTypeName(code: number): string {
   return ROUTINE_TYPES[code as RoutineTypeCode] || "Desconhecido";
@@ -646,7 +660,11 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
   }));
 }
 
-export async function createRoutineDb(userId: string, type: RoutineTypeCode, program_id?: string): Promise<Routine | null> {
+export async function createRoutineDb(
+  userId: string,
+  type: RoutineTypeCode,
+  program_id?: string,
+): Promise<Routine | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
   const { data, error } = await supabase
@@ -677,7 +695,10 @@ export async function createRoutineDb(userId: string, type: RoutineTypeCode, pro
   };
 }
 
-export async function updateRoutineGoalDb(routineId: string, goalId: string | null): Promise<Routine | null> {
+export async function updateRoutineGoalDb(
+  routineId: string,
+  goalId: string | null,
+): Promise<Routine | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
   const { data, error } = await supabase
@@ -721,7 +742,13 @@ export type UserWorkout = {
 export async function createUserWorkoutsDb(
   userId: string,
   workoutIds: string[],
-  options?: { volume?: number; calories?: number; duration?: number; series?: number; time_rest?: number }
+  options?: {
+    volume?: number;
+    calories?: number;
+    duration?: number;
+    series?: number;
+    time_rest?: number;
+  },
 ): Promise<UserWorkout[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
@@ -738,7 +765,9 @@ export async function createUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .insert(workoutsToInsert)
-    .select("id, workout_id, user_id, volume, calories, duration, series, time_rest");
+    .select(
+      "id, workout_id, user_id, volume, calories, duration, series, time_rest",
+    );
 
   if (error) {
     const errorMsg = error?.message || String(error);
@@ -773,12 +802,16 @@ export type UserWorkoutWithDetails = {
   workoutDescription?: string;
 };
 
-export async function getUserWorkoutsDb(userId: string): Promise<UserWorkoutWithDetails[]> {
+export async function getUserWorkoutsDb(
+  userId: string,
+): Promise<UserWorkoutWithDetails[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   const { data, error } = await supabase
     .from("user_workouts")
-    .select("id, workout_id, user_id, volume, calories, duration, series, time_rest, workouts(name, photo, description)")
+    .select(
+      "id, workout_id, user_id, volume, calories, duration, series, time_rest, workouts(name, photo, description)",
+    )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -791,13 +824,17 @@ export async function getUserWorkoutsDb(userId: string): Promise<UserWorkoutWith
     if (errorDetails.includes("relationship")) {
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_workouts")
-        .select("id, workout_id, user_id, volume, calories, duration, series, time_rest")
+        .select(
+          "id, workout_id, user_id, volume, calories, duration, series, time_rest",
+        )
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
       if (!errorFallback && dataFallback) {
         // Fetch workout details separately
-        const workoutIds = dataFallback.map((row: any) => row.workout_id).filter(Boolean);
+        const workoutIds = dataFallback
+          .map((row: any) => row.workout_id)
+          .filter(Boolean);
         const workoutDetailsMap: { [key: string]: any } = {};
 
         if (workoutIds.length > 0) {
