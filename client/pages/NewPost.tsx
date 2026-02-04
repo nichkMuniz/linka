@@ -20,9 +20,6 @@ export default function NewPost() {
   const canSubmit = Boolean(file && !busy && hasSupabaseConfig && user);
 
   async function handlePost() {
-    const { data: sessionData } = await supabase.auth.getSession();
-console.log("SESSION:", sessionData);
-
     if (!hasSupabaseConfig || !supabase) return;
     if (loading) return;
 
