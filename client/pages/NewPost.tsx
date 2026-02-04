@@ -1,3 +1,5 @@
+export default function NewPost() {
+
 async function handlePost() {
   if (!hasSupabaseConfig || !supabase) return;
   if (loading) return;
