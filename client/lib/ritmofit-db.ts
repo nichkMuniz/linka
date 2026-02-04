@@ -204,9 +204,9 @@ async function applyMyIncentives(goals: Goal[]) {
 
   (data ?? []).forEach((row: any) => {
     const goalId = String(row.goal_id);
-    const kind = String(row.kind) as GoalIncentiveKey;
+    const kind = String(row.type_goal) as GoalIncentiveKey;
     const prev = map.get(goalId) ?? {};
-    prev[kind] = true;
+    prev[type_goal] = true;
     map.set(goalId, prev);
   });
 
