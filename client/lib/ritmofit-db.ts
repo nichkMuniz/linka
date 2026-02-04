@@ -637,29 +637,6 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
   }));
 }
 
-export async function getWorkoutsDb(): Promise<Workout[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-
-  const { data, error } = await supabase
-    .from("workouts")
-    .select("id, name, description, photo")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    console.error(`Error fetching workouts [${errorCode}]:`, errorMsg);
-    return [];
-  }
-
-  return (data ?? []).map((row: any) => ({
-    id: String(row.id ?? ""),
-    name: String(row.name ?? ""),
-    description: String(row.description ?? ""),
-    photo: row.photo ? String(row.photo) : null,
-  }));
-}
-
 export async function createRoutineDb(userId: string, type: RoutineTypeCode, program_id?: string): Promise<Routine | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
