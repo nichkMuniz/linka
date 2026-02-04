@@ -642,7 +642,7 @@ export default function Profile() {
 
                 const isExpanded = expandedRoutineType === typeCode;
                 const workoutsOfType = userWorkouts.filter(
-                  (uw) => routinesOfType.some((r) => r.id === uw.id)
+                  (uw) => routinesOfType.some((r) => String(r.program_id) === uw.id)
                 );
 
                 return (
