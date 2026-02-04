@@ -48,6 +48,63 @@ export default function Index() {
     })();
   }, []);
 
+  const openGoalModal = React.useCallback(
+    async (post: PostWithStats) => {
+      setSelectedGoalPost(post);
+      setGoalModalOpen(true);
+
+      // Fetch routines linked to this goal
+      if (post.userGoal) {
+        try {
+          const routines = await getRoutinesByGoalIdDb(post.userGoal.id);
+          setLinkedRoutines(routines);
+        } catch (err) {
+          console.error("Error fetching routines:", err);
+          setLinkedRoutines([]);
+        }
+      }
+    },
+    [],
+  );
+
+  const handleIncrementGoalProgress = React.useCallback(async () => {
+    if (!selectedGoalPost?.userGoal) return;
+
+    setIsUpdatingGoal(true);
+    try {
+      await incrementGoalProgressDb(selectedGoalPost.userGoal.id);
+
+      // Update the post in the list
+      setPosts((prev) =>
+        prev.map((post) => {
+          if (post.id !== selectedGoalPost.id) return post;
+          if (!post.userGoal) return post;
+
+          return {
+            ...post,
+            userGoal: {
+              ...post.userGoal,
+              perc: Math.min(post.userGoal.perc + 1, 100),
+            },
+          };
+        }),
+      );
+
+      toast({
+        title: "Progresso atualizado!",
+        description: "Você avançou 1% na sua meta.",
+      });
+    } catch (err: any) {
+      console.error("Error updating goal progress:", err);
+      toast({
+        title: "Erro ao atualizar progresso",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setIsUpdatingGoal(false);
+    }
+  }, [selectedGoalPost?.userGoal?.id, selectedGoalPost?.id]);
+
   const handleToggleLike = React.useCallback(
     async (postId: string, incentiveType: PostIncentiveType) => {
       try {
