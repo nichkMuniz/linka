@@ -781,6 +781,30 @@ export async function updateRoutineGoalDb(
   };
 }
 
+export async function getRoutinesByGoalIdDb(goalId: string): Promise<Routine[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("routines")
+    .select("id, user_id, type, program_id, goal_id")
+    .eq("goal_id", goalId);
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching routines by goal [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    user_id: String(row.user_id ?? ""),
+    type: Number(row.type ?? 1),
+    program_id: row.program_id ? String(row.program_id) : null,
+    goal_id: row.goal_id ? String(row.goal_id) : null,
+  }));
+}
+
 export type UserWorkout = {
   id: string;
   workout_id: string;
