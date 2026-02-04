@@ -15,6 +15,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
   { to: "/postar", label: "Nova", icon: PlusSquare },
+  { to: "/metas", label: "Metas", icon: Dumbbell },
 ];
 
 function isActivePath(currentPath: string, to: string) {
