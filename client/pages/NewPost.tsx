@@ -125,37 +125,6 @@ export default function NewPost() {
             />
           </div>
 
-          <div className="grid gap-2">
-            <div className="text-sm font-medium">Meta (Opcional)</div>
-            {goalsLoading ? (
-              <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
-                Carregando metas...
-              </div>
-            ) : goals.length > 0 ? (
-              <Select value={selectedGoalId || ""} onValueChange={setSelectedGoalId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione uma meta" />
-                </SelectTrigger>
-                <SelectContent>
-                  {goals.map((goal) => (
-                    <SelectItem key={goal.id} value={goal.id}>
-                      <div className="flex items-center gap-2">
-                        <div className="text-xs font-medium text-muted-foreground">
-                          {goal.category}
-                        </div>
-                        {goal.title}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <div className="flex h-10 items-center rounded-md border border-border/50 bg-muted/30 px-3 text-sm text-muted-foreground">
-                Nenhuma meta disponível
-              </div>
-            )}
-          </div>
-
           <Button
             type="button"
             className="w-full rounded-full"
