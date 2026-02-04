@@ -25,6 +25,7 @@ import Index from "@/pages/Index";
 import Login from "@/pages/Login";
 import NewPost from "@/pages/NewPost";
 import Goals from "@/pages/Goals";
+import Profile from "@/pages/Profile";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -85,6 +86,7 @@ const App = () => {
                   <Route path="/" element={<Index />} />
                   <Route path="/postar" element={<NewPost />} />
                   <Route path="/metas" element={<Goals />} />
+                  <Route path="/perfil" element={<Profile />} />
 
                   {/* compatibility */}
                   <Route
