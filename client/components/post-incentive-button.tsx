@@ -40,15 +40,18 @@ export function PostIncentiveButton({
   isActive,
   onClick,
   loading,
+  hasActivity,
 }: {
   type: PostIncentiveType;
   count: number;
   isActive: boolean;
   onClick: () => void;
   loading?: boolean;
+  hasActivity?: boolean;
 }) {
   const config = incentiveConfig[type];
   const Icon = config.Icon;
+  const shouldHighlight = isActive || (hasActivity && count > 0);
 
   return (
     <TooltipProvider>
@@ -65,26 +68,28 @@ export function PostIncentiveButton({
               "relative inline-flex shrink-0 items-center justify-center rounded-lg p-2 transition-colors",
               "border border-border/50 bg-background/80 backdrop-blur",
               "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
-              isActive && "border-current bg-muted/80",
+              shouldHighlight && "border-current bg-muted/80",
               loading && "opacity-50 cursor-not-allowed",
             )}
           >
             <Icon
               className={cn(
                 "h-5 w-5 transition-colors",
-                isActive ? config.iconClassName : "text-muted-foreground",
-                isActive && "fill-current",
+                shouldHighlight ? config.iconClassName : "text-muted-foreground",
+                shouldHighlight && "fill-current",
               )}
             />
             {count > 0 && (
-              <span
+              <motion.span
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
                 className={cn(
                   "absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold",
-                  isActive && cn("bg-current text-background", config.iconClassName),
+                  shouldHighlight && cn("bg-current text-background", config.iconClassName),
                 )}
               >
                 {count > 99 ? "99+" : count}
-              </span>
+              </motion.span>
             )}
           </motion.button>
         </TooltipTrigger>
