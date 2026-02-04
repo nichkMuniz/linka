@@ -1153,6 +1153,14 @@ export async function deletePostCommentDb(commentId: string) {
   }
 }
 
+export type GoalSelectOption = {
+  id: string;
+  title: string;
+  category: Goal["category"];
+  completedDays: number;
+  durationDays: 7 | 21 | 30;
+};
+
 export type PostGoalInfo = {
   id: string;
   title: string;
