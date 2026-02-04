@@ -1,5 +1,5 @@
 import * as React from "react";
-import { getUserProfileDb, getUserPostsDb, getUserStatsDb, updateUserProfileDb, getUserRoutinesDb, createRoutineDb, type UserProfile, type PostWithUser, type UserStats, type Routine, type RoutineType } from "@/lib/ritmofit-db";
+import { getUserProfileDb, getUserPostsDb, getUserStatsDb, updateUserProfileDb, getUserRoutinesDb, createRoutineDb, getWorkoutsDb, ROUTINE_TYPES, getRoutineTypeName, type UserProfile, type PostWithUser, type UserStats, type Routine, type Workout } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Users, Edit2, Upload, X, Plus } from "lucide-react";
+import { Users, Edit2, Upload, Plus, ArrowLeft } from "lucide-react";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 export default function Profile() {
@@ -40,6 +40,9 @@ export default function Profile() {
   const [expandedPost, setExpandedPost] = React.useState<PostWithUser | null>(null);
   const [isCreateRoutineOpen, setIsCreateRoutineOpen] = React.useState(false);
   const [isCreatingRoutine, setIsCreatingRoutine] = React.useState(false);
+  const [selectedRoutineType, setSelectedRoutineType] = React.useState<1 | 2 | 3 | null>(null);
+  const [workouts, setWorkouts] = React.useState<Workout[]>([]);
+  const [workoutsLoading, setWorkoutsLoading] = React.useState(false);
 
   // Edit form state
   const [editNickname, setEditNickname] = React.useState("");
@@ -145,19 +148,44 @@ export default function Profile() {
     }
   };
 
-  const handleCreateRoutine = async (type: RoutineType) => {
-    if (!user) return;
+  const handleSelectRoutineType = async (type: 1 | 2 | 3) => {
+    setSelectedRoutineType(type);
+
+    // If Exercicios is selected, load workouts
+    if (type === 1) {
+      setWorkoutsLoading(true);
+      try {
+        const workoutsData = await getWorkoutsDb();
+        setWorkouts(workoutsData);
+      } catch (err: any) {
+        console.error("Error loading workouts:", err);
+        toast({
+          title: "Erro ao carregar exercícios",
+          description: "Tente novamente mais tarde.",
+          variant: "destructive",
+        });
+        setSelectedRoutineType(null);
+      } finally {
+        setWorkoutsLoading(false);
+      }
+    }
+  };
+
+  const handleCreateRoutine = async (workoutId?: string) => {
+    if (!user || selectedRoutineType === null) return;
 
     setIsCreatingRoutine(true);
     try {
-      const newRoutine = await createRoutineDb(user.id, type);
+      const newRoutine = await createRoutineDb(user.id, selectedRoutineType, workoutId);
       if (newRoutine) {
         setRoutines([newRoutine, ...routines]);
         toast({
           title: "Rotina criada!",
-          description: `Nova rotina de "${type}" foi criada.`,
+          description: `Nova rotina de "${getRoutineTypeName(selectedRoutineType)}" foi criada.`,
         });
         setIsCreateRoutineOpen(false);
+        setSelectedRoutineType(null);
+        setWorkouts([]);
       }
     } catch (err: any) {
       console.error("Error creating routine:", err);
@@ -401,7 +429,13 @@ export default function Profile() {
 
         {/* Routines Tab */}
         <TabsContent value="routines" className="space-y-4">
-          <Dialog open={isCreateRoutineOpen} onOpenChange={setIsCreateRoutineOpen}>
+          <Dialog open={isCreateRoutineOpen} onOpenChange={(open) => {
+            setIsCreateRoutineOpen(open);
+            if (!open) {
+              setSelectedRoutineType(null);
+              setWorkouts([]);
+            }
+          }}>
             <DialogTrigger asChild>
               <Button className="rounded-full">
                 <Plus className="h-4 w-4 mr-2" />
@@ -410,26 +444,111 @@ export default function Profile() {
             </DialogTrigger>
 
             <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nova Rotina</DialogTitle>
-                <DialogDescription>
-                  Escolha o tipo de rotina que deseja criar
-                </DialogDescription>
-              </DialogHeader>
+              {selectedRoutineType === null ? (
+                <>
+                  <DialogHeader>
+                    <DialogTitle>Nova Rotina</DialogTitle>
+                    <DialogDescription>
+                      Escolha o tipo de rotina que deseja criar
+                    </DialogDescription>
+                  </DialogHeader>
 
-              <div className="grid grid-cols-1 gap-3">
-                {(["Exercicios", "Dietas", "Habitos"] as RoutineType[]).map((type) => (
-                  <Button
-                    key={type}
-                    variant="outline"
-                    className="h-auto p-4 justify-start text-base rounded-lg"
-                    onClick={() => handleCreateRoutine(type)}
-                    disabled={isCreatingRoutine}
-                  >
-                    {type}
-                  </Button>
-                ))}
-              </div>
+                  <div className="grid grid-cols-1 gap-3">
+                    {[1, 2, 3].map((typeCode) => (
+                      <Button
+                        key={typeCode}
+                        variant="outline"
+                        className="h-auto p-4 justify-start text-base rounded-lg"
+                        onClick={() => handleSelectRoutineType(typeCode as 1 | 2 | 3)}
+                        disabled={isCreatingRoutine}
+                      >
+                        {getRoutineTypeName(typeCode)}
+                      </Button>
+                    ))}
+                  </div>
+                </>
+              ) : selectedRoutineType === 1 ? (
+                <>
+                  <DialogHeader>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-fit"
+                      onClick={() => setSelectedRoutineType(null)}
+                    >
+                      <ArrowLeft className="h-4 w-4 mr-2" />
+                      Voltar
+                    </Button>
+                    <DialogTitle>Selecione um Exercício</DialogTitle>
+                  </DialogHeader>
+
+                  {workoutsLoading ? (
+                    <div className="text-center py-6 text-sm text-muted-foreground">
+                      Carregando exercícios...
+                    </div>
+                  ) : workouts.length > 0 ? (
+                    <div className="grid gap-3 max-h-[60vh] overflow-y-auto">
+                      {workouts.map((workout) => (
+                        <button
+                          key={workout.id}
+                          onClick={() => handleCreateRoutine(workout.id)}
+                          disabled={isCreatingRoutine}
+                          className="p-4 border border-border/60 rounded-lg hover:bg-muted/50 transition-colors text-left space-y-2 group disabled:opacity-50"
+                        >
+                          <div className="flex items-start gap-3">
+                            {workout.photo ? (
+                              <img
+                                src={workout.photo}
+                                alt={workout.name}
+                                className="h-16 w-16 rounded object-cover flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium group-hover:text-brand transition-colors">{workout.name}</p>
+                              {workout.description && (
+                                <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                  {workout.description}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-sm text-muted-foreground">
+                      Nenhum exercício disponível.
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <DialogHeader>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-fit"
+                      onClick={() => setSelectedRoutineType(null)}
+                    >
+                      <ArrowLeft className="h-4 w-4 mr-2" />
+                      Voltar
+                    </Button>
+                    <DialogTitle>{getRoutineTypeName(selectedRoutineType)}</DialogTitle>
+                  </DialogHeader>
+
+                  <div className="text-center py-6">
+                    <Button
+                      onClick={() => handleCreateRoutine()}
+                      disabled={isCreatingRoutine}
+                      className="rounded-full"
+                    >
+                      {isCreatingRoutine ? "Criando..." : "Criar Rotina"}
+                    </Button>
+                  </div>
+                </>
+              )}
             </DialogContent>
           </Dialog>
 
@@ -440,11 +559,13 @@ export default function Profile() {
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-medium">{routine.type}</p>
-                        <p className="text-xs text-muted-foreground mt-1">ID: {routine.id}</p>
+                        <p className="font-medium text-lg">{getRoutineTypeName(routine.type)}</p>
+                        <p className="text-xs text-muted-foreground mt-2">ID: {routine.id}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-xs text-muted-foreground">Rotina</p>
+                        <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-brand/10">
+                          <span className="text-xs font-semibold text-brand">{routine.type}</span>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
