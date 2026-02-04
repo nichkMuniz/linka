@@ -363,7 +363,7 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
 
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal")
+    .select("id, goal_id, duration, quantity, type_goal, perc")
     .eq("user_id", viewer.id)
     .order("created_at", { ascending: false });
 
