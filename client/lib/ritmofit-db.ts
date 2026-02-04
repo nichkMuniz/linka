@@ -469,39 +469,50 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
     supabase
       .from("posts")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", userId),
+      .eq("user_id", userId)
+      .catch(() => ({ count: 0, error: null })),
     supabase
       .from("followers")
       .select("id", { count: "exact", head: true })
-      .eq("following_id", userId),
+      .eq("following_id", userId)
+      .catch(() => ({ count: 0, error: null })),
     supabase
       .from("following")
       .select("id", { count: "exact", head: true })
-      .eq("follower_id", userId),
+      .eq("follower_id", userId)
+      .catch(() => ({ count: 0, error: null })),
   ]);
 
   if (postsRes.error) {
     const errorMsg = postsRes.error instanceof Error
       ? postsRes.error.message
-      : (postsRes.error?.message || postsRes.error?.details || String(postsRes.error));
+      : (postsRes.error?.message || postsRes.error?.details || "Unknown error");
     const errorCode = postsRes.error?.code || "UNKNOWN";
     console.error(`Error fetching posts stats [${errorCode}]:`, errorMsg);
   }
 
+  // Only log follower errors if table exists, silently handle "relation does not exist" errors
   if (followersRes.error) {
-    const errorMsg = followersRes.error instanceof Error
-      ? followersRes.error.message
-      : (followersRes.error?.message || followersRes.error?.details || String(followersRes.error));
-    const errorCode = followersRes.error?.code || "UNKNOWN";
-    console.error(`Error fetching followers stats [${errorCode}]:`, errorMsg, followersRes.error);
+    const errorDetails = followersRes.error?.details || followersRes.error?.message || "";
+    if (!errorDetails.includes("does not exist")) {
+      const errorMsg = followersRes.error instanceof Error
+        ? followersRes.error.message
+        : (followersRes.error?.message || followersRes.error?.details || "Unknown error");
+      const errorCode = followersRes.error?.code || "UNKNOWN";
+      console.error(`Error fetching followers stats [${errorCode}]:`, errorMsg);
+    }
   }
 
+  // Only log following errors if table exists, silently handle "relation does not exist" errors
   if (followingRes.error) {
-    const errorMsg = followingRes.error instanceof Error
-      ? followingRes.error.message
-      : (followingRes.error?.message || followingRes.error?.details || String(followingRes.error));
-    const errorCode = followingRes.error?.code || "UNKNOWN";
-    console.error(`Error fetching following stats [${errorCode}]:`, errorMsg, followingRes.error);
+    const errorDetails = followingRes.error?.details || followingRes.error?.message || "";
+    if (!errorDetails.includes("does not exist")) {
+      const errorMsg = followingRes.error instanceof Error
+        ? followingRes.error.message
+        : (followingRes.error?.message || followingRes.error?.details || "Unknown error");
+      const errorCode = followingRes.error?.code || "UNKNOWN";
+      console.error(`Error fetching following stats [${errorCode}]:`, errorMsg);
+    }
   }
 
   return {
