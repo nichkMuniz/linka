@@ -249,6 +249,83 @@ export default function Index() {
         </p>
       )}
 
+      {/* Goal Progress Modal */}
+      <Dialog open={goalModalOpen} onOpenChange={setGoalModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Progresso da Meta</DialogTitle>
+          </DialogHeader>
+
+          {selectedGoalPost?.userGoal && (
+            <div className="space-y-4">
+              {/* Goal Info */}
+              <div className="p-4 border border-border/60 rounded-lg bg-muted/30">
+                <p className="text-sm font-medium mb-3">
+                  {selectedGoalPost.userGoal.description}
+                </p>
+
+                {/* Progress Bar */}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Progresso</span>
+                    <span className="font-medium">
+                      {selectedGoalPost.userGoal.perc}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-brand h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${selectedGoalPost.userGoal.perc}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Check Button */}
+              <Button
+                onClick={handleIncrementGoalProgress}
+                disabled={
+                  isUpdatingGoal ||
+                  selectedGoalPost.userGoal.perc >= 100
+                }
+                className="w-full rounded-full gap-2"
+              >
+                <Check className="h-4 w-4" />
+                {isUpdatingGoal
+                  ? "Atualizando..."
+                  : selectedGoalPost.userGoal.perc >= 100
+                    ? "Meta Completa!"
+                    : "Incrementar Progresso (+1%)"}
+              </Button>
+
+              {/* Linked Routines */}
+              {linkedRoutines.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium">Rotinas Vinculadas</h3>
+                  <div className="space-y-2">
+                    {linkedRoutines.map((routine) => (
+                      <div
+                        key={routine.id}
+                        className="p-3 border border-border/60 rounded-lg text-sm"
+                      >
+                        <p className="font-medium">
+                          {routine.type === 1
+                            ? "Exercicios"
+                            : routine.type === 2
+                              ? "Dietas"
+                              : "Habitos"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
