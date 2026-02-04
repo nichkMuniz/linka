@@ -196,7 +196,7 @@ async function applyMyIncentives(goals: Goal[]) {
 
   const { data } = await supabase
     .from("user_goals")
-    .select("goal_id")
+    .select("goal_id, type_goal")
     .eq("user_id", user.id)
     .in("goal_id", ids);
 
