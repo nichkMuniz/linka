@@ -51,15 +51,15 @@ console.log("SESSION:", sessionData);
         .from("posts")
         .getPublicUrl(filePath).data.publicUrl;
 
-      const { error } = await supabase.from("posts").insert({
+      const { error: insertError } = await supabase.from("posts").insert({
         user_id: user.id,
         description: caption.trim(),
         photo: publicUrl,
         user_goal_id: 1,
       });
 
-
       if (insertError) throw insertError;
+
 
       toast({
         title: "Post publicado!",
