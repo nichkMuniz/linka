@@ -50,7 +50,7 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
           .select("*", { count: "exact", head: true })
           .eq("post_id", post.id),
         getUserProfileDb(post.user_id),
-        getUserGoalsDb(),
+        getUserGoalsByUserIdDb(post.user_id),
       ]);
 
       // Check if post has any activity
