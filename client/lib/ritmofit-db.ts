@@ -407,6 +407,57 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
   );
 }
 
+export async function incrementGoalProgressDb(userGoalId: string): Promise<UserGoal | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  // Get current perc value
+  const { data: currentData, error: fetchError } = await supabase
+    .from("user_goals")
+    .select("perc")
+    .eq("id", userGoalId)
+    .maybeSingle();
+
+  if (fetchError || !currentData) {
+    const errorMsg = fetchError?.message || "Unknown error";
+    const errorCode = fetchError?.code || "UNKNOWN";
+    console.error(`Error fetching goal progress [${errorCode}]:`, errorMsg);
+    return null;
+  }
+
+  const currentPerc = Number(currentData.perc ?? 0);
+  const newPerc = Math.min(currentPerc + 1, 100); // Cap at 100
+
+  const { data, error } = await supabase
+    .from("user_goals")
+    .update({ perc: newPerc })
+    .eq("id", userGoalId)
+    .eq("user_id", viewer.id)
+    .select("id, goal_id, duration, quantity, type_goal, perc")
+    .maybeSingle();
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error updating goal progress [${errorCode}]:`, errorMsg);
+    throw new Error(`Erro ao atualizar progresso: ${errorMsg}`);
+  }
+
+  if (!data) return null;
+
+  return {
+    id: String(data.id),
+    goal_id: String(data.goal_id ?? ""),
+    description: "", // Will be fetched separately if needed
+    duration: Number(data.duration ?? 0),
+    quantity: Number(data.quantity ?? 0),
+    type_goal: Number(data.type_goal ?? 0),
+    perc: Number(data.perc ?? 0),
+  };
+}
+
 export async function getUserSelectedGoalIdsDb(): Promise<string[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
