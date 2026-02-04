@@ -319,6 +319,34 @@ export type UserGoal = {
   type_goal: number;
 };
 
+export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const { data, error } = await supabase
+    .from("goals")
+    .select("id, description, duration, quantity, type")
+    .eq("id", goalId)
+    .maybeSingle();
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching goal [${errorCode}]:`, errorMsg);
+    return null;
+  }
+
+  if (!data) return null;
+
+  return {
+    id: String(data.id),
+    goal_id: String(data.id),
+    description: String(data.description ?? ""),
+    duration: Number(data.duration ?? 0),
+    quantity: Number(data.quantity ?? 0),
+    type_goal: Number(data.type ?? 0),
+  };
+}
+
 export async function getUserGoalsDb(): Promise<UserGoal[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
