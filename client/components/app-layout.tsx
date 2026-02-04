@@ -50,9 +50,6 @@ function BrandMark({ className }: { className?: string }) {
 export function AppLayout() {
   const location = useLocation();
 
-  // MVP: contador mockado. Depois isso pode vir do backend/Supabase.
-  const unreadMessages = location.pathname.startsWith(MESSAGES_PATH) ? 0 : 2;
-
   const desktopNavItems = React.useMemo(() => navItems, []);
 
   const { theme, setTheme, resolvedTheme } = useTheme();
