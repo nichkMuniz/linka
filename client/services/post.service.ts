@@ -16,6 +16,7 @@ export type PostWithStats = PostWithLikes & {
   userPhoto: string | null;
   userGoal?: {
     id: string;
+    goal_id: string;
     description: string;
     perc: number;
   };
