@@ -29,19 +29,42 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
 
   if (error) throw error;
 
-  // Enrich each post with likes data and comment counts
+  // Enrich each post with likes, comments, and goal data
   const posts = await Promise.all(
     (data ?? []).map(async (post: any) => {
-      const { count: commentCount } = await supabase
-        .from("comments")
-        .select("*", { count: "exact", head: true })
-        .eq("post_id", post.id);
+      const [
+        likes,
+        userLikes,
+        { count: commentCount },
+        goalInfo,
+      ] = await Promise.all([
+        getPostLikesDb(post.id),
+        getUserPostLikesDb(post.id),
+        supabase
+          .from("comments")
+          .select("*", { count: "exact", head: true })
+          .eq("post_id", post.id),
+        post.user_goal_id ? getPostGoalDb(post.user_goal_id) : Promise.resolve(null),
+      ]);
+
+      // Check if post has any activity
+      const totalLikes = Object.values(likes).reduce((a: number, b: number) => a + b, 0);
+      const hasActivity = totalLikes > 0 || (commentCount ?? 0) > 0;
+
+      // Fetch linked routines if goal exists
+      let linkedRoutines: Routine[] = [];
+      if (goalInfo && goalInfo.attachedRoutineIds?.length) {
+        linkedRoutines = await getRoutinesByIdsDb(goalInfo.attachedRoutineIds);
+      }
 
       return {
         ...post,
-        likes: await getPostLikesDb(post.id),
-        userLikes: await getUserPostLikesDb(post.id),
+        likes,
+        userLikes,
         commentCount: commentCount ?? 0,
+        goalInfo,
+        linkedRoutines,
+        hasActivity,
       };
     }),
   );
