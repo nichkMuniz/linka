@@ -465,23 +465,36 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
     return { postsCount: 0, followersCount: 0, followingCount: 0 };
   }
 
-  const [postsRes, followersRes, followingRes] = await Promise.all([
-    supabase
+  let postsRes: any = { count: 0, error: null };
+  let followersRes: any = { count: 0, error: null };
+  let followingRes: any = { count: 0, error: null };
+
+  try {
+    postsRes = await supabase
       .from("posts")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .catch(() => ({ count: 0, error: null })),
-    supabase
+      .eq("user_id", userId);
+  } catch (err) {
+    postsRes = { count: 0, error: err };
+  }
+
+  try {
+    followersRes = await supabase
       .from("followers")
       .select("id", { count: "exact", head: true })
-      .eq("following_id", userId)
-      .catch(() => ({ count: 0, error: null })),
-    supabase
+      .eq("following_id", userId);
+  } catch (err) {
+    followersRes = { count: 0, error: err };
+  }
+
+  try {
+    followingRes = await supabase
       .from("following")
       .select("id", { count: "exact", head: true })
-      .eq("follower_id", userId)
-      .catch(() => ({ count: 0, error: null })),
-  ]);
+      .eq("follower_id", userId);
+  } catch (err) {
+    followingRes = { count: 0, error: err };
+  }
 
   if (postsRes.error) {
     const errorMsg = postsRes.error instanceof Error
