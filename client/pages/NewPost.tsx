@@ -5,17 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
-import { getUserGoalsDb, type GoalSelectOption } from "@/lib/ritmofit-db";
 
 export default function NewPost() {
   const navigate = useNavigate();
@@ -23,31 +15,7 @@ export default function NewPost() {
 
   const [file, setFile] = React.useState<File | null>(null);
   const [caption, setCaption] = React.useState("");
-  const [selectedGoalId, setSelectedGoalId] = React.useState<string | null>(null);
-  const [goals, setGoals] = React.useState<GoalSelectOption[]>([]);
-  const [goalsLoading, setGoalsLoading] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!user) return;
-
-    setGoalsLoading(true);
-    getUserGoalsDb()
-      .then((data) => {
-        setGoals(data);
-        if (data.length > 0) {
-          setSelectedGoalId(data[0].id);
-        }
-      })
-      .catch((err) => {
-        console.error("Error loading goals:", err);
-        toast({
-          title: "Erro ao carregar metas",
-          description: "Você ainda pode publicar sem vincular uma meta.",
-        });
-      })
-      .finally(() => setGoalsLoading(false));
-  }, [user]);
 
   const canSubmit = Boolean(file && !busy && hasSupabaseConfig && user);
 
