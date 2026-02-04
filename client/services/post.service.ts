@@ -3,12 +3,19 @@ import {
   getPostLikesDb,
   getUserPostLikesDb,
   togglePostIncentiveDb,
+  getPostGoalDb,
+  getRoutinesByIdsDb,
   type PostWithLikes,
   type PostIncentiveType,
+  type PostGoalInfo,
+  type Routine,
 } from "@/lib/ritmofit-db";
 
 export type PostWithStats = PostWithLikes & {
   commentCount: number;
+  goalInfo?: PostGoalInfo | null;
+  linkedRoutines?: Routine[];
+  hasActivity: boolean;
 };
 
 export const getFeedPosts = async (): Promise<PostWithStats[]> => {
