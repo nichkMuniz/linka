@@ -405,7 +405,9 @@ export async function getUserProfileDb(userId: string): Promise<UserProfile | nu
     .maybeSingle();
 
   if (error) {
-    console.error("Error fetching user profile:", error);
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching user profile [${errorCode}]:`, errorMsg);
     return null;
   }
 
@@ -437,7 +439,9 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Error fetching user posts:", error);
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching user posts [${errorCode}]:`, errorMsg);
     return [];
   }
 
@@ -475,6 +479,24 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
       .select("id", { count: "exact", head: true })
       .eq("follower_id", userId),
   ]);
+
+  if (postsRes.error) {
+    const errorMsg = postsRes.error?.message || String(postsRes.error);
+    const errorCode = postsRes.error?.code || "UNKNOWN";
+    console.error(`Error fetching posts stats [${errorCode}]:`, errorMsg);
+  }
+
+  if (followersRes.error) {
+    const errorMsg = followersRes.error?.message || String(followersRes.error);
+    const errorCode = followersRes.error?.code || "UNKNOWN";
+    console.error(`Error fetching followers stats [${errorCode}]:`, errorMsg);
+  }
+
+  if (followingRes.error) {
+    const errorMsg = followingRes.error?.message || String(followingRes.error);
+    const errorCode = followingRes.error?.code || "UNKNOWN";
+    console.error(`Error fetching following stats [${errorCode}]:`, errorMsg);
+  }
 
   return {
     postsCount: postsRes.count ?? 0,
