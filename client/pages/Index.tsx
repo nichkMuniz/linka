@@ -309,26 +309,41 @@ export default function Index() {
                     : "Incrementar Progresso (+1%)"}
               </Button>
 
-              {/* Linked Routines */}
+              {/* Linked Routines Dropdown */}
               {linkedRoutines.length > 0 && (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium">Rotinas Vinculadas</h3>
-                  <div className="space-y-2">
-                    {linkedRoutines.map((routine) => (
-                      <div
-                        key={routine.id}
-                        className="p-3 border border-border/60 rounded-lg text-sm"
-                      >
-                        <p className="font-medium">
-                          {routine.type === 1
-                            ? "Exercicios"
-                            : routine.type === 2
-                              ? "Dietas"
-                              : "Habitos"}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
+                <div className="border border-border/60 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedRoutines(!expandedRoutines)}
+                    className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+                  >
+                    <h3 className="text-sm font-medium">
+                      Rotinas Vinculadas ({linkedRoutines.length})
+                    </h3>
+                    <ChevronDown
+                      className={`h-5 w-5 transform transition-transform ${
+                        expandedRoutines ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+
+                  {expandedRoutines && (
+                    <div className="border-t border-border/60 bg-muted/20 p-4 space-y-3">
+                      {linkedRoutines.map((routine) => (
+                        <div
+                          key={routine.id}
+                          className="p-3 border border-border/60 rounded-lg bg-background"
+                        >
+                          <p className="font-medium text-sm">
+                            {routine.type === 1
+                              ? "🏋️ Exercicios"
+                              : routine.type === 2
+                                ? "🍽️ Dietas"
+                                : "✅ Habitos"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
