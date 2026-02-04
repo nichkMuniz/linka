@@ -47,6 +47,11 @@ export default function Profile() {
   const [isSavingWorkouts, setIsSavingWorkouts] = React.useState(false);
   const [userWorkouts, setUserWorkouts] = React.useState<UserWorkoutWithDetails[]>([]);
   const [expandedRoutineType, setExpandedRoutineType] = React.useState<number | null>(null);
+  const [goalIndicatorRoutineId, setGoalIndicatorRoutineId] = React.useState<string | null>(null);
+  const [goalIndicatorRoutine, setGoalIndicatorRoutine] = React.useState<Routine | null>(null);
+  const [linkedGoal, setLinkedGoal] = React.useState<UserGoal | null>(null);
+  const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
+  const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
 
   // Edit form state
   const [editNickname, setEditNickname] = React.useState("");
