@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Users, Edit2, Upload, Plus, ArrowLeft, Check } from "lucide-react";
+import { Users, Edit2, Upload, Plus, ArrowLeft, Check, Tag } from "lucide-react";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 export default function Profile() {
