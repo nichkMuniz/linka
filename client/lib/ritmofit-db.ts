@@ -265,7 +265,10 @@ export type ProgrammedGoal = {
 };
 
 export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
+  if (!hasSupabaseConfig || !supabase) {
+    console.warn("Supabase not configured");
+    return [];
+  }
 
   const { data, error } = await supabase
     .from("goals")
@@ -273,8 +276,10 @@ export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Error fetching goals:", error);
-    return [];
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching goals [${errorCode}]:`, errorMsg);
+    throw new Error(`Falha ao carregar metas: ${errorMsg}`);
   }
 
   return (data ?? []).map((row: any) =>
