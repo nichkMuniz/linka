@@ -261,6 +261,7 @@ export type ProgrammedGoal = {
   description: string;
   duration: number; // in days
   quantity: number;
+  type_goal: string;
 };
 
 export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
@@ -268,7 +269,7 @@ export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
 
   const { data, error } = await supabase
     .from("goals")
-    .select("id, description, duration, quantity")
+    .select("id, description, duration, quantity, type_goal")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -282,6 +283,24 @@ export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
       description: String(row.description ?? ""),
       duration: Number(row.duration ?? 0),
       quantity: Number(row.quantity ?? 0),
+      type_goal: String(row.type_goal ?? ""),
     }) satisfies ProgrammedGoal,
   );
+}
+
+export async function createUserGoalDb(goalId: string, userId: string, typeGoal: string, duration: number, quantity: number) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const { error } = await supabase.from("user_goals").insert({
+    goal_id: goalId,
+    user_id: userId,
+    type_goal: typeGoal,
+    duration,
+    quantity,
+  });
+
+  if (error) {
+    console.error("Error creating user goal:", error);
+    throw error;
+  }
 }
