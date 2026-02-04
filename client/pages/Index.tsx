@@ -93,41 +93,75 @@ export default function Index() {
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-4">
       {posts.length ? (
-        posts.map((post) => (
-          <Card key={post.id} className="border-border/60">
-            <CardContent className="space-y-3 p-4">
-              <img
-                src={post.photo}
-                alt="Post"
-                className="w-full rounded-lg object-cover"
-              />
-              {post.description && (
-                <p className="text-sm leading-relaxed">{post.description}</p>
-              )}
+        posts.map((post) => {
+          const pct = post.goalInfo
+            ? goalProgressPercent(post.goalInfo.completedDays, post.goalInfo.durationDays)
+            : 0;
+          const done = post.goalInfo ? post.goalInfo.completedDays >= post.goalInfo.durationDays : false;
 
-              {/* Incentive buttons and comments */}
-              <div className="flex flex-wrap items-center gap-2 pt-2">
-                <div className="flex flex-wrap gap-2">
-                  {([1, 2, 3] as PostIncentiveType[]).map((type) => (
-                    <PostIncentiveButton
-                      key={type}
-                      type={type}
-                      count={post.likes[type === 1 ? "apoio" : type === 2 ? "continua" : "ganhador"]}
-                      isActive={post.userLikes.includes(type)}
-                      onClick={() => handleToggleLike(post.id, type)}
-                      loading={togglingPostId === post.id}
-                    />
-                  ))}
+          return (
+            <Card key={post.id} className="border-border/60">
+              <CardContent className="space-y-3 p-4">
+                <img
+                  src={post.photo}
+                  alt="Post"
+                  className="w-full rounded-lg object-cover"
+                />
+                {post.description && (
+                  <p className="text-sm leading-relaxed">{post.description}</p>
+                )}
+
+                {/* Goal progress bar section */}
+                {post.goalInfo && (
+                  <GoalDetailsModal goalInfo={post.goalInfo} linkedRoutines={post.linkedRoutines}>
+                    <button
+                      type="button"
+                      className="w-full space-y-2 rounded-lg border border-border/60 bg-muted/30 p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-medium text-muted-foreground">
+                          {post.goalInfo.completedDays}/{post.goalInfo.durationDays}{" "}
+                          {dayLabel(post.goalInfo.durationDays)} · {pct}%
+                        </div>
+                        {done && (
+                          <div className="rounded-lg bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                            Concluída
+                          </div>
+                        )}
+                      </div>
+                      <Progress value={pct} className="h-1.5" />
+                      <div className="text-[10px] text-muted-foreground">
+                        {post.goalInfo.title} · {post.goalInfo.frequency}
+                      </div>
+                    </button>
+                  </GoalDetailsModal>
+                )}
+
+                {/* Incentive buttons and comments */}
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <div className="flex flex-wrap gap-2">
+                    {([1, 2, 3] as PostIncentiveType[]).map((type) => (
+                      <PostIncentiveButton
+                        key={type}
+                        type={type}
+                        count={post.likes[type === 1 ? "apoio" : type === 2 ? "continua" : "ganhador"]}
+                        isActive={post.userLikes.includes(type)}
+                        onClick={() => handleToggleLike(post.id, type)}
+                        loading={togglingPostId === post.id}
+                        hasActivity={post.hasActivity}
+                      />
+                    ))}
+                  </div>
+                  <PostCommentsDialog postId={post.id} commentCount={post.commentCount} hasActivity={post.hasActivity} />
                 </div>
-                <PostCommentsDialog postId={post.id} commentCount={post.commentCount} />
-              </div>
 
-              <p className="text-xs text-muted-foreground pt-1">
-                {new Date(post.created_at).toLocaleString()}
-              </p>
-            </CardContent>
-          </Card>
-        ))
+                <p className="text-xs text-muted-foreground pt-1">
+                  {new Date(post.created_at).toLocaleString()}
+                </p>
+              </CardContent>
+            </Card>
+          );
+        })
       ) : (
         <p className="text-center text-sm text-muted-foreground">
           Nenhum post ainda.
