@@ -165,14 +165,14 @@ export async function getUserPostLikesDb(postId: string): Promise<PostIncentiveT
   if (!viewer) return [];
 
   const { data } = await supabase
-    .from("likes")
-    .select("type")
+    .from("post_likes")
+    .select("incentive_type")
     .eq("post_id", postId)
     .eq("user_id", viewer.id);
 
   return (data ?? [])
-    .map((row: any) => Number(row.type) as PostIncentiveType)
-    .filter((type): type is PostIncentiveType => [1, 2, 3].includes(type));
+    .map((row: any) => Number(row.incentive_type) as PostIncentiveType)
+    .filter((incentiveType): incentiveType is PostIncentiveType => [1, 2, 3].includes(incentiveType));
 }
 
 export type PostComment = {
