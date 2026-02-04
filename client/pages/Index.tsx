@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Heart, MessageCircle, Send } from "lucide-react";
-import { timeAgo } from "@/lib/utils";
 
 type Post = {
   id: string;
@@ -19,6 +18,13 @@ type Post = {
   likes: { count: number }[];
   comments: { count: number }[];
 };
+
+function formatDate(date: string) {
+  return new Date(date).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+  });
+}
 
 export default function Index() {
   const [posts, setPosts] = React.useState<Post[]>([]);
@@ -63,7 +69,7 @@ export default function Index() {
                   {post.user.username}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {timeAgo(post.created_at)}
+                  {formatDate(post.created_at)}
                 </div>
               </div>
             </CardHeader>
@@ -92,7 +98,7 @@ export default function Index() {
                 </Button>
               </div>
 
-              {/* Counts */}
+              {/* Likes */}
               <div className="text-sm font-semibold">
                 {post.likes?.[0]?.count ?? 0} curtidas
               </div>
