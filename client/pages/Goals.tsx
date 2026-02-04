@@ -1,12 +1,17 @@
 import * as React from "react";
-import { getProgrammedGoalsDb, type ProgrammedGoal } from "@/lib/ritmofit-db";
+import { useNavigate } from "react-router-dom";
+import { getProgrammedGoalsDb, createUserGoalDb, type ProgrammedGoal } from "@/lib/ritmofit-db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Goals() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [goals, setGoals] = React.useState<ProgrammedGoal[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [selectingGoalId, setSelectingGoalId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     (async () => {
@@ -26,12 +31,40 @@ export default function Goals() {
     })();
   }, []);
 
-  const handleSelectGoal = (goal: ProgrammedGoal) => {
-    toast({
-      title: "Meta selecionada!",
-      description: goal.description,
-    });
-    // TODO: Handle goal selection (navigate or store selection)
+  const handleSelectGoal = async (goal: ProgrammedGoal) => {
+    if (!user) {
+      toast({
+        title: "Faça login",
+        description: "Você precisa estar logado para selecionar uma meta.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSelectingGoalId(goal.id);
+
+    try {
+      await createUserGoalDb(goal.id, user.id, goal.type_goal, goal.duration, goal.quantity);
+
+      toast({
+        title: "Meta selecionada!",
+        description: goal.description,
+      });
+
+      // Redirect to home after a short delay
+      setTimeout(() => {
+        navigate("/");
+      }, 1500);
+    } catch (err: any) {
+      console.error("Erro ao selecionar meta:", err);
+      toast({
+        title: "Erro ao selecionar meta",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setSelectingGoalId(null);
+    }
   };
 
   if (loading) {
