@@ -656,7 +656,7 @@ export async function createRoutineDb(userId: string, type: RoutineTypeCode, pro
       type,
       program_id: program_id || null,
     })
-    .select("id, user_id, type, program_id")
+    .select("id, user_id, type, program_id, goal_id")
     .maybeSingle();
 
   if (error) {
@@ -673,6 +673,7 @@ export async function createRoutineDb(userId: string, type: RoutineTypeCode, pro
     user_id: String(data.user_id ?? ""),
     type: Number(data.type ?? 1),
     program_id: data.program_id ? String(data.program_id) : null,
+    goal_id: data.goal_id ? String(data.goal_id) : null,
   };
 }
 
