@@ -132,6 +132,65 @@ export default function Profile() {
     reader.readAsDataURL(file);
   };
 
+  const handleLinkGoal = async (goalId: string) => {
+    if (!goalIndicatorRoutineId || !user) return;
+
+    setIsUpdatingGoal(true);
+    try {
+      const updatedRoutine = await updateRoutineGoalDb(goalIndicatorRoutineId, goalId);
+      if (updatedRoutine) {
+        // Update the routines list
+        setRoutines(routines.map(r => r.id === goalIndicatorRoutineId ? updatedRoutine : r));
+
+        // Update the linked goal display
+        const goal = await getGoalByIdDb(goalId);
+        setLinkedGoal(goal);
+
+        toast({
+          title: "Meta vinculada!",
+          description: "A meta foi vinculada à rotina com sucesso.",
+        });
+      }
+    } catch (err: any) {
+      console.error("Error linking goal:", err);
+      toast({
+        title: "Erro ao vincular meta",
+        description: err.message || "Tente novamente mais tarde.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingGoal(false);
+    }
+  };
+
+  const handleUnlinkGoal = async () => {
+    if (!goalIndicatorRoutineId || !user) return;
+
+    setIsUpdatingGoal(true);
+    try {
+      const updatedRoutine = await updateRoutineGoalDb(goalIndicatorRoutineId, null);
+      if (updatedRoutine) {
+        // Update the routines list
+        setRoutines(routines.map(r => r.id === goalIndicatorRoutineId ? updatedRoutine : r));
+        setLinkedGoal(null);
+
+        toast({
+          title: "Meta desvinculada!",
+          description: "A meta foi desvinculada da rotina.",
+        });
+      }
+    } catch (err: any) {
+      console.error("Error unlinking goal:", err);
+      toast({
+        title: "Erro ao desvincular meta",
+        description: err.message || "Tente novamente mais tarde.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingGoal(false);
+    }
+  };
+
   const handleSaveProfile = async () => {
     if (!user || !profile) return;
 
