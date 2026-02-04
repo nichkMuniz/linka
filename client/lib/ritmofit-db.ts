@@ -195,8 +195,8 @@ async function applyMyIncentives(goals: Goal[]) {
   const ids = goals.map((g) => g.id);
 
   const { data } = await supabase
-    .from("goal_incentives")
-    .select("goal_id, kind")
+    .from("user_goals")
+    .select("goal_id, type_goal")
     .eq("user_id", user.id)
     .in("goal_id", ids);
 
@@ -843,6 +843,151 @@ export async function unblockUserDb(ownerHandle: string) {
   if (error) unblockUserLocal(ownerHandle);
 }
 
+export type ReelSummary = {
+  id: string;
+  description: string;
+  video: string;
+  /** Username without '@' (the UI adds it). */
+  author: string;
+};
+
+export async function listReelsDb(): Promise<ReelSummary[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("reels")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false });
+
+  if (error) return [];
+
+  return (data ?? [])
+    .map((row: any) => {
+      const rawAuthor = String(
+        row.author ?? row.owner_name ?? row.owner_handle ?? row.handle ?? "user",
+      );
+
+      return {
+        id: String(row.id),
+        description: String(row.description ?? ""),
+        video: String(row.video ?? row.video_url ?? row.url ?? ""),
+        author: rawAuthor.replace(/^@/, ""),
+      } satisfies ReelSummary;
+    })
+    .filter((r) => Boolean(r.video));
+}
+
+export type ConversationSummary = {
+  id: string;
+  name: string;
+  lastMessage: string;
+};
+
+export async function listConversationsDb(): Promise<ConversationSummary[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  // Schema-agnostic: try to read from a "conversations" table first.
+  const convAttempt = await supabase
+    .from("conversations")
+    .select("*")
+    .or(`user_id.eq.${viewer.id},owner_id.eq.${viewer.id}`)
+    .order("updated_at", { ascending: false })
+    .limit(50);
+
+  if (!convAttempt.error && Array.isArray(convAttempt.data)) {
+    return (convAttempt.data ?? []).map((row: any) =>
+      ({
+        id: String(row.id),
+        name: String(row.name ?? row.title ?? row.other_name ?? "Conversa"),
+        lastMessage: String(row.last_message ?? row.lastMessage ?? ""),
+      }) satisfies ConversationSummary,
+    );
+  }
+
+  // Fallback: show latest messages as a simple conversation list.
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .or(
+      `sender_id.eq.${viewer.id},recipient_id.eq.${viewer.id},user_id.eq.${viewer.id}`,
+    )
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) return [];
+
+  return (data ?? []).map((row: any) => {
+    const name = String(
+      row.name ??
+        row.sender_name ??
+        row.recipient_name ??
+        row.author_name ??
+        "Usuário",
+    );
+
+    return {
+      id: String(row.conversation_id ?? row.thread_id ?? row.id),
+      name,
+      lastMessage: String(row.text ?? row.last_message ?? row.message ?? ""),
+    } satisfies ConversationSummary;
+  });
+}
+
+export type FollowSummary = {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+};
+
+export async function listFollowersDb(): Promise<FollowSummary[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const { data, error } = await supabase
+    .from("followers")
+    .select("*")
+    .eq("user_id", viewer.id);
+
+  if (error) return [];
+
+  return (data ?? []).map((row: any) =>
+    ({
+      id: String(row.id),
+      name: String(row.name ?? row.follower_name ?? "Usuário"),
+      avatarUrl:
+        typeof row.avatar_url === "string" ? (row.avatar_url as string) : undefined,
+    }) satisfies FollowSummary,
+  );
+}
+
+export async function listFollowingDb(): Promise<FollowSummary[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const { data, error } = await supabase
+    .from("following")
+    .select("*")
+    .eq("user_id", viewer.id);
+
+  if (error) return [];
+
+  return (data ?? []).map((row: any) =>
+    ({
+      id: String(row.id),
+      name: String(row.name ?? row.following_name ?? "Usuário"),
+      avatarUrl:
+        typeof row.avatar_url === "string" ? (row.avatar_url as string) : undefined,
+    }) satisfies FollowSummary,
+  );
+}
 
 /**
  * Post incentive types:
@@ -1008,94 +1153,30 @@ export async function deletePostCommentDb(commentId: string) {
   }
 }
 
-export type GoalSelectOption = {
+export type RankingEntry = {
   id: string;
-  title: string;
-  category: Goal["category"];
-  completedDays: number;
-  durationDays: 7 | 21 | 30;
+  name: string;
+  level: number;
+  points: number;
 };
 
-export type PostGoalInfo = {
-  id: string;
-  title: string;
-  caption: string;
-  category: Goal["category"];
-  frequency: string;
-  durationDays: 7 | 21 | 30;
-  visibility: GoalVisibility;
-  completedDays: number;
-  createdAt: string;
-  attachedRoutineIds?: string[];
-  attachedRoutineTitles?: string[];
-};
-
-export async function getUserGoalsDb(): Promise<GoalSelectOption[]> {
+export async function listRankingDb(): Promise<RankingEntry[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
-  const viewer = await getViewer();
-  if (!viewer) return [];
-
   const { data, error } = await supabase
-    .from("goals")
-    .select("id, title, category, completed_days, duration_days")
-    .eq("owner_id", viewer.id)
-    .order("created_at", { ascending: false });
+    .from("ranking")
+    .select("*")
+    .order("points", { ascending: false })
+    .limit(50);
 
   if (error) return [];
 
   return (data ?? []).map((row: any) =>
     ({
       id: String(row.id),
-      title: String(row.title ?? ""),
-      category: row.category as Goal["category"],
-      completedDays: Number(row.completed_days ?? 0),
-      durationDays: (row.duration_days ?? 7) as 7 | 21 | 30,
-    }) satisfies GoalSelectOption,
-  );
-}
-
-export async function getPostGoalDb(goalId: string): Promise<PostGoalInfo | null> {
-  if (!hasSupabaseConfig || !supabase) return null;
-
-  const { data, error } = await supabase
-    .from("goals")
-    .select("*")
-    .eq("id", goalId)
-    .maybeSingle();
-
-  if (error || !data) return null;
-
-  return {
-    id: String(data.id),
-    title: String(data.title ?? ""),
-    caption: String(data.caption ?? ""),
-    category: data.category as Goal["category"],
-    frequency: String(data.frequency ?? ""),
-    durationDays: (data.duration_days ?? 7) as 7 | 21 | 30,
-    visibility: data.visibility as GoalVisibility,
-    completedDays: Number(data.completed_days ?? 0),
-    createdAt: String(data.created_at ?? new Date().toISOString()),
-    attachedRoutineIds: Array.isArray(data.attached_routine_ids)
-      ? (data.attached_routine_ids as string[])
-      : undefined,
-    attachedRoutineTitles: Array.isArray(data.attached_routine_titles)
-      ? (data.attached_routine_titles as string[])
-      : undefined,
-  };
-}
-
-export async function getRoutinesByIdsDb(routineIds: string[]): Promise<Routine[]> {
-  if (!hasSupabaseConfig || !supabase || !routineIds.length) return [];
-
-  const { data, error } = await supabase
-    .from("routines")
-    .select("*, routine_steps(*)")
-    .in("id", routineIds);
-
-  if (error) return [];
-
-  return (data ?? []).map((r: any) =>
-    routineFromRow(r, (r as any).routine_steps ?? []),
+      name: String(row.name ?? row.user_name ?? row.owner_name ?? "Usuário"),
+      level: Number(row.level ?? 1),
+      points: Number(row.points ?? 0),
+    }) satisfies RankingEntry,
   );
 }
