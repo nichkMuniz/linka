@@ -21,23 +21,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { useAuth } from "@/hooks/useAuth";
 
-import ChooseGoal from "@/pages/ChooseGoal";
-import ExerciseDetails from "@/pages/ExerciseDetails";
 import Index from "@/pages/Index";
 import Login from "@/pages/Login";
 import NewPost from "@/pages/NewPost";
 import NotFound from "@/pages/NotFound";
-import Profile from "@/pages/Profile";
-import RoutineDetails from "@/pages/RoutineDetails";
-import WorkoutSession from "@/pages/WorkoutSession";
 
 const queryClient = new QueryClient();
-
-const NEEDS_GOAL_CHOICE_KEY = "ritmofit:needsGoalChoice";
-
-function needsGoalChoice() {
-  return localStorage.getItem(NEEDS_GOAL_CHOICE_KEY) === "1";
-}
 
 function AuthLoadingScreen() {
   return (
