@@ -1082,6 +1082,78 @@ export async function getUserPostLikesDb(postId: string): Promise<PostIncentiveT
     .filter((type): type is PostIncentiveType => [1, 2, 3].includes(type));
 }
 
+export type PostComment = {
+  id: string;
+  postId: string;
+  userId: string;
+  userName: string;
+  userHandle: string;
+  text: string;
+  createdAt: string;
+};
+
+export async function addPostCommentDb(postId: string, text: string) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const profile = await ensureProfile();
+  const userName = profile?.displayName ?? "Você";
+  const userHandle = profile?.handle ?? "@voce";
+
+  const { error } = await supabase.from("comments").insert({
+    post_id: postId,
+    user_id: viewer.id,
+    user_name: userName,
+    user_handle: userHandle,
+    text: text.trim(),
+  });
+
+  if (error) {
+    console.error("Error adding comment:", error);
+    throw error;
+  }
+}
+
+export async function getPostCommentsDb(postId: string): Promise<PostComment[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("comments")
+    .select("*")
+    .eq("post_id", postId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching comments:", error);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) =>
+    ({
+      id: String(row.id),
+      postId: String(row.post_id),
+      userId: String(row.user_id),
+      userName: String(row.user_name ?? "Usuário"),
+      userHandle: String(row.user_handle ?? "@user"),
+      text: String(row.text ?? ""),
+      createdAt: String(row.created_at ?? new Date().toISOString()),
+    }) satisfies PostComment,
+  );
+}
+
+export async function deletePostCommentDb(commentId: string) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const { error } = await supabase.from("comments").delete().eq("id", commentId);
+
+  if (error) {
+    console.error("Error deleting comment:", error);
+    throw error;
+  }
+}
+
 export type RankingEntry = {
   id: string;
   name: string;
