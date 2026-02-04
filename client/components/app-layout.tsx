@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { Home, PlusSquare, Dumbbell, Moon, Sun } from "lucide-react";
+import { Home, PlusSquare, Dumbbell, Moon, Sun, User } from "lucide-react";
 import * as React from "react";
 import { useTheme } from "next-themes";
 import { Link, Outlet, useLocation } from "react-router-dom";
@@ -16,6 +16,7 @@ const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
   { to: "/postar", label: "Nova", icon: PlusSquare },
   { to: "/metas", label: "Metas", icon: Dumbbell },
+  { to: "/perfil", label: "Perfil", icon: User },
 ];
 
 function isActivePath(currentPath: string, to: string) {
