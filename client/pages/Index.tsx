@@ -93,18 +93,21 @@ export default function Index() {
                 <p className="text-sm leading-relaxed">{post.description}</p>
               )}
 
-              {/* Incentive buttons */}
-              <div className="flex flex-wrap gap-2 pt-2">
-                {([1, 2, 3] as PostIncentiveType[]).map((type) => (
-                  <PostIncentiveButton
-                    key={type}
-                    type={type}
-                    count={post.likes[type === 1 ? "apoio" : type === 2 ? "continua" : "ganhador"]}
-                    isActive={post.userLikes.includes(type)}
-                    onClick={() => handleToggleLike(post.id, type)}
-                    loading={togglingPostId === post.id}
-                  />
-                ))}
+              {/* Incentive buttons and comments */}
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <div className="flex flex-wrap gap-2">
+                  {([1, 2, 3] as PostIncentiveType[]).map((type) => (
+                    <PostIncentiveButton
+                      key={type}
+                      type={type}
+                      count={post.likes[type === 1 ? "apoio" : type === 2 ? "continua" : "ganhador"]}
+                      isActive={post.userLikes.includes(type)}
+                      onClick={() => handleToggleLike(post.id, type)}
+                      loading={togglingPostId === post.id}
+                    />
+                  ))}
+                </div>
+                <PostCommentsDialog postId={post.id} commentCount={post.commentCount} />
               </div>
 
               <p className="text-xs text-muted-foreground pt-1">
