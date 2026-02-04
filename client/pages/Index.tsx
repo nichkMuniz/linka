@@ -2,8 +2,10 @@ import * as React from "react";
 import { getFeedPosts, togglePostLike } from "../services/post.service";
 import { Card, CardContent } from "@/components/ui/card";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
+import { PostCommentsDialog } from "@/components/post-comments-dialog";
 import { toast } from "@/components/ui/use-toast";
-import type { PostWithLikes, PostIncentiveType } from "@/lib/ritmofit-db";
+import type { PostIncentiveType } from "@/lib/ritmofit-db";
+import type { PostWithStats } from "../services/post.service";
 
 export default function Index() {
   const [posts, setPosts] = React.useState<PostWithLikes[]>([]);
