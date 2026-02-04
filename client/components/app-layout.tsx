@@ -2,12 +2,8 @@ import { cn } from "@/lib/utils";
 import {
   Home,
   PlusSquare,
-  Search,
   User,
   Dumbbell,
-  MessagesSquare,
-  Trophy,
-  PlaySquare,
   Moon,
   Sun,
 } from "lucide-react";
