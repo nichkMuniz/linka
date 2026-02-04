@@ -387,3 +387,98 @@ export async function getUserSelectedGoalIdsDb(): Promise<string[]> {
 
   return (data ?? []).map((row: any) => String(row.goal_id ?? ""));
 }
+
+export type UserProfile = {
+  id: string;
+  nickname: string;
+  bio: string;
+  photo: string | null;
+};
+
+export async function getUserProfileDb(userId: string): Promise<UserProfile | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, nickname, bio, photo")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error fetching user profile:", error);
+    return null;
+  }
+
+  if (!data) return null;
+
+  return {
+    id: String(data.id ?? ""),
+    nickname: String(data.nickname ?? ""),
+    bio: String(data.bio ?? ""),
+    photo: data.photo ? String(data.photo) : null,
+  };
+}
+
+export type PostWithUser = {
+  id: string;
+  description: string;
+  photo: string;
+  created_at: string;
+  user_id: string;
+};
+
+export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select("id, description, photo, created_at, user_id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching user posts:", error);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    description: String(row.description ?? ""),
+    photo: String(row.photo ?? ""),
+    created_at: String(row.created_at ?? ""),
+    user_id: String(row.user_id ?? ""),
+  }));
+}
+
+export type UserStats = {
+  postsCount: number;
+  followersCount: number;
+  followingCount: number;
+};
+
+export async function getUserStatsDb(userId: string): Promise<UserStats> {
+  if (!hasSupabaseConfig || !supabase) {
+    return { postsCount: 0, followersCount: 0, followingCount: 0 };
+  }
+
+  const [postsRes, followersRes, followingRes] = await Promise.all([
+    supabase
+      .from("posts")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId),
+    supabase
+      .from("followers")
+      .select("id", { count: "exact", head: true })
+      .eq("following_id", userId),
+    supabase
+      .from("following")
+      .select("id", { count: "exact", head: true })
+      .eq("follower_id", userId),
+  ]);
+
+  return {
+    postsCount: postsRes.count ?? 0,
+    followersCount: followersRes.count ?? 0,
+    followingCount: followingRes.count ?? 0,
+  };
+}
