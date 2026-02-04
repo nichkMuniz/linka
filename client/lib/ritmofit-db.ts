@@ -116,22 +116,22 @@ export async function togglePostIncentiveDb(
   if (!viewer) return;
 
   const { data: existing } = await supabase
-    .from("likes")
+    .from("post_likes")
     .select("id")
     .eq("post_id", postId)
     .eq("user_id", viewer.id)
-    .eq("type", incentiveType)
+    .eq("incentive_type", incentiveType)
     .maybeSingle();
 
   if (existing?.id) {
     // Remove the like
-    await supabase.from("likes").delete().eq("id", existing.id);
+    await supabase.from("post_likes").delete().eq("id", existing.id);
   } else {
     // Add the like
-    await supabase.from("likes").insert({
+    await supabase.from("post_likes").insert({
       post_id: postId,
       user_id: viewer.id,
-      type: type
+      incentive_type: incentiveType,
     });
   }
 }
