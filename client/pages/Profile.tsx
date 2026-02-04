@@ -1,5 +1,5 @@
 import * as React from "react";
-import { getUserProfileDb, getUserPostsDb, getUserStatsDb, updateUserProfileDb, getUserRoutinesDb, createRoutineDb, getWorkoutsDb, ROUTINE_TYPES, getRoutineTypeName, type UserProfile, type PostWithUser, type UserStats, type Routine, type Workout } from "@/lib/ritmofit-db";
+import { getUserProfileDb, getUserPostsDb, getUserStatsDb, updateUserProfileDb, getUserRoutinesDb, createRoutineDb, createUserWorkoutsDb, getWorkoutsDb, ROUTINE_TYPES, getRoutineTypeName, type UserProfile, type PostWithUser, type UserStats, type Routine, type Workout } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Users, Edit2, Upload, Plus, ArrowLeft } from "lucide-react";
+import { Users, Edit2, Upload, Plus, ArrowLeft, Check } from "lucide-react";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 export default function Profile() {
