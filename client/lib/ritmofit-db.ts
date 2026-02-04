@@ -726,7 +726,7 @@ export async function getUserWorkoutsDb(userId: string): Promise<UserWorkoutWith
     const errorCode = error?.code || "UNKNOWN";
     const errorDetails = error?.details || error?.message || "";
 
-    // Silently handle relationship errors - try without join
+    // Silently handle relationship errors - try without join and fetch workouts separately
     if (errorDetails.includes("relationship")) {
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_workouts")
@@ -735,16 +735,39 @@ export async function getUserWorkoutsDb(userId: string): Promise<UserWorkoutWith
         .order("created_at", { ascending: false });
 
       if (!errorFallback && dataFallback) {
-        return (dataFallback ?? []).map((row: any) => ({
-          id: String(row.id ?? ""),
-          workout_id: String(row.workout_id ?? ""),
-          user_id: String(row.user_id ?? ""),
-          volume: row.volume,
-          calories: row.calories,
-          duration: row.duration,
-          series: row.series,
-          time_rest: row.time_rest,
-        }));
+        // Fetch workout details separately
+        const workoutIds = dataFallback.map((row: any) => row.workout_id).filter(Boolean);
+        const workoutDetailsMap: { [key: string]: any } = {};
+
+        if (workoutIds.length > 0) {
+          const { data: workoutsData } = await supabase
+            .from("workouts")
+            .select("id, name, photo, description")
+            .in("id", workoutIds);
+
+          if (workoutsData) {
+            workoutsData.forEach((w: any) => {
+              workoutDetailsMap[String(w.id)] = w;
+            });
+          }
+        }
+
+        return (dataFallback ?? []).map((row: any) => {
+          const workoutDetails = workoutDetailsMap[String(row.workout_id)];
+          return {
+            id: String(row.id ?? ""),
+            workout_id: String(row.workout_id ?? ""),
+            user_id: String(row.user_id ?? ""),
+            volume: row.volume,
+            calories: row.calories,
+            duration: row.duration,
+            series: row.series,
+            time_rest: row.time_rest,
+            workoutName: workoutDetails?.name || "Exercício desconhecido",
+            workoutPhoto: workoutDetails?.photo || null,
+            workoutDescription: workoutDetails?.description || undefined,
+          };
+        });
       }
     }
 
