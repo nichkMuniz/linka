@@ -5,15 +5,7 @@ export const getFeedPosts = async () => {
 
   const { data, error } = await supabase
     .from("posts")
-    .select(
-      `
-      id,
-      description,
-      photo,
-      created_at,
-      user:user_id (id, username, avatar_url)
-    `
-    )
+    .select("*")
     .order("created_at", { ascending: false });
 
   if (error) throw error;
