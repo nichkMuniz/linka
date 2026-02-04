@@ -36,7 +36,7 @@ export default function Index() {
         const data = await getFeedPosts();
         setPosts(data ?? []);
       } catch (err) {
-        console.error("Erro ao carregar feed:", err);
+        console.error("Erro ao carregar feed:", err?.message ?? err);
       } finally {
         setLoading(false);
       }
