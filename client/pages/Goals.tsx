@@ -45,7 +45,7 @@ export default function Goals() {
     setSelectingGoalId(goal.id);
 
     try {
-      await createUserGoalDb(goal.id, user.id, goal.type_goal, goal.duration, goal.quantity);
+      await createUserGoalDb(goal.id, user.id, goal.type, goal.duration, goal.quantity);
 
       toast({
         title: "Meta selecionada!",
