@@ -23,19 +23,9 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>;
 };
 
-const MESSAGES_PATH = "/mensagens";
-
-const messagesItem: NavItem = {
-  to: MESSAGES_PATH,
-  label: "Msgs",
-  icon: MessagesSquare,
-};
-
 const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
-  { to: "/reels", label: "Vídeos", icon: PlaySquare },
   { to: "/postar", label: "Nova", icon: PlusSquare },
-  { to: "/rank", label: "Rank", icon: Trophy },
   { to: "/perfil", label: "Perfil", icon: User },
 ];
 
