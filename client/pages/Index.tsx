@@ -1,5 +1,5 @@
 import * as React from "react";
-import { getFeedPosts } from "../services/posts.service";
+import { getFeedPosts } from "../services/post.service";
 import { Card, CardContent } from "@/components/ui/card";
 
 type Post = {
