@@ -1105,7 +1105,6 @@ export async function addPostCommentDb(postId: string, text: string) {
   const { error } = await supabase.from("comments").insert({
     post_id: postId,
     user_id: viewer.id,
-    user_name: userName,
     user_handle: userHandle,
     text: text.trim(),
   });
