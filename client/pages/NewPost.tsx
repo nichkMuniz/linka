@@ -84,7 +84,7 @@ export default function NewPost() {
         user_id: user.id,
         description: caption.trim(),
         photo: publicUrl,
-        user_goal_id: selectedGoalId ? parseInt(selectedGoalId) : null,
+        user_goal_id: selectedGoalId ? parseInt(selectedGoalId) : 1,
       });
 
       if (insertError) throw insertError;
