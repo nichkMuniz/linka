@@ -30,15 +30,6 @@ function isActivePath(currentPath: string, to: string) {
   return currentPath === to || currentPath.startsWith(`${to}/`);
 }
 
-function UnreadBadge({ count }: { count: number }) {
-  if (count <= 0) return null;
-  return (
-    <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-background">
-      {count > 9 ? "9+" : count}
-    </span>
-  );
-}
-
 function BrandMark({ className }: { className?: string }) {
   return (
     <div
