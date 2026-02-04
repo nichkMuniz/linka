@@ -58,7 +58,7 @@ export default function Index() {
       // Fetch routines linked to this goal
       if (post.userGoal) {
         try {
-          const routines = await getRoutinesByGoalIdDb(post.userGoal.id);
+          const routines = await getRoutinesByGoalIdDb(post.userGoal.goal_id);
           setLinkedRoutines(routines);
         } catch (err) {
           console.error("Error fetching routines:", err);
