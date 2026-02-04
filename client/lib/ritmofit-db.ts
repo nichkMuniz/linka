@@ -402,6 +402,7 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
         duration: Number(row.duration ?? 0),
         quantity: Number(row.quantity ?? 0),
         type_goal: Number(row.type_goal ?? 0),
+        perc: Number(row.perc ?? 0),
       }) satisfies UserGoal,
   );
 }
