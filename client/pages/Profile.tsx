@@ -45,6 +45,8 @@ export default function Profile() {
   const [workoutsLoading, setWorkoutsLoading] = React.useState(false);
   const [selectedWorkoutIds, setSelectedWorkoutIds] = React.useState<Set<string>>(new Set());
   const [isSavingWorkouts, setIsSavingWorkouts] = React.useState(false);
+  const [userWorkouts, setUserWorkouts] = React.useState<UserWorkoutWithDetails[]>([]);
+  const [expandedRoutineType, setExpandedRoutineType] = React.useState<number | null>(null);
 
   // Edit form state
   const [editNickname, setEditNickname] = React.useState("");
