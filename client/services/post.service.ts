@@ -3,6 +3,8 @@ import {
   getPostLikesDb,
   getUserPostLikesDb,
   togglePostIncentiveDb,
+  getUserProfileDb,
+  getUserGoalsDb,
   type PostWithLikes,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
@@ -10,6 +12,14 @@ import {
 export type PostWithStats = PostWithLikes & {
   commentCount: number;
   hasActivity: boolean;
+  goal_id: string | null;
+  userNickname: string;
+  userPhoto: string | null;
+  userGoal?: {
+    id: string;
+    description: string;
+    perc: number;
+  };
 };
 
 export const getFeedPosts = async (): Promise<PostWithStats[]> => {
