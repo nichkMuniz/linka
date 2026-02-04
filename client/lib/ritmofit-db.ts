@@ -324,6 +324,7 @@ export type UserGoal = {
   duration: number;
   quantity: number;
   type_goal: number;
+  perc: number;
 };
 
 export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
