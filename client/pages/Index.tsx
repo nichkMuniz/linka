@@ -8,7 +8,7 @@ import type { PostIncentiveType } from "@/lib/ritmofit-db";
 import type { PostWithStats } from "../services/post.service";
 
 export default function Index() {
-  const [posts, setPosts] = React.useState<PostWithLikes[]>([]);
+  const [posts, setPosts] = React.useState<PostWithStats[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [togglingPostId, setTogglingPostId] = React.useState<string | null>(null);
 
