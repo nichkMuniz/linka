@@ -1,7 +1,6 @@
 import * as React from "react";
 import { getFeedPosts } from "@/services/posts.service";
 import { Card, CardContent } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type Post = {
   id: string;
@@ -35,7 +34,11 @@ export default function Index() {
   }, []);
 
   if (loading) {
-    return <div className="p-6 text-sm text-muted-foreground">Carregando feed...</div>;
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        Carregando feed...
+      </div>
+    );
   }
 
   return (
@@ -45,14 +48,13 @@ export default function Index() {
           <Card key={post.id} className="overflow-hidden border-border/60">
             {/* Header */}
             <div className="flex items-center gap-3 px-4 py-3">
-              <Avatar>
-                <AvatarImage src={post.user.avatar_url ?? ""} />
-                <AvatarFallback>
-                  {post.user.username?.[0]?.toUpperCase() ?? "?"}
-                </AvatarFallback>
-              </Avatar>
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-muted font-semibold text-sm">
+                {post.user.username?.[0]?.toUpperCase() ?? "?"}
+              </div>
               <div>
-                <div className="text-sm font-semibold">@{post.user.username}</div>
+                <div className="text-sm font-semibold">
+                  @{post.user.username}
+                </div>
                 <div className="text-xs text-muted-foreground">
                   {new Date(post.created_at).toLocaleString()}
                 </div>
