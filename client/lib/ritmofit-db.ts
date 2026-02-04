@@ -293,13 +293,13 @@ export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
   );
 }
 
-export async function createUserGoalDb(goalId: string, userId: string, typeGoal: string, duration: number, quantity: number) {
+export async function createUserGoalDb(goalId: string, userId: string, typeGoal: string | number, duration: number, quantity: number) {
   if (!hasSupabaseConfig || !supabase) return;
 
   const { error } = await supabase.from("user_goals").insert({
     goal_id: goalId,
     user_id: userId,
-    type_goal: typeGoal,
+    type: typeGoal,
     duration,
     quantity,
   });
@@ -308,4 +308,42 @@ export async function createUserGoalDb(goalId: string, userId: string, typeGoal:
     console.error("Error creating user goal:", error);
     throw error;
   }
+}
+
+export type UserGoal = {
+  id: string;
+  goal_id: string;
+  duration: number;
+  quantity: number;
+  type: number;
+};
+
+export async function getUserGoalsDb(): Promise<UserGoal[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const { data, error } = await supabase
+    .from("user_goals")
+    .select("id, goal_id, duration, quantity, type")
+    .eq("user_id", viewer.id)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching user goals [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) =>
+    ({
+      id: String(row.id),
+      goal_id: String(row.goal_id ?? ""),
+      duration: Number(row.duration ?? 0),
+      quantity: Number(row.quantity ?? 0),
+      type: Number(row.type ?? 0),
+    }) satisfies UserGoal,
+  );
 }
