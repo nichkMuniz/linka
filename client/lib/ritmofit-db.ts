@@ -598,7 +598,7 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
 
   const { data, error } = await supabase
     .from("routines")
-    .select("id, user_id, type, program_id")
+    .select("id, user_id, type, program_id, goal_id")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -614,6 +614,7 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
     user_id: String(row.user_id ?? ""),
     type: Number(row.type ?? 1),
     program_id: row.program_id ? String(row.program_id) : null,
+    goal_id: row.goal_id ? String(row.goal_id) : null,
   }));
 }
 
