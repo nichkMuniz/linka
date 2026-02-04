@@ -1099,31 +1099,3 @@ export async function getRoutinesByIdsDb(routineIds: string[]): Promise<Routine[
     routineFromRow(r, (r as any).routine_steps ?? []),
   );
 }
-
-export type RankingEntry = {
-  id: string;
-  name: string;
-  level: number;
-  points: number;
-};
-
-export async function listRankingDb(): Promise<RankingEntry[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-
-  const { data, error } = await supabase
-    .from("ranking")
-    .select("*")
-    .order("points", { ascending: false })
-    .limit(50);
-
-  if (error) return [];
-
-  return (data ?? []).map((row: any) =>
-    ({
-      id: String(row.id),
-      name: String(row.name ?? row.user_name ?? row.owner_name ?? "Usuário"),
-      level: Number(row.level ?? 1),
-      points: Number(row.points ?? 0),
-    }) satisfies RankingEntry,
-  );
-}
