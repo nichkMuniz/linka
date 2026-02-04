@@ -25,14 +25,10 @@ import ChooseGoal from "@/pages/ChooseGoal";
 import ExerciseDetails from "@/pages/ExerciseDetails";
 import Index from "@/pages/Index";
 import Login from "@/pages/Login";
-import Messages from "@/pages/Messages";
 import NewPost from "@/pages/NewPost";
 import NotFound from "@/pages/NotFound";
 import Profile from "@/pages/Profile";
-import Rank from "@/pages/Rank";
-import Reels from "@/pages/Reels";
 import RoutineDetails from "@/pages/RoutineDetails";
-import Search from "@/pages/Search";
 import WorkoutSession from "@/pages/WorkoutSession";
 
 const queryClient = new QueryClient();
