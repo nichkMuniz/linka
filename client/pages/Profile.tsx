@@ -201,6 +201,41 @@ export default function Profile() {
     }
   };
 
+  const handleSaveWorkouts = async () => {
+    if (!user || selectedWorkoutIds.size === 0) return;
+
+    setIsSavingWorkouts(true);
+    try {
+      const workoutIdsArray = Array.from(selectedWorkoutIds);
+      await createUserWorkoutsDb(user.id, workoutIdsArray);
+
+      toast({
+        title: "Exercícios salvos!",
+        description: `${workoutIdsArray.length} exercício${workoutIdsArray.length > 1 ? "s" : ""} foi${workoutIdsArray.length > 1 ? "ram" : ""} adicionado${workoutIdsArray.length > 1 ? "s" : ""} com sucesso.`,
+      });
+
+      setIsCreateRoutineOpen(false);
+      setSelectedRoutineType(null);
+      setWorkouts([]);
+      setSelectedWorkoutIds(new Set());
+
+      // Reload routines if needed
+      if (user) {
+        const routinesData = await getUserRoutinesDb(user.id);
+        setRoutines(routinesData);
+      }
+    } catch (err: any) {
+      console.error("Error saving workouts:", err);
+      toast({
+        title: "Erro ao salvar exercícios",
+        description: err.message || "Tente novamente mais tarde.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingWorkouts(false);
+    }
+  };
+
   if (authLoading || loading) {
     return <div className="p-6 text-sm text-muted-foreground">Carregando perfil...</div>;
   }
