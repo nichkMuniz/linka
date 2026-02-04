@@ -666,3 +666,55 @@ export async function createRoutineDb(userId: string, type: RoutineTypeCode, pro
     program_id: data.program_id ? String(data.program_id) : null,
   };
 }
+
+export type UserWorkout = {
+  id: string;
+  workout_id: string;
+  user_id: string;
+  volume?: number | null;
+  calories?: number | null;
+  duration?: number | null;
+  series?: number | null;
+  time_rest?: number | null;
+};
+
+export async function createUserWorkoutsDb(
+  userId: string,
+  workoutIds: string[],
+  options?: { volume?: number; calories?: number; duration?: number; series?: number; time_rest?: number }
+): Promise<UserWorkout[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const workoutsToInsert = workoutIds.map((workoutId) => ({
+    workout_id: workoutId,
+    user_id: userId,
+    volume: options?.volume || null,
+    calories: options?.calories || null,
+    duration: options?.duration || null,
+    series: options?.series || null,
+    time_rest: options?.time_rest || null,
+  }));
+
+  const { data, error } = await supabase
+    .from("user_workout")
+    .insert(workoutsToInsert)
+    .select("id, workout_id, user_id, volume, calories, duration, series, time_rest");
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error creating user workouts [${errorCode}]:`, errorMsg);
+    throw new Error(`Erro ao salvar exercícios: ${errorMsg}`);
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    workout_id: String(row.workout_id ?? ""),
+    user_id: String(row.user_id ?? ""),
+    volume: row.volume,
+    calories: row.calories,
+    duration: row.duration,
+    series: row.series,
+    time_rest: row.time_rest,
+  }));
+}
