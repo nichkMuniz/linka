@@ -32,25 +32,19 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
 
   if (error) throw error;
 
-  // Enrich each post with likes, comments, user info, and goal data
+  // Enrich each post with likes, comments, and user info
   const posts = await Promise.all(
     (data ?? []).map(async (post: any) => {
-      const [
-        likes,
-        userLikes,
-        { count: commentCount },
-        userProfile,
-        userGoals,
-      ] = await Promise.all([
-        getPostLikesDb(post.id),
-        getUserPostLikesDb(post.id),
-        supabase
-          .from("comments")
-          .select("*", { count: "exact", head: true })
-          .eq("post_id", post.id),
-        getUserProfileDb(post.user_id),
-        getUserGoalsByUserIdDb(post.user_id),
-      ]);
+      const [likes, userLikes, { count: commentCount }, userProfile] =
+        await Promise.all([
+          getPostLikesDb(post.id),
+          getUserPostLikesDb(post.id),
+          supabase
+            .from("comments")
+            .select("*", { count: "exact", head: true })
+            .eq("post_id", post.id),
+          getUserProfileDb(post.user_id),
+        ]);
 
       // Check if post has any activity
       const totalLikes = Object.values(likes).reduce(
@@ -59,29 +53,14 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
       );
       const hasActivity = totalLikes > 0 || (commentCount ?? 0) > 0;
 
-      // Get the goal data if post has a goal_id
-      let userGoal = undefined;
-      if (post.goal_id) {
-        const goal = userGoals.find((g) => g.goal_id === post.goal_id);
-        if (goal) {
-          userGoal = {
-            id: goal.id,
-            description: goal.description,
-            perc: goal.perc,
-          };
-        }
-      }
-
       return {
         ...post,
         likes,
         userLikes,
         commentCount: commentCount ?? 0,
         hasActivity,
-        goal_id: post.goal_id || null,
         userNickname: userProfile?.nickname || "Usuário",
         userPhoto: userProfile?.photo || null,
-        userGoal,
       };
     }),
   );
