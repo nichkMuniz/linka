@@ -166,8 +166,39 @@ export default function Index() {
     <div className="mx-auto grid w-full max-w-2xl gap-4">
       {posts.length ? (
         posts.map((post) => (
-          <Card key={post.id} className="border-border/60">
+          <Card key={post.id} className="border-border/60 relative">
             <CardContent className="space-y-3 p-4">
+              {/* User Info Header */}
+              <div className="flex items-center gap-3 absolute top-4 left-4 bg-background/90 rounded-lg p-2 backdrop-blur-sm">
+                {post.userPhoto ? (
+                  <img
+                    src={post.userPhoto}
+                    alt={post.userNickname}
+                    className="h-10 w-10 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="h-10 w-10 rounded-full bg-muted" />
+                )}
+                <span className="text-sm font-medium">{post.userNickname}</span>
+              </div>
+
+              {/* Goal Progress Block */}
+              {post.userGoal && (
+                <div className="absolute top-4 right-4 bg-background/90 rounded-lg p-3 backdrop-blur-sm">
+                  <button
+                    onClick={() => openGoalModal(post)}
+                    className="flex flex-col items-center gap-1 hover:opacity-80 transition-opacity"
+                  >
+                    <div className="text-2xl font-bold text-brand">
+                      {post.userGoal.perc}%
+                    </div>
+                    <div className="text-xs text-muted-foreground max-w-[80px] line-clamp-1">
+                      {post.userGoal.description}
+                    </div>
+                  </button>
+                </div>
+              )}
+
               <img
                 src={post.photo}
                 alt="Post"
@@ -217,6 +248,81 @@ export default function Index() {
           Nenhum post ainda.
         </p>
       )}
+
+      {/* Goal Progress Modal */}
+      <Dialog open={goalModalOpen} onOpenChange={setGoalModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Progresso da Meta</DialogTitle>
+          </DialogHeader>
+
+          {selectedGoalPost?.userGoal && (
+            <div className="space-y-4">
+              {/* Goal Info */}
+              <div className="p-4 border border-border/60 rounded-lg bg-muted/30">
+                <p className="text-sm font-medium mb-3">
+                  {selectedGoalPost.userGoal.description}
+                </p>
+
+                {/* Progress Bar */}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Progresso</span>
+                    <span className="font-medium">
+                      {selectedGoalPost.userGoal.perc}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-brand h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${selectedGoalPost.userGoal.perc}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Check Button */}
+              <Button
+                onClick={handleIncrementGoalProgress}
+                disabled={isUpdatingGoal || selectedGoalPost.userGoal.perc >= 100}
+                className="w-full rounded-full gap-2"
+              >
+                <Check className="h-4 w-4" />
+                {isUpdatingGoal
+                  ? "Atualizando..."
+                  : selectedGoalPost.userGoal.perc >= 100
+                    ? "Meta Completa!"
+                    : "Incrementar Progresso (+1%)"}
+              </Button>
+
+              {/* Linked Routines */}
+              {linkedRoutines.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium">Rotinas Vinculadas</h3>
+                  <div className="space-y-2">
+                    {linkedRoutines.map((routine) => (
+                      <div
+                        key={routine.id}
+                        className="p-3 border border-border/60 rounded-lg text-sm"
+                      >
+                        <p className="font-medium">
+                          {routine.type === 1
+                            ? "Exercicios"
+                            : routine.type === 2
+                              ? "Dietas"
+                              : "Habitos"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
