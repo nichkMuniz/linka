@@ -483,7 +483,7 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
   if (postsRes.error) {
     const errorMsg = postsRes.error instanceof Error
       ? postsRes.error.message
-      : (postsRes.error?.message || "Unknown error");
+      : (postsRes.error?.message || postsRes.error?.details || String(postsRes.error));
     const errorCode = postsRes.error?.code || "UNKNOWN";
     console.error(`Error fetching posts stats [${errorCode}]:`, errorMsg);
   }
@@ -491,17 +491,17 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
   if (followersRes.error) {
     const errorMsg = followersRes.error instanceof Error
       ? followersRes.error.message
-      : (followersRes.error?.message || "Unknown error");
+      : (followersRes.error?.message || followersRes.error?.details || String(followersRes.error));
     const errorCode = followersRes.error?.code || "UNKNOWN";
-    console.error(`Error fetching followers stats [${errorCode}]:`, errorMsg);
+    console.error(`Error fetching followers stats [${errorCode}]:`, errorMsg, followersRes.error);
   }
 
   if (followingRes.error) {
     const errorMsg = followingRes.error instanceof Error
       ? followingRes.error.message
-      : (followingRes.error?.message || "Unknown error");
+      : (followingRes.error?.message || followingRes.error?.details || String(followingRes.error));
     const errorCode = followingRes.error?.code || "UNKNOWN";
-    console.error(`Error fetching following stats [${errorCode}]:`, errorMsg);
+    console.error(`Error fetching following stats [${errorCode}]:`, errorMsg, followingRes.error);
   }
 
   return {
