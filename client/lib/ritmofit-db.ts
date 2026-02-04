@@ -204,7 +204,7 @@ async function applyMyIncentives(goals: Goal[]) {
 
   (data ?? []).forEach((row: any) => {
     const goalId = String(row.goal_id);
-    const kind = String(row.type_goal) as GoalIncentiveKey;
+    const type_goal = String(row.type_goal) as GoalIncentiveKey;
     const prev = map.get(goalId) ?? {};
     prev[type_goal] = true;
     map.set(goalId, prev);
@@ -463,7 +463,7 @@ export async function addGoalCommentDb(goalId: string, text: string) {
 
 export async function toggleGoalIncentiveDb(
   goalId: string,
-  kind: GoalIncentiveKey,
+  type_goal: GoalIncentiveKey,
 ) {
   if (!hasSupabaseConfig || !supabase) {
     // Local fallback cannot reliably toggle for multi-user; keep existing behavior.
@@ -475,14 +475,14 @@ export async function toggleGoalIncentiveDb(
   if (!viewer) return null;
 
   const { data: existing } = await supabase
-    .from("goal_incentives")
+    .from("user_goals")
     .select("id")
     .eq("goal_id", goalId)
     .eq("user_id", viewer.id)
-    .eq("kind", kind)
+    .eq("type_goal", type_goal)
     .maybeSingle();
 
-  const col = `${kind}_count`;
+  const col = `${type_goal}_count`;
 
   const { data: goalRow } = await supabase
     .from("goals")
@@ -493,16 +493,16 @@ export async function toggleGoalIncentiveDb(
   const current = Number((goalRow as any)?.[col] ?? 0);
 
   if (existing?.id) {
-    await supabase.from("goal_incentives").delete().eq("id", existing.id);
+    await supabase.from("user_goals").delete().eq("id", existing.id);
     await supabase
       .from("goals")
       .update({ [col]: Math.max(0, current - 1) })
       .eq("id", goalId);
   } else {
-    await supabase.from("goal_incentives").insert({
+    await supabase.from("user_goals").insert({
       goal_id: goalId,
       user_id: viewer.id,
-      kind,
+      type_goal,
     });
     await supabase
       .from("goals")
