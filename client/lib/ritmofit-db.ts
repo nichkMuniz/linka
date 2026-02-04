@@ -299,7 +299,7 @@ export async function createUserGoalDb(goalId: string, userId: string, typeGoal:
   const { error } = await supabase.from("user_goals").insert({
     goal_id: goalId,
     user_id: userId,
-    type: typeGoal,
+    type_goal: typeGoal,
     duration,
     quantity,
   });
@@ -315,7 +315,7 @@ export type UserGoal = {
   goal_id: string;
   duration: number;
   quantity: number;
-  type: number;
+  type_goal: number;
 };
 
 export async function getUserGoalsDb(): Promise<UserGoal[]> {
@@ -326,7 +326,7 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
 
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type")
+    .select("id, goal_id, duration, quantity, type_goal")
     .eq("user_id", viewer.id)
     .order("created_at", { ascending: false });
 
@@ -343,7 +343,7 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
       goal_id: String(row.goal_id ?? ""),
       duration: Number(row.duration ?? 0),
       quantity: Number(row.quantity ?? 0),
-      type: Number(row.type ?? 0),
+      type_goal: Number(row.type_goal ?? 0),
     }) satisfies UserGoal,
   );
 }
