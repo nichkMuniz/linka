@@ -87,7 +87,7 @@ export default function Goals() {
             <Card key={goal.id} className="border-border/60 hover:border-border/80 transition-colors cursor-pointer">
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg">{goal.description}</CardTitle>
-                <CardDescription className="capitalize">{goal.type_goal}</CardDescription>
+                <CardDescription className="capitalize">{goal.type}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
