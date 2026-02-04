@@ -49,25 +49,22 @@ export default function Index() {
     })();
   }, []);
 
-  const openGoalModal = React.useCallback(
-    async (post: PostWithStats) => {
-      setSelectedGoalPost(post);
-      setGoalModalOpen(true);
-      setExpandedRoutines(false);
+  const openGoalModal = React.useCallback(async (post: PostWithStats) => {
+    setSelectedGoalPost(post);
+    setGoalModalOpen(true);
+    setExpandedRoutines(false);
 
-      // Fetch routines linked to this goal
-      if (post.userGoal) {
-        try {
-          const routines = await getRoutinesByGoalIdDb(post.userGoal.goal_id);
-          setLinkedRoutines(routines);
-        } catch (err) {
-          console.error("Error fetching routines:", err);
-          setLinkedRoutines([]);
-        }
+    // Fetch routines linked to this goal
+    if (post.userGoal) {
+      try {
+        const routines = await getRoutinesByGoalIdDb(post.userGoal.goal_id);
+        setLinkedRoutines(routines);
+      } catch (err) {
+        console.error("Error fetching routines:", err);
+        setLinkedRoutines([]);
       }
-    },
-    [],
-  );
+    }
+  }, []);
 
   const handleIncrementGoalProgress = React.useCallback(async () => {
     if (!selectedGoalPost?.userGoal) return;
@@ -297,8 +294,7 @@ export default function Index() {
               <Button
                 onClick={handleIncrementGoalProgress}
                 disabled={
-                  isUpdatingGoal ||
-                  selectedGoalPost.userGoal.perc >= 100
+                  isUpdatingGoal || selectedGoalPost.userGoal.perc >= 100
                 }
                 className="w-full rounded-full gap-2"
               >

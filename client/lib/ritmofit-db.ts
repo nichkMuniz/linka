@@ -355,7 +355,9 @@ export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
   };
 }
 
-export async function getUserGoalsByUserIdDb(userId: string): Promise<UserGoal[]> {
+export async function getUserGoalsByUserIdDb(
+  userId: string,
+): Promise<UserGoal[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   const { data, error } = await supabase
@@ -413,7 +415,9 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
   return getUserGoalsByUserIdDb(viewer.id);
 }
 
-export async function incrementGoalProgressDb(userGoalId: string): Promise<UserGoal | null> {
+export async function incrementGoalProgressDb(
+  userGoalId: string,
+): Promise<UserGoal | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
   const viewer = await getViewer();
@@ -796,7 +800,9 @@ export async function updateRoutineGoalDb(
   };
 }
 
-export async function getRoutinesByGoalIdDb(goalId: string): Promise<Routine[]> {
+export async function getRoutinesByGoalIdDb(
+  goalId: string,
+): Promise<Routine[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   const { data, error } = await supabase
