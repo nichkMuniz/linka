@@ -53,6 +53,7 @@ export default function Index() {
     async (post: PostWithStats) => {
       setSelectedGoalPost(post);
       setGoalModalOpen(true);
+      setExpandedRoutines(false);
 
       // Fetch routines linked to this goal
       if (post.userGoal) {
