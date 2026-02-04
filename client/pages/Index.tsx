@@ -220,6 +220,31 @@ export default function Index() {
                 />
               </div>
 
+              {/* Goal Progress Bar */}
+              {post.userGoal && (
+                <button
+                  onClick={() => openGoalModal(post)}
+                  className="w-full space-y-2 pt-2 text-left hover:opacity-80 transition-opacity"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-foreground">
+                      {post.userGoal.description}
+                    </span>
+                    <span className="text-xs font-semibold text-brand">
+                      {post.userGoal.perc}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-brand h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${post.userGoal.perc}%`,
+                      }}
+                    />
+                  </div>
+                </button>
+              )}
+
               <p className="text-xs text-muted-foreground pt-1">
                 {new Date(post.created_at).toLocaleString()}
               </p>
