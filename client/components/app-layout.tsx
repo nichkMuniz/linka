@@ -1,11 +1,5 @@
 import { cn } from "@/lib/utils";
-import {
-  Home,
-  PlusSquare,
-  Dumbbell,
-  Moon,
-  Sun,
-} from "lucide-react";
+import { Home, PlusSquare, Dumbbell, Moon, Sun } from "lucide-react";
 import * as React from "react";
 import { useTheme } from "next-themes";
 import { Link, Outlet, useLocation } from "react-router-dom";
@@ -129,7 +123,6 @@ export function AppLayout() {
               )}
             </Button>
           </div>
-
 
           <nav className="hidden items-center justify-center gap-2 lg:flex">
             {desktopNavItems.map((item) => {

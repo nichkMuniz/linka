@@ -75,7 +75,9 @@ export function PostIncentiveButton({
             <Icon
               className={cn(
                 "h-5 w-5 transition-colors",
-                shouldHighlight ? config.iconClassName : "text-muted-foreground",
+                shouldHighlight
+                  ? config.iconClassName
+                  : "text-muted-foreground",
                 shouldHighlight && "fill-current",
               )}
             />
@@ -85,7 +87,8 @@ export function PostIncentiveButton({
                 animate={{ scale: 1 }}
                 className={cn(
                   "absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold",
-                  shouldHighlight && cn("bg-current text-background", config.iconClassName),
+                  shouldHighlight &&
+                    cn("bg-current text-background", config.iconClassName),
                 )}
               >
                 {count > 99 ? "99+" : count}

@@ -158,7 +158,9 @@ export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
   return stats;
 }
 
-export async function getUserPostLikesDb(postId: string): Promise<PostIncentiveType[]> {
+export async function getUserPostLikesDb(
+  postId: string,
+): Promise<PostIncentiveType[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   const viewer = await getViewer();
@@ -172,7 +174,9 @@ export async function getUserPostLikesDb(postId: string): Promise<PostIncentiveT
 
   return (data ?? [])
     .map((row: any) => Number(row.type) as PostIncentiveType)
-    .filter((incentiveType): incentiveType is PostIncentiveType => [1, 2, 3].includes(incentiveType));
+    .filter((incentiveType): incentiveType is PostIncentiveType =>
+      [1, 2, 3].includes(incentiveType),
+    );
 }
 
 export type PostComment = {
@@ -208,7 +212,9 @@ export async function addPostCommentDb(postId: string, text: string) {
   }
 }
 
-export async function getPostCommentsDb(postId: string): Promise<PostComment[]> {
+export async function getPostCommentsDb(
+  postId: string,
+): Promise<PostComment[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   const { data, error } = await supabase
@@ -222,23 +228,27 @@ export async function getPostCommentsDb(postId: string): Promise<PostComment[]> 
     return [];
   }
 
-  return (data ?? []).map((row: any) =>
-    ({
-      id: String(row.id),
-      postId: String(row.post_id),
-      userId: String(row.user_id),
-      userName: String(row.user_name ?? "Usuário"),
-      userHandle: String(row.user_handle ?? "@user"),
-      text: String(row.text ?? ""),
-      createdAt: String(row.created_at ?? new Date().toISOString()),
-    }) satisfies PostComment,
+  return (data ?? []).map(
+    (row: any) =>
+      ({
+        id: String(row.id),
+        postId: String(row.post_id),
+        userId: String(row.user_id),
+        userName: String(row.user_name ?? "Usuário"),
+        userHandle: String(row.user_handle ?? "@user"),
+        text: String(row.text ?? ""),
+        createdAt: String(row.created_at ?? new Date().toISOString()),
+      }) satisfies PostComment,
   );
 }
 
 export async function deletePostCommentDb(commentId: string) {
   if (!hasSupabaseConfig || !supabase) return;
 
-  const { error } = await supabase.from("comments").delete().eq("id", commentId);
+  const { error } = await supabase
+    .from("comments")
+    .delete()
+    .eq("id", commentId);
 
   if (error) {
     console.error("Error deleting comment:", error);

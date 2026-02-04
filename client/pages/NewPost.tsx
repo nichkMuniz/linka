@@ -44,9 +44,8 @@ export default function NewPost() {
 
       if (uploadError) throw uploadError;
 
-      const publicUrl = supabase.storage
-        .from("posts")
-        .getPublicUrl(filePath).data.publicUrl;
+      const publicUrl = supabase.storage.from("posts").getPublicUrl(filePath)
+        .data.publicUrl;
 
       const { error: insertError } = await supabase.from("posts").insert({
         user_id: user.id,
@@ -55,7 +54,6 @@ export default function NewPost() {
       });
 
       if (insertError) throw insertError;
-
 
       toast({
         title: "Post publicado!",
@@ -80,8 +78,8 @@ export default function NewPost() {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Nova postagem</h1>
         <p className="text-sm text-muted-foreground">
-          Envie uma foto para o bucket <span className="font-mono">posts</span> e
-          salve a referência no banco.
+          Envie uma foto para o bucket <span className="font-mono">posts</span>{" "}
+          e salve a referência no banco.
         </p>
       </div>
 

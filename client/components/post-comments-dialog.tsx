@@ -96,29 +96,26 @@ export function PostCommentsDialog({
     }
   }, [draft, postId, user]);
 
-  const handleDelete = React.useCallback(
-    async (commentId: string) => {
-      if (!confirm("Tem certeza que deseja deletar este comentário?")) return;
+  const handleDelete = React.useCallback(async (commentId: string) => {
+    if (!confirm("Tem certeza que deseja deletar este comentário?")) return;
 
-      try {
-        setDeletingId(commentId);
-        await deletePostCommentDb(commentId);
-        setComments((prev) => prev.filter((c) => c.id !== commentId));
-        toast({
-          title: "Comentário deletado",
-        });
-      } catch (err: any) {
-        console.error("Error deleting comment:", err);
-        toast({
-          title: "Erro ao deletar comentário",
-          description: err?.message || "Tente novamente.",
-        });
-      } finally {
-        setDeletingId(null);
-      }
-    },
-    [],
-  );
+    try {
+      setDeletingId(commentId);
+      await deletePostCommentDb(commentId);
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
+      toast({
+        title: "Comentário deletado",
+      });
+    } catch (err: any) {
+      console.error("Error deleting comment:", err);
+      toast({
+        title: "Erro ao deletar comentário",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setDeletingId(null);
+    }
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -131,23 +128,29 @@ export function PostCommentsDialog({
             "relative inline-flex shrink-0 items-center justify-center rounded-lg p-2 transition-colors",
             "border border-border/50 bg-background/80 backdrop-blur",
             "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
-            (hasActivity && commentCount > 0) && "border-blue-500/50 bg-blue-500/10",
+            hasActivity &&
+              commentCount > 0 &&
+              "border-blue-500/50 bg-blue-500/10",
           )}
           aria-label={`Ver ${commentCount} comentários`}
         >
-          <MessageCircle className={cn(
-            "h-5 w-5 transition-colors",
-            (hasActivity && commentCount > 0) ? "text-blue-500" : "text-muted-foreground"
-          )} />
+          <MessageCircle
+            className={cn(
+              "h-5 w-5 transition-colors",
+              hasActivity && commentCount > 0
+                ? "text-blue-500"
+                : "text-muted-foreground",
+            )}
+          />
           {commentCount > 0 && (
             <motion.span
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               className={cn(
                 "absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold",
-                (hasActivity && commentCount > 0)
+                hasActivity && commentCount > 0
                   ? "bg-blue-500 text-white"
-                  : "bg-muted text-muted-foreground"
+                  : "bg-muted text-muted-foreground",
               )}
             >
               {commentCount > 99 ? "99+" : commentCount}

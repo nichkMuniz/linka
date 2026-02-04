@@ -26,11 +26,7 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
   // Enrich each post with likes and comments data
   const posts = await Promise.all(
     (data ?? []).map(async (post: any) => {
-      const [
-        likes,
-        userLikes,
-        { count: commentCount },
-      ] = await Promise.all([
+      const [likes, userLikes, { count: commentCount }] = await Promise.all([
         getPostLikesDb(post.id),
         getUserPostLikesDb(post.id),
         supabase
@@ -40,7 +36,10 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
       ]);
 
       // Check if post has any activity
-      const totalLikes = Object.values(likes).reduce((a: number, b: number) => a + b, 0);
+      const totalLikes = Object.values(likes).reduce(
+        (a: number, b: number) => a + b,
+        0,
+      );
       const hasActivity = totalLikes > 0 || (commentCount ?? 0) > 0;
 
       return {

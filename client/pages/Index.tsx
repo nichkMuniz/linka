@@ -10,7 +10,9 @@ import type { PostWithStats } from "../services/post.service";
 export default function Index() {
   const [posts, setPosts] = React.useState<PostWithStats[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [togglingPostId, setTogglingPostId] = React.useState<string | null>(null);
+  const [togglingPostId, setTogglingPostId] = React.useState<string | null>(
+    null,
+  );
 
   React.useEffect(() => {
     (async () => {
@@ -44,10 +46,16 @@ export default function Index() {
               ? post.userLikes.filter((t) => t !== incentiveType)
               : [...post.userLikes, incentiveType];
 
-            const likesMap = { apoio: post.likes.apoio, continua: post.likes.continua, ganhador: post.likes.ganhador };
+            const likesMap = {
+              apoio: post.likes.apoio,
+              continua: post.likes.continua,
+              ganhador: post.likes.ganhador,
+            };
             if (incentiveType === 1) likesMap.apoio += wasActive ? -1 : 1;
-            else if (incentiveType === 2) likesMap.continua += wasActive ? -1 : 1;
-            else if (incentiveType === 3) likesMap.ganhador += wasActive ? -1 : 1;
+            else if (incentiveType === 2)
+              likesMap.continua += wasActive ? -1 : 1;
+            else if (incentiveType === 3)
+              likesMap.ganhador += wasActive ? -1 : 1;
 
             return {
               ...post,
@@ -75,7 +83,9 @@ export default function Index() {
   );
 
   if (loading) {
-    return <div className="p-6 text-sm text-muted-foreground">Carregando...</div>;
+    return (
+      <div className="p-6 text-sm text-muted-foreground">Carregando...</div>
+    );
   }
 
   return (
@@ -99,7 +109,15 @@ export default function Index() {
                     <PostIncentiveButton
                       key={type}
                       type={type}
-                      count={post.likes[type === 1 ? "apoio" : type === 2 ? "continua" : "ganhador"]}
+                      count={
+                        post.likes[
+                          type === 1
+                            ? "apoio"
+                            : type === 2
+                              ? "continua"
+                              : "ganhador"
+                        ]
+                      }
                       isActive={post.userLikes.includes(type)}
                       onClick={() => handleToggleLike(post.id, type)}
                       loading={togglingPostId === post.id}
@@ -107,7 +125,11 @@ export default function Index() {
                     />
                   ))}
                 </div>
-                <PostCommentsDialog postId={post.id} commentCount={post.commentCount} hasActivity={post.hasActivity} />
+                <PostCommentsDialog
+                  postId={post.id}
+                  commentCount={post.commentCount}
+                  hasActivity={post.hasActivity}
+                />
               </div>
 
               <p className="text-xs text-muted-foreground pt-1">
