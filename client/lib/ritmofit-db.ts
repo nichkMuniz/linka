@@ -561,3 +561,66 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
     followingCount: followingRes.count ?? 0,
   };
 }
+
+export type RoutineType = "Exercicios" | "Dietas" | "Habitos";
+
+export type Routine = {
+  id: string;
+  user_id: string;
+  type: RoutineType;
+  program_id: string | null;
+};
+
+export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("routines")
+    .select("id, user_id, type, program_id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching user routines [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    user_id: String(row.user_id ?? ""),
+    type: (row.type ?? "Exercicios") as RoutineType,
+    program_id: row.program_id ? String(row.program_id) : null,
+  }));
+}
+
+export async function createRoutineDb(userId: string, type: RoutineType, program_id?: string): Promise<Routine | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const { data, error } = await supabase
+    .from("routines")
+    .insert({
+      user_id: userId,
+      type,
+      program_id: program_id || null,
+    })
+    .select("id, user_id, type, program_id")
+    .maybeSingle();
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error creating routine [${errorCode}]:`, errorMsg);
+    throw new Error(`Erro ao criar rotina: ${errorMsg}`);
+  }
+
+  if (!data) return null;
+
+  return {
+    id: String(data.id ?? ""),
+    user_id: String(data.user_id ?? ""),
+    type: (data.type ?? "Exercicios") as RoutineType,
+    program_id: data.program_id ? String(data.program_id) : null,
+  };
+}
