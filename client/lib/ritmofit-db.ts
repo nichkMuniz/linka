@@ -1175,6 +1175,31 @@ export type PostGoalInfo = {
   attachedRoutineTitles?: string[];
 };
 
+export async function getUserGoalsDb(): Promise<GoalSelectOption[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const { data, error } = await supabase
+    .from("goals")
+    .select("id, title, category, completed_days, duration_days")
+    .eq("owner_id", viewer.id)
+    .order("created_at", { ascending: false });
+
+  if (error) return [];
+
+  return (data ?? []).map((row: any) =>
+    ({
+      id: String(row.id),
+      title: String(row.title ?? ""),
+      category: row.category as Goal["category"],
+      completedDays: Number(row.completed_days ?? 0),
+      durationDays: (row.duration_days ?? 7) as 7 | 21 | 30,
+    }) satisfies GoalSelectOption,
+  );
+}
+
 export async function getPostGoalDb(goalId: string): Promise<PostGoalInfo | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
