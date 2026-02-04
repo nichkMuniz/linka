@@ -255,3 +255,33 @@ export async function deletePostCommentDb(commentId: string) {
     throw error;
   }
 }
+
+export type ProgrammedGoal = {
+  id: string;
+  description: string;
+  duration: number; // in days
+  quantity: number;
+};
+
+export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("goals")
+    .select("id, description, duration, quantity")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching goals:", error);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) =>
+    ({
+      id: String(row.id),
+      description: String(row.description ?? ""),
+      duration: Number(row.duration ?? 0),
+      quantity: Number(row.quantity ?? 0),
+    }) satisfies ProgrammedGoal,
+  );
+}
