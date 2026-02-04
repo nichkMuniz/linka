@@ -745,9 +745,10 @@ export async function getUserWorkoutsDb(userId: string): Promise<UserWorkoutWith
   if (error) {
     const errorMsg = error?.message || String(error);
     const errorCode = error?.code || "UNKNOWN";
+    const errorDetails = error?.details || error?.message || "";
 
     // Silently handle relationship errors - try without join
-    if (errorDetails && errorDetails.includes("relationship")) {
+    if (errorDetails.includes("relationship")) {
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_workouts")
         .select("id, workout_id, user_id, volume, calories, duration, series, time_rest")
