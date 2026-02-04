@@ -16,7 +16,7 @@ import {
   getRoutinesByGoalIdDb,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import type { PostWithStats } from "../services/post.service";
 
 export default function Index() {
