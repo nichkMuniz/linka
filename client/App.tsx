@@ -84,6 +84,7 @@ const App = () => {
                 <Route element={<AppLayout />}>
                   <Route path="/" element={<Index />} />
                   <Route path="/postar" element={<NewPost />} />
+                  <Route path="/metas" element={<Goals />} />
 
                   {/* compatibility */}
                   <Route
