@@ -554,29 +554,8 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
     console.error(`Error fetching posts stats [${errorCode}]:`, errorMsg);
   }
 
-  // Only log follower errors if table exists, silently handle "relation does not exist" errors
-  if (followersRes.error) {
-    const errorDetails = followersRes.error?.details || followersRes.error?.message || "";
-    if (!errorDetails.includes("does not exist")) {
-      const errorMsg = followersRes.error instanceof Error
-        ? followersRes.error.message
-        : (followersRes.error?.message || followersRes.error?.details || "Unknown error");
-      const errorCode = followersRes.error?.code || "UNKNOWN";
-      console.error(`Error fetching followers stats [${errorCode}]:`, errorMsg);
-    }
-  }
-
-  // Only log following errors if table exists, silently handle "relation does not exist" errors
-  if (followingRes.error) {
-    const errorDetails = followingRes.error?.details || followingRes.error?.message || "";
-    if (!errorDetails.includes("does not exist")) {
-      const errorMsg = followingRes.error instanceof Error
-        ? followingRes.error.message
-        : (followingRes.error?.message || followingRes.error?.details || "Unknown error");
-      const errorCode = followingRes.error?.code || "UNKNOWN";
-      console.error(`Error fetching following stats [${errorCode}]:`, errorMsg);
-    }
-  }
+  // Silently handle follower/following table errors - these tables may not exist yet
+  // Return 0 counts instead of logging errors
 
   return {
     postsCount: postsRes.count ?? 0,
