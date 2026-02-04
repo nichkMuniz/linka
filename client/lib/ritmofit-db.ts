@@ -548,6 +548,9 @@ export type PostWithUser = {
   photo: string;
   created_at: string;
   user_id: string;
+  goal_id: string | null;
+  userNickname: string;
+  userPhoto: string | null;
 };
 
 export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
