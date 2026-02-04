@@ -1153,6 +1153,65 @@ export async function deletePostCommentDb(commentId: string) {
   }
 }
 
+export type PostGoalInfo = {
+  id: string;
+  title: string;
+  caption: string;
+  category: Goal["category"];
+  frequency: string;
+  durationDays: 7 | 21 | 30;
+  visibility: GoalVisibility;
+  completedDays: number;
+  createdAt: string;
+  attachedRoutineIds?: string[];
+  attachedRoutineTitles?: string[];
+};
+
+export async function getPostGoalDb(goalId: string): Promise<PostGoalInfo | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const { data, error } = await supabase
+    .from("goals")
+    .select("*")
+    .eq("id", goalId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  return {
+    id: String(data.id),
+    title: String(data.title ?? ""),
+    caption: String(data.caption ?? ""),
+    category: data.category as Goal["category"],
+    frequency: String(data.frequency ?? ""),
+    durationDays: (data.duration_days ?? 7) as 7 | 21 | 30,
+    visibility: data.visibility as GoalVisibility,
+    completedDays: Number(data.completed_days ?? 0),
+    createdAt: String(data.created_at ?? new Date().toISOString()),
+    attachedRoutineIds: Array.isArray(data.attached_routine_ids)
+      ? (data.attached_routine_ids as string[])
+      : undefined,
+    attachedRoutineTitles: Array.isArray(data.attached_routine_titles)
+      ? (data.attached_routine_titles as string[])
+      : undefined,
+  };
+}
+
+export async function getRoutinesByIdsDb(routineIds: string[]): Promise<Routine[]> {
+  if (!hasSupabaseConfig || !supabase || !routineIds.length) return [];
+
+  const { data, error } = await supabase
+    .from("routines")
+    .select("*, routine_steps(*)")
+    .in("id", routineIds);
+
+  if (error) return [];
+
+  return (data ?? []).map((r: any) =>
+    routineFromRow(r, (r as any).routine_steps ?? []),
+  );
+}
+
 export type RankingEntry = {
   id: string;
   name: string;
