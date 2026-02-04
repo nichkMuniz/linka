@@ -2,7 +2,6 @@ import { cn } from "@/lib/utils";
 import {
   Home,
   PlusSquare,
-  User,
   Dumbbell,
   Moon,
   Sun,
@@ -22,7 +21,6 @@ type NavItem = {
 const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
   { to: "/postar", label: "Nova", icon: PlusSquare },
-  { to: "/perfil", label: "Perfil", icon: User },
 ];
 
 function isActivePath(currentPath: string, to: string) {
