@@ -108,7 +108,7 @@ export type PostWithLikes = {
 
 export async function togglePostIncentiveDb(
   postId: string,
-  incentiveType: PostIncentiveType,
+  incentiveType: PostIncentiveType
 ) {
   if (!hasSupabaseConfig || !supabase) return;
 
@@ -116,22 +116,22 @@ export async function togglePostIncentiveDb(
   if (!viewer) return;
 
   const { data: existing } = await supabase
-    .from("post_likes")
+    .from("likes")
     .select("id")
     .eq("post_id", postId)
     .eq("user_id", viewer.id)
-    .eq("incentive_type", incentiveType)
+    .eq("type", incentiveType)
     .maybeSingle();
 
   if (existing?.id) {
     // Remove the like
-    await supabase.from("post_likes").delete().eq("id", existing.id);
+    await supabase.from("likes").delete().eq("id", existing.id);
   } else {
     // Add the like
-    await supabase.from("post_likes").insert({
+    await supabase.from("likes").insert({
       post_id: postId,
       user_id: viewer.id,
-      incentive_type: incentiveType,
+      type: type
     });
   }
 }
@@ -142,17 +142,17 @@ export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
   }
 
   const { data } = await supabase
-    .from("post_likes")
-    .select("incentive_type")
+    .from("likes")
+    .select("type")
     .eq("post_id", postId);
 
   const stats: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0 };
 
   (data ?? []).forEach((row: any) => {
-    const incentiveType = Number(row.incentive_type) as PostIncentiveType;
-    if (incentiveType === 1) stats.apoio += 1;
-    else if (incentiveType === 2) stats.continua += 1;
-    else if (incentiveType === 3) stats.ganhador += 1;
+    const type = Number(row.type) as PostIncentiveType;
+    if (type === 1) stats.apoio += 1;
+    else if (type === 2) stats.continua += 1;
+    else if (type === 3) stats.ganhador += 1;
   });
 
   return stats;
@@ -165,14 +165,14 @@ export async function getUserPostLikesDb(postId: string): Promise<PostIncentiveT
   if (!viewer) return [];
 
   const { data } = await supabase
-    .from("post_likes")
-    .select("incentive_type")
+    .from("likes")
+    .select("type")
     .eq("post_id", postId)
     .eq("user_id", viewer.id);
 
   return (data ?? [])
-    .map((row: any) => Number(row.incentive_type) as PostIncentiveType)
-    .filter((incentiveType): incentiveType is PostIncentiveType => [1, 2, 3].includes(incentiveType));
+    .map((row: any) => Number(row.type) as PostIncentiveType)
+    .filter((type): type is PostIncentiveType => [1, 2, 3].includes(type));
 }
 
 export type PostComment = {
