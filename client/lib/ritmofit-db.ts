@@ -583,6 +583,7 @@ export type Routine = {
   user_id: string;
   type: number;
   program_id: string | null;
+  goal_id: string | null;
 };
 
 export type Workout = {
