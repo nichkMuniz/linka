@@ -24,6 +24,7 @@ import { useAuth } from "@/hooks/useAuth";
 import Index from "@/pages/Index";
 import Login from "@/pages/Login";
 import NewPost from "@/pages/NewPost";
+import Goals from "@/pages/Goals";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
