@@ -66,6 +66,7 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
         const goal = userGoals[0];
         userGoal = {
           id: goal.id,
+          goal_id: goal.goal_id,
           description: goal.description,
           perc: goal.perc,
         };
