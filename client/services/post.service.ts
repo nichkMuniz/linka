@@ -32,19 +32,25 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
 
   if (error) throw error;
 
-  // Enrich each post with likes, comments, and user info
+  // Enrich each post with likes, comments, user info, and goal data
   const posts = await Promise.all(
     (data ?? []).map(async (post: any) => {
-      const [likes, userLikes, { count: commentCount }, userProfile] =
-        await Promise.all([
-          getPostLikesDb(post.id),
-          getUserPostLikesDb(post.id),
-          supabase
-            .from("comments")
-            .select("*", { count: "exact", head: true })
-            .eq("post_id", post.id),
-          getUserProfileDb(post.user_id),
-        ]);
+      const [
+        likes,
+        userLikes,
+        { count: commentCount },
+        userProfile,
+        userGoals,
+      ] = await Promise.all([
+        getPostLikesDb(post.id),
+        getUserPostLikesDb(post.id),
+        supabase
+          .from("comments")
+          .select("*", { count: "exact", head: true })
+          .eq("post_id", post.id),
+        getUserProfileDb(post.user_id),
+        getUserGoalsByUserIdDb(post.user_id),
+      ]);
 
       // Check if post has any activity
       const totalLikes = Object.values(likes).reduce(
@@ -52,6 +58,17 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
         0,
       );
       const hasActivity = totalLikes > 0 || (commentCount ?? 0) > 0;
+
+      // Get the first goal of the user if available
+      let userGoal = undefined;
+      if (userGoals.length > 0) {
+        const goal = userGoals[0];
+        userGoal = {
+          id: goal.id,
+          description: goal.description,
+          perc: goal.perc,
+        };
+      }
 
       return {
         ...post,
@@ -61,6 +78,7 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
         hasActivity,
         userNickname: userProfile?.nickname || "Usuário",
         userPhoto: userProfile?.photo || null,
+        userGoal,
       };
     }),
   );
