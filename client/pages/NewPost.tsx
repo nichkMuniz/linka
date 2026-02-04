@@ -157,13 +157,16 @@ export default function NewPost() {
             ) : userGoals.length > 0 ? (
               <Select value={selectedGoalId} onValueChange={setSelectedGoalId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione uma meta" />
+                  <SelectValue placeholder={selectedGoalId ? userGoals.find(g => g.id === selectedGoalId)?.description : "Selecione uma meta"} />
                 </SelectTrigger>
                 <SelectContent>
                   {userGoals.map((goal) => (
                     <SelectItem key={goal.id} value={goal.id}>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-muted-foreground">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-sm font-medium">
+                          {goal.description}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
                           {goal.duration}d · {goal.quantity}
                         </span>
                       </div>
