@@ -355,16 +355,13 @@ export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
   };
 }
 
-export async function getUserGoalsDb(): Promise<UserGoal[]> {
+export async function getUserGoalsByUserIdDb(userId: string): Promise<UserGoal[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
-  const viewer = await getViewer();
-  if (!viewer) return [];
 
   const { data, error } = await supabase
     .from("user_goals")
     .select("id, goal_id, duration, quantity, type_goal, perc")
-    .eq("user_id", viewer.id)
+    .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -405,6 +402,15 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
         perc: Number(row.perc ?? 0),
       }) satisfies UserGoal,
   );
+}
+
+export async function getUserGoalsDb(): Promise<UserGoal[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  return getUserGoalsByUserIdDb(viewer.id);
 }
 
 export async function incrementGoalProgressDb(userGoalId: string): Promise<UserGoal | null> {
