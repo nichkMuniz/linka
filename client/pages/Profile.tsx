@@ -482,7 +482,7 @@ export default function Profile() {
                       <ArrowLeft className="h-4 w-4 mr-2" />
                       Voltar
                     </Button>
-                    <DialogTitle>Selecione um Exercício</DialogTitle>
+                    <DialogTitle>Selecione um ou mais Exercícios</DialogTitle>
                   </DialogHeader>
 
                   {workoutsLoading ? (
@@ -490,39 +490,75 @@ export default function Profile() {
                       Carregando exercícios...
                     </div>
                   ) : workouts.length > 0 ? (
-                    <div className="grid gap-3 max-h-[60vh] overflow-y-auto">
-                      {workouts.map((workout) => (
-                        <button
-                          key={workout.id}
-                          onClick={() => handleCreateRoutine(workout.id)}
-                          disabled={isCreatingRoutine}
-                          className="p-4 border border-border/60 rounded-lg hover:bg-muted/50 transition-colors text-left space-y-2 group disabled:opacity-50"
-                        >
-                          <div className="flex items-start gap-3">
-                            {workout.photo ? (
-                              <img
-                                src={workout.photo}
-                                alt={workout.name}
-                                className="h-16 w-16 rounded object-cover flex-shrink-0"
-                              />
-                            ) : (
-                              <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium group-hover:text-brand transition-colors">{workout.name}</p>
-                              {workout.description && (
-                                <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                                  {workout.description}
+                    <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                      {workouts.map((workout) => {
+                        const isSelected = selectedWorkoutIds.has(workout.id);
+                        return (
+                          <button
+                            key={workout.id}
+                            onClick={() => {
+                              const newSelected = new Set(selectedWorkoutIds);
+                              if (isSelected) {
+                                newSelected.delete(workout.id);
+                              } else {
+                                newSelected.add(workout.id);
+                              }
+                              setSelectedWorkoutIds(newSelected);
+                            }}
+                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${
+                              isSelected
+                                ? "border-brand bg-brand/5"
+                                : "border-border/60 hover:border-border/80 hover:bg-muted/50"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              {workout.photo ? (
+                                <img
+                                  src={workout.photo}
+                                  alt={workout.name}
+                                  className="h-16 w-16 rounded object-cover flex-shrink-0"
+                                />
+                              ) : (
+                                <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className={`font-medium transition-colors ${
+                                  isSelected ? "text-brand" : "group-hover:text-brand"
+                                }`}>
+                                  {workout.name}
                                 </p>
+                                {workout.description && (
+                                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                    {workout.description}
+                                  </p>
+                                )}
+                              </div>
+                              {isSelected && (
+                                <div className="shrink-0 mt-1">
+                                  <Check className="h-5 w-5 text-brand" />
+                                </div>
                               )}
                             </div>
-                          </div>
-                        </button>
-                      ))}
+                          </button>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-center py-6 text-sm text-muted-foreground">
                       Nenhum exercício disponível.
+                    </div>
+                  )}
+
+                  {/* Floating Save Button */}
+                  {selectedWorkoutIds.size > 0 && (
+                    <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
+                      <Button
+                        onClick={handleSaveWorkouts}
+                        disabled={isSavingWorkouts}
+                        className="w-full rounded-full"
+                      >
+                        {isSavingWorkouts ? "Salvando..." : `Salvar ${selectedWorkoutIds.size} Exercício${selectedWorkoutIds.size > 1 ? "s" : ""}`}
+                      </Button>
                     </div>
                   )}
                 </>
