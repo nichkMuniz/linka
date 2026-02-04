@@ -100,11 +100,7 @@ const App = () => {
                 <Route element={<AppLayout />}>
                   <Route path="/" element={<Index />} />
                   <Route path="/postar" element={<NewPost />} />
-                  <Route path="/buscar" element={<Search />} />
                   <Route path="/perfil" element={<Profile />} />
-                  <Route path="/mensagens" element={<Messages />} />
-                  <Route path="/rank" element={<Rank />} />
-                  <Route path="/reels" element={<Reels />} />
                   <Route
                     path="/rotinas/:routineId/iniciar"
                     element={<WorkoutSession />}
