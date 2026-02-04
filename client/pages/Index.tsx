@@ -25,6 +25,11 @@ export default function Index() {
   const [togglingPostId, setTogglingPostId] = React.useState<string | null>(
     null,
   );
+  const [goalModalOpen, setGoalModalOpen] = React.useState(false);
+  const [selectedGoalPost, setSelectedGoalPost] =
+    React.useState<PostWithStats | null>(null);
+  const [linkedRoutines, setLinkedRoutines] = React.useState<any[]>([]);
+  const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
 
   React.useEffect(() => {
     (async () => {
