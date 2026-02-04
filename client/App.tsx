@@ -80,24 +80,9 @@ const App = () => {
               <Route path="/login" element={<Login />} />
 
               <Route element={<RequireAuth />}>
-                <Route path="/escolher-meta" element={<ChooseGoal />} />
-
                 <Route element={<AppLayout />}>
                   <Route path="/" element={<Index />} />
                   <Route path="/postar" element={<NewPost />} />
-                  <Route path="/perfil" element={<Profile />} />
-                  <Route
-                    path="/rotinas/:routineId/iniciar"
-                    element={<WorkoutSession />}
-                  />
-                  <Route
-                    path="/rotinas/:routineId"
-                    element={<RoutineDetails />}
-                  />
-                  <Route
-                    path="/exercicios/:exerciseId"
-                    element={<ExerciseDetails />}
-                  />
 
                   {/* compatibility */}
                   <Route
