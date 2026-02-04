@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { getProgrammedGoalsDb, createUserGoalDb, type ProgrammedGoal } from "@/lib/ritmofit-db";
+import { getProgrammedGoalsDb, createUserGoalDb, getUserSelectedGoalIdsDb, type ProgrammedGoal } from "@/lib/ritmofit-db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
@@ -12,12 +12,17 @@ export default function Goals() {
   const [goals, setGoals] = React.useState<ProgrammedGoal[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [selectingGoalId, setSelectingGoalId] = React.useState<string | null>(null);
+  const [selectedGoalIds, setSelectedGoalIds] = React.useState<string[]>([]);
 
   React.useEffect(() => {
     (async () => {
       try {
-        const data = await getProgrammedGoalsDb();
-        setGoals(data);
+        const [goalsData, selectedIds] = await Promise.all([
+          getProgrammedGoalsDb(),
+          getUserSelectedGoalIdsDb(),
+        ]);
+        setGoals(goalsData);
+        setSelectedGoalIds(selectedIds);
       } catch (err: any) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         console.error("Erro ao carregar metas:", errorMessage);
@@ -42,6 +47,15 @@ export default function Goals() {
       return;
     }
 
+    if (selectedGoalIds.includes(goal.id)) {
+      toast({
+        title: "Meta já selecionada",
+        description: "Você já escolheu esta meta.",
+        variant: "default",
+      });
+      return;
+    }
+
     setSelectingGoalId(goal.id);
 
     try {
@@ -51,6 +65,8 @@ export default function Goals() {
         title: "Meta selecionada!",
         description: goal.description,
       });
+
+      setSelectedGoalIds([...selectedGoalIds, goal.id]);
 
       // Redirect to home after a short delay
       setTimeout(() => {
@@ -104,10 +120,14 @@ export default function Goals() {
                 <Button
                   type="button"
                   className="w-full rounded-full"
-                  disabled={selectingGoalId === goal.id}
+                  disabled={selectingGoalId === goal.id || selectedGoalIds.includes(goal.id)}
                   onClick={() => handleSelectGoal(goal)}
                 >
-                  {selectingGoalId === goal.id ? "Salvando..." : "Selecionar meta"}
+                  {selectingGoalId === goal.id
+                    ? "Salvando..."
+                    : selectedGoalIds.includes(goal.id)
+                      ? "Já selecionada"
+                      : "Selecionar meta"}
                 </Button>
               </CardContent>
             </Card>
