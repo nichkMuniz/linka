@@ -51,11 +51,13 @@ console.log("SESSION:", sessionData);
         .from("posts")
         .getPublicUrl(filePath).data.publicUrl;
 
-      const { error: insertError } = await supabase.from("posts").insert({
+      const { error } = await supabase.from("posts").insert({
+        user_id: user.id,
         description: caption.trim(),
         photo: publicUrl,
-        user_goal_id: 1, // ⚠️ substitua por um ID válido da tabela user_goals
+        user_goal_id: 1,
       });
+
 
       if (insertError) throw insertError;
 
