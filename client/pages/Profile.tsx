@@ -732,13 +732,13 @@ export default function Profile() {
 
                 return (
                   <div key={typeCode} className="border border-border/60 rounded-lg overflow-hidden">
-                    <button
-                      onClick={() =>
-                        setExpandedRoutineType(isExpanded ? null : typeCode)
-                      }
-                      className="w-full p-4 flex items-center justify-between hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors">
+                      <button
+                        onClick={() =>
+                          setExpandedRoutineType(isExpanded ? null : typeCode)
+                        }
+                        className="flex-1 flex items-center gap-3"
+                      >
                         <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-brand/10">
                           <span className="text-xs font-semibold text-brand">{typeCode}</span>
                         </div>
@@ -748,7 +748,92 @@ export default function Profile() {
                             {routinesOfType.length} rotina{routinesOfType.length > 1 ? "s" : ""} · {workoutsOfType.length} exercício{workoutsOfType.length > 1 ? "s" : ""}
                           </p>
                         </div>
-                      </div>
+                      </button>
+
+                      {/* Goal Indicator */}
+                      <Dialog open={goalIndicatorRoutineId === routinesOfType[0]?.id} onOpenChange={(open) => {
+                        if (!open) {
+                          setGoalIndicatorRoutineId(null);
+                          setGoalIndicatorRoutine(null);
+                          setLinkedGoal(null);
+                        }
+                      }}>
+                        <DialogTrigger asChild>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openGoalIndicatorModal(routinesOfType[0]);
+                            }}
+                            className={`shrink-0 p-2 rounded-lg transition-all ${
+                              routinesOfType[0]?.goal_id
+                                ? "bg-brand/10 text-brand hover:bg-brand/20"
+                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                            }`}
+                            title={routinesOfType[0]?.goal_id ? "Meta vinculada" : "Vincular meta"}
+                          >
+                            <Tag className="h-5 w-5" />
+                          </button>
+                        </DialogTrigger>
+
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>
+                              {linkedGoal ? "Meta Vinculada" : "Vincular Meta"}
+                            </DialogTitle>
+                          </DialogHeader>
+
+                          {linkedGoal ? (
+                            <div className="space-y-4">
+                              <div className="p-4 border border-border/60 rounded-lg bg-muted/30">
+                                <p className="text-sm font-medium mb-2">{linkedGoal.description}</p>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div>
+                                    <span className="text-muted-foreground">Duração:</span>
+                                    <p className="font-medium">{linkedGoal.duration} dias</p>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">Quantidade:</span>
+                                    <p className="font-medium">{linkedGoal.quantity}</p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <Button
+                                onClick={handleUnlinkGoal}
+                                disabled={isUpdatingGoal}
+                                variant="outline"
+                                className="w-full"
+                              >
+                                {isUpdatingGoal ? "Desvinculando..." : "Desvincular Meta"}
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+                              {userGoals.length > 0 ? (
+                                userGoals.map((goal) => (
+                                  <button
+                                    key={goal.id}
+                                    onClick={() => handleLinkGoal(goal.goal_id)}
+                                    disabled={isUpdatingGoal}
+                                    className="w-full p-3 border border-border/60 rounded-lg hover:border-brand/60 hover:bg-brand/5 transition-all text-left"
+                                  >
+                                    <p className="font-medium text-sm">{goal.description}</p>
+                                    <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
+                                      <span>Duração: {goal.duration} dias</span>
+                                      <span>Quantidade: {goal.quantity}</span>
+                                    </div>
+                                  </button>
+                                ))
+                              ) : (
+                                <p className="text-sm text-muted-foreground text-center py-6">
+                                  Você ainda não tem metas vinculadas.
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </DialogContent>
+                      </Dialog>
+
                       <div
                         className={`transform transition-transform ${
                           isExpanded ? "rotate-180" : ""
@@ -768,7 +853,7 @@ export default function Profile() {
                           />
                         </svg>
                       </div>
-                    </button>
+                    </div>
 
                     {isExpanded && (
                       <div className="border-t border-border/60 p-4 space-y-3 bg-muted/20">
