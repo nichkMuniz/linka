@@ -429,6 +429,9 @@ export default function Profile() {
                   </DialogTrigger>
 
                   <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogTitle className="text-lg font-semibold mb-4">
+                      Detalhes do Post
+                    </DialogTitle>
                     <div className="grid md:grid-cols-2 gap-6">
                       {/* Post Image */}
                       <div className="aspect-square overflow-hidden rounded-lg bg-muted">
