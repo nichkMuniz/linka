@@ -1,19 +1,23 @@
 import * as React from "react";
 import { getFeedPosts } from "../services/post.service";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Heart, MessageCircle, Send } from "lucide-react";
+import { timeAgo } from "@/lib/utils";
 
 type Post = {
   id: string;
-  content: string;
-  image_url?: string;
+  description: string | null;
+  photo: string;
   created_at: string;
   user: {
     id: string;
     username: string;
-    avatar_url?: string;
+    avatar_url: string | null;
   };
-  likes?: { count: number }[];
-  comments?: { count: number }[];
+  likes: { count: number }[];
+  comments: { count: number }[];
 };
 
 export default function Index() {
@@ -35,55 +39,82 @@ export default function Index() {
 
   if (loading) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">
+      <div className="mx-auto max-w-2xl p-6 text-muted-foreground">
         Carregando feed...
       </div>
     );
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-xl gap-4">
+    <div className="mx-auto grid w-full max-w-2xl gap-4">
       {posts.length ? (
         posts.map((post) => (
           <Card key={post.id} className="overflow-hidden border-border/60">
             {/* Header */}
-            <div className="flex items-center gap-3 px-4 py-3">
-              <div className="grid h-10 w-10 place-items-center rounded-full bg-muted font-semibold text-sm">
-                {post.user.username?.[0]?.toUpperCase() ?? "?"}
-              </div>
-              <div>
+            <CardHeader className="flex flex-row items-center gap-3 p-4">
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={post.user.avatar_url ?? undefined} />
+                <AvatarFallback>
+                  {post.user.username?.[0]?.toUpperCase() ?? "?"}
+                </AvatarFallback>
+              </Avatar>
+              <div className="leading-tight">
                 <div className="text-sm font-semibold">
-                  @{post.user.username}
+                  {post.user.username}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {new Date(post.created_at).toLocaleString()}
+                  {timeAgo(post.created_at)}
                 </div>
               </div>
+            </CardHeader>
+
+            {/* Image */}
+            <div className="relative aspect-square w-full overflow-hidden bg-muted">
+              <img
+                src={post.photo}
+                alt="Imagem da postagem"
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
             </div>
 
-            {/* Imagem */}
-            {post.image_url && (
-              <img
-                src={post.image_url}
-                alt="Post"
-                className="aspect-square w-full object-cover"
-              />
-            )}
+            <CardContent className="space-y-3 p-4">
+              {/* Actions */}
+              <div className="flex items-center gap-3">
+                <Button size="icon" variant="ghost" className="rounded-full">
+                  <Heart className="h-5 w-5" />
+                </Button>
+                <Button size="icon" variant="ghost" className="rounded-full">
+                  <MessageCircle className="h-5 w-5" />
+                </Button>
+                <Button size="icon" variant="ghost" className="rounded-full">
+                  <Send className="h-5 w-5" />
+                </Button>
+              </div>
 
-            {/* Conteúdo */}
-            <CardContent className="space-y-2 p-4">
-              <div className="text-sm">{post.content}</div>
+              {/* Counts */}
+              <div className="text-sm font-semibold">
+                {post.likes?.[0]?.count ?? 0} curtidas
+              </div>
 
-              <div className="text-xs text-muted-foreground flex gap-4">
-                <span>❤️ {post.likes?.[0]?.count ?? 0}</span>
-                <span>💬 {post.comments?.[0]?.count ?? 0}</span>
+              {/* Caption */}
+              {post.description && (
+                <div className="text-sm">
+                  <span className="font-semibold">{post.user.username}</span>{" "}
+                  {post.description}
+                </div>
+              )}
+
+              {/* Comments */}
+              <div className="text-xs text-muted-foreground">
+                {post.comments?.[0]?.count ?? 0} comentários
               </div>
             </CardContent>
           </Card>
         ))
       ) : (
         <Card className="border-border/60">
-          <CardContent className="p-6 text-sm text-muted-foreground">
+          <CardContent className="p-6 text-center text-muted-foreground">
             Ainda não há postagens.
           </CardContent>
         </Card>
