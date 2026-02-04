@@ -481,19 +481,25 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
   ]);
 
   if (postsRes.error) {
-    const errorMsg = postsRes.error?.message || String(postsRes.error);
+    const errorMsg = postsRes.error instanceof Error
+      ? postsRes.error.message
+      : (postsRes.error?.message || "Unknown error");
     const errorCode = postsRes.error?.code || "UNKNOWN";
     console.error(`Error fetching posts stats [${errorCode}]:`, errorMsg);
   }
 
   if (followersRes.error) {
-    const errorMsg = followersRes.error?.message || String(followersRes.error);
+    const errorMsg = followersRes.error instanceof Error
+      ? followersRes.error.message
+      : (followersRes.error?.message || "Unknown error");
     const errorCode = followersRes.error?.code || "UNKNOWN";
     console.error(`Error fetching followers stats [${errorCode}]:`, errorMsg);
   }
 
   if (followingRes.error) {
-    const errorMsg = followingRes.error?.message || String(followingRes.error);
+    const errorMsg = followingRes.error instanceof Error
+      ? followingRes.error.message
+      : (followingRes.error?.message || "Unknown error");
     const errorCode = followingRes.error?.code || "UNKNOWN";
     console.error(`Error fetching following stats [${errorCode}]:`, errorMsg);
   }
