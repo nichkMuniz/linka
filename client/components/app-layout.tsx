@@ -171,7 +171,7 @@ export function AppLayout() {
       </main>
 
       <nav className="fixed bottom-[env(safe-area-inset-bottom)] left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden">
-        <div className="mx-auto grid w-full max-w-6xl grid-cols-2 px-1">
+        <div className="mx-auto grid w-full max-w-6xl grid-cols-3 px-1">
           {navItems.map((item) => {
             const active = isActivePath(location.pathname, item.to);
             const Icon = item.icon;
