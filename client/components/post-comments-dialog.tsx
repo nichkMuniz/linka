@@ -24,9 +24,11 @@ import { useAuth } from "@/hooks/useAuth";
 export function PostCommentsDialog({
   postId,
   commentCount,
+  hasActivity,
 }: {
   postId: string;
   commentCount: number;
+  hasActivity?: boolean;
 }) {
   const { user } = useAuth();
   const [open, setOpen] = React.useState(false);
