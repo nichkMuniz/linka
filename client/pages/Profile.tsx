@@ -631,24 +631,112 @@ export default function Profile() {
           </Dialog>
 
           {routines.length > 0 ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              {routines.map((routine) => (
-                <Card key={routine.id} className="border-border/60 hover:border-border/80 transition-colors cursor-pointer">
-                  <CardContent className="pt-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-lg">{getRoutineTypeName(routine.type)}</p>
-                        <p className="text-xs text-muted-foreground mt-2">ID: {routine.id}</p>
-                      </div>
-                      <div className="text-right">
+            <div className="space-y-4">
+              {[1, 2, 3].map((typeCode) => {
+                const routinesOfType = routines.filter((r) => r.type === typeCode);
+                if (routinesOfType.length === 0) return null;
+
+                const isExpanded = expandedRoutineType === typeCode;
+                const workoutsOfType = userWorkouts.filter(
+                  (uw) => routinesOfType.some((r) => r.id === uw.id)
+                );
+
+                return (
+                  <div key={typeCode} className="border border-border/60 rounded-lg overflow-hidden">
+                    <button
+                      onClick={() =>
+                        setExpandedRoutineType(isExpanded ? null : typeCode)
+                      }
+                      className="w-full p-4 flex items-center justify-between hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
                         <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-brand/10">
-                          <span className="text-xs font-semibold text-brand">{routine.type}</span>
+                          <span className="text-xs font-semibold text-brand">{typeCode}</span>
+                        </div>
+                        <div className="text-left">
+                          <p className="font-semibold">{getRoutineTypeName(typeCode)}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {routinesOfType.length} rotina{routinesOfType.length > 1 ? "s" : ""} · {workoutsOfType.length} exercício{workoutsOfType.length > 1 ? "s" : ""}
+                          </p>
                         </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                      <div
+                        className={`transform transition-transform ${
+                          isExpanded ? "rotate-180" : ""
+                        }`}
+                      >
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                          />
+                        </svg>
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="border-t border-border/60 p-4 space-y-3 bg-muted/20">
+                        {workoutsOfType.length > 0 ? (
+                          <div className="space-y-3">
+                            {workoutsOfType.map((workout) => (
+                              <Card
+                                key={workout.id}
+                                className="border-border/60 bg-background"
+                              >
+                                <CardContent className="p-4">
+                                  <div className="flex items-start gap-3">
+                                    {workout.workoutPhoto ? (
+                                      <img
+                                        src={workout.workoutPhoto}
+                                        alt={workout.workoutName}
+                                        className="h-12 w-12 rounded object-cover flex-shrink-0"
+                                      />
+                                    ) : (
+                                      <div className="h-12 w-12 rounded bg-muted flex-shrink-0" />
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="font-medium text-sm">
+                                        {workout.workoutName}
+                                      </p>
+                                      {workout.workoutDescription && (
+                                        <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                          {workout.workoutDescription}
+                                        </p>
+                                      )}
+                                      <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+                                        {workout.series && (
+                                          <span>Séries: {workout.series}</span>
+                                        )}
+                                        {workout.duration && (
+                                          <span>Duração: {workout.duration}min</span>
+                                        )}
+                                        {workout.volume && (
+                                          <span>Volume: {workout.volume}kg</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            Nenhum exercício vinculado
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
