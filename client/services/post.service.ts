@@ -13,6 +13,11 @@ export type PostWithStats = PostWithLikes & {
   hasActivity: boolean;
   userNickname: string;
   userPhoto: string | null;
+  userGoal?: {
+    id: string;
+    description: string;
+    perc: number;
+  };
 };
 
 export const getFeedPosts = async (): Promise<PostWithStats[]> => {
