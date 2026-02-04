@@ -104,6 +104,22 @@ export default function Profile() {
     }
   };
 
+  const openGoalIndicatorModal = async (routine: Routine) => {
+    setGoalIndicatorRoutineId(routine.id);
+    setGoalIndicatorRoutine(routine);
+
+    if (routine.goal_id) {
+      try {
+        const goal = await getGoalByIdDb(routine.goal_id);
+        setLinkedGoal(goal);
+      } catch (err) {
+        console.error("Error loading linked goal:", err);
+      }
+    } else {
+      setLinkedGoal(null);
+    }
+  };
+
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
