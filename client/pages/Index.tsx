@@ -1,23 +1,11 @@
 import * as React from "react";
 import { getFeedPosts, togglePostLike } from "../services/post.service";
 import { Card, CardContent } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
 import { PostCommentsDialog } from "@/components/post-comments-dialog";
-import { GoalDetailsModal } from "@/components/goal-details-modal";
 import { toast } from "@/components/ui/use-toast";
-import { cn } from "@/lib/utils";
 import type { PostIncentiveType } from "@/lib/ritmofit-db";
 import type { PostWithStats } from "../services/post.service";
-
-function dayLabel(days: 7 | 21 | 30) {
-  return days === 7 ? "dias" : days === 21 ? "semanas" : "mês";
-}
-
-function goalProgressPercent(completedDays: number, durationDays: number): number {
-  const pct = Math.round((completedDays / durationDays) * 100);
-  return Math.min(100, Math.max(0, pct));
-}
 
 export default function Index() {
   const [posts, setPosts] = React.useState<PostWithStats[]>([]);
