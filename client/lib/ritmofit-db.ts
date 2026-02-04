@@ -487,6 +487,29 @@ export type UserStats = {
   followingCount: number;
 };
 
+export async function getWorkoutsDb(): Promise<Workout[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("workouts")
+    .select("id, name, description, photo")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching workouts [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    description: String(row.description ?? ""),
+    photo: row.photo ? String(row.photo) : null,
+  }));
+}
+
 export async function getUserStatsDb(userId: string): Promise<UserStats> {
   if (!hasSupabaseConfig || !supabase) {
     return { postsCount: 0, followersCount: 0, followingCount: 0 };
@@ -562,13 +585,32 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
   };
 }
 
-export type RoutineType = "Exercicios" | "Dietas" | "Habitos";
+// Routine type constants
+export const ROUTINE_TYPES = {
+  1: "Exercicios",
+  2: "Dietas",
+  3: "Habitos",
+} as const;
+
+export type RoutineTypeCode = 1 | 2 | 3;
+export type RoutineType = typeof ROUTINE_TYPES[RoutineTypeCode];
+
+export function getRoutineTypeName(code: number): string {
+  return ROUTINE_TYPES[code as RoutineTypeCode] || "Desconhecido";
+}
 
 export type Routine = {
   id: string;
   user_id: string;
-  type: RoutineType;
+  type: number;
   program_id: string | null;
+};
+
+export type Workout = {
+  id: string;
+  name: string;
+  description: string;
+  photo: string | null;
 };
 
 export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
@@ -590,12 +632,35 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
   return (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
     user_id: String(row.user_id ?? ""),
-    type: (row.type ?? "Exercicios") as RoutineType,
+    type: Number(row.type ?? 1),
     program_id: row.program_id ? String(row.program_id) : null,
   }));
 }
 
-export async function createRoutineDb(userId: string, type: RoutineType, program_id?: string): Promise<Routine | null> {
+export async function getWorkoutsDb(): Promise<Workout[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("workouts")
+    .select("id, name, description, photo")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching workouts [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    description: String(row.description ?? ""),
+    photo: row.photo ? String(row.photo) : null,
+  }));
+}
+
+export async function createRoutineDb(userId: string, type: RoutineTypeCode, program_id?: string): Promise<Routine | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
   const { data, error } = await supabase
@@ -620,7 +685,7 @@ export async function createRoutineDb(userId: string, type: RoutineType, program
   return {
     id: String(data.id ?? ""),
     user_id: String(data.user_id ?? ""),
-    type: (data.type ?? "Exercicios") as RoutineType,
+    type: Number(data.type ?? 1),
     program_id: data.program_id ? String(data.program_id) : null,
   };
 }
