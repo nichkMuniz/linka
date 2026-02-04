@@ -223,10 +223,14 @@ export default function Profile() {
       setWorkouts([]);
       setSelectedWorkoutIds(new Set());
 
-      // Reload routines if needed
+      // Reload routines and user workouts
       if (user) {
-        const routinesData = await getUserRoutinesDb(user.id);
+        const [routinesData, userWorkoutsData] = await Promise.all([
+          getUserRoutinesDb(user.id),
+          getUserWorkoutsDb(user.id),
+        ]);
         setRoutines(routinesData);
+        setUserWorkouts(userWorkoutsData);
       }
     } catch (err: any) {
       console.error("Error saving workouts:", err);
