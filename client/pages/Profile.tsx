@@ -436,6 +436,7 @@ export default function Profile() {
             if (!open) {
               setSelectedRoutineType(null);
               setWorkouts([]);
+              setSelectedWorkoutIds(new Set());
             }
           }}>
             <DialogTrigger asChild>
