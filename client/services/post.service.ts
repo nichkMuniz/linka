@@ -4,7 +4,6 @@ import {
   getUserPostLikesDb,
   togglePostIncentiveDb,
   getUserProfileDb,
-  getUserGoalsByUserIdDb,
   type PostWithLikes,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
