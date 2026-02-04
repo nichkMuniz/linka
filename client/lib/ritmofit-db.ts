@@ -563,7 +563,7 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
 
   const { data, error } = await supabase
     .from("posts")
-    .select("id, description, photo, created_at, user_id, goal_id")
+    .select("id, description, photo, created_at, user_id")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -585,7 +585,6 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     photo: String(row.photo ?? ""),
     created_at: String(row.created_at ?? ""),
     user_id: String(row.user_id ?? ""),
-    goal_id: row.goal_id ? String(row.goal_id) : null,
     userNickname,
     userPhoto,
   }));
