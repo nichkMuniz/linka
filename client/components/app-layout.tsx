@@ -186,37 +186,6 @@ export function AppLayout() {
                 <Moon className="h-5 w-5" />
               )}
             </Button>
-
-            <Button
-              asChild
-              variant={
-                isActivePath(location.pathname, "/buscar")
-                  ? "secondary"
-                  : "ghost"
-              }
-              className="h-11 w-11 rounded-full p-0"
-            >
-              <Link to="/buscar" aria-label="Buscar">
-                <Search className="h-5 w-5" />
-              </Link>
-            </Button>
-
-            <Button
-              asChild
-              variant={
-                isActivePath(location.pathname, messagesItem.to)
-                  ? "secondary"
-                  : "ghost"
-              }
-              className="h-11 w-11 rounded-full p-0"
-            >
-              <Link to={messagesItem.to} aria-label={messagesItem.label}>
-                <span className="relative">
-                  <messagesItem.icon className="h-5 w-5" />
-                  <UnreadBadge count={unreadMessages} />
-                </span>
-              </Link>
-            </Button>
           </div>
         </div>
       </header>
