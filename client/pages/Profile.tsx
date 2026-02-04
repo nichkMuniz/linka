@@ -1,5 +1,5 @@
 import * as React from "react";
-import { getUserProfileDb, getUserPostsDb, getUserStatsDb, updateUserProfileDb, type UserProfile, type PostWithUser, type UserStats } from "@/lib/ritmofit-db";
+import { getUserProfileDb, getUserPostsDb, getUserStatsDb, updateUserProfileDb, getUserRoutinesDb, createRoutineDb, type UserProfile, type PostWithUser, type UserStats, type Routine, type RoutineType } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Users, Edit2, Upload } from "lucide-react";
+import { Users, Edit2, Upload, X, Plus } from "lucide-react";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 export default function Profile() {
@@ -28,6 +28,7 @@ export default function Profile() {
 
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [posts, setPosts] = React.useState<PostWithUser[]>([]);
+  const [routines, setRoutines] = React.useState<Routine[]>([]);
   const [stats, setStats] = React.useState<UserStats>({
     postsCount: 0,
     followersCount: 0,
@@ -36,6 +37,9 @@ export default function Profile() {
   const [loading, setLoading] = React.useState(true);
   const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [expandedPost, setExpandedPost] = React.useState<PostWithUser | null>(null);
+  const [isCreateRoutineOpen, setIsCreateRoutineOpen] = React.useState(false);
+  const [isCreatingRoutine, setIsCreatingRoutine] = React.useState(false);
 
   // Edit form state
   const [editNickname, setEditNickname] = React.useState("");
@@ -43,32 +47,36 @@ export default function Profile() {
   const [editPhotoFile, setEditPhotoFile] = React.useState<File | null>(null);
   const [editPhotoPreview, setEditPhotoPreview] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
+  const loadProfile = React.useCallback(async () => {
     if (!user) return;
 
-    (async () => {
-      try {
-        const [profileData, postsData, statsData] = await Promise.all([
-          getUserProfileDb(user.id),
-          getUserPostsDb(user.id),
-          getUserStatsDb(user.id),
-        ]);
+    try {
+      const [profileData, postsData, statsData, routinesData] = await Promise.all([
+        getUserProfileDb(user.id),
+        getUserPostsDb(user.id),
+        getUserStatsDb(user.id),
+        getUserRoutinesDb(user.id),
+      ]);
 
-        setProfile(profileData);
-        setPosts(postsData);
-        setStats(statsData);
-      } catch (err: any) {
-        console.error("Error loading profile:", err);
-        toast({
-          title: "Erro ao carregar perfil",
-          description: "Tente novamente mais tarde.",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
-      }
-    })();
+      setProfile(profileData);
+      setPosts(postsData);
+      setStats(statsData);
+      setRoutines(routinesData);
+    } catch (err: any) {
+      console.error("Error loading profile:", err);
+      toast({
+        title: "Erro ao carregar perfil",
+        description: "Tente novamente mais tarde.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
+
+  React.useEffect(() => {
+    loadProfile();
+  }, [user, loadProfile]);
 
   const openEditDialog = () => {
     if (profile) {
@@ -99,7 +107,6 @@ export default function Profile() {
     try {
       let photoUrl = profile.photo;
 
-      // Upload photo if changed
       if (editPhotoFile) {
         const filePath = `${user.id}/profile-${Date.now()}`;
         const { error: uploadError } = await supabase.storage
@@ -112,7 +119,6 @@ export default function Profile() {
         photoUrl = data.publicUrl;
       }
 
-      // Update profile
       const updatedProfile = await updateUserProfileDb(user.id, {
         nickname: editNickname,
         bio: editBio,
@@ -139,6 +145,32 @@ export default function Profile() {
     }
   };
 
+  const handleCreateRoutine = async (type: RoutineType) => {
+    if (!user) return;
+
+    setIsCreatingRoutine(true);
+    try {
+      const newRoutine = await createRoutineDb(user.id, type);
+      if (newRoutine) {
+        setRoutines([newRoutine, ...routines]);
+        toast({
+          title: "Rotina criada!",
+          description: `Nova rotina de "${type}" foi criada.`,
+        });
+        setIsCreateRoutineOpen(false);
+      }
+    } catch (err: any) {
+      console.error("Error creating routine:", err);
+      toast({
+        title: "Erro ao criar rotina",
+        description: err.message || "Tente novamente mais tarde.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreatingRoutine(false);
+    }
+  };
+
   if (authLoading || loading) {
     return <div className="p-6 text-sm text-muted-foreground">Carregando perfil...</div>;
   }
@@ -152,8 +184,8 @@ export default function Profile() {
       {/* Profile Header Card */}
       <Card className="border-border/60">
         <CardContent className="pt-6">
-          <div className="flex items-start justify-between gap-6">
-            <div className="flex gap-4 flex-1">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex gap-4 flex-1 min-w-0">
               {/* Avatar */}
               <div className="shrink-0">
                 {profile.photo ? (
@@ -170,14 +202,14 @@ export default function Profile() {
               {/* Info */}
               <div className="space-y-3 flex-1 min-w-0">
                 <div>
-                  <h1 className="text-xl font-semibold tracking-tight">{profile.nickname}</h1>
+                  <h1 className="text-xl font-semibold tracking-tight truncate">{profile.nickname}</h1>
                   {profile.bio && (
                     <p className="text-sm text-muted-foreground line-clamp-2">{profile.bio}</p>
                   )}
                 </div>
 
                 {/* Stats Inline */}
-                <div className="flex gap-6">
+                <div className="flex gap-4 sm:gap-6">
                   <div className="space-y-1">
                     <div className="text-lg font-semibold">{stats.postsCount}</div>
                     <div className="text-xs text-muted-foreground">Posts</div>
@@ -200,7 +232,7 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Edit Button */}
+            {/* Edit Button - Responsive */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
               <DialogTrigger asChild>
                 <Button
@@ -209,8 +241,8 @@ export default function Profile() {
                   className="shrink-0 rounded-full"
                   onClick={openEditDialog}
                 >
-                  <Edit2 className="h-4 w-4 mr-2" />
-                  Editar
+                  <Edit2 className="h-4 w-4" />
+                  <span className="hidden sm:inline ml-2">Editar</span>
                 </Button>
               </DialogTrigger>
 
@@ -306,27 +338,58 @@ export default function Profile() {
         {/* Posts Tab */}
         <TabsContent value="posts" className="space-y-4">
           {posts.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {posts.map((post) => (
-                <Card
-                  key={post.id}
-                  className="border-border/60 overflow-hidden hover:border-border/80 transition-colors cursor-pointer"
-                >
-                  <div className="aspect-square overflow-hidden bg-muted">
-                    <img
-                      src={post.photo}
-                      alt={post.description}
-                      className="h-full w-full object-cover hover:scale-105 transition-transform"
-                    />
-                  </div>
-                  {post.description && (
-                    <CardContent className="pt-4 pb-4">
-                      <p className="line-clamp-2 text-sm text-muted-foreground">
-                        {post.description}
-                      </p>
-                    </CardContent>
-                  )}
-                </Card>
+                <Dialog key={post.id} open={expandedPost?.id === post.id} onOpenChange={(open) => !open && setExpandedPost(null)}>
+                  <DialogTrigger asChild>
+                    <button
+                      onClick={() => setExpandedPost(post)}
+                      className="group relative aspect-square overflow-hidden rounded-lg bg-muted border border-border/60 hover:border-border/80 transition-all cursor-pointer"
+                    >
+                      <img
+                        src={post.photo}
+                        alt={post.description}
+                        className="h-full w-full object-cover group-hover:scale-110 transition-transform"
+                      />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                    </button>
+                  </DialogTrigger>
+
+                  <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <div className="grid md:grid-cols-2 gap-6">
+                      {/* Post Image */}
+                      <div className="aspect-square overflow-hidden rounded-lg bg-muted">
+                        <img
+                          src={post.photo}
+                          alt={post.description}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+
+                      {/* Post Info */}
+                      <div className="space-y-4">
+                        <div>
+                          <h2 className="text-xl font-semibold">Post</h2>
+                          {post.description && (
+                            <p className="text-sm text-muted-foreground mt-2">{post.description}</p>
+                          )}
+                        </div>
+
+                        {/* Interactions placeholder */}
+                        <div className="space-y-2 pt-4 border-t border-border/60">
+                          <div className="text-sm font-medium">Interações</div>
+                          <div className="text-xs text-muted-foreground">Nenhuma interação ainda.</div>
+                        </div>
+
+                        {/* Comments placeholder */}
+                        <div className="space-y-2 pt-4 border-t border-border/60">
+                          <div className="text-sm font-medium">Comentários</div>
+                          <div className="text-xs text-muted-foreground">Nenhum comentário ainda.</div>
+                        </div>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               ))}
             </div>
           ) : (
@@ -338,9 +401,61 @@ export default function Profile() {
 
         {/* Routines Tab */}
         <TabsContent value="routines" className="space-y-4">
-          <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
-            <p className="text-sm text-muted-foreground">Nenhuma rotina registrada ainda.</p>
-          </div>
+          <Dialog open={isCreateRoutineOpen} onOpenChange={setIsCreateRoutineOpen}>
+            <DialogTrigger asChild>
+              <Button className="rounded-full">
+                <Plus className="h-4 w-4 mr-2" />
+                Rotina
+              </Button>
+            </DialogTrigger>
+
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Nova Rotina</DialogTitle>
+                <DialogDescription>
+                  Escolha o tipo de rotina que deseja criar
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid grid-cols-1 gap-3">
+                {(["Exercicios", "Dietas", "Habitos"] as RoutineType[]).map((type) => (
+                  <Button
+                    key={type}
+                    variant="outline"
+                    className="h-auto p-4 justify-start text-base rounded-lg"
+                    onClick={() => handleCreateRoutine(type)}
+                    disabled={isCreatingRoutine}
+                  >
+                    {type}
+                  </Button>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {routines.length > 0 ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {routines.map((routine) => (
+                <Card key={routine.id} className="border-border/60 hover:border-border/80 transition-colors cursor-pointer">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{routine.type}</p>
+                        <p className="text-xs text-muted-foreground mt-1">ID: {routine.id}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-muted-foreground">Rotina</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
+              <p className="text-sm text-muted-foreground">Nenhuma rotina criada ainda.</p>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>
