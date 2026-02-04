@@ -677,6 +677,36 @@ export async function createRoutineDb(userId: string, type: RoutineTypeCode, pro
   };
 }
 
+export async function updateRoutineGoalDb(routineId: string, goalId: string | null): Promise<Routine | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const { data, error } = await supabase
+    .from("routines")
+    .update({
+      goal_id: goalId,
+    })
+    .eq("id", routineId)
+    .select("id, user_id, type, program_id, goal_id")
+    .maybeSingle();
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error updating routine goal [${errorCode}]:`, errorMsg);
+    throw new Error(`Erro ao atualizar meta da rotina: ${errorMsg}`);
+  }
+
+  if (!data) return null;
+
+  return {
+    id: String(data.id ?? ""),
+    user_id: String(data.user_id ?? ""),
+    type: Number(data.type ?? 1),
+    program_id: data.program_id ? String(data.program_id) : null,
+    goal_id: data.goal_id ? String(data.goal_id) : null,
+  };
+}
+
 export type UserWorkout = {
   id: string;
   workout_id: string;
