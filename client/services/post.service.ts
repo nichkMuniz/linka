@@ -12,7 +12,6 @@ import {
 export type PostWithStats = PostWithLikes & {
   commentCount: number;
   hasActivity: boolean;
-  goal_id: string | null;
   userNickname: string;
   userPhoto: string | null;
   userGoal?: {
