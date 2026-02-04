@@ -15,7 +15,7 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
-import { getUserGoalsDb, type_goal UserGoal } from "@/lib/ritmofit-db";
+import { getUserGoalsDb, type UserGoal } from "@/lib/ritmofit-db";
 
 export default function NewPost() {
   const navigate = useNavigate();
