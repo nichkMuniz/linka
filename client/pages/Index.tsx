@@ -1,9 +1,12 @@
 import * as React from "react";
 import { getFeedPosts, togglePostLike } from "../services/post.service";
 import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
 import { PostCommentsDialog } from "@/components/post-comments-dialog";
+import { GoalDetailsModal } from "@/components/goal-details-modal";
 import { toast } from "@/components/ui/use-toast";
+import { cn } from "@/lib/utils";
 import type { PostIncentiveType } from "@/lib/ritmofit-db";
 import type { PostWithStats } from "../services/post.service";
 
