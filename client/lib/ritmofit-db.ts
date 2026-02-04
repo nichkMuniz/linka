@@ -299,7 +299,7 @@ export async function createUserGoalDb(goalId: string, userId: string, typeGoal:
   const { error } = await supabase.from("user_goals").insert({
     goal_id: goalId,
     user_id: userId,
-    type: typeGoal,
+    type_goal: typeGoal,
     duration,
     quantity,
   });
