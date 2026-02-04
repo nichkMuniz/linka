@@ -142,17 +142,17 @@ export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
   }
 
   const { data } = await supabase
-    .from("likes")
-    .select("type")
+    .from("post_likes")
+    .select("incentive_type")
     .eq("post_id", postId);
 
   const stats: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0 };
 
   (data ?? []).forEach((row: any) => {
-    const type = Number(row.type) as PostIncentiveType;
-    if (type === 1) stats.apoio += 1;
-    else if (type === 2) stats.continua += 1;
-    else if (type === 3) stats.ganhador += 1;
+    const incentiveType = Number(row.incentive_type) as PostIncentiveType;
+    if (incentiveType === 1) stats.apoio += 1;
+    else if (incentiveType === 2) stats.continua += 1;
+    else if (incentiveType === 3) stats.ganhador += 1;
   });
 
   return stats;
