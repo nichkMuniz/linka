@@ -718,3 +718,71 @@ export async function createUserWorkoutsDb(
     time_rest: row.time_rest,
   }));
 }
+
+export type UserWorkoutWithDetails = {
+  id: string;
+  workout_id: string;
+  user_id: string;
+  volume?: number | null;
+  calories?: number | null;
+  duration?: number | null;
+  series?: number | null;
+  time_rest?: number | null;
+  workoutName?: string;
+  workoutPhoto?: string | null;
+  workoutDescription?: string;
+};
+
+export async function getUserWorkoutsDb(userId: string): Promise<UserWorkoutWithDetails[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("user_workouts")
+    .select("id, workout_id, user_id, volume, calories, duration, series, time_rest, workouts(name, photo, description)")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+
+    // Silently handle relationship errors - try without join
+    if (errorDetails && errorDetails.includes("relationship")) {
+      const { data: dataFallback, error: errorFallback } = await supabase
+        .from("user_workouts")
+        .select("id, workout_id, user_id, volume, calories, duration, series, time_rest")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+
+      if (!errorFallback && dataFallback) {
+        return (dataFallback ?? []).map((row: any) => ({
+          id: String(row.id ?? ""),
+          workout_id: String(row.workout_id ?? ""),
+          user_id: String(row.user_id ?? ""),
+          volume: row.volume,
+          calories: row.calories,
+          duration: row.duration,
+          series: row.series,
+          time_rest: row.time_rest,
+        }));
+      }
+    }
+
+    console.error(`Error fetching user workouts [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    workout_id: String(row.workout_id ?? ""),
+    user_id: String(row.user_id ?? ""),
+    volume: row.volume,
+    calories: row.calories,
+    duration: row.duration,
+    series: row.series,
+    time_rest: row.time_rest,
+    workoutName: (row.workouts as any)?.name || "Exercício desconhecido",
+    workoutPhoto: (row.workouts as any)?.photo || null,
+    workoutDescription: (row.workouts as any)?.description || undefined,
+  }));
+}
