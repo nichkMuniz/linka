@@ -313,6 +313,7 @@ export async function createUserGoalDb(goalId: string, userId: string, typeGoal:
 export type UserGoal = {
   id: string;
   goal_id: string;
+  description: string;
   duration: number;
   quantity: number;
   type_goal: number;
@@ -326,7 +327,7 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
 
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal")
+    .select("id, goal_id, duration, quantity, type_goal, goals(description)")
     .eq("user_id", viewer.id)
     .order("created_at", { ascending: false });
 
@@ -341,9 +342,29 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
     ({
       id: String(row.id),
       goal_id: String(row.goal_id ?? ""),
+      description: String((row.goals as any)?.description ?? ""),
       duration: Number(row.duration ?? 0),
       quantity: Number(row.quantity ?? 0),
       type_goal: Number(row.type_goal ?? 0),
     }) satisfies UserGoal,
   );
+}
+
+export async function getUserSelectedGoalIdsDb(): Promise<string[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const { data, error } = await supabase
+    .from("user_goals")
+    .select("goal_id")
+    .eq("user_id", viewer.id);
+
+  if (error) {
+    console.error("Error fetching user selected goal IDs:", error);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => String(row.goal_id ?? ""));
 }
