@@ -696,7 +696,7 @@ export async function createUserWorkoutsDb(
   }));
 
   const { data, error } = await supabase
-    .from("user_workout")
+    .from("user_workouts")
     .insert(workoutsToInsert)
     .select("id, workout_id, user_id, volume, calories, duration, series, time_rest");
 
