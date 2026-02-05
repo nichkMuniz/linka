@@ -22,8 +22,6 @@ export function StoriesCarousel({
   onStoryClick,
   currentUserId,
 }: StoriesCarouselProps) {
-  const [menuOpen, setMenuOpen] = React.useState(false);
-
   // Group stories by user and take only the first one per user (most recent)
   const storyMap = new Map<string, StoryWithUser>();
   stories.forEach((story) => {
@@ -47,12 +45,10 @@ export function StoriesCarousel({
     if (userStory) {
       onStoryClick(userStory);
     }
-    setMenuOpen(false);
   };
 
   const handleNewFlow = () => {
     onAddStoryClick();
-    setMenuOpen(false);
   };
 
   return (
