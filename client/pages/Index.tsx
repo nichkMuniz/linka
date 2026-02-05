@@ -365,17 +365,17 @@ export default function Index() {
                 {post.userGoal && (
                   <button
                     onClick={() => openGoalModal(post)}
-                    className="w-full space-y-2 pt-2 text-left hover:opacity-80 transition-opacity"
+                    className="w-full space-y-3 pt-3 text-left hover:opacity-80 transition-opacity rounded-lg p-3 bg-muted/30 hover:bg-muted/50"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-foreground">
+                      <span className="text-sm font-semibold text-foreground">
                         {post.userGoal.description}
                       </span>
-                      <span className="text-xs font-semibold text-brand">
-                        {post.userGoal.perc}%
+                      <span className="text-sm font-bold text-brand">
+                        {Math.round(post.userGoal.perc)}%
                       </span>
                     </div>
-                    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                    <div className="w-full bg-muted rounded-full h-4 overflow-hidden">
                       <div
                         className="bg-brand h-full rounded-full transition-all duration-300"
                         style={{
