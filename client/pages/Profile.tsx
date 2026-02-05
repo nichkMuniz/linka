@@ -538,6 +538,25 @@ export default function Profile() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await resetSupabaseAuth();
+      setIsSettingsOpen(false);
+      navigate("/");
+      toast({
+        title: "Desconectado com sucesso!",
+        description: "Você foi desconectado da sua conta.",
+      });
+    } catch (err: any) {
+      console.error("Error logging out:", err);
+      toast({
+        title: "Erro ao desconectar",
+        description: err.message || "Tente novamente mais tarde.",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
