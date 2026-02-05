@@ -166,21 +166,6 @@ export function AppLayout() {
                 <Search className="h-5 w-5" />
               </Button>
             </Link>
-
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-11 w-11 rounded-full"
-              aria-label={isDark ? "Ativar modo claro" : "Ativar modo noturno"}
-              onClick={() => setTheme(isDark ? "light" : "dark")}
-            >
-              {isDark ? (
-                <Sun className="h-5 w-5" />
-              ) : (
-                <Moon className="h-5 w-5" />
-              )}
-            </Button>
           </div>
 
           <nav className="hidden items-center justify-center gap-2 lg:flex">
@@ -234,21 +219,6 @@ export function AppLayout() {
                 <Search className="h-5 w-5" />
               </Button>
             </Link>
-
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-11 w-11 rounded-full"
-              aria-label={isDark ? "Ativar modo claro" : "Ativar modo noturno"}
-              onClick={() => setTheme(isDark ? "light" : "dark")}
-            >
-              {isDark ? (
-                <Sun className="h-5 w-5" />
-              ) : (
-                <Moon className="h-5 w-5" />
-              )}
-            </Button>
           </div>
         </div>
       </header>
