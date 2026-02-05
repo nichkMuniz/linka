@@ -26,6 +26,7 @@ import { useNavigate } from "react-router-dom";
 
 export default function Reels() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [reels, setReels] = React.useState<ReelWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [togglingReelId, setTogglingReelId] = React.useState<string | null>(
