@@ -121,6 +121,7 @@ export default function Profile() {
         statsData,
         routinesData,
         userWorkoutsData,
+        userDietsData,
         userGoalsData,
       ] = await Promise.all([
         getUserProfileDb(user.id),
@@ -128,6 +129,7 @@ export default function Profile() {
         getUserStatsDb(user.id),
         getUserRoutinesDb(user.id),
         getUserWorkoutsDb(user.id),
+        getUserDietsDb(user.id),
         getUserGoalsDb(),
       ]);
 
@@ -136,6 +138,7 @@ export default function Profile() {
       setStats(statsData);
       setRoutines(routinesData);
       setUserWorkouts(userWorkoutsData);
+      setUserDiets(userDietsData);
       setUserGoals(userGoalsData);
     } catch (err: any) {
       console.error("Error loading profile:", err);
