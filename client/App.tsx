@@ -26,6 +26,7 @@ import Login from "@/pages/Login";
 import NewPost from "@/pages/NewPost";
 import Goals from "@/pages/Goals";
 import Profile from "@/pages/Profile";
+import Search from "@/pages/Search";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
