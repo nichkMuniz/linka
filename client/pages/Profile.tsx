@@ -735,6 +735,8 @@ export default function Profile() {
                 setSelectedRoutineType(null);
                 setWorkouts([]);
                 setSelectedWorkoutIds(new Set());
+                setDiets([]);
+                setSelectedDietIds(new Set());
               }
             }}
           >
