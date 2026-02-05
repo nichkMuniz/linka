@@ -28,9 +28,13 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
   if (!hasSupabaseConfig || !supabase)
     throw new Error("Supabase não configurado");
 
+  // Get the list of users the current user follows
+  const followingIds = await getFollowingIdsDb();
+
   const { data, error } = await supabase
     .from("posts")
     .select("*")
+    .in("user_id", followingIds.length > 0 ? followingIds : [""])
     .order("created_at", { ascending: false });
 
   if (error) throw error;
