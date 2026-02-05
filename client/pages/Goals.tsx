@@ -158,7 +158,7 @@ export default function Goals() {
         {/* Metas Tab */}
         <TabsContent value="metas" className="space-y-4">
           {goals.length ? (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-3">
               {goals.map((goal) => (
                 <Card
                   key={goal.id}
