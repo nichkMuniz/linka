@@ -291,6 +291,29 @@ export default function Index() {
                       {post.userNickname}
                     </span>
                   </div>
+                  {/* Menu Button */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-white hover:bg-white/20"
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-40">
+                      <DropdownMenuItem onClick={() => handleReportUser(post)}>
+                        <Flag className="h-4 w-4 mr-2" />
+                        Denunciar usuário
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => handleReportPost(post)}>
+                        <Flag className="h-4 w-4 mr-2" />
+                        Denunciar post
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
 
