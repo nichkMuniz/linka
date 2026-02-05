@@ -1602,3 +1602,114 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
     dietCalories: Number((row.diets as any)?.calories ?? 0),
   }));
 }
+
+// Following Functions
+
+export async function getAllUsersDb(excludeUserId?: string): Promise<SearchUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  let query = supabase.from("profiles").select("id, display_name, bio, avatar_url");
+
+  if (excludeUserId) {
+    query = query.neq("id", excludeUserId);
+  }
+
+  const { data, error } = await query.order("display_name", { ascending: true });
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching all users [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    nickname: String(row.display_name ?? "Usuário"),
+    bio: row.bio ? String(row.bio) : undefined,
+    photo: row.avatar_url ? String(row.avatar_url) : null,
+  }));
+}
+
+export async function followUserDb(followingId: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const viewer = await getViewer();
+  if (!viewer) return false;
+
+  const { error } = await supabase.from("following").insert({
+    user_id: viewer.id,
+    following_id: followingId,
+  });
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error following user [${errorCode}]:`, errorMsg);
+    return false;
+  }
+
+  return true;
+}
+
+export async function unfollowUserDb(followingId: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const viewer = await getViewer();
+  if (!viewer) return false;
+
+  const { error } = await supabase
+    .from("following")
+    .delete()
+    .eq("user_id", viewer.id)
+    .eq("following_id", followingId);
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error unfollowing user [${errorCode}]:`, errorMsg);
+    return false;
+  }
+
+  return true;
+}
+
+export async function isFollowingDb(followingId: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const viewer = await getViewer();
+  if (!viewer) return false;
+
+  const { data, error } = await supabase
+    .from("following")
+    .select("id")
+    .eq("user_id", viewer.id)
+    .eq("following_id", followingId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error checking if following:", error);
+    return false;
+  }
+
+  return !!data;
+}
+
+export async function getFollowingIdsDb(): Promise<string[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const { data, error } = await supabase
+    .from("following")
+    .select("following_id")
+    .eq("user_id", viewer.id);
+
+  if (error) {
+    console.error("Error fetching following IDs:", error);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => String(row.following_id ?? ""));
+}
