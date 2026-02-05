@@ -468,10 +468,10 @@ export default function Index() {
                     <p className="text-xs text-muted-foreground">Tipo</p>
                     <p className="text-sm font-bold">
                       {selectedGoalPost.userGoal.type_goal === 1
-                        ? "📅"
+                        ? "Fitness"
                         : selectedGoalPost.userGoal.type_goal === 2
-                          ? "🏃"
-                          : "📊"}
+                          ? "Saúde"
+                          : "Hábitos"}
                     </p>
                   </div>
                 </div>
