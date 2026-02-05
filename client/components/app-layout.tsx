@@ -342,7 +342,24 @@ export function AppLayout() {
             </div>
           </Link>
 
-          <div className="absolute left-4 top-1/2 flex -translate-y-1/2 items-center gap-1 lg:hidden">
+          <div className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 lg:hidden">
+            <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-11 w-11 rounded-full"
+                  aria-label="Buscar pessoas, treinos e dietas"
+                >
+                  <Search className="h-5 w-5" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <SearchContent onClose={() => setSearchOpen(false)} />
+              </DialogContent>
+            </Dialog>
+
             <Button
               type="button"
               variant="ghost"
