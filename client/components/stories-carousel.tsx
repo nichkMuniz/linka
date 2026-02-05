@@ -52,7 +52,7 @@ export function StoriesCarousel({
   };
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4 px-6 scroll-smooth">
+    <div className="flex gap-3 overflow-x-auto pb-4 px-4 pt-2 scroll-smooth">
       {/* Seu Flow Button - with menu if user has a story */}
       {userStory ? (
         <DropdownMenu>
