@@ -2196,11 +2196,24 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     );
 
     // Get all likes for these reels in one query
-    const reelIds = (reelsData ?? []).map((r: any) => r.id);
-    const { data: allLikes } = await supabase
-      .from("likes")
-      .select("post_id, type, user_id")
-      .in("post_id", reelIds);
+    const reelIds = (reelsData ?? []).map((r: any) => String(r.id));
+    console.log("[getReelsDb] Fetching likes for reels:", reelIds.length);
+
+    let allLikes: any[] = [];
+    if (reelIds.length > 0) {
+      const { data: likesData, error: likesError } = await supabase
+        .from("likes")
+        .select("post_id, type, user_id")
+        .in("post_id", reelIds);
+
+      if (likesError) {
+        console.error("[getReelsDb] Error fetching likes:", likesError);
+      } else {
+        allLikes = likesData ?? [];
+      }
+    }
+
+    console.log("[getReelsDb] Found likes:", allLikes.length);
 
     const likesMap = new Map<string, { likes: PostLikeStats; userLikes: PostIncentiveType[] }>();
 
