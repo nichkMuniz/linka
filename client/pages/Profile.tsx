@@ -1201,8 +1201,10 @@ export default function Profile() {
                     routinesOfType.some((r) => String(r.program_id) === ud.id),
                   );
                 } else if (typeCode === 3) {
-                  // Habits - placeholder for future implementation
-                  itemsOfType = [];
+                  // Habits
+                  itemsOfType = userHabits.filter((uh) =>
+                    routinesOfType.some((r) => String(r.program_id) === uh.id),
+                  );
                 }
 
                 return (
