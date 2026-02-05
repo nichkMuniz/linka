@@ -17,6 +17,7 @@ import {
   getPostCommentsDb,
   addPostCommentDb,
   deletePostCommentDb,
+  markPostCommentsAsReadDb,
   type PostComment,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
@@ -25,10 +26,14 @@ export function PostCommentsDialog({
   postId,
   commentCount,
   hasActivity,
+  isPostOwner = false,
+  hasUnreadComments = false,
 }: {
   postId: string;
   commentCount: number;
   hasActivity?: boolean;
+  isPostOwner?: boolean;
+  hasUnreadComments?: boolean;
 }) {
   const { user } = useAuth();
   const [open, setOpen] = React.useState(false);
