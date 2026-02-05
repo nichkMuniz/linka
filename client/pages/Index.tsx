@@ -232,88 +232,99 @@ export default function Index() {
 
       {posts.length ? (
         posts.map((post) => (
-          <Card key={post.id} className="border-border/60 relative">
-            <CardContent className="space-y-3 p-4">
-              {/* User Info Header */}
-              <div className="flex items-center gap-3 absolute top-4 left-4 bg-background/90 rounded-lg p-2 backdrop-blur-sm">
-                {post.userPhoto ? (
-                  <img
-                    src={post.userPhoto}
-                    alt={post.userNickname}
-                    className="h-10 w-10 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="h-10 w-10 rounded-full bg-muted" />
-                )}
-                <span className="text-sm font-medium">{post.userNickname}</span>
-              </div>
-
-              <img
-                src={post.photo}
-                alt="Post"
-                className="w-full rounded-lg object-cover"
-              />
-              {post.description && (
-                <p className="text-sm leading-relaxed">{post.description}</p>
-              )}
-
-              <div className="flex flex-wrap items-center gap-2 pt-2">
-                <div className="flex flex-wrap gap-2">
-                  {([1, 2, 3] as PostIncentiveType[]).map((type) => (
-                    <PostIncentiveButton
-                      key={type}
-                      type={type}
-                      count={
-                        post.likes[
-                          type === 1
-                            ? "apoio"
-                            : type === 2
-                              ? "continua"
-                              : "ganhador"
-                        ]
-                      }
-                      isActive={post.userLikes.includes(type)}
-                      onClick={() => handleToggleLike(post.id, type)}
-                      loading={togglingPostId === post.id}
-                      hasActivity={post.hasActivity}
-                    />
-                  ))}
-                </div>
-                <PostCommentsDialog
-                  postId={post.id}
-                  commentCount={post.commentCount}
-                  hasActivity={post.hasActivity}
+          <Card key={post.id} className="border-border/60 relative overflow-hidden">
+            <CardContent className="space-y-3 p-0">
+              {/* Image Container with User Info Overlay */}
+              <div className="relative">
+                <img
+                  src={post.photo}
+                  alt="Post"
+                  className="w-full object-cover"
                 />
+                {/* User Info Overlay - Inside Image */}
+                <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
+                  <div className="flex items-center gap-2">
+                    {post.userPhoto ? (
+                      <img
+                        src={post.userPhoto}
+                        alt={post.userNickname}
+                        className="h-8 w-8 rounded-full object-cover border border-white/30"
+                      />
+                    ) : (
+                      <div className="h-8 w-8 rounded-full bg-white/30" />
+                    )}
+                    <span className="text-xs font-medium text-white drop-shadow-sm">
+                      {post.userNickname}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              {/* Goal Progress Bar */}
-              {post.userGoal && (
-                <button
-                  onClick={() => openGoalModal(post)}
-                  className="w-full space-y-2 pt-2 text-left hover:opacity-80 transition-opacity"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-foreground">
-                      {post.userGoal.description}
-                    </span>
-                    <span className="text-xs font-semibold text-brand">
-                      {post.userGoal.perc}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                    <div
-                      className="bg-brand h-full rounded-full transition-all duration-300"
-                      style={{
-                        width: `${post.userGoal.perc}%`,
-                      }}
-                    />
-                  </div>
-                </button>
-              )}
+              {/* Post Content */}
+              <div className="p-4 space-y-3">
+                {post.description && (
+                  <p className="text-sm leading-relaxed">{post.description}</p>
+                )}
 
-              <p className="text-xs text-muted-foreground pt-1">
-                {new Date(post.created_at).toLocaleString()}
-              </p>
+                {/* Incentives and Comments Row */}
+                <div className="flex items-center justify-between pt-1">
+                  <div className="flex items-center gap-3">
+                    {([1, 2, 3] as PostIncentiveType[]).map((type) => (
+                      <PostIncentiveButton
+                        key={type}
+                        type={type}
+                        count={
+                          post.likes[
+                            type === 1
+                              ? "apoio"
+                              : type === 2
+                                ? "continua"
+                                : "ganhador"
+                          ]
+                        }
+                        isActive={post.userLikes.includes(type)}
+                        onClick={() => handleToggleLike(post.id, type)}
+                        loading={togglingPostId === post.id}
+                        hasActivity={post.hasActivity}
+                      />
+                    ))}
+                  </div>
+                  <PostCommentsDialog
+                    postId={post.id}
+                    commentCount={post.commentCount}
+                    hasActivity={post.hasActivity}
+                  />
+                </div>
+
+                {/* Goal Progress Bar */}
+                {post.userGoal && (
+                  <button
+                    onClick={() => openGoalModal(post)}
+                    className="w-full space-y-2 pt-2 text-left hover:opacity-80 transition-opacity"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-foreground">
+                        {post.userGoal.description}
+                      </span>
+                      <span className="text-xs font-semibold text-brand">
+                        {post.userGoal.perc}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                      <div
+                        className="bg-brand h-full rounded-full transition-all duration-300"
+                        style={{
+                          width: `${post.userGoal.perc}%`,
+                        }}
+                      />
+                    </div>
+                  </button>
+                )}
+
+                <p className="text-xs text-muted-foreground pt-1">
+                  {new Date(post.created_at).toLocaleString()}
+                </p>
+              </div>
             </CardContent>
           </Card>
         ))
