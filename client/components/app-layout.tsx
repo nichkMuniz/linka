@@ -34,23 +34,6 @@ function isActivePath(currentPath: string, to: string) {
   return currentPath === to || currentPath.startsWith(`${to}/`);
 }
 
-function BrandMark({ className }: { className?: string }) {
-  return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        "relative grid h-9 w-9 place-items-center rounded-xl bg-brand shadow-sm ring-1 ring-brand/30",
-        className,
-      )}
-    >
-      <div className="grid h-8 w-8 place-items-center rounded-lg bg-foreground">
-        <Dumbbell className="h-5 w-5 text-white" />
-      </div>
-      <span className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-brand-2 ring-2 ring-background" />
-    </div>
-  );
-}
-
 export function AppLayout() {
   const location = useLocation();
   const { user } = useAuth();
