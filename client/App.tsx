@@ -87,6 +87,7 @@ const App = () => {
               <Route element={<RequireAuth />}>
                 <Route element={<AppLayout />}>
                   <Route path="/" element={<Index />} />
+                  <Route path="/reels" element={<Reels />} />
                   <Route path="/postar" element={<NewPost />} />
                   <Route path="/metas" element={<Goals />} />
                   <Route path="/perfil" element={<Profile />} />
