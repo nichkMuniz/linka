@@ -33,8 +33,9 @@ export default function Reels() {
     null,
   );
   const [commentsOpen, setCommentsOpen] = React.useState(false);
-  const [selectedReel, setSelectedReel] =
-    React.useState<ReelWithUser | null>(null);
+  const [selectedReel, setSelectedReel] = React.useState<ReelWithUser | null>(
+    null,
+  );
   const [comments, setComments] = React.useState<ReelComment[]>([]);
   const [commentText, setCommentText] = React.useState("");
   const [isLoadingComments, setIsLoadingComments] = React.useState(false);
@@ -70,7 +71,11 @@ export default function Reels() {
             if (r.id === reel.id) {
               const currentUserLikes = r.userLikes || [];
               const userLiked = currentUserLikes.includes(incentiveType);
-              const currentLikes = r.likes || { apoio: 0, continua: 0, ganhador: 0 };
+              const currentLikes = r.likes || {
+                apoio: 0,
+                continua: 0,
+                ganhador: 0,
+              };
 
               return {
                 ...r,
@@ -110,28 +115,25 @@ export default function Reels() {
     [],
   );
 
-  const handleOpenComments = React.useCallback(
-    async (reel: ReelWithUser) => {
-      setSelectedReel(reel);
-      setCommentsOpen(true);
-      setIsLoadingComments(true);
-      try {
-        const commentsData = await getReelCommentsDb(reel.id);
-        setComments(commentsData || []);
-      } catch (err: any) {
-        console.error("Error loading comments:", err);
-        setComments([]);
-        toast({
-          title: "Erro ao carregar comentários",
-          description: err?.message || "Tente novamente.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsLoadingComments(false);
-      }
-    },
-    [],
-  );
+  const handleOpenComments = React.useCallback(async (reel: ReelWithUser) => {
+    setSelectedReel(reel);
+    setCommentsOpen(true);
+    setIsLoadingComments(true);
+    try {
+      const commentsData = await getReelCommentsDb(reel.id);
+      setComments(commentsData || []);
+    } catch (err: any) {
+      console.error("Error loading comments:", err);
+      setComments([]);
+      toast({
+        title: "Erro ao carregar comentários",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingComments(false);
+    }
+  }, []);
 
   const handleAddComment = React.useCallback(async () => {
     if (!commentText.trim() || !selectedReel) return;
@@ -156,22 +158,19 @@ export default function Reels() {
     }
   }, [commentText, selectedReel]);
 
-  const handleDeleteComment = React.useCallback(
-    async (commentId: string) => {
-      try {
-        await deleteReelCommentDb(commentId);
-        setComments((prev) => prev.filter((c) => c.id !== commentId));
-      } catch (err: any) {
-        console.error("Error deleting comment:", err);
-        toast({
-          title: "Erro ao deletar comentário",
-          description: err?.message || "Tente novamente.",
-          variant: "destructive",
-        });
-      }
-    },
-    [],
-  );
+  const handleDeleteComment = React.useCallback(async (commentId: string) => {
+    try {
+      await deleteReelCommentDb(commentId);
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
+    } catch (err: any) {
+      console.error("Error deleting comment:", err);
+      toast({
+        title: "Erro ao deletar comentário",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -226,7 +225,11 @@ export default function Reels() {
                           {reel.userNickname || "Usuário"}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {reel.created_at ? new Date(reel.created_at).toLocaleDateString("pt-BR") : ""}
+                          {reel.created_at
+                            ? new Date(reel.created_at).toLocaleDateString(
+                                "pt-BR",
+                              )
+                            : ""}
                         </p>
                       </div>
                     </div>
@@ -246,7 +249,11 @@ export default function Reels() {
                             key={type}
                             type={type}
                             count={
-                              (reel.likes || { apoio: 0, continua: 0, ganhador: 0 })[
+                              (reel.likes || {
+                                apoio: 0,
+                                continua: 0,
+                                ganhador: 0,
+                              })[
                                 type === 1
                                   ? "apoio"
                                   : type === 2
@@ -254,7 +261,9 @@ export default function Reels() {
                                     : "ganhador"
                               ] || 0
                             }
-                            isActive={(reel.userLikes || [])?.includes(type) ?? false}
+                            isActive={
+                              (reel.userLikes || [])?.includes(type) ?? false
+                            }
                             onClick={() => handleIncentiveClick(reel, type)}
                             loading={togglingReelId === reel.id}
                           />
@@ -270,7 +279,9 @@ export default function Reels() {
                       >
                         <MessageCircle className="h-4 w-4" />
                         <span className="ml-1 text-xs">
-                          {selectedReel?.id === reel.id && comments?.length ? comments.length : ""}
+                          {selectedReel?.id === reel.id && comments?.length
+                            ? comments.length
+                            : ""}
                         </span>
                       </Button>
                     </div>
@@ -289,7 +300,10 @@ export default function Reels() {
       )}
 
       {/* Comments Dialog */}
-      <Dialog open={commentsOpen && selectedReel !== null} onOpenChange={setCommentsOpen}>
+      <Dialog
+        open={commentsOpen && selectedReel !== null}
+        onOpenChange={setCommentsOpen}
+      >
         <DialogContent className="max-h-[80dvh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Comentários</DialogTitle>

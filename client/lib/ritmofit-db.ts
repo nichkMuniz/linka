@@ -1943,7 +1943,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     }
 
     // Group messages by conversation
-    const conversationMap = new Map<string, typeof messages[0][]>();
+    const conversationMap = new Map<string, (typeof messages)[0][]>();
     (messages ?? []).forEach((msg) => {
       const otherUserId =
         msg.id_user === viewer.id ? msg.id_following : msg.id_user;
@@ -2015,7 +2015,9 @@ export async function getConversationMessagesDb(
           ? senderProfile?.nickname || "Você"
           : recipientProfile?.nickname || "Usuário",
       senderPhoto:
-        msg.id_user === viewer.id ? senderProfile?.photo || null : recipientProfile?.photo || null,
+        msg.id_user === viewer.id
+          ? senderProfile?.photo || null
+          : recipientProfile?.photo || null,
       recipientNickname:
         msg.id_following === viewer.id
           ? senderProfile?.nickname || "Você"
@@ -2103,7 +2105,9 @@ export async function getFollowersDb(): Promise<SearchUser[]> {
       return [];
     }
 
-    const followerIds = (data ?? []).map((row: any) => String(row.user_id ?? ""));
+    const followerIds = (data ?? []).map((row: any) =>
+      String(row.user_id ?? ""),
+    );
 
     if (followerIds.length === 0) return [];
 
@@ -2181,8 +2185,13 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     }
 
     // Get all unique user IDs to batch fetch profiles
-    const uniqueUserIds = [...new Set((reelsData ?? []).map((r: any) => String(r.user_id)))];
-    console.log("[getReelsDb] Fetching profiles for users:", uniqueUserIds.length);
+    const uniqueUserIds = [
+      ...new Set((reelsData ?? []).map((r: any) => String(r.user_id))),
+    ];
+    console.log(
+      "[getReelsDb] Fetching profiles for users:",
+      uniqueUserIds.length,
+    );
 
     let profiles: any[] = [];
     if (uniqueUserIds.length > 0) {
@@ -2204,7 +2213,7 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
       (profiles ?? []).map((p: any) => [
         p.user_id,
         { nickname: p.nickname, photo: p.photo },
-      ])
+      ]),
     );
 
     // Get all likes for these reels in one query
@@ -2227,7 +2236,10 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
 
     console.log("[getReelsDb] Found likes:", allLikes.length);
 
-    const likesMap = new Map<string, { likes: PostLikeStats; userLikes: PostIncentiveType[] }>();
+    const likesMap = new Map<
+      string,
+      { likes: PostLikeStats; userLikes: PostIncentiveType[] }
+    >();
 
     (allLikes ?? []).forEach((like: any) => {
       const reelId = String(like.post_id);
@@ -2251,25 +2263,30 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     });
 
     // Build final reel objects
-    const reelsWithUserData: ReelWithUser[] = (reelsData ?? []).map((reel: any) => {
-      const userProfile = profileMap.get(String(reel.user_id)) || { nickname: "Usuário", photo: null };
-      const likeData = likesMap.get(String(reel.id)) || {
-        likes: { apoio: 0, continua: 0, ganhador: 0 },
-        userLikes: [],
-      };
+    const reelsWithUserData: ReelWithUser[] = (reelsData ?? []).map(
+      (reel: any) => {
+        const userProfile = profileMap.get(String(reel.user_id)) || {
+          nickname: "Usuário",
+          photo: null,
+        };
+        const likeData = likesMap.get(String(reel.id)) || {
+          likes: { apoio: 0, continua: 0, ganhador: 0 },
+          userLikes: [],
+        };
 
-      return {
-        id: String(reel.id ?? ""),
-        user_id: String(reel.user_id ?? ""),
-        video_url: String(reel.video_url ?? ""),
-        description: String(reel.description ?? ""),
-        created_at: String(reel.created_at ?? new Date().toISOString()),
-        likes: likeData.likes,
-        userLikes: likeData.userLikes,
-        userNickname: String(userProfile.nickname ?? "Usuário"),
-        userPhoto: userProfile.photo ? String(userProfile.photo) : null,
-      };
-    });
+        return {
+          id: String(reel.id ?? ""),
+          user_id: String(reel.user_id ?? ""),
+          video_url: String(reel.video_url ?? ""),
+          description: String(reel.description ?? ""),
+          created_at: String(reel.created_at ?? new Date().toISOString()),
+          likes: likeData.likes,
+          userLikes: likeData.userLikes,
+          userNickname: String(userProfile.nickname ?? "Usuário"),
+          userPhoto: userProfile.photo ? String(userProfile.photo) : null,
+        };
+      },
+    );
 
     console.log("[getReelsDb] Returning reels:", reelsWithUserData.length);
     return reelsWithUserData;
