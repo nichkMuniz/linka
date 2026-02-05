@@ -61,9 +61,21 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
       );
       const hasActivity = totalLikes > 0 || (commentCount ?? 0) > 0;
 
-      // Get the first goal of the user if available
+      // Get the post's specific user goal if user_goal_id is set
+      // Otherwise, fall back to the first goal of the user
       let userGoal = undefined;
-      if (userGoals.length > 0) {
+      if (post.user_goal_id) {
+        const specificGoal = await getUserGoalByIdDb(post.user_goal_id);
+        if (specificGoal) {
+          userGoal = {
+            id: specificGoal.id,
+            goal_id: specificGoal.goal_id,
+            description: specificGoal.description,
+            perc: specificGoal.perc,
+          };
+        }
+      } else if (userGoals.length > 0) {
+        // Fallback: use first user goal if no specific goal is linked to post
         const goal = userGoals[0];
         userGoal = {
           id: goal.id,
