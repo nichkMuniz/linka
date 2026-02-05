@@ -23,7 +23,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
-  { to: "/reels", label: "Reels", icon: Video },
+  { to: "/reels", label: "Clips", icon: Video },
   { to: "/postar", label: "Nova", icon: PlusSquare },
   { to: "/metas", label: "Metas", icon: Dumbbell },
   { to: "/loja", label: "Loja", icon: ShoppingBag },
