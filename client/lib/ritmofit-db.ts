@@ -1884,15 +1884,16 @@ export async function sendMessageDb(
   if (!viewer) return null;
 
   try {
-    // Validate that the recipient is either in the current user's following list OR follows the current user
+    // Validate that the recipient is in the current user's following list
     const { data: followingData, error: followingError } = await supabase
       .from("following")
       .select("id")
-      .or(`and(user_id.eq.${viewer.id},following_id.eq.${recipientId}),and(user_id.eq.${recipientId},following_id.eq.${viewer.id})`)
+      .eq("user_id", viewer.id)
+      .eq("following_id", recipientId)
       .maybeSingle();
 
     if (followingError || !followingData) {
-      console.error("Error validating relationship:", followingError);
+      console.error("Error validating following relationship:", followingError);
       return null;
     }
 
