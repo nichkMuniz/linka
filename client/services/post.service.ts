@@ -21,6 +21,9 @@ export type PostWithStats = PostWithLikes & {
     goal_id: string;
     description: string;
     perc: number;
+    duration: number;
+    quantity: number;
+    type_goal: number;
   };
 };
 
