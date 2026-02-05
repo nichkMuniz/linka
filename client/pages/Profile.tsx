@@ -494,6 +494,45 @@ export default function Profile() {
     }
   };
 
+  const handleSaveHabits = async () => {
+    if (!user || selectedHabitIds.size === 0) return;
+
+    setIsSavingHabits(true);
+    try {
+      const habitIdsArray = Array.from(selectedHabitIds);
+      await createUserHabitsDb(user.id, habitIdsArray);
+
+      toast({
+        title: "Hábitos salvos!",
+        description: `${habitIdsArray.length} hábito${habitIdsArray.length > 1 ? "s" : ""} foi${habitIdsArray.length > 1 ? "ram" : ""} adicionado${habitIdsArray.length > 1 ? "s" : ""} com sucesso.`,
+      });
+
+      setIsCreateRoutineOpen(false);
+      setSelectedRoutineType(null);
+      setHabits([]);
+      setSelectedHabitIds(new Set());
+
+      // Reload routines and user habits
+      if (user) {
+        const [routinesData, userHabitsData] = await Promise.all([
+          getUserRoutinesDb(user.id),
+          getUserHabitsDb(user.id),
+        ]);
+        setRoutines(routinesData);
+        setUserHabits(userHabitsData);
+      }
+    } catch (err: any) {
+      console.error("Error saving habits:", err);
+      toast({
+        title: "Erro ao salvar hábitos",
+        description: err.message || "Tente novamente mais tarde.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingHabits(false);
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
