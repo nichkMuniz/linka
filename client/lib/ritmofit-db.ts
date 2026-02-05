@@ -1224,3 +1224,122 @@ export async function getUserDietsDb(
     dietCalories: (row.diets as any)?.calories || 0,
   }));
 }
+
+export type UserHabit = {
+  id: string;
+  habit_id: string;
+  user_id: string;
+};
+
+export async function createUserHabitsDb(
+  userId: string,
+  habitIds: string[],
+): Promise<UserHabit[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const habitsToInsert = habitIds.map((habitId) => ({
+    habit_id: habitId,
+    user_id: userId,
+  }));
+
+  const { data, error } = await supabase
+    .from("user_habits")
+    .insert(habitsToInsert)
+    .select("id, habit_id, user_id");
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error creating user habits [${errorCode}]:`, errorMsg);
+    throw new Error(`Erro ao salvar hábitos: ${errorMsg}`);
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    habit_id: String(row.habit_id ?? ""),
+    user_id: String(row.user_id ?? ""),
+  }));
+}
+
+export type UserHabitWithDetails = {
+  id: string;
+  habit_id: string;
+  user_id: string;
+  habitName?: string;
+  habitPhoto?: string | null;
+  habitDescription?: string;
+};
+
+export async function getUserHabitsDb(
+  userId: string,
+): Promise<UserHabitWithDetails[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("user_habits")
+    .select(
+      "id, habit_id, user_id, habits(name, photo, description)",
+    )
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    const errorDetails = error?.details || error?.message || "";
+
+    // Silently handle relationship errors - try without join and fetch habits separately
+    if (errorDetails.includes("relationship")) {
+      const { data: dataFallback, error: errorFallback } = await supabase
+        .from("user_habits")
+        .select("id, habit_id, user_id")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+
+      if (!errorFallback && dataFallback) {
+        // Fetch habit details separately
+        const habitIds = dataFallback
+          .map((row: any) => row.habit_id)
+          .filter(Boolean);
+        const habitDetailsMap: { [key: string]: any } = {};
+
+        if (habitIds.length > 0) {
+          const { data: habitsData } = await supabase
+            .from("habits")
+            .select("id, name, photo, description")
+            .in("id", habitIds);
+
+          if (habitsData) {
+            habitsData.forEach((h: any) => {
+              habitDetailsMap[String(h.id)] = h;
+            });
+          }
+        }
+
+        return (dataFallback ?? []).map((row: any) => {
+          const habitDetails = habitDetailsMap[String(row.habit_id)];
+          return {
+            id: String(row.id ?? ""),
+            habit_id: String(row.habit_id ?? ""),
+            user_id: String(row.user_id ?? ""),
+            habitName: habitDetails?.name || "Hábito desconhecido",
+            habitPhoto: habitDetails?.photo || null,
+            habitDescription: habitDetails?.description || undefined,
+          };
+        });
+      }
+    }
+
+    console.error(`Error fetching user habits [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    habit_id: String(row.habit_id ?? ""),
+    user_id: String(row.user_id ?? ""),
+    habitName: (row.habits as any)?.name || "Hábito desconhecido",
+    habitPhoto: (row.habits as any)?.photo || null,
+    habitDescription: (row.habits as any)?.description || undefined,
+  }));
+}
