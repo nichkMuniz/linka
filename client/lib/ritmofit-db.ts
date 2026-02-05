@@ -1056,3 +1056,141 @@ export async function getUserWorkoutsDb(
     workoutDescription: (row.workouts as any)?.description || undefined,
   }));
 }
+
+export type UserDiet = {
+  id: string;
+  diet_id: string;
+  user_id: string;
+  quantity?: number | null;
+  calories?: number | null;
+};
+
+export async function createUserDietsDb(
+  userId: string,
+  dietIds: string[],
+  options?: {
+    quantity?: number;
+    calories?: number;
+  },
+): Promise<UserDiet[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const dietsToInsert = dietIds.map((dietId) => ({
+    diet_id: dietId,
+    user_id: userId,
+    quantity: options?.quantity || null,
+    calories: options?.calories || null,
+  }));
+
+  const { data, error } = await supabase
+    .from("user_diets")
+    .insert(dietsToInsert)
+    .select("id, diet_id, user_id, quantity, calories");
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error creating user diets [${errorCode}]:`, errorMsg);
+    throw new Error(`Erro ao salvar dietas: ${errorMsg}`);
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    diet_id: String(row.diet_id ?? ""),
+    user_id: String(row.user_id ?? ""),
+    quantity: row.quantity,
+    calories: row.calories,
+  }));
+}
+
+export type UserDietWithDetails = {
+  id: string;
+  diet_id: string;
+  user_id: string;
+  quantity?: number | null;
+  calories?: number | null;
+  dietName?: string;
+  dietPhoto?: string | null;
+  dietDescription?: string;
+  dietCalories?: number;
+};
+
+export async function getUserDietsDb(
+  userId: string,
+): Promise<UserDietWithDetails[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("user_diets")
+    .select(
+      "id, diet_id, user_id, quantity, calories, diets(name, photo, description, calories)",
+    )
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    const errorDetails = error?.details || error?.message || "";
+
+    // Silently handle relationship errors - try without join and fetch diets separately
+    if (errorDetails.includes("relationship")) {
+      const { data: dataFallback, error: errorFallback } = await supabase
+        .from("user_diets")
+        .select("id, diet_id, user_id, quantity, calories")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+
+      if (!errorFallback && dataFallback) {
+        // Fetch diet details separately
+        const dietIds = dataFallback
+          .map((row: any) => row.diet_id)
+          .filter(Boolean);
+        const dietDetailsMap: { [key: string]: any } = {};
+
+        if (dietIds.length > 0) {
+          const { data: dietsData } = await supabase
+            .from("diets")
+            .select("id, name, photo, description, calories")
+            .in("id", dietIds);
+
+          if (dietsData) {
+            dietsData.forEach((d: any) => {
+              dietDetailsMap[String(d.id)] = d;
+            });
+          }
+        }
+
+        return (dataFallback ?? []).map((row: any) => {
+          const dietDetails = dietDetailsMap[String(row.diet_id)];
+          return {
+            id: String(row.id ?? ""),
+            diet_id: String(row.diet_id ?? ""),
+            user_id: String(row.user_id ?? ""),
+            quantity: row.quantity,
+            calories: row.calories,
+            dietName: dietDetails?.name || "Dieta desconhecida",
+            dietPhoto: dietDetails?.photo || null,
+            dietDescription: dietDetails?.description || undefined,
+            dietCalories: dietDetails?.calories || 0,
+          };
+        });
+      }
+    }
+
+    console.error(`Error fetching user diets [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    diet_id: String(row.diet_id ?? ""),
+    user_id: String(row.user_id ?? ""),
+    quantity: row.quantity,
+    calories: row.calories,
+    dietName: (row.diets as any)?.name || "Dieta desconhecida",
+    dietPhoto: (row.diets as any)?.photo || null,
+    dietDescription: (row.diets as any)?.description || undefined,
+    dietCalories: (row.diets as any)?.calories || 0,
+  }));
+}
