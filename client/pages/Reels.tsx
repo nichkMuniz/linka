@@ -237,16 +237,27 @@ export default function Reels() {
                     )}
 
                     {/* Incentives and Actions */}
-                    <div className="flex items-center gap-2 pt-2">
-                      <PostIncentiveButton
-                        postId={reel.id}
-                        likes={reel.likes || { apoio: 0, continua: 0, ganhador: 0 }}
-                        userLikes={reel.userLikes || []}
-                        onIncentiveClick={(type) =>
-                          handleIncentiveClick(reel, type)
-                        }
-                        isTogglingId={togglingReelId}
-                      />
+                    <div className="flex flex-wrap items-center gap-2 pt-2">
+                      <div className="flex flex-wrap gap-2">
+                        {([1, 2, 3] as PostIncentiveType[]).map((type) => (
+                          <PostIncentiveButton
+                            key={type}
+                            type={type}
+                            count={
+                              reel.likes[
+                                type === 1
+                                  ? "apoio"
+                                  : type === 2
+                                    ? "continua"
+                                    : "ganhador"
+                              ]
+                            }
+                            isActive={reel.userLikes?.includes(type) ?? false}
+                            onClick={() => handleIncentiveClick(reel, type)}
+                            loading={togglingReelId === reel.id}
+                          />
+                        ))}
+                      </div>
 
                       <Button
                         type="button"
