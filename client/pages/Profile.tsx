@@ -1047,6 +1047,104 @@ export default function Profile() {
                     </div>
                   )}
                 </>
+              ) : selectedRoutineType === 3 ? (
+                <>
+                  <DialogHeader>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-fit"
+                      onClick={() => setSelectedRoutineType(null)}
+                    >
+                      <ArrowLeft className="h-4 w-4 mr-2" />
+                      Voltar
+                    </Button>
+                    <DialogTitle>Selecione um ou mais Hábitos</DialogTitle>
+                  </DialogHeader>
+
+                  {habitsLoading ? (
+                    <div className="text-center py-6 text-sm text-muted-foreground">
+                      Carregando hábitos...
+                    </div>
+                  ) : habits.length > 0 ? (
+                    <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                      {habits.map((habit) => {
+                        const isSelected = selectedHabitIds.has(habit.id);
+                        return (
+                          <button
+                            key={habit.id}
+                            onClick={() => {
+                              const newSelected = new Set(selectedHabitIds);
+                              if (isSelected) {
+                                newSelected.delete(habit.id);
+                              } else {
+                                newSelected.add(habit.id);
+                              }
+                              setSelectedHabitIds(newSelected);
+                            }}
+                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${
+                              isSelected
+                                ? "border-brand bg-brand/5"
+                                : "border-border/60 hover:border-border/80 hover:bg-muted/50"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              {habit.photo ? (
+                                <img
+                                  src={habit.photo}
+                                  alt={habit.name}
+                                  className="h-16 w-16 rounded object-cover flex-shrink-0"
+                                />
+                              ) : (
+                                <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p
+                                  className={`font-medium transition-colors ${
+                                    isSelected
+                                      ? "text-brand"
+                                      : "group-hover:text-brand"
+                                  }`}
+                                >
+                                  {habit.name}
+                                </p>
+                                {habit.description && (
+                                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                    {habit.description}
+                                  </p>
+                                )}
+                              </div>
+                              {isSelected && (
+                                <div className="shrink-0 mt-1">
+                                  <Check className="h-5 w-5 text-brand" />
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-sm text-muted-foreground">
+                      Nenhum hábito disponível.
+                    </div>
+                  )}
+
+                  {/* Floating Save Button */}
+                  {selectedHabitIds.size > 0 && (
+                    <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
+                      <Button
+                        onClick={handleSaveHabits}
+                        disabled={isSavingHabits}
+                        className="w-full rounded-full"
+                      >
+                        {isSavingHabits
+                          ? "Salvando..."
+                          : `Salvar ${selectedHabitIds.size} Hábito${selectedHabitIds.size > 1 ? "s" : ""}`}
+                      </Button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   <DialogHeader>
