@@ -29,6 +29,7 @@ import Profile from "@/pages/Profile";
 import Search from "@/pages/Search";
 import Messages from "@/pages/Messages";
 import Reels from "@/pages/Reels";
+import Store from "@/pages/Store";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
