@@ -27,6 +27,7 @@ import NewPost from "@/pages/NewPost";
 import Goals from "@/pages/Goals";
 import Profile from "@/pages/Profile";
 import Search from "@/pages/Search";
+import Messages from "@/pages/Messages";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -89,6 +90,7 @@ const App = () => {
                   <Route path="/metas" element={<Goals />} />
                   <Route path="/perfil" element={<Profile />} />
                   <Route path="/buscar" element={<Search />} />
+                  <Route path="/mensagens" element={<Messages />} />
 
                   {/* compatibility */}
                   <Route
