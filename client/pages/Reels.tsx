@@ -109,13 +109,14 @@ export default function Reels() {
   const handleOpenComments = React.useCallback(
     async (reel: ReelWithUser) => {
       setSelectedReel(reel);
+      setCommentsOpen(true);
       setIsLoadingComments(true);
       try {
         const commentsData = await getReelCommentsDb(reel.id);
-        setComments(commentsData);
-        setCommentsOpen(true);
+        setComments(commentsData || []);
       } catch (err: any) {
         console.error("Error loading comments:", err);
+        setComments([]);
         toast({
           title: "Erro ao carregar comentários",
           description: err?.message || "Tente novamente.",
