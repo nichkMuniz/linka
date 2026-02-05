@@ -2336,6 +2336,9 @@ export async function toggleReelIncentiveDb(
         user_id: viewer.id,
         type: incentiveType,
       });
+
+      // Award 1 point for interacting with a reel
+      await addPointsDb(1);
     }
   } catch (err: any) {
     console.error("Error toggling reel incentive:", err);
