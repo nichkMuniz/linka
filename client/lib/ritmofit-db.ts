@@ -21,7 +21,7 @@ async function getViewer() {
 
 export type DbProfile = {
   id: string;
-  displayName: string;
+  nickname: string;
   handle: string;
   avatarUrl?: string;
 };
@@ -33,7 +33,7 @@ async function ensureProfile(): Promise<DbProfile | null> {
   const email = String(user.email ?? "");
   const emailPrefix = email.includes("@") ? email.split("@")[0] : email;
 
-  const displayName =
+  const nickname =
     String((user.user_metadata as any)?.full_name ?? "").trim() ||
     emailPrefix ||
     "Você";
@@ -51,20 +51,20 @@ async function ensureProfile(): Promise<DbProfile | null> {
     .upsert(
       {
         id: user.id,
-        display_name: displayName,
+        nickname : nickname,
         handle,
         avatar_url: avatarUrl || null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" },
     )
-    .select("id, display_name, handle, avatar_url")
+    .select("id, nickname, handle, avatar_url")
     .maybeSingle();
 
   if (error) {
     return {
       id: user.id,
-      displayName,
+      nickname,
       handle,
       avatarUrl: avatarUrl || undefined,
     };
@@ -72,7 +72,7 @@ async function ensureProfile(): Promise<DbProfile | null> {
 
   return {
     id: String(data?.id ?? user.id),
-    displayName: String(data?.display_name ?? displayName),
+    nickname: String(data?.nickname ?? nickname),
     handle: String(data?.handle ?? handle),
     avatarUrl: (data?.avatar_url as string | null) ?? undefined,
   };
@@ -197,7 +197,7 @@ export async function addPostCommentDb(postId: string, text: string) {
   if (!viewer) return;
 
   const profile = await ensureProfile();
-  const userName = profile?.displayName ?? "Você";
+  const userName = profile?.nickname ?? "Você";
   const userHandle = profile?.handle ?? "@voce";
 
   const { error } = await supabase.from("comments").insert({
