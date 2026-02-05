@@ -2083,3 +2083,49 @@ export async function getUnreadMessageCountDb(): Promise<number> {
     return 0;
   }
 }
+
+export async function getFollowersDb(): Promise<SearchUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  try {
+    // Get all followers of the current user
+    const { data, error } = await supabase
+      .from("following")
+      .select("user_id")
+      .eq("following_id", viewer.id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching followers:", error);
+      return [];
+    }
+
+    const followerIds = (data ?? []).map((row: any) => String(row.user_id ?? ""));
+
+    if (followerIds.length === 0) return [];
+
+    // Fetch profile data for each follower
+    const { data: profiles, error: profileError } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, bio, photo")
+      .in("user_id", followerIds);
+
+    if (profileError) {
+      console.error("Error fetching follower profiles:", profileError);
+      return [];
+    }
+
+    return (profiles ?? []).map((row: any) => ({
+      id: String(row.user_id ?? ""),
+      nickname: String(row.nickname ?? "Usuário"),
+      bio: row.bio ? String(row.bio) : undefined,
+      photo: row.photo ? String(row.photo) : null,
+    }));
+  } catch (err: any) {
+    console.error("Error getting followers:", err);
+    return [];
+  }
+}
