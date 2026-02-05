@@ -471,10 +471,10 @@ export async function incrementGoalProgressDb(
   const viewer = await getViewer();
   if (!viewer) return null;
 
-  // Get current perc value
+  // Get current perc value and duration
   const { data: currentData, error: fetchError } = await supabase
     .from("user_goals")
-    .select("perc")
+    .select("perc, duration")
     .eq("id", userGoalId)
     .maybeSingle();
 
@@ -486,7 +486,10 @@ export async function incrementGoalProgressDb(
   }
 
   const currentPerc = Number(currentData.perc ?? 0);
-  const newPerc = Math.min(currentPerc + 1, 100); // Cap at 100
+  const duration = Number(currentData.duration ?? 1);
+  // Calculate increment based on duration: 100% / duration days
+  const increment = duration > 0 ? 100 / duration : 1;
+  const newPerc = Math.min(currentPerc + increment, 100); // Cap at 100
 
   const { data, error } = await supabase
     .from("user_goals")
