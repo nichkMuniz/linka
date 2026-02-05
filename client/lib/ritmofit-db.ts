@@ -2129,3 +2129,194 @@ export async function getFollowersDb(): Promise<SearchUser[]> {
     return [];
   }
 }
+
+export type Reel = {
+  id: string;
+  user_id: string;
+  video_url: string;
+  description: string;
+  created_at: string;
+  likes: PostLikeStats;
+  userLikes: PostIncentiveType[];
+};
+
+export type ReelWithUser = Reel & {
+  userNickname: string;
+  userPhoto: string | null;
+};
+
+export async function getReelsDb(): Promise<ReelWithUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  try {
+    // Get reels from current user and followed users
+    const followingIds = await getFollowingIdsDb();
+    const userIdsToShow = [viewer.id, ...followingIds];
+
+    const { data, error } = await supabase
+      .from("reels")
+      .select("*")
+      .in("user_id", userIdsToShow)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching reels:", error);
+      return [];
+    }
+
+    // Enrich with user data and likes
+    const reelsWithUserData: ReelWithUser[] = [];
+
+    for (const reel of data ?? []) {
+      const userProfile = await getUserProfileDb(reel.user_id);
+      const likes = await getPostLikesDb(reel.id);
+      const userLikes = await getUserPostLikesDb(reel.id);
+
+      reelsWithUserData.push({
+        id: String(reel.id),
+        user_id: String(reel.user_id),
+        video_url: String(reel.video_url),
+        description: String(reel.description ?? ""),
+        created_at: String(reel.created_at),
+        likes,
+        userLikes,
+        userNickname: userProfile?.nickname ?? "Usuário",
+        userPhoto: userProfile?.photo ?? null,
+      });
+    }
+
+    return reelsWithUserData;
+  } catch (err: any) {
+    console.error("Error getting reels:", err);
+    return [];
+  }
+}
+
+export async function toggleReelIncentiveDb(
+  reelId: string,
+  incentiveType: PostIncentiveType,
+) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  try {
+    const { data: existing } = await supabase
+      .from("likes")
+      .select("id")
+      .eq("post_id", reelId)
+      .eq("user_id", viewer.id)
+      .eq("type", incentiveType)
+      .maybeSingle();
+
+    if (existing?.id) {
+      // Remove the like
+      await supabase.from("likes").delete().eq("id", existing.id);
+    } else {
+      // Add the like
+      await supabase.from("likes").insert({
+        post_id: reelId,
+        user_id: viewer.id,
+        type: incentiveType,
+      });
+    }
+  } catch (err: any) {
+    console.error("Error toggling reel incentive:", err);
+  }
+}
+
+export type ReelComment = {
+  id: string;
+  reelId: string;
+  userId: string;
+  userName: string;
+  userHandle: string;
+  text: string;
+  createdAt: string;
+};
+
+export async function addReelCommentDb(reelId: string, text: string) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const profile = await ensureProfile();
+  const userName = profile?.nickname ?? "Você";
+  const userHandle = profile?.handle ?? "@voce";
+
+  try {
+    const { error } = await supabase.from("comments").insert({
+      post_id: reelId,
+      user_id: viewer.id,
+      user_handle: userHandle,
+      text: text.trim(),
+    });
+
+    if (error) {
+      console.error("Error adding reel comment:", error);
+      throw error;
+    }
+  } catch (err: any) {
+    console.error("Error adding reel comment:", err);
+    throw err;
+  }
+}
+
+export async function getReelCommentsDb(
+  reelId: string,
+): Promise<ReelComment[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("comments")
+      .select("*")
+      .eq("post_id", reelId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching reel comments:", error);
+      return [];
+    }
+
+    return (data ?? []).map(
+      (row: any) =>
+        ({
+          id: String(row.id),
+          reelId: String(row.post_id),
+          userId: String(row.user_id),
+          userName: String(row.user_name ?? "Usuário"),
+          userHandle: String(row.user_handle ?? "@user"),
+          text: String(row.text ?? ""),
+          createdAt: String(row.created_at ?? new Date().toISOString()),
+        }) satisfies ReelComment,
+    );
+  } catch (err: any) {
+    console.error("Error getting reel comments:", err);
+    return [];
+  }
+}
+
+export async function deleteReelCommentDb(commentId: string) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  try {
+    const { error } = await supabase
+      .from("comments")
+      .delete()
+      .eq("id", commentId);
+
+    if (error) {
+      console.error("Error deleting reel comment:", error);
+      throw error;
+    }
+  } catch (err: any) {
+    console.error("Error deleting reel comment:", err);
+    throw err;
+  }
+}
