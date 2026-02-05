@@ -502,6 +502,65 @@ export default function Index() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Report Dialog */}
+      <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {reportType === "user"
+                ? "Denunciar usuário"
+                : "Denunciar post"}
+            </DialogTitle>
+          </DialogHeader>
+          {reportedPost && (
+            <div className="space-y-4">
+              <div className="p-4 border border-border/60 rounded-lg bg-muted/30">
+                <p className="text-sm mb-3">
+                  {reportType === "user"
+                    ? `Você está denunciando o usuário: ${reportedPost.userNickname}`
+                    : `Você está denunciando o post de ${reportedPost.userNickname}`}
+                </p>
+                {reportType === "post" && reportedPost.description && (
+                  <p className="text-xs text-muted-foreground">
+                    "{reportedPost.description.substring(0, 100)}..."
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Motivo da denúncia
+                </label>
+                <select className="w-full px-3 py-2 border border-border/60 rounded-lg bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
+                  <option>Selecione um motivo</option>
+                  <option>Conteúdo inadequado</option>
+                  <option>Spam</option>
+                  <option>Assédio ou bullying</option>
+                  <option>Violação de direitos autorais</option>
+                  <option>Outro</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1 rounded-full"
+                  onClick={() => setReportDialogOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  className="flex-1 rounded-full"
+                  onClick={submitReport}
+                >
+                  Enviar denúncia
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
