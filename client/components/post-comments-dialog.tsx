@@ -118,8 +118,8 @@ export function PostCommentsDialog({
   }, []);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+    <Drawer open={open} onOpenChange={setOpen}>
+      <DrawerTrigger asChild>
         <motion.button
           type="button"
           whileHover={{ scale: 1.08 }}
@@ -157,19 +157,19 @@ export function PostCommentsDialog({
             </motion.span>
           )}
         </motion.button>
-      </DialogTrigger>
+      </DrawerTrigger>
 
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Comentários</DialogTitle>
-          <DialogDescription>
+      <DrawerContent className="max-h-[60vh] flex flex-col">
+        <DrawerHeader className="shrink-0">
+          <DrawerTitle>Comentários</DrawerTitle>
+          <DrawerDescription>
             {commentCount} {commentCount === 1 ? "comentário" : "comentários"}
-          </DialogDescription>
-        </DialogHeader>
+          </DrawerDescription>
+        </DrawerHeader>
 
-        <div className="grid gap-4">
+        <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
           {/* Comments list */}
-          <div className="max-h-80 space-y-3 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
+          <div className="flex-1 space-y-3 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
             {loading ? (
               <div className="text-sm text-muted-foreground">
                 Carregando comentários...
@@ -225,7 +225,7 @@ export function PostCommentsDialog({
 
           {/* Comment input */}
           {user ? (
-            <div className="space-y-2">
+            <div className="space-y-2 shrink-0">
               <Textarea
                 placeholder="Adicione um comentário..."
                 value={draft}
@@ -242,12 +242,12 @@ export function PostCommentsDialog({
               </Button>
             </div>
           ) : (
-            <div className="rounded-lg border border-border/50 bg-muted/20 p-3 text-center text-sm text-muted-foreground">
+            <div className="rounded-lg border border-border/50 bg-muted/20 p-3 text-center text-sm text-muted-foreground shrink-0">
               Faça login para comentar.
             </div>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+      </DrawerContent>
+    </Drawer>
   );
 }
