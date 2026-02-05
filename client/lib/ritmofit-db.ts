@@ -322,6 +322,9 @@ export async function createUserGoalDb(
     console.error("Error creating user goal:", error);
     throw error;
   }
+
+  // Award 5 points for selecting a new goal
+  await addPointsDb(5);
 }
 
 export type UserGoal = {
