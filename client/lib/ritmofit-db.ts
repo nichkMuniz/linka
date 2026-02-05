@@ -2181,12 +2181,24 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     }
 
     // Get all unique user IDs to batch fetch profiles
-    const uniqueUserIds = [...new Set((reelsData ?? []).map((r: any) => r.user_id))];
+    const uniqueUserIds = [...new Set((reelsData ?? []).map((r: any) => String(r.user_id)))];
+    console.log("[getReelsDb] Fetching profiles for users:", uniqueUserIds.length);
 
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("user_id, nickname, photo")
-      .in("user_id", uniqueUserIds);
+    let profiles: any[] = [];
+    if (uniqueUserIds.length > 0) {
+      const { data: profilesData, error: profilesError } = await supabase
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .in("user_id", uniqueUserIds);
+
+      if (profilesError) {
+        console.error("[getReelsDb] Error fetching profiles:", profilesError);
+      } else {
+        profiles = profilesData ?? [];
+      }
+    }
+
+    console.log("[getReelsDb] Found profiles:", profiles.length);
 
     const profileMap = new Map(
       (profiles ?? []).map((p: any) => [
