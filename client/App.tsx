@@ -91,6 +91,7 @@ const App = () => {
                   <Route path="/reels" element={<Reels />} />
                   <Route path="/postar" element={<NewPost />} />
                   <Route path="/metas" element={<Goals />} />
+                  <Route path="/loja" element={<Store />} />
                   <Route path="/perfil" element={<Profile />} />
                   <Route path="/buscar" element={<Search />} />
                   <Route path="/mensagens" element={<Messages />} />
