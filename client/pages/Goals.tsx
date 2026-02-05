@@ -216,7 +216,7 @@ export default function Goals() {
         {/* Rotinas Tab */}
         <TabsContent value="rotinas" className="space-y-4">
           {routines.length > 0 ? (
-            <div className="space-y-4">
+            <div className="space-y-2">
               {[1, 2, 3].map((typeCode) => {
                 const routinesOfType = routines.filter(
                   (r) => r.type === typeCode,
@@ -224,52 +224,71 @@ export default function Goals() {
                 if (routinesOfType.length === 0) return null;
 
                 const typeName = getRoutineTypeName(typeCode);
+                const isExpanded = expandedRoutineType === typeCode;
 
                 return (
-                  <div key={typeCode}>
-                    <div className="mb-3">
-                      <h3 className="text-sm font-semibold text-foreground">
-                        {typeName}
-                      </h3>
-                      <p className="text-xs text-muted-foreground">
-                        {routinesOfType.length} rotina
-                        {routinesOfType.length > 1 ? "s" : ""}
-                      </p>
-                    </div>
+                  <div
+                    key={typeCode}
+                    className="border border-border/60 rounded-lg overflow-hidden"
+                  >
+                    <button
+                      onClick={() =>
+                        setExpandedRoutineType(isExpanded ? null : typeCode)
+                      }
+                      className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 flex-1 text-left">
+                        <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-brand/10">
+                          <span className="text-xs font-semibold text-brand">
+                            {typeCode}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm">
+                            {typeName}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {routinesOfType.length} rotina
+                            {routinesOfType.length > 1 ? "s" : ""}
+                          </p>
+                        </div>
+                      </div>
 
-                    <div className="space-y-2">
-                      {routinesOfType.map((routine) => (
-                        <Card
-                          key={routine.id}
-                          className="border-border/60 hover:bg-muted/50 transition-colors"
-                        >
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1">
+                      <div
+                        className={`transform transition-transform flex-shrink-0 ${
+                          isExpanded ? "rotate-180" : ""
+                        }`}
+                      >
+                        <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="border-t border-border/60 bg-muted/30 p-4 space-y-3">
+                        {routinesOfType.map((routine) => (
+                          <Card
+                            key={routine.id}
+                            className="border-border/60 bg-background hover:bg-muted/50 transition-colors"
+                          >
+                            <CardContent className="p-4">
+                              <div className="space-y-2">
                                 <p className="font-semibold text-sm">
                                   {routine.name || `Rotina ${typeName}`}
                                 </p>
                                 {routine.description && (
-                                  <p className="text-xs text-muted-foreground mt-1">
+                                  <p className="text-xs text-muted-foreground">
                                     {routine.description}
                                   </p>
                                 )}
-                                <p className="text-xs text-muted-foreground mt-2">
+                                <p className="text-xs text-brand">
                                   ID do Programa: {routine.program_id}
                                 </p>
                               </div>
-                              <div className="ml-4 flex-shrink-0">
-                                <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-brand/10">
-                                  <span className="text-xs font-semibold text-brand">
-                                    {typeCode}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
