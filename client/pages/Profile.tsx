@@ -55,8 +55,11 @@ import {
   ArrowLeft,
   Check,
   Tag,
+  Settings,
+  LogOut,
 } from "lucide-react";
-import { hasSupabaseConfig, supabase } from "@/lib/supabase";
+import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
+import { useNavigate } from "react-router-dom";
 
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
