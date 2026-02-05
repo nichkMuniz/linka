@@ -332,6 +332,23 @@ export default function Profile() {
       } finally {
         setWorkoutsLoading(false);
       }
+    } else if (type === 2) {
+      // If Dietas is selected, load diets
+      setDietsLoading(true);
+      try {
+        const dietsData = await getDietsDb();
+        setDiets(dietsData);
+      } catch (err: any) {
+        console.error("Error loading diets:", err);
+        toast({
+          title: "Erro ao carregar dietas",
+          description: "Tente novamente mais tarde.",
+          variant: "destructive",
+        });
+        setSelectedRoutineType(null);
+      } finally {
+        setDietsLoading(false);
+      }
     }
   };
 
