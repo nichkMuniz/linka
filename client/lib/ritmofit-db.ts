@@ -502,6 +502,9 @@ export async function incrementGoalProgressDb(
 
   if (!data) return null;
 
+  // Award 1 point for updating a goal
+  await addPointsDb(1);
+
   return {
     id: String(data.id),
     goal_id: String(data.goal_id ?? ""),
