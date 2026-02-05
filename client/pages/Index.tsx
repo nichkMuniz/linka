@@ -158,7 +158,7 @@ export default function Index() {
 
       toast({
         title: "Progresso atualizado!",
-        description: "Você avançou 1% na sua meta.",
+        description: "Você avançou na sua meta.",
       });
     } catch (err: any) {
       console.error("Error updating goal progress:", err);
