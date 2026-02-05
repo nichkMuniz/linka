@@ -151,6 +151,23 @@ export function AppLayout() {
           </nav>
 
           <div className="hidden justify-end lg:flex lg:items-center lg:gap-2">
+            <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-11 w-11 rounded-full"
+                  aria-label="Buscar pessoas, treinos e dietas"
+                >
+                  <Search className="h-5 w-5" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <SearchContent onClose={() => setSearchOpen(false)} />
+              </DialogContent>
+            </Dialog>
+
             <Button
               type="button"
               variant="ghost"
