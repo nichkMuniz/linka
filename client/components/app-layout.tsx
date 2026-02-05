@@ -3,7 +3,7 @@ import {
   PlusSquare,
   Dumbbell,
   Search,
-  Mail,
+  MessageCircle,
   Video,
   ShoppingBag,
 } from "lucide-react";
@@ -115,29 +115,31 @@ export function AppLayout() {
             : "translate-y-0",
         )}
       >
-        <div className="relative mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-4 lg:grid lg:grid-cols-[auto_1fr_auto] lg:justify-stretch">
-          {/* Left: Profile Avatar */}
-          <Link
-            to="/perfil"
-            aria-label="Perfil"
-            className="flex-shrink-0 rounded-full hover:opacity-80 transition"
-          >
-            {profilePhoto ? (
-              <img
-                src={profilePhoto}
-                alt="Seu Perfil"
-                className="h-10 w-10 rounded-full object-cover border-2 border-border/60"
-              />
-            ) : (
-              <div className="h-10 w-10 rounded-full bg-muted border-2 border-border/60 flex items-center justify-center">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  Você
-                </span>
-              </div>
-            )}
-          </Link>
+        <div className="relative mx-auto flex h-16 w-full max-w-6xl items-center justify-center gap-4 px-4">
+          {/* Left: Profile Avatar (absolute positioned on desktop) */}
+          <div className="absolute left-4">
+            <Link
+              to="/perfil"
+              aria-label="Perfil"
+              className="flex-shrink-0 rounded-full hover:opacity-80 transition"
+            >
+              {profilePhoto ? (
+                <img
+                  src={profilePhoto}
+                  alt="Seu Perfil"
+                  className="h-10 w-10 rounded-full object-cover border-2 border-border/60"
+                />
+              ) : (
+                <div className="h-10 w-10 rounded-full bg-muted border-2 border-border/60 flex items-center justify-center">
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    Você
+                  </span>
+                </div>
+              )}
+            </Link>
+          </div>
 
-          {/* Center: Brand (visible on mobile and desktop) */}
+          {/* Center: Brand (centered on all sizes) */}
           <Link
             to="/"
             aria-label="Ir para Home"
@@ -149,8 +151,8 @@ export function AppLayout() {
             </span>
           </Link>
 
-          {/* Right: Messages, Search, and other icons */}
-          <div className="flex items-center gap-1">
+          {/* Right: Messages and Search (absolute positioned on desktop) */}
+          <div className="absolute right-4 flex items-center gap-1">
             <Link to="/mensagens">
               <Button
                 type="button"
@@ -159,7 +161,7 @@ export function AppLayout() {
                 className="h-11 w-11 rounded-full relative"
                 aria-label="Mensagens"
               >
-                <Mail className="h-5 w-5" />
+                <MessageCircle className="h-5 w-5" />
                 {unreadCount > 0 && (
                   <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-xs font-semibold">
                     {unreadCount > 9 ? "9+" : unreadCount}
@@ -202,37 +204,6 @@ export function AppLayout() {
               );
             })}
           </nav>
-
-          <div className="hidden justify-end lg:flex lg:items-center lg:gap-2">
-            <Link to="/mensagens">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-11 w-11 rounded-full relative"
-                aria-label="Mensagens"
-              >
-                <Mail className="h-5 w-5" />
-                {unreadCount > 0 && (
-                  <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-xs font-semibold">
-                    {unreadCount > 9 ? "9+" : unreadCount}
-                  </span>
-                )}
-              </Button>
-            </Link>
-
-            <Link to="/buscar">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-11 w-11 rounded-full"
-                aria-label="Buscar pessoas, treinos e dietas"
-              >
-                <Search className="h-5 w-5" />
-              </Button>
-            </Link>
-          </div>
         </div>
       </header>
 
