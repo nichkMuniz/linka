@@ -162,35 +162,36 @@ export default function Goals() {
               {goals.map((goal) => (
                 <Card
                   key={goal.id}
-                  className="border-border/60 hover:border-border/80 transition-colors cursor-pointer"
+                  className="border-border/60 hover:border-border/80 transition-colors cursor-pointer flex flex-col"
                 >
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-lg">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">
                       {goal.description}
                     </CardTitle>
-                    <CardDescription className="capitalize">
+                    <CardDescription className="capitalize text-xs">
                       {goal.type}
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
+                  <CardContent className="space-y-3 flex-1 flex flex-col">
+                    <div className="grid grid-cols-2 gap-2 text-center">
+                      <div className="bg-muted/50 rounded p-2">
                         <p className="text-xs text-muted-foreground">Duração</p>
-                        <p className="text-sm font-medium">
-                          {goal.duration} dias
+                        <p className="text-sm font-bold">
+                          {goal.duration}d
                         </p>
                       </div>
-                      <div className="space-y-1">
+                      <div className="bg-muted/50 rounded p-2">
                         <p className="text-xs text-muted-foreground">
-                          Quantidade
+                          Qtd
                         </p>
-                        <p className="text-sm font-medium">{goal.quantity}</p>
+                        <p className="text-sm font-bold">{goal.quantity}</p>
                       </div>
                     </div>
 
                     <Button
                       type="button"
-                      className="w-full rounded-full"
+                      size="sm"
+                      className="w-full rounded-full mt-auto"
                       disabled={
                         selectingGoalId === goal.id ||
                         selectedGoalIds.includes(goal.id)
@@ -200,8 +201,8 @@ export default function Goals() {
                       {selectingGoalId === goal.id
                         ? "Salvando..."
                         : selectedGoalIds.includes(goal.id)
-                          ? "Já selecionada"
-                          : "Selecionar meta"}
+                          ? "Selecionada"
+                          : "Selecionar"}
                     </Button>
                   </CardContent>
                 </Card>
