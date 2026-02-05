@@ -477,22 +477,6 @@ export default function Index() {
                 </div>
               </div>
 
-              {/* Check Button */}
-              <Button
-                onClick={handleIncrementGoalProgress}
-                disabled={
-                  isUpdatingGoal || selectedGoalPost.userGoal.perc >= 100
-                }
-                className="w-full rounded-full gap-2 shrink-0"
-              >
-                <Check className="h-4 w-4" />
-                {isUpdatingGoal
-                  ? "Atualizando..."
-                  : selectedGoalPost.userGoal.perc >= 100
-                    ? "Meta Completa!"
-                    : "Atualizar Progresso"}
-              </Button>
-
               {/* Linked Routines Dropdown */}
               {linkedRoutines.length > 0 && (
                 <div className="border border-border/60 rounded-lg overflow-hidden">
@@ -530,6 +514,22 @@ export default function Index() {
                   )}
                 </div>
               )}
+
+              {/* Check Button */}
+              <Button
+                onClick={handleIncrementGoalProgress}
+                disabled={
+                  isUpdatingGoal || selectedGoalPost.userGoal.perc >= 100
+                }
+                className="w-full rounded-full gap-2 shrink-0"
+              >
+                <Check className="h-4 w-4" />
+                {isUpdatingGoal
+                  ? "Atualizando..."
+                  : selectedGoalPost.userGoal.perc >= 100
+                    ? "Meta Completa!"
+                    : "Atualizar Progresso"}
+              </Button>
             </div>
           )}
           </div>
