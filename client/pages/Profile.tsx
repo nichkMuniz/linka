@@ -84,6 +84,13 @@ export default function Profile() {
   const [userWorkouts, setUserWorkouts] = React.useState<
     UserWorkoutWithDetails[]
   >([]);
+  const [diets, setDiets] = React.useState<Diet[]>([]);
+  const [dietsLoading, setDietsLoading] = React.useState(false);
+  const [selectedDietIds, setSelectedDietIds] = React.useState<Set<string>>(
+    new Set(),
+  );
+  const [isSavingDiets, setIsSavingDiets] = React.useState(false);
+  const [userDiets, setUserDiets] = React.useState<UserDietWithDetails[]>([]);
   const [expandedRoutineType, setExpandedRoutineType] = React.useState<
     number | null
   >(null);
