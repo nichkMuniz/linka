@@ -87,6 +87,9 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
             goal_id: specificGoal.goal_id,
             description: specificGoal.description,
             perc: specificGoal.perc,
+            duration: specificGoal.duration,
+            quantity: specificGoal.quantity,
+            type_goal: specificGoal.type_goal,
           };
         }
       } else if (userGoals.length > 0) {
@@ -97,6 +100,9 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
           goal_id: goal.goal_id,
           description: goal.description,
           perc: goal.perc,
+          duration: goal.duration,
+          quantity: goal.quantity,
+          type_goal: goal.type_goal,
         };
       }
 
