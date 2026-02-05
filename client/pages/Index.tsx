@@ -63,8 +63,12 @@ export default function Index() {
   const [storyViewerOpen, setStoryViewerOpen] = React.useState(false);
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
-  const [reportType, setReportType] = React.useState<"user" | "post" | null>(null);
-  const [reportedPost, setReportedPost] = React.useState<PostWithStats | null>(null);
+  const [reportType, setReportType] = React.useState<"user" | "post" | null>(
+    null,
+  );
+  const [reportedPost, setReportedPost] = React.useState<PostWithStats | null>(
+    null,
+  );
   const [unreadCommentsByPost, setUnreadCommentsByPost] = React.useState<
     Record<string, number>
   >({});
@@ -301,7 +305,10 @@ export default function Index() {
 
       {posts.length ? (
         posts.map((post) => (
-          <Card key={post.id} className="border-border/60 relative overflow-hidden">
+          <Card
+            key={post.id}
+            className="border-border/60 relative overflow-hidden"
+          >
             <CardContent className="space-y-3 p-0">
               {/* Image Container with User Info Overlay */}
               <div className="relative">
@@ -455,112 +462,120 @@ export default function Index() {
             <DrawerTitle>Progresso da Meta</DrawerTitle>
           </DrawerHeader>
           <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
-          {selectedGoalPost?.userGoal && (
-            <div className="space-y-4 overflow-y-auto flex-1">
-              {/* Goal Info */}
-              <div className="p-4 border border-border/60 rounded-lg bg-muted/30 space-y-3">
-                <div>
-                  <p className="text-lg font-bold">
-                    {selectedGoalPost.userGoal.description}
-                  </p>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium text-foreground">Progresso</span>
-                    <span className="text-lg font-bold text-brand">
-                      {Math.round(selectedGoalPost.userGoal.perc)}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-muted rounded-full h-5 overflow-hidden">
-                    <div
-                      className="bg-brand h-full rounded-full transition-all duration-300"
-                      style={{
-                        width: `${selectedGoalPost.userGoal.perc}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                {/* Goal Details */}
-                <div className="grid grid-cols-3 gap-3 pt-2">
-                  <div className="p-2 bg-background/50 rounded text-center">
-                    <p className="text-xs text-muted-foreground">Duração</p>
-                    <p className="text-sm font-bold">{selectedGoalPost.userGoal.duration}d</p>
-                  </div>
-                  <div className="p-2 bg-background/50 rounded text-center">
-                    <p className="text-xs text-muted-foreground">Quantidade</p>
-                    <p className="text-sm font-bold">{selectedGoalPost.userGoal.quantity}</p>
-                  </div>
-                  <div className="p-2 bg-background/50 rounded text-center">
-                    <p className="text-xs text-muted-foreground">Tipo</p>
-                    <p className="text-sm font-bold">
-                      {selectedGoalPost.userGoal.type_goal === 1
-                        ? "Fitness"
-                        : selectedGoalPost.userGoal.type_goal === 2
-                          ? "Saúde"
-                          : "Hábitos"}
+            {selectedGoalPost?.userGoal && (
+              <div className="space-y-4 overflow-y-auto flex-1">
+                {/* Goal Info */}
+                <div className="p-4 border border-border/60 rounded-lg bg-muted/30 space-y-3">
+                  <div>
+                    <p className="text-lg font-bold">
+                      {selectedGoalPost.userGoal.description}
                     </p>
                   </div>
-                </div>
-              </div>
 
-              {/* Linked Routines Dropdown */}
-              {linkedRoutines.length > 0 && (
-                <div className="border border-border/60 rounded-lg overflow-hidden">
-                  <button
-                    onClick={() => setExpandedRoutines(!expandedRoutines)}
-                    className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
-                  >
-                    <h3 className="text-sm font-medium">
-                      Rotinas Vinculadas ({linkedRoutines.length})
-                    </h3>
-                    <ChevronDown
-                      className={`h-5 w-5 transform transition-transform ${
-                        expandedRoutines ? "rotate-180" : ""
-                      }`}
-                    />
-                  </button>
-
-                  {expandedRoutines && (
-                    <div className="border-t border-border/60 bg-muted/20 p-4 space-y-3">
-                      {linkedRoutines.map((routine) => (
-                        <div
-                          key={routine.id}
-                          className="p-3 border border-border/60 rounded-lg bg-background"
-                        >
-                          <p className="font-medium text-sm">
-                            {routine.type === 1
-                              ? "🏋️ Exercicios"
-                              : routine.type === 2
-                                ? "🍽️ Dietas"
-                                : "✅ Habitos"}
-                          </p>
-                        </div>
-                      ))}
+                  {/* Progress Bar */}
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium text-foreground">
+                        Progresso
+                      </span>
+                      <span className="text-lg font-bold text-brand">
+                        {Math.round(selectedGoalPost.userGoal.perc)}%
+                      </span>
                     </div>
-                  )}
-                </div>
-              )}
+                    <div className="w-full bg-muted rounded-full h-5 overflow-hidden">
+                      <div
+                        className="bg-brand h-full rounded-full transition-all duration-300"
+                        style={{
+                          width: `${selectedGoalPost.userGoal.perc}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
 
-              {/* Check Button */}
-              <Button
-                onClick={handleIncrementGoalProgress}
-                disabled={
-                  isUpdatingGoal || selectedGoalPost.userGoal.perc >= 100
-                }
-                className="w-full rounded-full gap-2 shrink-0"
-              >
-                <Check className="h-4 w-4" />
-                {isUpdatingGoal
-                  ? "Atualizando..."
-                  : selectedGoalPost.userGoal.perc >= 100
-                    ? "Meta Completa!"
-                    : "Atualizar Progresso"}
-              </Button>
-            </div>
-          )}
+                  {/* Goal Details */}
+                  <div className="grid grid-cols-3 gap-3 pt-2">
+                    <div className="p-2 bg-background/50 rounded text-center">
+                      <p className="text-xs text-muted-foreground">Duração</p>
+                      <p className="text-sm font-bold">
+                        {selectedGoalPost.userGoal.duration}d
+                      </p>
+                    </div>
+                    <div className="p-2 bg-background/50 rounded text-center">
+                      <p className="text-xs text-muted-foreground">
+                        Quantidade
+                      </p>
+                      <p className="text-sm font-bold">
+                        {selectedGoalPost.userGoal.quantity}
+                      </p>
+                    </div>
+                    <div className="p-2 bg-background/50 rounded text-center">
+                      <p className="text-xs text-muted-foreground">Tipo</p>
+                      <p className="text-sm font-bold">
+                        {selectedGoalPost.userGoal.type_goal === 1
+                          ? "Fitness"
+                          : selectedGoalPost.userGoal.type_goal === 2
+                            ? "Saúde"
+                            : "Hábitos"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Linked Routines Dropdown */}
+                {linkedRoutines.length > 0 && (
+                  <div className="border border-border/60 rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => setExpandedRoutines(!expandedRoutines)}
+                      className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+                    >
+                      <h3 className="text-sm font-medium">
+                        Rotinas Vinculadas ({linkedRoutines.length})
+                      </h3>
+                      <ChevronDown
+                        className={`h-5 w-5 transform transition-transform ${
+                          expandedRoutines ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+
+                    {expandedRoutines && (
+                      <div className="border-t border-border/60 bg-muted/20 p-4 space-y-3">
+                        {linkedRoutines.map((routine) => (
+                          <div
+                            key={routine.id}
+                            className="p-3 border border-border/60 rounded-lg bg-background"
+                          >
+                            <p className="font-medium text-sm">
+                              {routine.type === 1
+                                ? "🏋️ Exercicios"
+                                : routine.type === 2
+                                  ? "🍽️ Dietas"
+                                  : "✅ Habitos"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Check Button */}
+                <Button
+                  onClick={handleIncrementGoalProgress}
+                  disabled={
+                    isUpdatingGoal || selectedGoalPost.userGoal.perc >= 100
+                  }
+                  className="w-full rounded-full gap-2 shrink-0"
+                >
+                  <Check className="h-4 w-4" />
+                  {isUpdatingGoal
+                    ? "Atualizando..."
+                    : selectedGoalPost.userGoal.perc >= 100
+                      ? "Meta Completa!"
+                      : "Atualizar Progresso"}
+                </Button>
+              </div>
+            )}
           </div>
         </DrawerContent>
       </Drawer>
@@ -570,9 +585,7 @@ export default function Index() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {reportType === "user"
-                ? "Denunciar usuário"
-                : "Denunciar post"}
+              {reportType === "user" ? "Denunciar usuário" : "Denunciar post"}
             </DialogTitle>
           </DialogHeader>
           {reportedPost && (
@@ -612,10 +625,7 @@ export default function Index() {
                 >
                   Cancelar
                 </Button>
-                <Button
-                  className="flex-1 rounded-full"
-                  onClick={submitReport}
-                >
+                <Button className="flex-1 rounded-full" onClick={submitReport}>
                   Enviar denúncia
                 </Button>
               </div>

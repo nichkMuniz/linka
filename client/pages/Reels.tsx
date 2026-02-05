@@ -111,10 +111,7 @@ export default function Reels() {
       if (Math.abs(delta) > 50) {
         const nextIndex = Math.max(
           0,
-          Math.min(
-            currentReelIndex + (delta > 0 ? 1 : -1),
-            reels.length - 1,
-          ),
+          Math.min(currentReelIndex + (delta > 0 ? 1 : -1), reels.length - 1),
         );
         setCurrentReelIndex(nextIndex);
       }
@@ -383,9 +380,7 @@ export default function Reels() {
           <div
             key={index}
             className={`h-1 transition-all ${
-              index === currentReelIndex
-                ? "w-8 bg-white"
-                : "w-2 bg-white/40"
+              index === currentReelIndex ? "w-8 bg-white" : "w-2 bg-white/40"
             }`}
           />
         ))}

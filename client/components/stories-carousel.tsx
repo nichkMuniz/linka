@@ -94,7 +94,9 @@ export function StoriesCarousel({
           <div className="relative h-14 w-14 rounded-full bg-muted flex items-center justify-center ring-2 ring-transparent group-hover:ring-brand transition-all">
             <Plus className="h-5 w-5" />
           </div>
-          <span className="text-xs text-center whitespace-nowrap">Seu flow</span>
+          <span className="text-xs text-center whitespace-nowrap">
+            Seu flow
+          </span>
         </button>
       )}
 
