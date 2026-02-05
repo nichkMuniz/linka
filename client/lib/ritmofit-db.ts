@@ -2485,13 +2485,11 @@ export async function addPointsDb(points: number): Promise<void> {
       }
     } else {
       // Create new ranking entry
-      const { error: insertError } = await supabase
-        .from("ranking")
-        .insert({
-          user_id: viewer.id,
-          points,
-          level: 1,
-        });
+      const { error: insertError } = await supabase.from("ranking").insert({
+        user_id: viewer.id,
+        points,
+        level: 1,
+      });
 
       if (insertError) {
         console.error("Error creating ranking:", insertError);

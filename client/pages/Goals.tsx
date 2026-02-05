@@ -27,17 +27,17 @@ import { Trophy, TrendingUp, ChevronDown } from "lucide-react";
 export default function Goals() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  
+
   // Metas tab state
   const [goals, setGoals] = React.useState<ProgrammedGoal[]>([]);
   const [selectedGoalIds, setSelectedGoalIds] = React.useState<string[]>([]);
-  
+
   // Rotinas tab state
   const [routines, setRoutines] = React.useState<Routine[]>([]);
-  
+
   // Ranking tab state
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
-  
+
   // General state
   const [loading, setLoading] = React.useState(true);
   const [selectingGoalId, setSelectingGoalId] = React.useState<string | null>(
@@ -51,12 +51,13 @@ export default function Goals() {
   React.useEffect(() => {
     (async () => {
       try {
-        const [goalsData, selectedIds, routinesData, rankingData] = await Promise.all([
-          getProgrammedGoalsDb(),
-          getUserSelectedGoalIdsDb(),
-          user ? getUserRoutinesDb(user.id) : Promise.resolve([]),
-          getRankingDb(),
-        ]);
+        const [goalsData, selectedIds, routinesData, rankingData] =
+          await Promise.all([
+            getProgrammedGoalsDb(),
+            getUserSelectedGoalIdsDb(),
+            user ? getUserRoutinesDb(user.id) : Promise.resolve([]),
+            getRankingDb(),
+          ]);
         setGoals(goalsData);
         setSelectedGoalIds(selectedIds);
         setRoutines(routinesData);
@@ -139,7 +140,9 @@ export default function Goals() {
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Metas e Ranking</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Metas e Ranking
+        </h1>
         <p className="text-sm text-muted-foreground">
           Gerencie suas metas, rotinas e acompanhe seu ranking.
         </p>
@@ -244,9 +247,7 @@ export default function Goals() {
                           </span>
                         </div>
                         <div>
-                          <p className="font-semibold text-sm">
-                            {typeName}
-                          </p>
+                          <p className="font-semibold text-sm">{typeName}</p>
                           <p className="text-xs text-muted-foreground">
                             {routinesOfType.length} rotina
                             {routinesOfType.length > 1 ? "s" : ""}
@@ -315,7 +316,13 @@ export default function Goals() {
               {ranking.map((user, index) => {
                 const isCurrentUser = user.userId === user.userId; // Will be true for current user
                 const medalEmoji =
-                  index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "";
+                  index === 0
+                    ? "🥇"
+                    : index === 1
+                      ? "🥈"
+                      : index === 2
+                        ? "🥉"
+                        : "";
 
                 return (
                   <Card
