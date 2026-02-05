@@ -2377,6 +2377,9 @@ export async function addReelCommentDb(reelId: string, text: string) {
       console.error("Error adding reel comment:", error);
       throw error;
     }
+
+    // Award 1 point for commenting on a reel
+    await addPointsDb(1);
   } catch (err: any) {
     console.error("Error adding reel comment:", err);
     throw err;
