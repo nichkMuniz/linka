@@ -141,8 +141,8 @@ export function PostCommentsDialog({
             "relative inline-flex shrink-0 items-center justify-center rounded-lg p-2 transition-colors",
             "border border-border/50 bg-background/80 backdrop-blur",
             "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
-            hasActivity &&
-              commentCount > 0 &&
+            isPostOwner &&
+              hasUnreadComments &&
               "border-blue-500/50 bg-blue-500/10",
           )}
           aria-label={`Ver ${commentCount} comentários`}
@@ -150,7 +150,7 @@ export function PostCommentsDialog({
           <MessageCircle
             className={cn(
               "h-5 w-5 transition-colors",
-              hasActivity && commentCount > 0
+              isPostOwner && hasUnreadComments
                 ? "text-blue-500"
                 : "text-muted-foreground",
             )}
@@ -161,7 +161,7 @@ export function PostCommentsDialog({
               animate={{ scale: 1 }}
               className={cn(
                 "absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold",
-                hasActivity && commentCount > 0
+                isPostOwner && hasUnreadComments
                   ? "bg-blue-500 text-white"
                   : "bg-muted text-muted-foreground",
               )}
