@@ -41,226 +41,6 @@ function BrandMark({ className }: { className?: string }) {
   );
 }
 
-function SearchContent({ onClose }: { onClose: () => void }) {
-  const [searchQuery, setSearchQuery] = React.useState("");
-  const [searchUsers, setSearchUsers] = React.useState<SearchUser[]>([]);
-  const [searchWorkouts, setSearchWorkouts] = React.useState<SearchWorkout[]>([]);
-  const [searchDiets, setSearchDiets] = React.useState<SearchDiet[]>([]);
-  const [isLoading, setIsLoading] = React.useState(false);
-
-  const handleSearch = React.useCallback(async (query: string) => {
-    setSearchQuery(query);
-    if (!query.trim()) {
-      setSearchUsers([]);
-      setSearchWorkouts([]);
-      setSearchDiets([]);
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const [users, workouts, diets] = await Promise.all([
-        searchUsersDb(query),
-        searchUserWorkoutsDb(query),
-        searchUserDietsDb(query),
-      ]);
-      setSearchUsers(users);
-      setSearchWorkouts(workouts);
-      setSearchDiets(diets);
-    } catch (err) {
-      console.error("Error searching:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  return (
-    <div className="space-y-4">
-      <Input
-        placeholder="Buscar pessoas, treinos, dietas..."
-        value={searchQuery}
-        onChange={(e) => handleSearch(e.target.value)}
-        className="rounded-full"
-        autoFocus
-      />
-
-      <Tabs defaultValue="people" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="people">Pessoas</TabsTrigger>
-          <TabsTrigger value="workouts">Treinos</TabsTrigger>
-          <TabsTrigger value="diets">Dietas</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="people" className="space-y-3 max-h-[60vh] overflow-y-auto">
-          {isLoading && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Buscando...
-            </div>
-          )}
-          {!isLoading && searchUsers.length === 0 && searchQuery && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Nenhuma pessoa encontrada.
-            </div>
-          )}
-          {searchUsers.map((user) => (
-            <Card
-              key={user.id}
-              className="border-border/60 cursor-pointer hover:bg-muted/50 transition-colors"
-            >
-              <CardContent className="p-4">
-                <div className="flex items-start gap-3">
-                  {user.photo ? (
-                    <img
-                      src={user.photo}
-                      alt={user.nickname}
-                      className="h-12 w-12 rounded-full object-cover flex-shrink-0"
-                    />
-                  ) : (
-                    <div className="h-12 w-12 rounded-full bg-muted flex-shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm">{user.nickname}</p>
-                    {user.bio && (
-                      <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                        {user.bio}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </TabsContent>
-
-        <TabsContent value="workouts" className="space-y-3 max-h-[60vh] overflow-y-auto">
-          {isLoading && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Buscando...
-            </div>
-          )}
-          {!isLoading && searchWorkouts.length === 0 && searchQuery && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Nenhum treino encontrado.
-            </div>
-          )}
-          {searchWorkouts.map((workout) => (
-            <Card
-              key={workout.userWorkoutId}
-              className="border-border/60 cursor-pointer hover:bg-muted/50 transition-colors"
-            >
-              <CardContent className="p-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {workout.userPhoto ? (
-                        <img
-                          src={workout.userPhoto}
-                          alt={workout.userName}
-                          className="h-8 w-8 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="h-8 w-8 rounded-full bg-muted" />
-                      )}
-                      <p className="text-xs font-medium text-muted-foreground">
-                        {workout.userName}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    {workout.workoutPhoto ? (
-                      <img
-                        src={workout.workoutPhoto}
-                        alt={workout.workoutName}
-                        className="h-12 w-12 rounded object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="h-12 w-12 rounded bg-muted flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm">{workout.workoutName}</p>
-                      {workout.workoutDescription && (
-                        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                          {workout.workoutDescription}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </TabsContent>
-
-        <TabsContent value="diets" className="space-y-3 max-h-[60vh] overflow-y-auto">
-          {isLoading && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Buscando...
-            </div>
-          )}
-          {!isLoading && searchDiets.length === 0 && searchQuery && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Nenhuma dieta encontrada.
-            </div>
-          )}
-          {searchDiets.map((diet) => (
-            <Card
-              key={diet.userDietId}
-              className="border-border/60 cursor-pointer hover:bg-muted/50 transition-colors"
-            >
-              <CardContent className="p-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {diet.userPhoto ? (
-                        <img
-                          src={diet.userPhoto}
-                          alt={diet.userName}
-                          className="h-8 w-8 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="h-8 w-8 rounded-full bg-muted" />
-                      )}
-                      <p className="text-xs font-medium text-muted-foreground">
-                        {diet.userName}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    {diet.dietPhoto ? (
-                      <img
-                        src={diet.dietPhoto}
-                        alt={diet.dietName}
-                        className="h-12 w-12 rounded object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="h-12 w-12 rounded bg-muted flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm">{diet.dietName}</p>
-                      <div className="flex gap-2 items-center mt-1">
-                        {diet.dietCalories && (
-                          <p className="text-xs font-medium text-brand">
-                            {diet.dietCalories} cal
-                          </p>
-                        )}
-                        {diet.dietDescription && (
-                          <p className="text-xs text-muted-foreground line-clamp-1">
-                            {diet.dietDescription}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
-
 export function AppLayout() {
   const location = useLocation();
 
@@ -270,7 +50,6 @@ export function AppLayout() {
   const isDark = (resolvedTheme ?? theme) === "dark";
 
   const [headerHidden, setHeaderHidden] = React.useState(false);
-  const [searchOpen, setSearchOpen] = React.useState(false);
 
   React.useEffect(() => {
     let lastY = window.scrollY;
@@ -331,22 +110,17 @@ export function AppLayout() {
           </Link>
 
           <div className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 lg:hidden">
-            <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-11 w-11 rounded-full"
-                  aria-label="Buscar pessoas, treinos e dietas"
-                >
-                  <Search className="h-5 w-5" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl">
-                <SearchContent onClose={() => setSearchOpen(false)} />
-              </DialogContent>
-            </Dialog>
+            <Link to="/buscar">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-11 w-11 rounded-full"
+                aria-label="Buscar pessoas, treinos e dietas"
+              >
+                <Search className="h-5 w-5" />
+              </Button>
+            </Link>
 
             <Button
               type="button"
@@ -387,22 +161,17 @@ export function AppLayout() {
           </nav>
 
           <div className="hidden justify-end lg:flex lg:items-center lg:gap-2">
-            <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-11 w-11 rounded-full"
-                  aria-label="Buscar pessoas, treinos e dietas"
-                >
-                  <Search className="h-5 w-5" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl">
-                <SearchContent onClose={() => setSearchOpen(false)} />
-              </DialogContent>
-            </Dialog>
+            <Link to="/buscar">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-11 w-11 rounded-full"
+                aria-label="Buscar pessoas, treinos e dietas"
+              >
+                <Search className="h-5 w-5" />
+              </Button>
+            </Link>
 
             <Button
               type="button"
