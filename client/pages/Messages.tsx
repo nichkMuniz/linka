@@ -4,8 +4,10 @@ import {
   getConversationMessagesDb,
   sendMessageDb,
   markMessagesAsReadDb,
+  getFollowersDb,
   type Conversation,
   type MessageWithUser,
+  type SearchUser,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,16 +31,21 @@ export default function Messages() {
   const [messageText, setMessageText] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [isSending, setIsSending] = React.useState(false);
+  const [followers, setFollowers] = React.useState<SearchUser[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
-  // Load conversations
+  // Load conversations and followers
   React.useEffect(() => {
-    const loadConversations = async () => {
+    const loadData = async () => {
       try {
-        const data = await getConversationsDb();
-        setConversations(data);
+        const [conversationsData, followersData] = await Promise.all([
+          getConversationsDb(),
+          getFollowersDb(),
+        ]);
+        setConversations(conversationsData);
+        setFollowers(followersData);
       } catch (err: any) {
-        console.error("Error loading conversations:", err);
+        console.error("Error loading messages:", err);
         toast({
           title: "Erro ao carregar mensagens",
           description: err?.message || "Tente novamente.",
@@ -49,7 +56,7 @@ export default function Messages() {
       }
     };
 
-    loadConversations();
+    loadData();
   }, []);
 
   // Load conversation messages when selected
@@ -313,6 +320,59 @@ export default function Messages() {
               </Card>
             </button>
           ))}
+        </div>
+      ) : followers.length > 0 ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
+            <p className="text-sm text-muted-foreground">
+              Você ainda não tem conversas. Inicie uma nova conversa
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            {followers.map((follower) => (
+              <button
+                key={follower.id}
+                onClick={() => {
+                  setSelectedConversation({
+                    userId: follower.id,
+                    userNickname: follower.nickname,
+                    userPhoto: follower.photo,
+                    lastMessage: "",
+                    lastMessageTime: new Date().toISOString(),
+                    unreadCount: 0,
+                  });
+                  setViewMode("conversation");
+                }}
+                className="w-full"
+              >
+                <Card className="border-border/60 hover:bg-muted/50 transition-colors cursor-pointer">
+                  <CardContent className="p-4 flex items-center gap-3">
+                    {follower.photo ? (
+                      <img
+                        src={follower.photo}
+                        alt={follower.nickname}
+                        className="h-12 w-12 rounded-full object-cover shrink-0"
+                      />
+                    ) : (
+                      <div className="h-12 w-12 rounded-full bg-muted shrink-0" />
+                    )}
+
+                    <div className="flex-1 min-w-0 text-left">
+                      <p className="font-medium text-sm">
+                        {follower.nickname}
+                      </p>
+                      {follower.bio && (
+                        <p className="text-xs text-muted-foreground truncate">
+                          {follower.bio}
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </button>
+            ))}
+          </div>
         </div>
       ) : (
         <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
