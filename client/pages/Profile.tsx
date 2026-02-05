@@ -808,6 +808,8 @@ export default function Profile() {
                 setSelectedWorkoutIds(new Set());
                 setDiets([]);
                 setSelectedDietIds(new Set());
+                setHabits([]);
+                setSelectedHabitIds(new Set());
               }
             }}
           >
