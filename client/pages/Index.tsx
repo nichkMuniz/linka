@@ -251,9 +251,14 @@ export default function Index() {
           </Card>
         ))
       ) : (
-        <p className="text-center text-sm text-muted-foreground">
-          Nenhum post ainda.
-        </p>
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Comece agora a acompanhar as rotinas de seus amigos
+          </p>
+          <a href="/buscar">
+            <Button className="rounded-full">Buscar</Button>
+          </a>
+        </div>
       )}
 
       {/* Goal Progress Modal */}
