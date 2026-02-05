@@ -219,6 +219,16 @@ export default function Index() {
 
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-4">
+      {/* Stories Carousel */}
+      <div className="bg-background border-b border-border/60 -mx-4 px-0">
+        <StoriesCarousel
+          stories={stories}
+          onAddStoryClick={handleAddStoryClick}
+          onStoryClick={handleStoryClick}
+          currentUserId={user?.id || ""}
+        />
+      </div>
+
       {posts.length ? (
         posts.map((post) => (
           <Card key={post.id} className="border-border/60 relative">
@@ -316,6 +326,21 @@ export default function Index() {
           </a>
         </div>
       )}
+
+      {/* Story Creation Dialog */}
+      <StoryCreationDialog
+        open={storyCreationOpen}
+        onOpenChange={setStoryCreationOpen}
+        onCreateStory={handleCreateStory}
+        isLoading={isCreatingStory}
+      />
+
+      {/* Story Viewer Modal */}
+      <StoryViewerModal
+        story={selectedStory}
+        open={storyViewerOpen}
+        onOpenChange={setStoryViewerOpen}
+      />
 
       {/* Goal Progress Modal */}
       <Dialog open={goalModalOpen} onOpenChange={setGoalModalOpen}>
