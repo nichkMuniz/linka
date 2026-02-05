@@ -1,6 +1,11 @@
 import * as React from "react";
 import { StoryWithUser } from "@/lib/ritmofit-db";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { Plus } from "lucide-react";
 
 interface StoriesCarouselProps {
@@ -16,6 +21,8 @@ export function StoriesCarousel({
   onStoryClick,
   currentUserId,
 }: StoriesCarouselProps) {
+  const [menuOpen, setMenuOpen] = React.useState(false);
+
   // Group stories by user and take only the first one per user (most recent)
   const storyMap = new Map<string, StoryWithUser>();
   stories.forEach((story) => {
@@ -31,24 +38,75 @@ export function StoriesCarousel({
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
 
+  // Separate user's story from others
+  const userStory = uniqueStories.find((s) => s.user_id === currentUserId);
+  const otherStories = uniqueStories.filter((s) => s.user_id !== currentUserId);
+
+  const handleViewFlow = () => {
+    if (userStory) {
+      onStoryClick(userStory);
+    }
+    setMenuOpen(false);
+  };
+
+  const handleNewFlow = () => {
+    onAddStoryClick();
+    setMenuOpen(false);
+  };
+
   return (
     <div className="flex gap-3 overflow-x-auto pb-4 px-4 -mx-4 scroll-smooth">
-      {/* Add Story Button */}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onAddStoryClick}
-        className="shrink-0 flex flex-col items-center gap-1 h-auto py-2 px-3 rounded-lg"
-      >
-        <div className="relative h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-          <Plus className="h-5 w-5" />
-        </div>
-        <span className="text-xs text-center whitespace-nowrap">Sua story</span>
-      </Button>
+      {/* Seu Flow Button - with menu if user has a story */}
+      {userStory ? (
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer"
+          >
+            <div className="relative">
+              <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-transparent group-hover:ring-brand transition-all">
+                {userStory.userPhoto ? (
+                  <img
+                    src={userStory.userPhoto}
+                    alt={userStory.userNickname}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="h-full w-full bg-muted" />
+                )}
+              </div>
+              <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full ring-1 ring-background" />
+            </div>
+            <span className="text-xs text-center truncate max-w-[60px]">
+              Seu flow
+            </span>
+          </button>
+          <DropdownMenuContent align="start" className="w-40">
+            <DropdownMenuItem onClick={handleViewFlow}>
+              Ver flow
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleNewFlow}>
+              Novo flow
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onAddStoryClick}
+          className="shrink-0 flex flex-col items-center gap-1 h-auto py-2 px-3 rounded-full hover:bg-transparent"
+        >
+          <div className="relative h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+            <Plus className="h-5 w-5" />
+          </div>
+          <span className="text-xs text-center whitespace-nowrap">Seu flow</span>
+        </Button>
+      )}
 
-      {/* Stories */}
-      {uniqueStories.length > 0 ? (
-        uniqueStories.map((story) => (
+      {/* Other Stories */}
+      {otherStories.length > 0 ? (
+        otherStories.map((story) => (
           <button
             key={story.id}
             onClick={() => onStoryClick(story)}
@@ -66,21 +124,18 @@ export function StoriesCarousel({
                   <div className="h-full w-full bg-muted" />
                 )}
               </div>
-              {story.user_id === currentUserId && (
-                <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full ring-1 ring-background" />
-              )}
             </div>
             <span className="text-xs text-center truncate max-w-[60px]">
-              {story.user_id === currentUserId
-                ? "Você"
-                : story.userNickname.split(" ")[0]}
+              {story.userNickname.split(" ")[0]}
             </span>
           </button>
         ))
       ) : (
-        <div className="w-full text-center py-4 text-xs text-muted-foreground">
-          Sem stories no momento
-        </div>
+        otherStories.length === 0 && !userStory && (
+          <div className="w-full text-center py-4 text-xs text-muted-foreground">
+            Sem flows no momento
+          </div>
+        )
       )}
     </div>
   );
