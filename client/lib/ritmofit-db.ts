@@ -2156,37 +2156,86 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     const followingIds = await getFollowingIdsDb();
     const userIdsToShow = [viewer.id, ...followingIds];
 
-    const { data, error } = await supabase
+    const { data: reelsData, error: reelsError } = await supabase
       .from("reels")
-      .select("*")
+      .select("id, user_id, video_url, description, created_at")
       .in("user_id", userIdsToShow)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error("Error fetching reels:", error);
+    if (reelsError) {
+      console.error("Error fetching reels:", reelsError);
       return [];
     }
 
-    // Enrich with user data and likes
-    const reelsWithUserData: ReelWithUser[] = [];
+    if (!reelsData || reelsData.length === 0) {
+      return [];
+    }
 
-    for (const reel of data ?? []) {
-      const userProfile = await getUserProfileDb(reel.user_id);
-      const likes = await getPostLikesDb(reel.id);
-      const userLikes = await getUserPostLikesDb(reel.id);
+    // Get all unique user IDs to batch fetch profiles
+    const uniqueUserIds = [...new Set((reelsData ?? []).map((r: any) => r.user_id))];
 
-      reelsWithUserData.push({
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, photo")
+      .in("user_id", uniqueUserIds);
+
+    const profileMap = new Map(
+      (profiles ?? []).map((p: any) => [
+        p.user_id,
+        { nickname: p.nickname, photo: p.photo },
+      ])
+    );
+
+    // Get all likes for these reels in one query
+    const reelIds = (reelsData ?? []).map((r: any) => r.id);
+    const { data: allLikes } = await supabase
+      .from("likes")
+      .select("post_id, type, user_id")
+      .in("post_id", reelIds);
+
+    const likesMap = new Map<string, { likes: PostLikeStats; userLikes: PostIncentiveType[] }>();
+
+    (allLikes ?? []).forEach((like: any) => {
+      const reelId = String(like.post_id);
+      if (!likesMap.has(reelId)) {
+        likesMap.set(reelId, {
+          likes: { apoio: 0, continua: 0, ganhador: 0 },
+          userLikes: [],
+        });
+      }
+
+      const entry = likesMap.get(reelId)!;
+      const type = Number(like.type) as PostIncentiveType;
+
+      if (type === 1) entry.likes.apoio += 1;
+      else if (type === 2) entry.likes.continua += 1;
+      else if (type === 3) entry.likes.ganhador += 1;
+
+      if (like.user_id === viewer.id) {
+        entry.userLikes.push(type);
+      }
+    });
+
+    // Build final reel objects
+    const reelsWithUserData: ReelWithUser[] = (reelsData ?? []).map((reel: any) => {
+      const userProfile = profileMap.get(reel.user_id) || { nickname: "Usuário", photo: null };
+      const likeData = likesMap.get(String(reel.id)) || {
+        likes: { apoio: 0, continua: 0, ganhador: 0 },
+        userLikes: [],
+      };
+
+      return {
         id: String(reel.id),
         user_id: String(reel.user_id),
-        video_url: String(reel.video_url),
+        video_url: String(reel.video_url ?? ""),
         description: String(reel.description ?? ""),
         created_at: String(reel.created_at),
-        likes,
-        userLikes,
-        userNickname: userProfile?.nickname ?? "Usuário",
-        userPhoto: userProfile?.photo ?? null,
-      });
-    }
+        likes: likeData.likes,
+        userLikes: likeData.userLikes,
+        userNickname: String(userProfile.nickname),
+        userPhoto: userProfile.photo ? String(userProfile.photo) : null,
+      };
+    });
 
     return reelsWithUserData;
   } catch (err: any) {
