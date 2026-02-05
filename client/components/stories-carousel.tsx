@@ -56,32 +56,31 @@ export function StoriesCarousel({
   };
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4 px-4 -mx-4 scroll-smooth">
+    <div className="flex gap-3 overflow-x-auto pb-4 px-6 scroll-smooth">
       {/* Seu Flow Button - with menu if user has a story */}
       {userStory ? (
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-          <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer"
-          >
-            <div className="relative">
-              <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-transparent group-hover:ring-brand transition-all">
-                {userStory.userPhoto ? (
-                  <img
-                    src={userStory.userPhoto}
-                    alt={userStory.userNickname}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="h-full w-full bg-muted" />
-                )}
+          <DropdownMenuTrigger asChild>
+            <button className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer">
+              <div className="relative">
+                <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-brand transition-all">
+                  {userStory.userPhoto ? (
+                    <img
+                      src={userStory.userPhoto}
+                      alt={userStory.userNickname}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-full w-full bg-muted" />
+                  )}
+                </div>
+                <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full ring-1 ring-background" />
               </div>
-              <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full ring-1 ring-background" />
-            </div>
-            <span className="text-xs text-center truncate max-w-[60px]">
-              Seu flow
-            </span>
-          </button>
+              <span className="text-xs text-center truncate max-w-[60px] font-semibold text-brand">
+                Seu flow
+              </span>
+            </button>
+          </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-40">
             <DropdownMenuItem onClick={handleViewFlow}>
               Ver flow
@@ -92,21 +91,19 @@ export function StoriesCarousel({
           </DropdownMenuContent>
         </DropdownMenu>
       ) : (
-        <Button
-          variant="ghost"
-          size="sm"
+        <button
           onClick={onAddStoryClick}
-          className="shrink-0 flex flex-col items-center gap-1 h-auto py-2 px-3 rounded-full hover:bg-transparent"
+          className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer hover:opacity-80 transition-opacity"
         >
-          <div className="relative h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+          <div className="relative h-14 w-14 rounded-full bg-muted flex items-center justify-center ring-2 ring-transparent group-hover:ring-brand transition-all">
             <Plus className="h-5 w-5" />
           </div>
           <span className="text-xs text-center whitespace-nowrap">Seu flow</span>
-        </Button>
+        </button>
       )}
 
       {/* Other Stories */}
-      {otherStories.length > 0 ? (
+      {otherStories.length > 0 &&
         otherStories.map((story) => (
           <button
             key={story.id}
@@ -130,14 +127,7 @@ export function StoriesCarousel({
               {story.userNickname.split(" ")[0]}
             </span>
           </button>
-        ))
-      ) : (
-        otherStories.length === 0 && !userStory && (
-          <div className="w-full text-center py-4 text-xs text-muted-foreground">
-            Sem flows no momento
-          </div>
-        )
-      )}
+        ))}
     </div>
   );
 }
