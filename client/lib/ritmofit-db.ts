@@ -1722,3 +1722,121 @@ export async function getFollowingIdsDb(): Promise<string[]> {
 
   return (data ?? []).map((row: any) => String(row.following_id ?? ""));
 }
+
+// Stories functionality
+export type Story = {
+  id: string;
+  user_id: string;
+  description: string;
+  media_url: string;
+  created_at: string;
+};
+
+export type StoryWithUser = Story & {
+  userNickname: string;
+  userPhoto: string | null;
+};
+
+export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  // Get stories from the last 24 hours
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    // Get current user's following IDs
+    const followingIds = await getFollowingIdsDb();
+    const userIdsToShow = [viewer.id, ...followingIds];
+
+    const { data, error } = await supabase
+      .from("storys")
+      .select("*")
+      .in("user_id", userIdsToShow)
+      .gte("created_at", twentyFourHoursAgo)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching stories:", error);
+      return [];
+    }
+
+    // Enrich stories with user info
+    const enrichedStories = await Promise.all(
+      (data ?? []).map(async (story: Story) => {
+        const userProfile = await getUserProfileDb(story.user_id);
+        return {
+          ...story,
+          userNickname: userProfile?.nickname || "Usuário",
+          userPhoto: userProfile?.photo || null,
+        };
+      }),
+    );
+
+    return enrichedStories;
+  } catch (err: any) {
+    console.error("Error fetching active stories:", err);
+    return [];
+  }
+}
+
+export async function createStoryDb(
+  description: string,
+  mediaUrl: string,
+): Promise<Story | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("storys")
+      .insert({
+        user_id: viewer.id,
+        description,
+        media_url: mediaUrl,
+      })
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      const errorMsg = error?.message || String(error);
+      const errorCode = error?.code || "UNKNOWN";
+      console.error(`Error creating story [${errorCode}]:`, errorMsg);
+      return null;
+    }
+
+    return data;
+  } catch (err: any) {
+    console.error("Error creating story:", err);
+    return null;
+  }
+}
+
+export async function deleteOldStoriesDb(): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  try {
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    const { error } = await supabase
+      .from("storys")
+      .delete()
+      .lt("created_at", twentyFourHoursAgo);
+
+    if (error) {
+      const errorMsg = error?.message || String(error);
+      const errorCode = error?.code || "UNKNOWN";
+      console.error(`Error deleting old stories [${errorCode}]:`, errorMsg);
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    console.error("Error deleting old stories:", err);
+    return false;
+  }
+}
