@@ -176,6 +176,23 @@ export default function Profile() {
     loadProfile();
   }, [user, loadProfile]);
 
+  // Refresh stats when page becomes visible (user returns from another tab/page)
+  React.useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && user) {
+        // Page became visible, refresh stats
+        getUserStatsDb(user.id).then((newStats) => {
+          setStats(newStats);
+        });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [user]);
+
   const openEditDialog = () => {
     if (profile) {
       setEditNickname(profile.nickname);
