@@ -746,6 +746,38 @@ export type Workout = {
   photo: string | null;
 };
 
+export type Diet = {
+  id: string;
+  name: string;
+  description: string;
+  photo: string | null;
+  calories: number;
+};
+
+export async function getDietsDb(): Promise<Diet[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("diets")
+    .select("id, name, description, photo, calories")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching diets [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    description: String(row.description ?? ""),
+    photo: row.photo ? String(row.photo) : null,
+    calories: Number(row.calories ?? 0),
+  }));
+}
+
 export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
