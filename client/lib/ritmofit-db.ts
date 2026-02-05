@@ -2158,6 +2158,11 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
 
     console.log("[getReelsDb] Fetching reels for users:", userIdsToShow);
 
+    if (userIdsToShow.length === 0) {
+      console.log("[getReelsDb] No users to fetch reels for");
+      return [];
+    }
+
     const { data: reelsData, error: reelsError } = await supabase
       .from("reels")
       .select("id, user_id, video_url, description, created_at")
