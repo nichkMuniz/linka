@@ -213,38 +213,63 @@ export default function Goals() {
         {/* Rotinas Tab */}
         <TabsContent value="rotinas" className="space-y-4">
           {routines.length > 0 ? (
-            <div className="space-y-3">
-              {routines.map((routine) => (
-                <Card
-                  key={routine.id}
-                  className="border-border/60 hover:bg-muted/50 transition-colors"
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <p className="font-semibold text-sm">
-                          {routine.name || `Rotina ${routine.type}`}
-                        </p>
-                        {routine.description && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {routine.description}
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground mt-2">
-                          ID do Programa: {routine.program_id}
-                        </p>
-                      </div>
-                      <div className="ml-4 flex-shrink-0">
-                        <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-brand/10">
-                          <span className="text-xs font-semibold text-brand">
-                            {routine.type}
-                          </span>
-                        </div>
-                      </div>
+            <div className="space-y-4">
+              {[1, 2, 3].map((typeCode) => {
+                const routinesOfType = routines.filter(
+                  (r) => r.type === typeCode,
+                );
+                if (routinesOfType.length === 0) return null;
+
+                const typeName = getRoutineTypeName(typeCode);
+
+                return (
+                  <div key={typeCode}>
+                    <div className="mb-3">
+                      <h3 className="text-sm font-semibold text-foreground">
+                        {typeName}
+                      </h3>
+                      <p className="text-xs text-muted-foreground">
+                        {routinesOfType.length} rotina
+                        {routinesOfType.length > 1 ? "s" : ""}
+                      </p>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
+
+                    <div className="space-y-2">
+                      {routinesOfType.map((routine) => (
+                        <Card
+                          key={routine.id}
+                          className="border-border/60 hover:bg-muted/50 transition-colors"
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <p className="font-semibold text-sm">
+                                  {routine.name || `Rotina ${typeName}`}
+                                </p>
+                                {routine.description && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {routine.description}
+                                  </p>
+                                )}
+                                <p className="text-xs text-muted-foreground mt-2">
+                                  ID do Programa: {routine.program_id}
+                                </p>
+                              </div>
+                              <div className="ml-4 flex-shrink-0">
+                                <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-brand/10">
+                                  <span className="text-xs font-semibold text-brand">
+                                    {typeCode}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
