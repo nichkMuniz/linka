@@ -54,11 +54,13 @@ function BrandMark({ className }: { className?: string }) {
 
 export function AppLayout() {
   const location = useLocation();
+  const { user } = useAuth();
 
   const desktopNavItems = React.useMemo(() => navItems, []);
 
   const [headerHidden, setHeaderHidden] = React.useState(false);
   const [unreadCount, setUnreadCount] = React.useState(0);
+  const [profilePhoto, setProfilePhoto] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const loadUnreadCount = async () => {
