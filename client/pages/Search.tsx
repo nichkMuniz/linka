@@ -42,6 +42,7 @@ export default function Search() {
       setIsLoading(true);
       try {
         const users = await getAllUsersDb(user.id);
+        console.log("Loaded users:", users);
         setAllUsers(users);
         setSearchUsers(users);
 
@@ -61,10 +62,8 @@ export default function Search() {
       }
     };
 
-    if (activeTab === "people") {
-      loadAllUsers();
-    }
-  }, [activeTab, user]);
+    loadAllUsers();
+  }, [user]);
 
   const handleSearch = React.useCallback(async (query: string) => {
     setSearchQuery(query);
