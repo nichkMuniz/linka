@@ -682,7 +682,7 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
 
   try {
     followersRes = await supabase
-      .from("followers")
+      .from("following")
       .select("id", { count: "exact", head: true })
       .eq("following_id", userId);
   } catch (err) {
@@ -693,7 +693,7 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
     followingRes = await supabase
       .from("following")
       .select("id", { count: "exact", head: true })
-      .eq("follower_id", userId);
+      .eq("user_id", userId);
   } catch (err) {
     followingRes = { count: 0, error: err };
   }
