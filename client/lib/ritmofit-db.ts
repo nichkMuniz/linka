@@ -50,15 +50,15 @@ async function ensureProfile(): Promise<DbProfile | null> {
     .from("profiles")
     .upsert(
       {
-        id: user.id,
+        user_id: user.id,
         nickname : nickname,
         handle,
-        avatar_url: avatarUrl || null,
+        photo: avatarUrl || null,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "id" },
+      { onConflict: "user_id" },
     )
-    .select("id, nickname, handle, avatar_url")
+    .select("user_id, nickname, handle, photo")
     .maybeSingle();
 
   if (error) {
@@ -71,10 +71,10 @@ async function ensureProfile(): Promise<DbProfile | null> {
   }
 
   return {
-    id: String(data?.id ?? user.id),
+    id: String(data?.user_id ?? user.id),
     nickname: String(data?.nickname ?? nickname),
     handle: String(data?.handle ?? handle),
-    avatarUrl: (data?.avatar_url as string | null) ?? undefined,
+    avatarUrl: (data?.photo as string | null) ?? undefined,
   };
 }
 
@@ -1402,7 +1402,7 @@ export async function searchUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, user_id, workout_id, workouts(id, name, description, photo), profiles(nickname, avatar_url)",
+      "id, user_id, workout_id, workouts(id, name, description, photo), profiles(nickname, photo)",
     )
     .ilike("workouts.name", searchQuery)
     .limit(20);
@@ -1512,7 +1512,7 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, user_id, diet_id, diets(id, name, description, photo, calories), profiles(nickname, avatar_url)",
+      "id, user_id, diet_id, diets(id, name, description, photo, calories), profiles(nickname, photo)",
     )
     .ilike("diets.name", searchQuery)
     .limit(20);
