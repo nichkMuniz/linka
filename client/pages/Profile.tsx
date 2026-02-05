@@ -364,6 +364,23 @@ export default function Profile() {
       } finally {
         setDietsLoading(false);
       }
+    } else if (type === 3) {
+      // If Habitos is selected, load habits
+      setHabitsLoading(true);
+      try {
+        const habitsData = await getHabitsDb();
+        setHabits(habitsData);
+      } catch (err: any) {
+        console.error("Error loading habits:", err);
+        toast({
+          title: "Erro ao carregar hábitos",
+          description: "Tente novamente mais tarde.",
+          variant: "destructive",
+        });
+        setSelectedRoutineType(null);
+      } finally {
+        setHabitsLoading(false);
+      }
     }
   };
 
