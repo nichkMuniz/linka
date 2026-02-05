@@ -55,7 +55,7 @@ export function StoriesCarousel({
     <div className="flex gap-3 overflow-x-auto pb-4 px-6 scroll-smooth">
       {/* Seu Flow Button - with menu if user has a story */}
       {userStory ? (
-        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+        <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer">
               <div className="relative">
