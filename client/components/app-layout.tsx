@@ -1,10 +1,11 @@
 import { cn } from "@/lib/utils";
-import { Home, PlusSquare, Dumbbell, Moon, Sun, User } from "lucide-react";
+import { Home, PlusSquare, Dumbbell, Moon, Sun, User, Search } from "lucide-react";
 import * as React from "react";
 import { useTheme } from "next-themes";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 
 type NavItem = {
   to: string;
