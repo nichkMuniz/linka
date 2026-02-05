@@ -637,7 +637,8 @@ export default function Profile() {
             </div>
 
             {/* Edit Button - Responsive */}
-            <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+            <div className="flex items-center gap-2">
+              <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
               <DialogTrigger asChild>
                 <Button
                   variant="outline"
@@ -730,6 +731,36 @@ export default function Profile() {
                 </div>
               </DialogContent>
             </Dialog>
+
+              <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 rounded-full"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                </DialogTrigger>
+
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Configurações</DialogTitle>
+                  </DialogHeader>
+
+                  <div className="space-y-3">
+                    <Button
+                      onClick={handleLogout}
+                      variant="destructive"
+                      className="w-full rounded-full gap-2"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Desconectar
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
         </CardContent>
       </Card>
