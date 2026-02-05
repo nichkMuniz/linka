@@ -20,7 +20,14 @@ import {
   type PostIncentiveType,
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, MoreVertical, Flag } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import type { PostWithStats } from "../services/post.service";
 import { StoriesCarousel } from "@/components/stories-carousel";
 import { StoryCreationDialog } from "@/components/story-creation-dialog";
