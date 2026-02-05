@@ -9,6 +9,9 @@ import {
   createUserWorkoutsDb,
   getUserWorkoutsDb,
   getWorkoutsDb,
+  getDietsDb,
+  createUserDietsDb,
+  getUserDietsDb,
   ROUTINE_TYPES,
   getRoutineTypeName,
   getGoalByIdDb,
@@ -19,7 +22,9 @@ import {
   type UserStats,
   type Routine,
   type Workout,
+  type Diet,
   type UserWorkoutWithDetails,
+  type UserDietWithDetails,
   type UserGoal,
 } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
