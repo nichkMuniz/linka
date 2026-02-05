@@ -2620,3 +2620,68 @@ export async function getRankingDb(): Promise<RankingUser[]> {
     return [];
   }
 }
+
+// Update user workout with series, weight, and reps information
+export async function updateUserWorkoutDb(
+  workoutId: string,
+  series: number,
+  weight: number,
+  reps: number,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const { error } = await supabase
+    .from("user_workouts")
+    .update({
+      series: series,
+      volume: weight,
+    })
+    .eq("id", workoutId);
+
+  if (error) {
+    console.error("Error updating user workout:", error);
+    return false;
+  }
+
+  return true;
+}
+
+// Toggle completion for user diet
+export async function toggleUserDietCompletionDb(
+  userDietId: string,
+  isCompleted: boolean,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const { error } = await supabase
+    .from("user_diets")
+    .update({ is_completed: isCompleted })
+    .eq("id", userDietId);
+
+  if (error) {
+    console.error("Error updating user diet:", error);
+    return false;
+  }
+
+  return true;
+}
+
+// Toggle completion for user habit
+export async function toggleUserHabitCompletionDb(
+  userHabitId: string,
+  isCompleted: boolean,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const { error } = await supabase
+    .from("user_habits")
+    .update({ is_completed: isCompleted })
+    .eq("id", userHabitId);
+
+  if (error) {
+    console.error("Error updating user habit:", error);
+    return false;
+  }
+
+  return true;
+}
