@@ -222,6 +222,30 @@ export default function Index() {
     [],
   );
 
+  const handleReportUser = React.useCallback((post: PostWithStats) => {
+    setReportedPost(post);
+    setReportType("user");
+    setReportDialogOpen(true);
+  }, []);
+
+  const handleReportPost = React.useCallback((post: PostWithStats) => {
+    setReportedPost(post);
+    setReportType("post");
+    setReportDialogOpen(true);
+  }, []);
+
+  const submitReport = () => {
+    if (reportType && reportedPost) {
+      toast({
+        title: "Denúncia enviada",
+        description: `Obrigado por denunciar este ${reportType === "user" ? "usuário" : "post"}. Nós analisaremos em breve.`,
+      });
+      setReportDialogOpen(false);
+      setReportType(null);
+      setReportedPost(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-6 text-sm text-muted-foreground">Carregando...</div>
