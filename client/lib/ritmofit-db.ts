@@ -778,6 +778,36 @@ export async function getDietsDb(): Promise<Diet[]> {
   }));
 }
 
+export type Habit = {
+  id: string;
+  name: string;
+  description: string;
+  photo: string | null;
+};
+
+export async function getHabitsDb(): Promise<Habit[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("habits")
+    .select("id, name, description, photo")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching habits [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    description: String(row.description ?? ""),
+    photo: row.photo ? String(row.photo) : null,
+  }));
+}
+
 export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
