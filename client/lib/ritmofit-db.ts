@@ -134,6 +134,9 @@ export async function togglePostIncentiveDb(
       user_id: viewer.id,
       type: incentiveType,
     });
+
+    // Award 1 point for interacting with a post
+    await addPointsDb(1);
   }
 }
 
