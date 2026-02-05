@@ -43,6 +43,9 @@ export default function Goals() {
   const [selectingGoalId, setSelectingGoalId] = React.useState<string | null>(
     null,
   );
+  const [expandedRoutineType, setExpandedRoutineType] = React.useState<
+    number | null
+  >(null);
 
   // Load all data on mount
   React.useEffect(() => {
