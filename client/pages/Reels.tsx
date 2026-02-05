@@ -324,30 +324,11 @@ export default function Reels() {
                 {/* Incentive Buttons - Right Side */}
                 <div className="absolute right-4 bottom-24 flex flex-col gap-4 z-20">
                   {([1, 2, 3] as PostIncentiveType[]).map((type) => (
-                    <div key={type} className="flex flex-col items-center">
-                      <PostIncentiveButton
-                        type={type}
-                        count={
-                          (reel.likes || {
-                            apoio: 0,
-                            continua: 0,
-                            ganhador: 0,
-                          })[
-                            type === 1
-                              ? "apoio"
-                              : type === 2
-                                ? "continua"
-                                : "ganhador"
-                          ] || 0
-                        }
-                        isActive={
-                          (reel.userLikes || [])?.includes(type) ?? false
-                        }
-                        onClick={() => handleIncentiveClick(reel, type)}
-                        loading={togglingReelId === reel.id}
-                      />
-                      <p className="text-xs text-white mt-1 drop-shadow-sm">
-                        {(reel.likes || {
+                    <PostIncentiveButton
+                      key={type}
+                      type={type}
+                      count={
+                        (reel.likes || {
                           apoio: 0,
                           continua: 0,
                           ganhador: 0,
@@ -357,9 +338,12 @@ export default function Reels() {
                             : type === 2
                               ? "continua"
                               : "ganhador"
-                        ] || 0}
-                      </p>
-                    </div>
+                        ] || 0
+                      }
+                      isActive={(reel.userLikes || [])?.includes(type) ?? false}
+                      onClick={() => handleIncentiveClick(reel, type)}
+                      loading={togglingReelId === reel.id}
+                    />
                   ))}
 
                   {/* Comments Button */}
