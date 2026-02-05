@@ -214,6 +214,9 @@ export async function addPostCommentDb(postId: string, text: string) {
     console.error("Error adding comment:", error);
     throw error;
   }
+
+  // Award 1 point for commenting on a post
+  await addPointsDb(1);
 }
 
 export async function getPostCommentsDb(
