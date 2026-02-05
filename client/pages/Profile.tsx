@@ -57,13 +57,18 @@ import {
   Tag,
   Settings,
   LogOut,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
+import { useTheme } from "next-themes";
 
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const isDark = (resolvedTheme ?? theme) === "dark";
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
 
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
@@ -766,6 +771,19 @@ export default function Profile() {
                   </DialogHeader>
 
                   <div className="space-y-3">
+                    <Button
+                      onClick={() => setTheme(isDark ? "light" : "dark")}
+                      variant="outline"
+                      className="w-full rounded-full gap-2"
+                    >
+                      {isDark ? (
+                        <Sun className="h-4 w-4" />
+                      ) : (
+                        <Moon className="h-4 w-4" />
+                      )}
+                      {isDark ? "Modo Claro" : "Modo Noturno"}
+                    </Button>
+
                     <Button
                       onClick={handleLogout}
                       variant="destructive"
