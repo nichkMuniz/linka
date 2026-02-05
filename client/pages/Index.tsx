@@ -221,7 +221,7 @@ export default function Index() {
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-4">
       {/* Stories Carousel */}
-      <div className="bg-background border-b border-border/60 -mx-4 px-0">
+      <div className="bg-background border-b border-border/60">
         <StoriesCarousel
           stories={stories}
           onAddStoryClick={handleAddStoryClick}
