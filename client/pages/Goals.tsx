@@ -63,7 +63,9 @@ export default function Goals() {
     UserWorkoutWithDetails[]
   >([]);
   const [userDiets, setUserDiets] = React.useState<UserDietWithDetails[]>([]);
-  const [userHabits, setUserHabits] = React.useState<UserHabitWithDetails[]>([]);
+  const [userHabits, setUserHabits] = React.useState<UserHabitWithDetails[]>(
+    [],
+  );
 
   // Ranking tab state
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
@@ -337,7 +339,9 @@ export default function Goals() {
                     key={goal.id}
                     className="border-border/60 hover:border-border/80 transition-all cursor-pointer flex flex-col overflow-hidden"
                   >
-                    <div className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold`}>
+                    <div
+                      className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold`}
+                    >
                       {goalTypeLabel}
                     </div>
                     <CardHeader className="pb-2 pt-2">
@@ -442,18 +446,15 @@ export default function Goals() {
                           let items: any[] = [];
                           if (typeCode === 1) {
                             items = userWorkouts.filter(
-                              (w) =>
-                                String(w.id) === routine.program_id,
+                              (w) => String(w.id) === routine.program_id,
                             );
                           } else if (typeCode === 2) {
                             items = userDiets.filter(
-                              (d) =>
-                                String(d.id) === routine.program_id,
+                              (d) => String(d.id) === routine.program_id,
                             );
                           } else if (typeCode === 3) {
                             items = userHabits.filter(
-                              (h) =>
-                                String(h.id) === routine.program_id,
+                              (h) => String(h.id) === routine.program_id,
                             );
                           }
 
@@ -478,8 +479,8 @@ export default function Goals() {
                                               className="text-xs bg-muted/30 p-2 rounded"
                                             >
                                               <p className="font-medium">
-                                                {(workout.workouts as any)?.name ||
-                                                  "Exercício"}
+                                                {(workout.workouts as any)
+                                                  ?.name || "Exercício"}
                                               </p>
                                             </div>
                                           ))}
@@ -528,7 +529,8 @@ export default function Goals() {
                                           </p>
                                           {(diet.diets as any)?.calories && (
                                             <p className="text-xs text-muted-foreground">
-                                              {(diet.diets as any)?.calories} cal
+                                              {(diet.diets as any)?.calories}{" "}
+                                              cal
                                             </p>
                                           )}
                                         </div>
@@ -611,10 +613,7 @@ export default function Goals() {
                         : "";
 
                 return (
-                  <Card
-                    key={user.userId}
-                    className="border-border/60"
-                  >
+                  <Card key={user.userId} className="border-border/60">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-4">
                         <div className="flex-shrink-0 w-12 text-center">
@@ -718,9 +717,7 @@ export default function Goals() {
                           <Input
                             type="number"
                             placeholder="0"
-                            value={
-                              exerciseFormData[workout.id]?.series || ""
-                            }
+                            value={exerciseFormData[workout.id]?.series || ""}
                             onChange={(e) =>
                               setExerciseFormData({
                                 ...exerciseFormData,
@@ -740,9 +737,7 @@ export default function Goals() {
                           <Input
                             type="number"
                             placeholder="0"
-                            value={
-                              exerciseFormData[workout.id]?.weight || ""
-                            }
+                            value={exerciseFormData[workout.id]?.weight || ""}
                             onChange={(e) =>
                               setExerciseFormData({
                                 ...exerciseFormData,
