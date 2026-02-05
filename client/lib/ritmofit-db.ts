@@ -2252,25 +2252,26 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
 
     // Build final reel objects
     const reelsWithUserData: ReelWithUser[] = (reelsData ?? []).map((reel: any) => {
-      const userProfile = profileMap.get(reel.user_id) || { nickname: "Usuário", photo: null };
+      const userProfile = profileMap.get(String(reel.user_id)) || { nickname: "Usuário", photo: null };
       const likeData = likesMap.get(String(reel.id)) || {
         likes: { apoio: 0, continua: 0, ganhador: 0 },
         userLikes: [],
       };
 
       return {
-        id: String(reel.id),
-        user_id: String(reel.user_id),
+        id: String(reel.id ?? ""),
+        user_id: String(reel.user_id ?? ""),
         video_url: String(reel.video_url ?? ""),
         description: String(reel.description ?? ""),
-        created_at: String(reel.created_at),
+        created_at: String(reel.created_at ?? new Date().toISOString()),
         likes: likeData.likes,
         userLikes: likeData.userLikes,
-        userNickname: String(userProfile.nickname),
+        userNickname: String(userProfile.nickname ?? "Usuário"),
         userPhoto: userProfile.photo ? String(userProfile.photo) : null,
       };
     });
 
+    console.log("[getReelsDb] Returning reels:", reelsWithUserData.length);
     return reelsWithUserData;
   } catch (err: any) {
     console.error("Error getting reels:", err);
