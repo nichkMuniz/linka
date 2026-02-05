@@ -5,18 +5,6 @@ import { useTheme } from "next-themes";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  searchUsersDb,
-  searchUserWorkoutsDb,
-  searchUserDietsDb,
-  type SearchUser,
-  type SearchWorkout,
-  type SearchDiet,
-} from "@/lib/ritmofit-db";
 
 type NavItem = {
   to: string;
