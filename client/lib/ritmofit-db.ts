@@ -1608,27 +1608,36 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
 export async function getAllUsersDb(excludeUserId?: string): Promise<SearchUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
-  let query = supabase.from("profiles").select("id, display_name, bio, avatar_url");
+  try {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, display_name, bio, avatar_url")
+      .order("display_name", { ascending: true });
 
-  if (excludeUserId) {
-    query = query.neq("id", excludeUserId);
-  }
+    if (error) {
+      const errorMsg = error?.message || String(error);
+      const errorCode = error?.code || "UNKNOWN";
+      console.error(`Error fetching all users [${errorCode}]:`, errorMsg);
+      return [];
+    }
 
-  const { data, error } = await query.order("display_name", { ascending: true });
+    const allUsers = (data ?? []).map((row: any) => ({
+      id: String(row.id ?? ""),
+      nickname: String(row.display_name ?? "Usuário"),
+      bio: row.bio ? String(row.bio) : undefined,
+      photo: row.avatar_url ? String(row.avatar_url) : null,
+    }));
 
-  if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    console.error(`Error fetching all users [${errorCode}]:`, errorMsg);
+    // Filter out the current user if excludeUserId is provided
+    if (excludeUserId) {
+      return allUsers.filter((user) => user.id !== excludeUserId);
+    }
+
+    return allUsers;
+  } catch (err: any) {
+    console.error("Error fetching all users:", err);
     return [];
   }
-
-  return (data ?? []).map((row: any) => ({
-    id: String(row.id ?? ""),
-    nickname: String(row.display_name ?? "Usuário"),
-    bio: row.bio ? String(row.bio) : undefined,
-    photo: row.avatar_url ? String(row.avatar_url) : null,
-  }));
 }
 
 export async function followUserDb(followingId: string): Promise<boolean> {
