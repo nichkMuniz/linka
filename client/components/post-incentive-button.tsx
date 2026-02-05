@@ -60,16 +60,14 @@ export function PostIncentiveButton({
           <motion.button
             type="button"
             disabled={loading}
-            aria-label={config.label}
+            aria-label={`${config.label} (${count})`}
             onClick={onClick}
-            whileHover={{ scale: 1.08 }}
-            whileTap={{ scale: 0.92 }}
+            whileHover={{ scale: 1.12 }}
+            whileTap={{ scale: 0.9 }}
             className={cn(
-              "relative inline-flex shrink-0 items-center justify-center rounded-lg p-2 transition-colors",
-              "border border-border/50 bg-background/80 backdrop-blur",
-              "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
-              shouldHighlight && "border-current bg-muted/80",
+              "inline-flex shrink-0 items-center gap-1 transition-opacity",
               loading && "opacity-50 cursor-not-allowed",
+              "hover:opacity-80",
             )}
           >
             <Icon
@@ -82,22 +80,14 @@ export function PostIncentiveButton({
               )}
             />
             {count > 0 && (
-              <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className={cn(
-                  "absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold",
-                  shouldHighlight &&
-                    cn("bg-current text-background", config.iconClassName),
-                )}
-              >
+              <span className="text-xs text-muted-foreground font-medium">
                 {count > 99 ? "99+" : count}
-              </motion.span>
+              </span>
             )}
           </motion.button>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs">
-          {config.label}
+          {config.label} ({count})
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
