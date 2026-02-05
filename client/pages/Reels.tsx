@@ -22,6 +22,7 @@ import {
 } from "@/lib/ritmofit-db";
 import { MessageCircle, Send, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 
 export default function Reels() {
   const { user } = useAuth();
