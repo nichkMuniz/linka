@@ -387,7 +387,7 @@ export default function Index() {
                 )}
 
                 <p className="text-xs text-muted-foreground pt-1">
-                  {new Date(post.created_at).toLocaleString()}
+                  {formatTimeAgo(post.created_at)}
                 </p>
               </div>
             </CardContent>
