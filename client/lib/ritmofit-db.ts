@@ -102,6 +102,7 @@ export type PostWithLikes = {
   photo: string;
   created_at: string;
   user_id: string;
+  user_goal_id?: string | null;
   likes: PostLikeStats;
   userLikes: PostIncentiveType[]; // Types the current user has liked with
 };
