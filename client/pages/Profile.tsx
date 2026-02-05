@@ -1058,8 +1058,13 @@ export default function Profile() {
                           <p className="text-xs text-muted-foreground">
                             {routinesOfType.length} rotina
                             {routinesOfType.length > 1 ? "s" : ""} ·{" "}
-                            {workoutsOfType.length} exercício
-                            {workoutsOfType.length > 1 ? "s" : ""}
+                            {itemsOfType.length}{" "}
+                            {typeCode === 1
+                              ? "exercício"
+                              : typeCode === 2
+                                ? "alimento"
+                                : "hábito"}
+                            {itemsOfType.length !== 1 ? "s" : ""}
                           </p>
                         </div>
                       </button>
