@@ -385,6 +385,8 @@ export default function Index() {
                     postId={post.id}
                     commentCount={post.commentCount}
                     hasActivity={post.hasActivity}
+                    isPostOwner={post.user_id === user?.id}
+                    hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0}
                   />
                 </div>
 
