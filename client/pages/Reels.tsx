@@ -284,6 +284,8 @@ export default function Reels() {
                     src={reel.video_url}
                     autoPlay={isVisible}
                     muted={isVisible}
+                    loop
+                    playsInline
                     className="h-full w-full object-cover"
                   />
                 ) : (
