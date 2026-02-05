@@ -1197,19 +1197,25 @@ export default function Profile() {
 
                     {isExpanded && (
                       <div className="border-t border-border/60 p-4 space-y-3 bg-muted/20">
-                        {workoutsOfType.length > 0 ? (
+                        {itemsOfType.length > 0 ? (
                           <div className="space-y-3">
-                            {workoutsOfType.map((workout) => (
+                            {itemsOfType.map((item) => (
                               <Card
-                                key={workout.id}
+                                key={item.id}
                                 className="border-border/60 bg-background"
                               >
                                 <CardContent className="p-4">
                                   <div className="flex items-start gap-3">
-                                    {workout.workoutPhoto ? (
+                                    {typeCode === 1 && item.workoutPhoto ? (
                                       <img
-                                        src={workout.workoutPhoto}
-                                        alt={workout.workoutName}
+                                        src={item.workoutPhoto}
+                                        alt={item.workoutName}
+                                        className="h-12 w-12 rounded object-cover flex-shrink-0"
+                                      />
+                                    ) : typeCode === 2 && item.dietPhoto ? (
+                                      <img
+                                        src={item.dietPhoto}
+                                        alt={item.dietName}
                                         className="h-12 w-12 rounded object-cover flex-shrink-0"
                                       />
                                     ) : (
@@ -1217,26 +1223,51 @@ export default function Profile() {
                                     )}
                                     <div className="flex-1 min-w-0">
                                       <p className="font-medium text-sm">
-                                        {workout.workoutName}
+                                        {typeCode === 1
+                                          ? item.workoutName
+                                          : item.dietName}
                                       </p>
-                                      {workout.workoutDescription && (
+                                      {typeCode === 1 && item.workoutDescription && (
                                         <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                          {workout.workoutDescription}
+                                          {item.workoutDescription}
+                                        </p>
+                                      )}
+                                      {typeCode === 2 && item.dietDescription && (
+                                        <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                          {item.dietDescription}
                                         </p>
                                       )}
                                       <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
-                                        {workout.series && (
-                                          <span>Séries: {workout.series}</span>
+                                        {typeCode === 1 && (
+                                          <>
+                                            {item.series && (
+                                              <span>Séries: {item.series}</span>
+                                            )}
+                                            {item.duration && (
+                                              <span>
+                                                Duração: {item.duration}min
+                                              </span>
+                                            )}
+                                            {item.volume && (
+                                              <span>
+                                                Volume: {item.volume}kg
+                                              </span>
+                                            )}
+                                          </>
                                         )}
-                                        {workout.duration && (
-                                          <span>
-                                            Duração: {workout.duration}min
-                                          </span>
-                                        )}
-                                        {workout.volume && (
-                                          <span>
-                                            Volume: {workout.volume}kg
-                                          </span>
+                                        {typeCode === 2 && (
+                                          <>
+                                            {item.dietCalories && (
+                                              <span>
+                                                {item.dietCalories} cal
+                                              </span>
+                                            )}
+                                            {item.calories && (
+                                              <span>
+                                                Total: {item.calories} cal
+                                              </span>
+                                            )}
+                                          </>
                                         )}
                                       </div>
                                     </div>
@@ -1247,7 +1278,13 @@ export default function Profile() {
                           </div>
                         ) : (
                           <p className="text-sm text-muted-foreground text-center py-4">
-                            Nenhum exercício vinculado
+                            Nenhum{" "}
+                            {typeCode === 1
+                              ? "exercício"
+                              : typeCode === 2
+                                ? "alimento"
+                                : "hábito"}{" "}
+                            vinculado
                           </p>
                         )}
                       </div>
