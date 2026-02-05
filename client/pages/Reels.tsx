@@ -349,9 +349,9 @@ export default function Reels() {
                   {/* Comments Button */}
                   <button
                     onClick={() => handleOpenComments(reel)}
-                    className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/10 transition-colors z-20"
+                    className="flex items-center justify-center transition-opacity hover:opacity-80"
                   >
-                    <MessageCircle className="h-6 w-6 text-white" />
+                    <MessageCircle className="h-7 w-7 text-white" />
                   </button>
                 </div>
               </div>
