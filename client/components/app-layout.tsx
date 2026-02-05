@@ -1,10 +1,20 @@
 import { cn } from "@/lib/utils";
-import { Home, PlusSquare, Dumbbell, Moon, Sun, User, Search } from "lucide-react";
+import {
+  Home,
+  PlusSquare,
+  Dumbbell,
+  Moon,
+  Sun,
+  User,
+  Search,
+  Mail,
+} from "lucide-react";
 import * as React from "react";
 import { useTheme } from "next-themes";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { getUnreadMessageCountDb } from "@/lib/ritmofit-db";
 
 type NavItem = {
   to: string;
@@ -50,6 +60,24 @@ export function AppLayout() {
   const isDark = (resolvedTheme ?? theme) === "dark";
 
   const [headerHidden, setHeaderHidden] = React.useState(false);
+  const [unreadCount, setUnreadCount] = React.useState(0);
+
+  React.useEffect(() => {
+    const loadUnreadCount = async () => {
+      try {
+        const count = await getUnreadMessageCountDb();
+        setUnreadCount(count);
+      } catch (err) {
+        console.error("Error loading unread message count:", err);
+      }
+    };
+
+    loadUnreadCount();
+
+    // Poll for new messages every 30 seconds
+    const interval = setInterval(loadUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   React.useEffect(() => {
     let lastY = window.scrollY;
@@ -110,6 +138,23 @@ export function AppLayout() {
           </Link>
 
           <div className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 lg:hidden">
+            <Link to="/mensagens">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-11 w-11 rounded-full relative"
+                aria-label="Mensagens"
+              >
+                <Mail className="h-5 w-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-xs font-semibold">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </Button>
+            </Link>
+
             <Link to="/buscar">
               <Button
                 type="button"
@@ -161,6 +206,23 @@ export function AppLayout() {
           </nav>
 
           <div className="hidden justify-end lg:flex lg:items-center lg:gap-2">
+            <Link to="/mensagens">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-11 w-11 rounded-full relative"
+                aria-label="Mensagens"
+              >
+                <Mail className="h-5 w-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-xs font-semibold">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </Button>
+            </Link>
+
             <Link to="/buscar">
               <Button
                 type="button"
