@@ -133,11 +133,33 @@ export function AppLayout() {
             : "translate-y-0",
         )}
       >
-        <div className="relative mx-auto flex h-16 w-full max-w-6xl items-center justify-center gap-4 px-4 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-stretch">
+        <div className="relative mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-4 lg:grid lg:grid-cols-[auto_1fr_auto] lg:justify-stretch">
+          {/* Left: Profile Avatar */}
+          <Link
+            to="/perfil"
+            aria-label="Perfil"
+            className="flex-shrink-0 rounded-full hover:opacity-80 transition"
+          >
+            {profilePhoto ? (
+              <img
+                src={profilePhoto}
+                alt="Seu Perfil"
+                className="h-10 w-10 rounded-full object-cover border-2 border-border/60"
+              />
+            ) : (
+              <div className="h-10 w-10 rounded-full bg-muted border-2 border-border/60 flex items-center justify-center">
+                <span className="text-xs font-semibold text-muted-foreground">
+                  Você
+                </span>
+              </div>
+            )}
+          </Link>
+
+          {/* Center: Brand (visible on mobile and desktop) */}
           <Link
             to="/"
             aria-label="Ir para Home"
-            className="flex items-center gap-3 rounded-2xl px-2 py-1 transition hover:bg-muted/50 lg:justify-start"
+            className="hidden lg:flex items-center gap-3 rounded-2xl px-2 py-1 transition hover:bg-muted/50 justify-center"
           >
             <BrandMark />
             <div className="leading-tight">
@@ -153,7 +175,17 @@ export function AppLayout() {
             </div>
           </Link>
 
-          <div className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 lg:hidden">
+          {/* Mobile Brand - smaller */}
+          <Link
+            to="/"
+            aria-label="Ir para Home"
+            className="lg:hidden flex items-center gap-2 rounded-2xl px-2 py-1 transition hover:bg-muted/50"
+          >
+            <BrandMark className="h-8 w-8" />
+          </Link>
+
+          {/* Right: Messages, Search, and other icons */}
+          <div className="flex items-center gap-1">
             <Link to="/mensagens">
               <Button
                 type="button"
