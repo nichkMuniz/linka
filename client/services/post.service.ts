@@ -1,4 +1,4 @@
-import { supabase, hasSupabaseConfig } from "@/lib/supabase";
+import { supabase, hasSupabaseConfig, getUserSafe } from "@/lib/supabase";
 import {
   getPostLikesDb,
   getUserPostLikesDb,
@@ -28,13 +28,20 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
   if (!hasSupabaseConfig || !supabase)
     throw new Error("Supabase não configurado");
 
+  // Get the current user
+  const currentUser = await getUserSafe();
+  if (!currentUser) throw new Error("Usuário não autenticado");
+
   // Get the list of users the current user follows
   const followingIds = await getFollowingIdsDb();
+
+  // Include current user's own posts + posts from followed users
+  const userIdsToShow = [currentUser.id, ...followingIds];
 
   const { data, error } = await supabase
     .from("posts")
     .select("*")
-    .in("user_id", followingIds.length > 0 ? followingIds : [""])
+    .in("user_id", userIdsToShow)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
