@@ -51,6 +51,7 @@ export function AppLayout() {
   const isDark = (resolvedTheme ?? theme) === "dark";
 
   const [headerHidden, setHeaderHidden] = React.useState(false);
+  const [searchOpen, setSearchOpen] = React.useState(false);
 
   React.useEffect(() => {
     let lastY = window.scrollY;
