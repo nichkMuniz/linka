@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Trophy, TrendingUp } from "lucide-react";
+import { Trophy, TrendingUp, ChevronDown } from "lucide-react";
 
 export default function Goals() {
   const navigate = useNavigate();
