@@ -183,76 +183,87 @@ export default function Reels() {
 
       {reels.length > 0 ? (
         <div className="space-y-4">
-          {reels.map((reel) => (
-            <Card
-              key={reel.id}
-              className="overflow-hidden border-border/60 hover:bg-muted/30 transition-colors"
-            >
-              <CardContent className="p-0">
-                {/* Video */}
-                <div className="relative aspect-square overflow-hidden bg-muted">
-                  <video
-                    src={reel.video_url}
-                    controls
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-
-                {/* User Info and Description */}
-                <div className="p-4 space-y-3">
-                  {/* User */}
-                  <div className="flex items-center gap-3">
-                    {reel.userPhoto && (
-                      <img
-                        src={reel.userPhoto}
-                        alt={reel.userNickname}
-                        className="h-10 w-10 rounded-full object-cover"
+          {reels.map((reel) => {
+            if (!reel || !reel.id) return null;
+            return (
+              <Card
+                key={reel.id}
+                className="overflow-hidden border-border/60 hover:bg-muted/30 transition-colors"
+              >
+                <CardContent className="p-0">
+                  {/* Video */}
+                  <div className="relative aspect-square overflow-hidden bg-muted">
+                    {reel.video_url ? (
+                      <video
+                        src={reel.video_url}
+                        controls
+                        className="h-full w-full object-cover"
                       />
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-muted-foreground">
+                        Vídeo indisponível
+                      </div>
                     )}
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{reel.userNickname}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(reel.created_at).toLocaleDateString("pt-BR")}
+                  </div>
+
+                  {/* User Info and Description */}
+                  <div className="p-4 space-y-3">
+                    {/* User */}
+                    <div className="flex items-center gap-3">
+                      {reel.userPhoto && (
+                        <img
+                          src={reel.userPhoto}
+                          alt={reel.userNickname || "Usuário"}
+                          className="h-10 w-10 rounded-full object-cover"
+                        />
+                      )}
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">
+                          {reel.userNickname || "Usuário"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {reel.created_at ? new Date(reel.created_at).toLocaleDateString("pt-BR") : ""}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    {reel.description && (
+                      <p className="text-sm text-foreground">
+                        {reel.description}
                       </p>
+                    )}
+
+                    {/* Incentives and Actions */}
+                    <div className="flex items-center gap-2 pt-2">
+                      <PostIncentiveButton
+                        postId={reel.id}
+                        likes={reel.likes || { apoio: 0, continua: 0, ganhador: 0 }}
+                        userLikes={reel.userLikes || []}
+                        onIncentiveClick={(type) =>
+                          handleIncentiveClick(reel, type)
+                        }
+                        isTogglingId={togglingReelId}
+                      />
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-full"
+                        onClick={() => handleOpenComments(reel)}
+                      >
+                        <MessageCircle className="h-4 w-4" />
+                        <span className="ml-1 text-xs">
+                          {selectedReel?.id === reel.id && comments?.length ? comments.length : ""}
+                        </span>
+                      </Button>
                     </div>
                   </div>
-
-                  {/* Description */}
-                  {reel.description && (
-                    <p className="text-sm text-foreground">
-                      {reel.description}
-                    </p>
-                  )}
-
-                  {/* Incentives and Actions */}
-                  <div className="flex items-center gap-2 pt-2">
-                    <PostIncentiveButton
-                      postId={reel.id}
-                      likes={reel.likes}
-                      userLikes={reel.userLikes}
-                      onIncentiveClick={(type) =>
-                        handleIncentiveClick(reel, type)
-                      }
-                      isTogglingId={togglingReelId}
-                    />
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="rounded-full"
-                      onClick={() => handleOpenComments(reel)}
-                    >
-                      <MessageCircle className="h-4 w-4" />
-                      <span className="ml-1 text-xs">
-                        {comments.length > 0 ? comments.length : ""}
-                      </span>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       ) : (
         <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
