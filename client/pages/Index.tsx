@@ -420,35 +420,59 @@ export default function Index() {
       />
 
       {/* Goal Progress Modal */}
-      <Dialog open={goalModalOpen} onOpenChange={setGoalModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Progresso da Meta</DialogTitle>
-          </DialogHeader>
-
+      <Drawer open={goalModalOpen} onOpenChange={setGoalModalOpen}>
+        <DrawerContent className="max-h-[70vh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Progresso da Meta</DrawerTitle>
+          </DrawerHeader>
+          <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
           {selectedGoalPost?.userGoal && (
-            <div className="space-y-4">
+            <div className="space-y-4 overflow-y-auto flex-1">
               {/* Goal Info */}
-              <div className="p-4 border border-border/60 rounded-lg bg-muted/30">
-                <p className="text-sm font-medium mb-3">
-                  {selectedGoalPost.userGoal.description}
-                </p>
+              <div className="p-4 border border-border/60 rounded-lg bg-muted/30 space-y-3">
+                <div>
+                  <p className="text-lg font-bold">
+                    {selectedGoalPost.userGoal.description}
+                  </p>
+                </div>
 
                 {/* Progress Bar */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Progresso</span>
-                    <span className="font-medium">
-                      {selectedGoalPost.userGoal.perc}%
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-foreground">Progresso</span>
+                    <span className="text-lg font-bold text-brand">
+                      {Math.round(selectedGoalPost.userGoal.perc)}%
                     </span>
                   </div>
-                  <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                  <div className="w-full bg-muted rounded-full h-5 overflow-hidden">
                     <div
                       className="bg-brand h-full rounded-full transition-all duration-300"
                       style={{
                         width: `${selectedGoalPost.userGoal.perc}%`,
                       }}
                     />
+                  </div>
+                </div>
+
+                {/* Goal Details */}
+                <div className="grid grid-cols-3 gap-3 pt-2">
+                  <div className="p-2 bg-background/50 rounded text-center">
+                    <p className="text-xs text-muted-foreground">Duração</p>
+                    <p className="text-sm font-bold">{selectedGoalPost.userGoal.duration}d</p>
+                  </div>
+                  <div className="p-2 bg-background/50 rounded text-center">
+                    <p className="text-xs text-muted-foreground">Quantidade</p>
+                    <p className="text-sm font-bold">{selectedGoalPost.userGoal.quantity}</p>
+                  </div>
+                  <div className="p-2 bg-background/50 rounded text-center">
+                    <p className="text-xs text-muted-foreground">Tipo</p>
+                    <p className="text-sm font-bold">
+                      {selectedGoalPost.userGoal.type_goal === 1
+                        ? "📅"
+                        : selectedGoalPost.userGoal.type_goal === 2
+                          ? "🏃"
+                          : "📊"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -459,14 +483,14 @@ export default function Index() {
                 disabled={
                   isUpdatingGoal || selectedGoalPost.userGoal.perc >= 100
                 }
-                className="w-full rounded-full gap-2"
+                className="w-full rounded-full gap-2 shrink-0"
               >
                 <Check className="h-4 w-4" />
                 {isUpdatingGoal
                   ? "Atualizando..."
                   : selectedGoalPost.userGoal.perc >= 100
                     ? "Meta Completa!"
-                    : "Incrementar Progresso (+1%)"}
+                    : "Atualizar Progresso"}
               </Button>
 
               {/* Linked Routines Dropdown */}
@@ -508,8 +532,9 @@ export default function Index() {
               )}
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+          </div>
+        </DrawerContent>
+      </Drawer>
 
       {/* Report Dialog */}
       <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
