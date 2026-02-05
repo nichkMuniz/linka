@@ -63,6 +63,8 @@ import { useNavigate } from "react-router-dom";
 
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+  const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
 
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [posts, setPosts] = React.useState<PostWithUser[]>([]);
