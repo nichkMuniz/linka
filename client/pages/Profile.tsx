@@ -1014,9 +1014,25 @@ export default function Profile() {
                 if (routinesOfType.length === 0) return null;
 
                 const isExpanded = expandedRoutineType === typeCode;
-                const workoutsOfType = userWorkouts.filter((uw) =>
-                  routinesOfType.some((r) => String(r.program_id) === uw.id),
-                );
+
+                // Get items based on routine type
+                let itemsOfType: any[] = [];
+                const typeName = getRoutineTypeName(typeCode);
+
+                if (typeCode === 1) {
+                  // Exercises
+                  itemsOfType = userWorkouts.filter((uw) =>
+                    routinesOfType.some((r) => String(r.program_id) === uw.id),
+                  );
+                } else if (typeCode === 2) {
+                  // Diets
+                  itemsOfType = userDiets.filter((ud) =>
+                    routinesOfType.some((r) => String(r.program_id) === ud.id),
+                  );
+                } else if (typeCode === 3) {
+                  // Habits - placeholder for future implementation
+                  itemsOfType = [];
+                }
 
                 return (
                   <div
