@@ -869,6 +869,109 @@ export default function Profile() {
                     </div>
                   )}
                 </>
+              ) : selectedRoutineType === 2 ? (
+                <>
+                  <DialogHeader>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-fit"
+                      onClick={() => setSelectedRoutineType(null)}
+                    >
+                      <ArrowLeft className="h-4 w-4 mr-2" />
+                      Voltar
+                    </Button>
+                    <DialogTitle>Selecione uma ou mais Dietas</DialogTitle>
+                  </DialogHeader>
+
+                  {dietsLoading ? (
+                    <div className="text-center py-6 text-sm text-muted-foreground">
+                      Carregando dietas...
+                    </div>
+                  ) : diets.length > 0 ? (
+                    <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                      {diets.map((diet) => {
+                        const isSelected = selectedDietIds.has(diet.id);
+                        return (
+                          <button
+                            key={diet.id}
+                            onClick={() => {
+                              const newSelected = new Set(selectedDietIds);
+                              if (isSelected) {
+                                newSelected.delete(diet.id);
+                              } else {
+                                newSelected.add(diet.id);
+                              }
+                              setSelectedDietIds(newSelected);
+                            }}
+                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${
+                              isSelected
+                                ? "border-brand bg-brand/5"
+                                : "border-border/60 hover:border-border/80 hover:bg-muted/50"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              {diet.photo ? (
+                                <img
+                                  src={diet.photo}
+                                  alt={diet.name}
+                                  className="h-16 w-16 rounded object-cover flex-shrink-0"
+                                />
+                              ) : (
+                                <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p
+                                  className={`font-medium transition-colors ${
+                                    isSelected
+                                      ? "text-brand"
+                                      : "group-hover:text-brand"
+                                  }`}
+                                >
+                                  {diet.name}
+                                </p>
+                                <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                                  {diet.description && (
+                                    <p className="line-clamp-2">
+                                      {diet.description}
+                                    </p>
+                                  )}
+                                  <p className="font-medium text-brand/80">
+                                    {diet.calories} cal
+                                  </p>
+                                </div>
+                              </div>
+                              {isSelected && (
+                                <div className="shrink-0 mt-1">
+                                  <Check className="h-5 w-5 text-brand" />
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-sm text-muted-foreground">
+                      Nenhuma dieta disponível.
+                    </div>
+                  )}
+
+                  {/* Floating Save Button */}
+                  {selectedDietIds.size > 0 && (
+                    <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
+                      <Button
+                        onClick={handleSaveDiets}
+                        disabled={isSavingDiets}
+                        className="w-full rounded-full"
+                      >
+                        {isSavingDiets
+                          ? "Salvando..."
+                          : `Salvar ${selectedDietIds.size} Dieta${selectedDietIds.size > 1 ? "s" : ""}`}
+                      </Button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   <DialogHeader>
