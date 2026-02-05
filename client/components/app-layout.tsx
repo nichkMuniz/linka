@@ -158,29 +158,12 @@ export function AppLayout() {
           <Link
             to="/"
             aria-label="Ir para Home"
-            className="hidden lg:flex items-center gap-3 rounded-2xl px-2 py-1 transition hover:bg-muted/50 justify-center"
+            className="flex items-center justify-center rounded-2xl px-3 py-1 transition hover:bg-muted/50"
           >
-            <BrandMark />
-            <div className="leading-tight">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold tracking-tight text-foreground">
-                  Ritmo
-                  <span className="text-brand">Fit</span>
-                </span>
-                <span className="rounded-full border border-border/60 bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                  MVP
-                </span>
-              </div>
-            </div>
-          </Link>
-
-          {/* Mobile Brand - smaller */}
-          <Link
-            to="/"
-            aria-label="Ir para Home"
-            className="lg:hidden flex items-center gap-2 rounded-2xl px-2 py-1 transition hover:bg-muted/50"
-          >
-            <BrandMark className="h-8 w-8" />
+            <span className="text-lg font-bold tracking-tight text-foreground">
+              Ritmo
+              <span className="text-brand">Fit</span>
+            </span>
           </Link>
 
           {/* Right: Messages, Search, and other icons */}
