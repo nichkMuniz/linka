@@ -1343,3 +1343,262 @@ export async function getUserHabitsDb(
     habitDescription: (row.habits as any)?.description || undefined,
   }));
 }
+
+// Search Functions
+
+export type SearchUser = {
+  id: string;
+  nickname: string;
+  bio?: string;
+  photo?: string | null;
+};
+
+export async function searchUsersDb(query: string): Promise<SearchUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  if (!query.trim()) return [];
+
+  const searchQuery = `%${query.toLowerCase()}%`;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, display_name, bio, avatar_url")
+    .ilike("display_name", searchQuery)
+    .limit(20);
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error searching users [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    nickname: String(row.display_name ?? "Usuário"),
+    bio: row.bio ? String(row.bio) : undefined,
+    photo: row.avatar_url ? String(row.avatar_url) : null,
+  }));
+}
+
+export type SearchWorkout = {
+  id: string;
+  userWorkoutId: string;
+  userId: string;
+  userName: string;
+  userPhoto?: string | null;
+  workoutName: string;
+  workoutDescription?: string;
+  workoutPhoto?: string | null;
+};
+
+export async function searchUserWorkoutsDb(
+  query: string,
+): Promise<SearchWorkout[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  if (!query.trim()) return [];
+
+  const searchQuery = `%${query.toLowerCase()}%`;
+
+  const { data, error } = await supabase
+    .from("user_workouts")
+    .select(
+      "id, user_id, workout_id, workouts(id, name, description, photo), profiles(display_name, avatar_url)",
+    )
+    .ilike("workouts.name", searchQuery)
+    .limit(20);
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    const errorDetails = error?.details || "";
+
+    if (errorDetails.includes("relationship")) {
+      // Fallback: fetch user workouts and fetch workout/profile details separately
+      const { data: dataFallback } = await supabase
+        .from("user_workouts")
+        .select("id, user_id, workout_id")
+        .limit(100);
+
+      if (dataFallback) {
+        const workoutIds = [...new Set(dataFallback.map((w: any) => w.workout_id))];
+        const userIds = [...new Set(dataFallback.map((w: any) => w.user_id))];
+
+        const workoutDetailsMap: { [key: string]: any } = {};
+        const profileDetailsMap: { [key: string]: any } = {};
+
+        if (workoutIds.length > 0) {
+          const { data: workoutsData } = await supabase
+            .from("workouts")
+            .select("id, name, description, photo")
+            .in("id", workoutIds);
+
+          if (workoutsData) {
+            workoutsData.forEach((w: any) => {
+              workoutDetailsMap[String(w.id)] = w;
+            });
+          }
+        }
+
+        if (userIds.length > 0) {
+          const { data: profilesData } = await supabase
+            .from("profiles")
+            .select("id, display_name, avatar_url")
+            .in("id", userIds);
+
+          if (profilesData) {
+            profilesData.forEach((p: any) => {
+              profileDetailsMap[String(p.id)] = p;
+            });
+          }
+        }
+
+        return (dataFallback ?? [])
+          .filter((row: any) => {
+            const workoutName = workoutDetailsMap[String(row.workout_id)]?.name || "";
+            return workoutName.toLowerCase().includes(query.toLowerCase());
+          })
+          .slice(0, 20)
+          .map((row: any) => {
+            const workout = workoutDetailsMap[String(row.workout_id)];
+            const profile = profileDetailsMap[String(row.user_id)];
+            return {
+              id: String(workout?.id ?? ""),
+              userWorkoutId: String(row.id ?? ""),
+              userId: String(row.user_id ?? ""),
+              userName: String(profile?.display_name ?? "Usuário"),
+              userPhoto: profile?.avatar_url || null,
+              workoutName: String(workout?.name ?? ""),
+              workoutDescription: workout?.description,
+              workoutPhoto: workout?.photo || null,
+            };
+          });
+      }
+    }
+
+    console.error(`Error searching workouts [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String((row.workouts as any)?.id ?? ""),
+    userWorkoutId: String(row.id ?? ""),
+    userId: String(row.user_id ?? ""),
+    userName: String((row.profiles as any)?.display_name ?? "Usuário"),
+    userPhoto: (row.profiles as any)?.avatar_url || null,
+    workoutName: String((row.workouts as any)?.name ?? ""),
+    workoutDescription: (row.workouts as any)?.description,
+    workoutPhoto: (row.workouts as any)?.photo || null,
+  }));
+}
+
+export type SearchDiet = {
+  id: string;
+  userDietId: string;
+  userId: string;
+  userName: string;
+  userPhoto?: string | null;
+  dietName: string;
+  dietDescription?: string;
+  dietPhoto?: string | null;
+  dietCalories?: number;
+};
+
+export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  if (!query.trim()) return [];
+
+  const searchQuery = `%${query.toLowerCase()}%`;
+
+  const { data, error } = await supabase
+    .from("user_diets")
+    .select(
+      "id, user_id, diet_id, diets(id, name, description, photo, calories), profiles(display_name, avatar_url)",
+    )
+    .ilike("diets.name", searchQuery)
+    .limit(20);
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    const errorDetails = error?.details || "";
+
+    if (errorDetails.includes("relationship")) {
+      // Fallback: fetch user diets and fetch diet/profile details separately
+      const { data: dataFallback } = await supabase
+        .from("user_diets")
+        .select("id, user_id, diet_id")
+        .limit(100);
+
+      if (dataFallback) {
+        const dietIds = [...new Set(dataFallback.map((d: any) => d.diet_id))];
+        const userIds = [...new Set(dataFallback.map((d: any) => d.user_id))];
+
+        const dietDetailsMap: { [key: string]: any } = {};
+        const profileDetailsMap: { [key: string]: any } = {};
+
+        if (dietIds.length > 0) {
+          const { data: dietsData } = await supabase
+            .from("diets")
+            .select("id, name, description, photo, calories")
+            .in("id", dietIds);
+
+          if (dietsData) {
+            dietsData.forEach((d: any) => {
+              dietDetailsMap[String(d.id)] = d;
+            });
+          }
+        }
+
+        if (userIds.length > 0) {
+          const { data: profilesData } = await supabase
+            .from("profiles")
+            .select("id, display_name, avatar_url")
+            .in("id", userIds);
+
+          if (profilesData) {
+            profilesData.forEach((p: any) => {
+              profileDetailsMap[String(p.id)] = p;
+            });
+          }
+        }
+
+        return (dataFallback ?? [])
+          .filter((row: any) => {
+            const dietName = dietDetailsMap[String(row.diet_id)]?.name || "";
+            return dietName.toLowerCase().includes(query.toLowerCase());
+          })
+          .slice(0, 20)
+          .map((row: any) => {
+            const diet = dietDetailsMap[String(row.diet_id)];
+            const profile = profileDetailsMap[String(row.user_id)];
+            return {
+              id: String(diet?.id ?? ""),
+              userDietId: String(row.id ?? ""),
+              userId: String(row.user_id ?? ""),
+              userName: String(profile?.display_name ?? "Usuário"),
+              userPhoto: profile?.avatar_url || null,
+              dietName: String(diet?.name ?? ""),
+              dietDescription: diet?.description,
+              dietPhoto: diet?.photo || null,
+              dietCalories: Number(diet?.calories ?? 0),
+            };
+          });
+      }
+    }
+
+    console.error(`Error searching diets [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String((row.diets as any)?.id ?? ""),
+    userDietId: String(row.id ?? ""),
+    userId: String(row.user_id ?? ""),
+    userName: String((row.profiles as any)?.display_name ?? "Usuário"),
+    userPhoto: (row.profiles as any)?.avatar_url || null,
+    dietName: String((row.diets as any)?.name ?? ""),
+    dietDescription: (row.diets as any)?.description,
+    dietPhoto: (row.diets as any)?.photo || null,
+    dietCalories: Number((row.diets as any)?.calories ?? 0),
+  }));
+}
