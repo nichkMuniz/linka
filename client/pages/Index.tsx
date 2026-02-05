@@ -42,7 +42,8 @@ export default function Index() {
   const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
   const [expandedRoutines, setExpandedRoutines] = React.useState(false);
   const [storyCreationOpen, setStoryCreationOpen] = React.useState(false);
-  const [selectedStory, setSelectedStory] = React.useState<StoryWithUser | null>(null);
+  const [selectedStory, setSelectedStory] =
+    React.useState<StoryWithUser | null>(null);
   const [storyViewerOpen, setStoryViewerOpen] = React.useState(false);
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
 

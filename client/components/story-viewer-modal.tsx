@@ -32,9 +32,12 @@ export function StoryViewerModal({
 
   if (!story) return null;
 
-  const isVideo = story.media_url?.includes(".mp4") ||
+  const isVideo =
+    story.media_url?.includes(".mp4") ||
     story.media_url?.includes(".webm") ||
-    story.media_url?.includes(".mov") || (story.media_url?.startsWith("data:") && story.media_url?.includes("video"));
+    story.media_url?.includes(".mov") ||
+    (story.media_url?.startsWith("data:") &&
+      story.media_url?.includes("video"));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

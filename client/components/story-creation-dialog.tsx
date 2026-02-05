@@ -34,7 +34,14 @@ export function StoryCreationDialog({
     if (!file) return;
 
     // Validate file type
-    const validTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4", "video/webm"];
+    const validTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "video/mp4",
+      "video/webm",
+    ];
     if (!validTypes.includes(file.type)) {
       toast({
         title: "Tipo de arquivo inválido",
@@ -123,7 +130,8 @@ export function StoryCreationDialog({
           {/* Media Preview or Upload Area */}
           {mediaPreview ? (
             <div className="relative">
-              {mediaPreview.includes("data:video") || mediaPreview.includes(".mp4") ? (
+              {mediaPreview.includes("data:video") ||
+              mediaPreview.includes(".mp4") ? (
                 <video
                   src={mediaPreview}
                   className="w-full rounded-lg max-h-64 object-contain bg-muted"
@@ -154,7 +162,9 @@ export function StoryCreationDialog({
             >
               <Upload className="h-8 w-8 text-muted-foreground" />
               <div className="text-center">
-                <p className="text-sm font-medium">Clique para selecionar mídia</p>
+                <p className="text-sm font-medium">
+                  Clique para selecionar mídia
+                </p>
                 <p className="text-xs text-muted-foreground">
                   Foto ou vídeo (máx. 50MB)
                 </p>

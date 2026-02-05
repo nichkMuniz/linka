@@ -51,7 +51,7 @@ async function ensureProfile(): Promise<DbProfile | null> {
     .upsert(
       {
         user_id: user.id,
-        nickname : nickname,
+        nickname: nickname,
         handle,
         photo: avatarUrl || null,
         updated_at: new Date().toISOString(),
@@ -1277,9 +1277,7 @@ export async function getUserHabitsDb(
 
   const { data, error } = await supabase
     .from("user_habits")
-    .select(
-      "id, habit_id, user_id, habits(name, photo, description)",
-    )
+    .select("id, habit_id, user_id, habits(name, photo, description)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -1420,7 +1418,9 @@ export async function searchUserWorkoutsDb(
         .limit(100);
 
       if (dataFallback) {
-        const workoutIds = [...new Set(dataFallback.map((w: any) => w.workout_id))];
+        const workoutIds = [
+          ...new Set(dataFallback.map((w: any) => w.workout_id)),
+        ];
         const userIds = [...new Set(dataFallback.map((w: any) => w.user_id))];
 
         const workoutDetailsMap: { [key: string]: any } = {};
@@ -1454,7 +1454,8 @@ export async function searchUserWorkoutsDb(
 
         return (dataFallback ?? [])
           .filter((row: any) => {
-            const workoutName = workoutDetailsMap[String(row.workout_id)]?.name || "";
+            const workoutName =
+              workoutDetailsMap[String(row.workout_id)]?.name || "";
             return workoutName.toLowerCase().includes(query.toLowerCase());
           })
           .slice(0, 20)
@@ -1605,7 +1606,9 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
 
 // Following Functions
 
-export async function getAllUsersDb(excludeUserId?: string): Promise<SearchUser[]> {
+export async function getAllUsersDb(
+  excludeUserId?: string,
+): Promise<SearchUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   try {
@@ -1744,7 +1747,9 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
   if (!viewer) return [];
 
   // Get stories from the last 24 hours
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const twentyFourHoursAgo = new Date(
+    Date.now() - 24 * 60 * 60 * 1000,
+  ).toISOString();
 
   try {
     // Get current user's following IDs
@@ -1820,7 +1825,9 @@ export async function deleteOldStoriesDb(): Promise<boolean> {
   if (!hasSupabaseConfig || !supabase) return false;
 
   try {
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const twentyFourHoursAgo = new Date(
+      Date.now() - 24 * 60 * 60 * 1000,
+    ).toISOString();
 
     const { error } = await supabase
       .from("storys")
