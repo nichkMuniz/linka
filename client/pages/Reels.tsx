@@ -1,5 +1,4 @@
 import * as React from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +28,7 @@ export default function Reels() {
   const navigate = useNavigate();
   const [reels, setReels] = React.useState<ReelWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [currentReelIndex, setCurrentReelIndex] = React.useState(0);
   const [togglingReelId, setTogglingReelId] = React.useState<string | null>(
     null,
   );
@@ -40,6 +40,8 @@ export default function Reels() {
   const [commentText, setCommentText] = React.useState("");
   const [isLoadingComments, setIsLoadingComments] = React.useState(false);
   const [isAddingComment, setIsAddingComment] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const scrollTimeoutRef = React.useRef<NodeJS.Timeout>();
 
   // Load reels on mount
   React.useEffect(() => {
@@ -58,6 +60,77 @@ export default function Reels() {
       }
     })();
   }, []);
+
+  // Handle scroll to next reel
+  const handleScroll = React.useCallback(
+    (e: WheelEvent | TouchEvent) => {
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+
+      scrollTimeoutRef.current = setTimeout(() => {
+        let direction = 0;
+
+        if (e instanceof WheelEvent) {
+          direction = e.deltaY > 0 ? 1 : -1;
+        } else if (e instanceof TouchEvent) {
+          // Handle touch swipe
+          const touch = e.touches[0];
+          const startY = (e as any).startY || touch.clientY;
+          const currentY = touch.clientY;
+          direction = currentY < startY ? 1 : -1;
+        }
+
+        if (direction !== 0) {
+          const nextIndex = Math.max(
+            0,
+            Math.min(currentReelIndex + direction, reels.length - 1),
+          );
+          setCurrentReelIndex(nextIndex);
+        }
+      }, 100);
+    },
+    [currentReelIndex, reels.length],
+  );
+
+  React.useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.addEventListener("wheel", handleScroll as EventListener, {
+      passive: true,
+    });
+
+    let touchStartY = 0;
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartY = e.touches[0].clientY;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const touchEndY = e.touches[0]?.clientY || touchStartY;
+      const delta = touchStartY - touchEndY;
+
+      if (Math.abs(delta) > 50) {
+        const nextIndex = Math.max(
+          0,
+          Math.min(
+            currentReelIndex + (delta > 0 ? 1 : -1),
+            reels.length - 1,
+          ),
+        );
+        setCurrentReelIndex(nextIndex);
+      }
+    };
+
+    container.addEventListener("touchstart", handleTouchStart, false);
+    container.addEventListener("touchend", handleTouchEnd, false);
+
+    return () => {
+      container.removeEventListener("wheel", handleScroll as EventListener);
+      container.removeEventListener("touchstart", handleTouchStart);
+      container.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [currentReelIndex, reels.length, handleScroll]);
+
+  const currentReel = reels[currentReelIndex];
 
   const handleIncentiveClick = React.useCallback(
     async (reel: ReelWithUser, incentiveType: PostIncentiveType) => {
@@ -174,130 +247,149 @@ export default function Reels() {
 
   if (loading) {
     return (
-      <div className="mx-auto grid w-full max-w-2xl gap-4 p-4">
-        <p className="text-sm text-muted-foreground">Carregando reels...</p>
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-sm text-muted-foreground">Carregando clips...</p>
+      </div>
+    );
+  }
+
+  if (reels.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-sm text-muted-foreground">
+          Nenhum clip disponível no momento.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-2xl gap-4 p-4">
-      <h1 className="text-2xl font-bold tracking-tight">Reels</h1>
+    <div
+      ref={containerRef}
+      className="relative h-screen w-full bg-black overflow-hidden"
+    >
+      {/* Videos Container */}
+      <div className="relative h-full w-full">
+        {reels.map((reel, index) => {
+          const isVisible = index === currentReelIndex;
 
-      {reels.length > 0 ? (
-        <div className="space-y-4">
-          {reels.map((reel) => {
-            if (!reel || !reel.id) return null;
-            return (
-              <Card
-                key={reel.id}
-                className="overflow-hidden border-border/60 hover:bg-muted/30 transition-colors"
-              >
-                <CardContent className="p-0">
-                  {/* Video */}
-                  <div className="relative aspect-square overflow-hidden bg-muted">
-                    {reel.video_url ? (
-                      <video
-                        src={reel.video_url}
-                        controls
-                        className="h-full w-full object-cover"
+          return (
+            <div
+              key={reel.id}
+              className={`absolute inset-0 transition-opacity duration-300 ${
+                isVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+              }`}
+            >
+              {/* Video */}
+              <div className="relative h-full w-full overflow-hidden bg-black">
+                {reel.video_url ? (
+                  <video
+                    src={reel.video_url}
+                    autoPlay={isVisible}
+                    muted={isVisible}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-muted-foreground">
+                    Vídeo indisponível
+                  </div>
+                )}
+
+                {/* User Info Overlay - Top Left */}
+                <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/60 to-transparent z-10">
+                  <div className="flex items-center gap-3">
+                    {reel.userPhoto && (
+                      <img
+                        src={reel.userPhoto}
+                        alt={reel.userNickname || "Usuário"}
+                        className="h-10 w-10 rounded-full object-cover border-2 border-white/30"
                       />
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-muted-foreground">
-                        Vídeo indisponível
-                      </div>
                     )}
-                  </div>
-
-                  {/* User Info and Description */}
-                  <div className="p-4 space-y-3">
-                    {/* User */}
-                    <div className="flex items-center gap-3">
-                      {reel.userPhoto && (
-                        <img
-                          src={reel.userPhoto}
-                          alt={reel.userNickname || "Usuário"}
-                          className="h-10 w-10 rounded-full object-cover"
-                        />
-                      )}
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">
-                          {reel.userNickname || "Usuário"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {reel.created_at
-                            ? new Date(reel.created_at).toLocaleDateString(
-                                "pt-BR",
-                              )
-                            : ""}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    {reel.description && (
-                      <p className="text-sm text-foreground">
-                        {reel.description}
+                    <div>
+                      <p className="text-sm font-semibold text-white drop-shadow-sm">
+                        {reel.userNickname || "Usuário"}
                       </p>
-                    )}
-
-                    {/* Incentives and Actions */}
-                    <div className="flex flex-wrap items-center gap-2 pt-2">
-                      <div className="flex flex-wrap gap-2">
-                        {([1, 2, 3] as PostIncentiveType[]).map((type) => (
-                          <PostIncentiveButton
-                            key={type}
-                            type={type}
-                            count={
-                              (reel.likes || {
-                                apoio: 0,
-                                continua: 0,
-                                ganhador: 0,
-                              })[
-                                type === 1
-                                  ? "apoio"
-                                  : type === 2
-                                    ? "continua"
-                                    : "ganhador"
-                              ] || 0
-                            }
-                            isActive={
-                              (reel.userLikes || [])?.includes(type) ?? false
-                            }
-                            onClick={() => handleIncentiveClick(reel, type)}
-                            loading={togglingReelId === reel.id}
-                          />
-                        ))}
-                      </div>
-
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="rounded-full"
-                        onClick={() => handleOpenComments(reel)}
-                      >
-                        <MessageCircle className="h-4 w-4" />
-                        <span className="ml-1 text-xs">
-                          {selectedReel?.id === reel.id && comments?.length
-                            ? comments.length
-                            : ""}
-                        </span>
-                      </Button>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Nenhum reel disponível no momento.
-          </p>
-        </div>
-      )}
+                </div>
+
+                {/* Description - Bottom Left */}
+                {reel.description && (
+                  <div className="absolute bottom-24 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent z-10">
+                    <p className="text-sm text-white drop-shadow-sm">
+                      {reel.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Incentive Buttons - Right Side */}
+                <div className="absolute right-4 bottom-24 flex flex-col gap-4 z-20">
+                  {([1, 2, 3] as PostIncentiveType[]).map((type) => (
+                    <div key={type} className="flex flex-col items-center">
+                      <PostIncentiveButton
+                        type={type}
+                        count={
+                          (reel.likes || {
+                            apoio: 0,
+                            continua: 0,
+                            ganhador: 0,
+                          })[
+                            type === 1
+                              ? "apoio"
+                              : type === 2
+                                ? "continua"
+                                : "ganhador"
+                          ] || 0
+                        }
+                        isActive={
+                          (reel.userLikes || [])?.includes(type) ?? false
+                        }
+                        onClick={() => handleIncentiveClick(reel, type)}
+                        loading={togglingReelId === reel.id}
+                      />
+                      <p className="text-xs text-white mt-1 drop-shadow-sm">
+                        {(reel.likes || {
+                          apoio: 0,
+                          continua: 0,
+                          ganhador: 0,
+                        })[
+                          type === 1
+                            ? "apoio"
+                            : type === 2
+                              ? "continua"
+                              : "ganhador"
+                        ] || 0}
+                      </p>
+                    </div>
+                  ))}
+
+                  {/* Comments Button */}
+                  <button
+                    onClick={() => handleOpenComments(reel)}
+                    className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/10 transition-colors z-20"
+                  >
+                    <MessageCircle className="h-6 w-6 text-white" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Pagination Indicator */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-20">
+        {reels.map((_, index) => (
+          <div
+            key={index}
+            className={`h-1 transition-all ${
+              index === currentReelIndex
+                ? "w-8 bg-white"
+                : "w-2 bg-white/40"
+            }`}
+          />
+        ))}
+      </div>
 
       {/* Comments Dialog */}
       <Dialog
