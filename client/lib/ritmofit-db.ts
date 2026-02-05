@@ -1361,8 +1361,8 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, display_name, bio, avatar_url")
-    .ilike("display_name", searchQuery)
+    .select("id, nickname, bio, avatar_url")
+    .ilike("nickname", searchQuery)
     .limit(20);
 
   if (error) {
@@ -1374,7 +1374,7 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
 
   return (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
-    nickname: String(row.display_name ?? "Usuário"),
+    nickname: String(row.nickname ?? "Usuário"),
     bio: row.bio ? String(row.bio) : undefined,
     photo: row.avatar_url ? String(row.avatar_url) : null,
   }));
@@ -1402,7 +1402,7 @@ export async function searchUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, user_id, workout_id, workouts(id, name, description, photo), profiles(display_name, avatar_url)",
+      "id, user_id, workout_id, workouts(id, name, description, photo), profiles(nickname, avatar_url)",
     )
     .ilike("workouts.name", searchQuery)
     .limit(20);
@@ -1442,7 +1442,7 @@ export async function searchUserWorkoutsDb(
         if (userIds.length > 0) {
           const { data: profilesData } = await supabase
             .from("profiles")
-            .select("id, display_name, avatar_url")
+            .select("id, nickname, avatar_url")
             .in("id", userIds);
 
           if (profilesData) {
@@ -1465,7 +1465,7 @@ export async function searchUserWorkoutsDb(
               id: String(workout?.id ?? ""),
               userWorkoutId: String(row.id ?? ""),
               userId: String(row.user_id ?? ""),
-              userName: String(profile?.display_name ?? "Usuário"),
+              userName: String(profile?.nickname ?? "Usuário"),
               userPhoto: profile?.avatar_url || null,
               workoutName: String(workout?.name ?? ""),
               workoutDescription: workout?.description,
@@ -1483,7 +1483,7 @@ export async function searchUserWorkoutsDb(
     id: String((row.workouts as any)?.id ?? ""),
     userWorkoutId: String(row.id ?? ""),
     userId: String(row.user_id ?? ""),
-    userName: String((row.profiles as any)?.display_name ?? "Usuário"),
+    userName: String((row.profiles as any)?.nickname ?? "Usuário"),
     userPhoto: (row.profiles as any)?.avatar_url || null,
     workoutName: String((row.workouts as any)?.name ?? ""),
     workoutDescription: (row.workouts as any)?.description,
@@ -1512,7 +1512,7 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, user_id, diet_id, diets(id, name, description, photo, calories), profiles(display_name, avatar_url)",
+      "id, user_id, diet_id, diets(id, name, description, photo, calories), profiles(nickname, avatar_url)",
     )
     .ilike("diets.name", searchQuery)
     .limit(20);
@@ -1552,7 +1552,7 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
         if (userIds.length > 0) {
           const { data: profilesData } = await supabase
             .from("profiles")
-            .select("id, display_name, avatar_url")
+            .select("id, nickname, avatar_url")
             .in("id", userIds);
 
           if (profilesData) {
@@ -1575,7 +1575,7 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
               id: String(diet?.id ?? ""),
               userDietId: String(row.id ?? ""),
               userId: String(row.user_id ?? ""),
-              userName: String(profile?.display_name ?? "Usuário"),
+              userName: String(profile?.nickname ?? "Usuário"),
               userPhoto: profile?.avatar_url || null,
               dietName: String(diet?.name ?? ""),
               dietDescription: diet?.description,
@@ -1594,7 +1594,7 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
     id: String((row.diets as any)?.id ?? ""),
     userDietId: String(row.id ?? ""),
     userId: String(row.user_id ?? ""),
-    userName: String((row.profiles as any)?.display_name ?? "Usuário"),
+    userName: String((row.profiles as any)?.nickname ?? "Usuário"),
     userPhoto: (row.profiles as any)?.avatar_url || null,
     dietName: String((row.diets as any)?.name ?? ""),
     dietDescription: (row.diets as any)?.description,
@@ -1611,8 +1611,8 @@ export async function getAllUsersDb(excludeUserId?: string): Promise<SearchUser[
   try {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, display_name, bio, avatar_url")
-      .order("display_name", { ascending: true });
+      .select("id, nickname, bio, avatar_url")
+      .order("nickname", { ascending: true });
 
     if (error) {
       const errorMsg = error?.message || String(error);
@@ -1623,7 +1623,7 @@ export async function getAllUsersDb(excludeUserId?: string): Promise<SearchUser[
 
     const allUsers = (data ?? []).map((row: any) => ({
       id: String(row.id ?? ""),
-      nickname: String(row.display_name ?? "Usuário"),
+      nickname: String(row.nickname ?? "Usuário"),
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.avatar_url ? String(row.avatar_url) : null,
     }));
