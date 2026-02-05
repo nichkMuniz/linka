@@ -230,14 +230,14 @@ export function AppLayout() {
               >
                 <span
                   className={cn(
-                    "grid h-9 w-9 place-items-center rounded-2xl ring-1 transition",
+                    "grid h-11 w-11 place-items-center rounded-2xl ring-1 transition",
                     active
                       ? "bg-brand text-white ring-brand/30"
                       : "bg-transparent ring-transparent",
                   )}
                 >
                   <span className="relative">
-                    <Icon className="h-5 w-5" />
+                    <Icon className="h-6 w-6" />
                   </span>
                 </span>
                 <span className="hidden md:block">{item.label}</span>
