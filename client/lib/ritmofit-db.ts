@@ -2156,6 +2156,8 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     const followingIds = await getFollowingIdsDb();
     const userIdsToShow = [viewer.id, ...followingIds];
 
+    console.log("[getReelsDb] Fetching reels for users:", userIdsToShow);
+
     const { data: reelsData, error: reelsError } = await supabase
       .from("reels")
       .select("id, user_id, video_url, description, created_at")
@@ -2163,9 +2165,11 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
       .order("created_at", { ascending: false });
 
     if (reelsError) {
-      console.error("Error fetching reels:", reelsError);
+      console.error("[getReelsDb] Error fetching reels:", reelsError);
       return [];
     }
+
+    console.log("[getReelsDb] Found reels:", reelsData?.length || 0);
 
     if (!reelsData || reelsData.length === 0) {
       return [];
