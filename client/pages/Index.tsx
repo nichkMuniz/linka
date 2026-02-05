@@ -14,13 +14,23 @@ import { toast } from "@/components/ui/use-toast";
 import {
   incrementGoalProgressDb,
   getRoutinesByGoalIdDb,
+  getActiveStoriesDb,
+  createStoryDb,
+  deleteOldStoriesDb,
   type PostIncentiveType,
+  type StoryWithUser,
 } from "@/lib/ritmofit-db";
 import { Check, ChevronDown } from "lucide-react";
 import type { PostWithStats } from "../services/post.service";
+import { StoriesCarousel } from "@/components/stories-carousel";
+import { StoryCreationDialog } from "@/components/story-creation-dialog";
+import { StoryViewerModal } from "@/components/story-viewer-modal";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Index() {
+  const { user } = useAuth();
   const [posts, setPosts] = React.useState<PostWithStats[]>([]);
+  const [stories, setStories] = React.useState<StoryWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [togglingPostId, setTogglingPostId] = React.useState<string | null>(
     null,
@@ -31,12 +41,25 @@ export default function Index() {
   const [linkedRoutines, setLinkedRoutines] = React.useState<any[]>([]);
   const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
   const [expandedRoutines, setExpandedRoutines] = React.useState(false);
+  const [storyCreationOpen, setStoryCreationOpen] = React.useState(false);
+  const [selectedStory, setSelectedStory] = React.useState<StoryWithUser | null>(null);
+  const [storyViewerOpen, setStoryViewerOpen] = React.useState(false);
+  const [isCreatingStory, setIsCreatingStory] = React.useState(false);
 
   React.useEffect(() => {
     (async () => {
       try {
-        const data = await getFeedPosts();
-        setPosts(data);
+        const [postsData, storiesData] = await Promise.all([
+          getFeedPosts(),
+          getActiveStoriesDb(),
+        ]);
+        setPosts(postsData);
+        setStories(storiesData);
+
+        // Clean up old stories in background
+        deleteOldStoriesDb().catch((err) =>
+          console.error("Error cleaning old stories:", err),
+        );
       } catch (err: any) {
         console.error("Erro ao carregar feed:", err?.message || err);
         toast({
@@ -47,6 +70,39 @@ export default function Index() {
         setLoading(false);
       }
     })();
+  }, []);
+
+  const handleCreateStory = React.useCallback(
+    async (mediaUrl: string, description: string) => {
+      setIsCreatingStory(true);
+      try {
+        const newStory = await createStoryDb(description, mediaUrl);
+        if (newStory && user) {
+          // Add the new story to the list
+          const enrichedStory: StoryWithUser = {
+            ...newStory,
+            userNickname: user.email?.split("@")[0] || "Você",
+            userPhoto: null,
+          };
+          setStories((prev) => [enrichedStory, ...prev]);
+        }
+      } catch (err: any) {
+        console.error("Error creating story:", err);
+        throw err;
+      } finally {
+        setIsCreatingStory(false);
+      }
+    },
+    [user],
+  );
+
+  const handleStoryClick = React.useCallback((story: StoryWithUser) => {
+    setSelectedStory(story);
+    setStoryViewerOpen(true);
+  }, []);
+
+  const handleAddStoryClick = React.useCallback(() => {
+    setStoryCreationOpen(true);
   }, []);
 
   const openGoalModal = React.useCallback(async (post: PostWithStats) => {
