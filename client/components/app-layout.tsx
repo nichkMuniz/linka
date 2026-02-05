@@ -80,6 +80,22 @@ export function AppLayout() {
   }, []);
 
   React.useEffect(() => {
+    const loadProfilePhoto = async () => {
+      if (!user) return;
+      try {
+        const profile = await getUserProfileDb(user.id);
+        if (profile?.photo) {
+          setProfilePhoto(profile.photo);
+        }
+      } catch (err) {
+        console.error("Error loading profile photo:", err);
+      }
+    };
+
+    loadProfilePhoto();
+  }, [user]);
+
+  React.useEffect(() => {
     let lastY = window.scrollY;
     let ticking = false;
 
