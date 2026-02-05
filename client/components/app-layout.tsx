@@ -6,6 +6,7 @@ import {
   User,
   Search,
   Mail,
+  Video,
 } from "lucide-react";
 import * as React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
@@ -21,6 +22,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
+  { to: "/reels", label: "Reels", icon: Video },
   { to: "/postar", label: "Nova", icon: PlusSquare },
   { to: "/metas", label: "Metas", icon: Dumbbell },
   { to: "/perfil", label: "Perfil", icon: User },
