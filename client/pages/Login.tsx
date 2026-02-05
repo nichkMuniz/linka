@@ -18,8 +18,6 @@ import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
-const NEEDS_GOAL_CHOICE_KEY = "ritmofit:needsGoalChoice";
-
 function isEmailNotConfirmed(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
   return m.includes("email not confirmed") || m.includes("not confirmed");
@@ -64,11 +62,7 @@ export default function Login() {
     if (authLoading) return;
     if (!user) return;
 
-    if (localStorage.getItem(NEEDS_GOAL_CHOICE_KEY) === "1") {
-      navigate("/escolher-meta", { replace: true });
-      return;
-    }
-
+    // Always go to feed after login
     navigate("/", { replace: true });
   }, [authLoading, user, navigate]);
 
@@ -124,11 +118,7 @@ export default function Login() {
           description: "Bem-vindo de volta.",
         });
 
-        if (localStorage.getItem(NEEDS_GOAL_CHOICE_KEY) === "1") {
-          navigate("/escolher-meta", { replace: true });
-        } else {
-          navigate("/", { replace: true });
-        }
+        navigate("/", { replace: true });
         return;
       }
 
@@ -172,12 +162,11 @@ export default function Login() {
         return;
       }
 
-      localStorage.setItem(NEEDS_GOAL_CHOICE_KEY, "1");
       toast({
         title: "Conta criada",
-        description: "Agora escolha sua primeira meta.",
+        description: "Bem-vindo ao RitmoFit!",
       });
-      navigate("/escolher-meta", { replace: true });
+      // User will be redirected to feed by useEffect above
     } catch {
       toast({
         title: "Falha de conexão",
