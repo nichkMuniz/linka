@@ -68,26 +68,28 @@ export default function Reels() {
         setReels((prev) =>
           prev.map((r) => {
             if (r.id === reel.id) {
-              const userLiked = r.userLikes.includes(incentiveType);
+              const currentUserLikes = r.userLikes || [];
+              const userLiked = currentUserLikes.includes(incentiveType);
+              const currentLikes = r.likes || { apoio: 0, continua: 0, ganhador: 0 };
+
               return {
                 ...r,
                 userLikes: userLiked
-                  ? r.userLikes.filter((t) => t !== incentiveType)
-                  : [...r.userLikes, incentiveType],
+                  ? currentUserLikes.filter((t) => t !== incentiveType)
+                  : [...currentUserLikes, incentiveType],
                 likes: {
-                  ...r.likes,
                   apoio:
                     incentiveType === 1
-                      ? r.likes.apoio + (userLiked ? -1 : 1)
-                      : r.likes.apoio,
+                      ? currentLikes.apoio + (userLiked ? -1 : 1)
+                      : currentLikes.apoio,
                   continua:
                     incentiveType === 2
-                      ? r.likes.continua + (userLiked ? -1 : 1)
-                      : r.likes.continua,
+                      ? currentLikes.continua + (userLiked ? -1 : 1)
+                      : currentLikes.continua,
                   ganhador:
                     incentiveType === 3
-                      ? r.likes.ganhador + (userLiked ? -1 : 1)
-                      : r.likes.ganhador,
+                      ? currentLikes.ganhador + (userLiked ? -1 : 1)
+                      : currentLikes.ganhador,
                 },
               };
             }
