@@ -416,6 +416,44 @@ export async function getUserGoalsDb(): Promise<UserGoal[]> {
   return getUserGoalsByUserIdDb(viewer.id);
 }
 
+export async function getUserGoalByIdDb(
+  userGoalId: string,
+): Promise<UserGoal | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const { data, error } = await supabase
+    .from("user_goals")
+    .select("id, goal_id, duration, quantity, type_goal, perc")
+    .eq("id", userGoalId)
+    .maybeSingle();
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error fetching user goal [${errorCode}]:`, errorMsg);
+    return null;
+  }
+
+  if (!data) return null;
+
+  // Fetch goal description
+  const { data: goalData } = await supabase
+    .from("goals")
+    .select("description")
+    .eq("id", data.goal_id)
+    .maybeSingle();
+
+  return {
+    id: String(data.id),
+    goal_id: String(data.goal_id ?? ""),
+    description: String(goalData?.description ?? ""),
+    duration: Number(data.duration ?? 0),
+    quantity: Number(data.quantity ?? 0),
+    type_goal: Number(data.type_goal ?? 0),
+    perc: Number(data.perc ?? 0),
+  };
+}
+
 export async function incrementGoalProgressDb(
   userGoalId: string,
 ): Promise<UserGoal | null> {
