@@ -95,6 +95,29 @@ export default function Index() {
     })();
   }, []);
 
+  // Load unread comment counts for user's own posts
+  React.useEffect(() => {
+    if (!user || posts.length === 0) return;
+
+    const loadUnreadCounts = async () => {
+      const userPosts = posts.filter((p) => p.user_id === user.id);
+      const unreadCounts: Record<string, number> = {};
+
+      for (const post of userPosts) {
+        try {
+          const count = await getUnreadCommentCountDb(post.id);
+          unreadCounts[post.id] = count;
+        } catch (err) {
+          console.error(`Error loading unread count for post ${post.id}:`, err);
+        }
+      }
+
+      setUnreadCommentsByPost(unreadCounts);
+    };
+
+    loadUnreadCounts();
+  }, [user, posts]);
+
   const handleCreateStory = React.useCallback(
     async (mediaUrl: string, description: string) => {
       setIsCreatingStory(true);
