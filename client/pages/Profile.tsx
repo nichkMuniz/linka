@@ -1391,6 +1391,12 @@ export default function Profile() {
                                         alt={item.dietName}
                                         className="h-12 w-12 rounded object-cover flex-shrink-0"
                                       />
+                                    ) : typeCode === 3 && item.habitPhoto ? (
+                                      <img
+                                        src={item.habitPhoto}
+                                        alt={item.habitName}
+                                        className="h-12 w-12 rounded object-cover flex-shrink-0"
+                                      />
                                     ) : (
                                       <div className="h-12 w-12 rounded bg-muted flex-shrink-0" />
                                     )}
@@ -1398,7 +1404,9 @@ export default function Profile() {
                                       <p className="font-medium text-sm">
                                         {typeCode === 1
                                           ? item.workoutName
-                                          : item.dietName}
+                                          : typeCode === 2
+                                            ? item.dietName
+                                            : item.habitName}
                                       </p>
                                       {typeCode === 1 && item.workoutDescription && (
                                         <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
@@ -1408,6 +1416,11 @@ export default function Profile() {
                                       {typeCode === 2 && item.dietDescription && (
                                         <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
                                           {item.dietDescription}
+                                        </p>
+                                      )}
+                                      {typeCode === 3 && item.habitDescription && (
+                                        <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                          {item.habitDescription}
                                         </p>
                                       )}
                                       <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
