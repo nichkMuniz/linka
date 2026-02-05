@@ -1847,3 +1847,239 @@ export async function deleteOldStoriesDb(): Promise<boolean> {
     return false;
   }
 }
+
+// Messages functionality
+export type Message = {
+  id: string;
+  id_user: string;
+  id_following: string;
+  text: string;
+  read: 0 | 1;
+  created_at: string;
+};
+
+export type MessageWithUser = Message & {
+  senderNickname: string;
+  senderPhoto: string | null;
+  recipientNickname: string;
+  recipientPhoto: string | null;
+};
+
+export type Conversation = {
+  userId: string;
+  userNickname: string;
+  userPhoto: string | null;
+  lastMessage: string;
+  lastMessageTime: string;
+  unreadCount: number;
+};
+
+export async function sendMessageDb(
+  recipientId: string,
+  text: string,
+): Promise<Message | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  try {
+    // Validate that the recipient is in the current user's following list
+    const { data: followingData, error: followingError } = await supabase
+      .from("following")
+      .select("id")
+      .eq("user_id", viewer.id)
+      .eq("following_id", recipientId)
+      .maybeSingle();
+
+    if (followingError || !followingData) {
+      console.error("Error validating following relationship:", followingError);
+      return null;
+    }
+
+    // Create the message
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({
+        id_user: viewer.id,
+        id_following: recipientId,
+        text,
+        read: 0,
+      })
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      const errorMsg = error?.message || String(error);
+      const errorCode = error?.code || "UNKNOWN";
+      console.error(`Error sending message [${errorCode}]:`, errorMsg);
+      return null;
+    }
+
+    return data;
+  } catch (err: any) {
+    console.error("Error sending message:", err);
+    return null;
+  }
+}
+
+export async function getConversationsDb(): Promise<Conversation[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  try {
+    // Get all conversations (both sent and received messages)
+    const { data: messages, error } = await supabase
+      .from("messages")
+      .select("*")
+      .or(`id_user.eq.${viewer.id},id_following.eq.${viewer.id}`)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching conversations:", error);
+      return [];
+    }
+
+    // Group messages by conversation
+    const conversationMap = new Map<string, typeof messages[0][]>();
+    (messages ?? []).forEach((msg) => {
+      const otherUserId =
+        msg.id_user === viewer.id ? msg.id_following : msg.id_user;
+      if (!conversationMap.has(otherUserId)) {
+        conversationMap.set(otherUserId, []);
+      }
+      conversationMap.get(otherUserId)?.push(msg);
+    });
+
+    // Convert to conversations with user info
+    const conversations: Conversation[] = [];
+
+    for (const [userId, msgs] of conversationMap.entries()) {
+      const userProfile = await getUserProfileDb(userId);
+      const unreadCount = msgs.filter(
+        (msg) => msg.id_following === viewer.id && msg.read === 0,
+      ).length;
+
+      conversations.push({
+        userId,
+        userNickname: userProfile?.nickname || "Usuário",
+        userPhoto: userProfile?.photo || null,
+        lastMessage: msgs[0]?.text || "",
+        lastMessageTime: msgs[0]?.created_at || new Date().toISOString(),
+        unreadCount,
+      });
+    }
+
+    return conversations;
+  } catch (err: any) {
+    console.error("Error getting conversations:", err);
+    return [];
+  }
+}
+
+export async function getConversationMessagesDb(
+  otherUserId: string,
+): Promise<MessageWithUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  try {
+    // Get all messages between current user and other user
+    const { data: messages, error } = await supabase
+      .from("messages")
+      .select("*")
+      .or(
+        `and(id_user.eq.${viewer.id},id_following.eq.${otherUserId}),and(id_user.eq.${otherUserId},id_following.eq.${viewer.id})`,
+      )
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching messages:", error);
+      return [];
+    }
+
+    // Enrich with user info
+    const [senderProfile, recipientProfile] = await Promise.all([
+      getUserProfileDb(viewer.id),
+      getUserProfileDb(otherUserId),
+    ]);
+
+    return (messages ?? []).map((msg) => ({
+      ...msg,
+      senderNickname:
+        msg.id_user === viewer.id
+          ? senderProfile?.nickname || "Você"
+          : recipientProfile?.nickname || "Usuário",
+      senderPhoto:
+        msg.id_user === viewer.id ? senderProfile?.photo || null : recipientProfile?.photo || null,
+      recipientNickname:
+        msg.id_following === viewer.id
+          ? senderProfile?.nickname || "Você"
+          : recipientProfile?.nickname || "Usuário",
+      recipientPhoto:
+        msg.id_following === viewer.id
+          ? senderProfile?.photo || null
+          : recipientProfile?.photo || null,
+    }));
+  } catch (err: any) {
+    console.error("Error getting conversation messages:", err);
+    return [];
+  }
+}
+
+export async function markMessagesAsReadDb(
+  senderUserId: string,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const viewer = await getViewer();
+  if (!viewer) return false;
+
+  try {
+    const { error } = await supabase
+      .from("messages")
+      .update({ read: 1 })
+      .eq("id_user", senderUserId)
+      .eq("id_following", viewer.id)
+      .eq("read", 0);
+
+    if (error) {
+      console.error("Error marking messages as read:", error);
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    console.error("Error marking messages as read:", err);
+    return false;
+  }
+}
+
+export async function getUnreadMessageCountDb(): Promise<number> {
+  if (!hasSupabaseConfig || !supabase) return 0;
+
+  const viewer = await getViewer();
+  if (!viewer) return 0;
+
+  try {
+    const { count, error } = await supabase
+      .from("messages")
+      .select("id", { count: "exact", head: true })
+      .eq("id_following", viewer.id)
+      .eq("read", 0);
+
+    if (error) {
+      console.error("Error fetching unread message count:", error);
+      return 0;
+    }
+
+    return count ?? 0;
+  } catch (err: any) {
+    console.error("Error getting unread message count:", err);
+    return 0;
+  }
+}
