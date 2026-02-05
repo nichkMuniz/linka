@@ -263,7 +263,7 @@ export default function Reels() {
       )}
 
       {/* Comments Dialog */}
-      <Dialog open={commentsOpen} onOpenChange={setCommentsOpen}>
+      <Dialog open={commentsOpen && selectedReel !== null} onOpenChange={setCommentsOpen}>
         <DialogContent className="max-h-[80dvh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Comentários</DialogTitle>
@@ -274,7 +274,7 @@ export default function Reels() {
               <p className="text-sm text-muted-foreground text-center">
                 Carregando comentários...
               </p>
-            ) : comments.length > 0 ? (
+            ) : comments && comments.length > 0 ? (
               comments.map((comment) => (
                 <div
                   key={comment.id}
@@ -282,9 +282,9 @@ export default function Reels() {
                 >
                   <div className="flex-1">
                     <p className="text-sm font-medium">
-                      {comment.userName}
+                      {comment.userName || "Usuário"}
                       <span className="ml-1 text-xs text-muted-foreground">
-                        {comment.userHandle}
+                        {comment.userHandle || "@user"}
                       </span>
                     </p>
                     <p className="text-sm text-foreground mt-1">
@@ -312,29 +312,31 @@ export default function Reels() {
           </div>
 
           {/* Comment Input */}
-          <div className="flex gap-2 border-t border-border/60 pt-4">
-            <Input
-              placeholder="Adicione um comentário..."
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleAddComment();
-                }
-              }}
-              disabled={isAddingComment}
-              className="rounded-full"
-            />
-            <Button
-              onClick={handleAddComment}
-              disabled={!commentText.trim() || isAddingComment}
-              size="sm"
-              className="rounded-full"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
+          {selectedReel && (
+            <div className="flex gap-2 border-t border-border/60 pt-4">
+              <Input
+                placeholder="Adicione um comentário..."
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleAddComment();
+                  }
+                }}
+                disabled={isAddingComment}
+                className="rounded-full"
+              />
+              <Button
+                onClick={handleAddComment}
+                disabled={!commentText.trim() || isAddingComment}
+                size="sm"
+                className="rounded-full"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
