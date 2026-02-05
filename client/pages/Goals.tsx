@@ -6,6 +6,7 @@ import {
   getUserSelectedGoalIdsDb,
   getUserRoutinesDb,
   getRankingDb,
+  getRoutineTypeName,
   type ProgrammedGoal,
   type Routine,
   type RankingUser,
