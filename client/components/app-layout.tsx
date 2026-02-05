@@ -3,14 +3,11 @@ import {
   Home,
   PlusSquare,
   Dumbbell,
-  Moon,
-  Sun,
   User,
   Search,
   Mail,
 } from "lucide-react";
 import * as React from "react";
-import { useTheme } from "next-themes";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -55,9 +52,6 @@ export function AppLayout() {
   const location = useLocation();
 
   const desktopNavItems = React.useMemo(() => navItems, []);
-
-  const { theme, setTheme, resolvedTheme } = useTheme();
-  const isDark = (resolvedTheme ?? theme) === "dark";
 
   const [headerHidden, setHeaderHidden] = React.useState(false);
   const [unreadCount, setUnreadCount] = React.useState(0);
