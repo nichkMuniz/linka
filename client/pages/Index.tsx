@@ -65,6 +65,9 @@ export default function Index() {
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "post" | null>(null);
   const [reportedPost, setReportedPost] = React.useState<PostWithStats | null>(null);
+  const [unreadCommentsByPost, setUnreadCommentsByPost] = React.useState<
+    Record<string, number>
+  >({});
 
   React.useEffect(() => {
     (async () => {
