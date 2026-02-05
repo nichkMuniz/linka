@@ -2421,3 +2421,126 @@ export async function deleteReelCommentDb(commentId: string) {
     throw err;
   }
 }
+
+export type RankingUser = {
+  userId: string;
+  userNickname: string;
+  userPhoto: string | null;
+  points: number;
+  level: number;
+};
+
+export async function addPointsDb(points: number): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  try {
+    // Check if user already has a ranking entry
+    const { data: existing, error: existingError } = await supabase
+      .from("ranking")
+      .select("id, points")
+      .eq("user_id", viewer.id)
+      .maybeSingle();
+
+    if (existingError && existingError.code !== "PGRST116") {
+      console.error("Error fetching ranking:", existingError);
+      return;
+    }
+
+    if (existing) {
+      // Update existing ranking
+      const newPoints = (existing.points || 0) + points;
+      const newLevel = Math.floor(newPoints / 100) + 1;
+
+      const { error: updateError } = await supabase
+        .from("ranking")
+        .update({
+          points: newPoints,
+          level: newLevel,
+        })
+        .eq("user_id", viewer.id);
+
+      if (updateError) {
+        console.error("Error updating ranking:", updateError);
+      }
+    } else {
+      // Create new ranking entry
+      const { error: insertError } = await supabase
+        .from("ranking")
+        .insert({
+          user_id: viewer.id,
+          points,
+          level: 1,
+        });
+
+      if (insertError) {
+        console.error("Error creating ranking:", insertError);
+      }
+    }
+  } catch (err: any) {
+    console.error("Error adding points:", err);
+  }
+}
+
+export async function getRankingDb(): Promise<RankingUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  try {
+    // Get current user's following
+    const followingIds = await getFollowingIdsDb();
+    const userIdsToShow = [viewer.id, ...followingIds];
+
+    // Get ranking for these users
+    const { data: rankingData, error: rankingError } = await supabase
+      .from("ranking")
+      .select("user_id, points, level")
+      .in("user_id", userIdsToShow)
+      .order("points", { ascending: false });
+
+    if (rankingError) {
+      console.error("Error fetching ranking:", rankingError);
+      return [];
+    }
+
+    if (!rankingData || rankingData.length === 0) {
+      return [];
+    }
+
+    // Get profile data for each user
+    const userIds = rankingData.map((r: any) => String(r.user_id));
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, photo")
+      .in("user_id", userIds);
+
+    const profileMap = new Map(
+      (profiles ?? []).map((p: any) => [
+        p.user_id,
+        { nickname: p.nickname, photo: p.photo },
+      ]),
+    );
+
+    return (rankingData ?? []).map((row: any) => {
+      const profile = profileMap.get(String(row.user_id)) || {
+        nickname: "Usuário",
+        photo: null,
+      };
+
+      return {
+        userId: String(row.user_id),
+        userNickname: String(profile.nickname),
+        userPhoto: profile.photo ? String(profile.photo) : null,
+        points: Number(row.points ?? 0),
+        level: Number(row.level ?? 1),
+      };
+    });
+  } catch (err: any) {
+    console.error("Error getting ranking:", err);
+    return [];
+  }
+}
