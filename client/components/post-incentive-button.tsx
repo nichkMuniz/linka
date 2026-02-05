@@ -72,7 +72,7 @@ export function PostIncentiveButton({
           >
             <Icon
               className={cn(
-                "h-5 w-5 transition-colors",
+                "h-7 w-7 transition-colors",
                 shouldHighlight
                   ? config.iconClassName
                   : "text-muted-foreground",
