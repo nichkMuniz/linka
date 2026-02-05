@@ -423,6 +423,45 @@ export default function Profile() {
     }
   };
 
+  const handleSaveDiets = async () => {
+    if (!user || selectedDietIds.size === 0) return;
+
+    setIsSavingDiets(true);
+    try {
+      const dietIdsArray = Array.from(selectedDietIds);
+      await createUserDietsDb(user.id, dietIdsArray);
+
+      toast({
+        title: "Dietas salvas!",
+        description: `${dietIdsArray.length} dieta${dietIdsArray.length > 1 ? "s" : ""} foi${dietIdsArray.length > 1 ? "ram" : ""} adicionada${dietIdsArray.length > 1 ? "s" : ""} com sucesso.`,
+      });
+
+      setIsCreateRoutineOpen(false);
+      setSelectedRoutineType(null);
+      setDiets([]);
+      setSelectedDietIds(new Set());
+
+      // Reload routines and user diets
+      if (user) {
+        const [routinesData, userDietsData] = await Promise.all([
+          getUserRoutinesDb(user.id),
+          getUserDietsDb(user.id),
+        ]);
+        setRoutines(routinesData);
+        setUserDiets(userDietsData);
+      }
+    } catch (err: any) {
+      console.error("Error saving diets:", err);
+      toast({
+        title: "Erro ao salvar dietas",
+        description: err.message || "Tente novamente mais tarde.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingDiets(false);
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
