@@ -3,11 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
-import {
-  ExternalLink,
-  Search,
-  Instagram,
-} from "lucide-react";
+import { ExternalLink, Search, Instagram } from "lucide-react";
 
 // Placeholder type - will be replaced with database type
 interface StoreCatalogItem {
@@ -31,7 +27,9 @@ export default function Store() {
   const [items, setItems] = React.useState<StoreCatalogItem[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [categoryFilter, setCategoryFilter] = React.useState<string | "all">("all");
+  const [categoryFilter, setCategoryFilter] = React.useState<string | "all">(
+    "all",
+  );
 
   // For now, showing mock data structure
   const mockItems: StoreCatalogItem[] = [
@@ -45,10 +43,11 @@ export default function Store() {
       item_name: "Camiseta Básica",
       category: "Camiseta",
       description: "Camiseta 100% algodão fitness",
-      price: 79.90,
+      price: 79.9,
       available_colors: ["Preto", "Branco", "Cinza"],
       available_sizes: ["P", "M", "G", "GG"],
-      item_photo_url: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=400&h=500&fit=crop",
+      item_photo_url:
+        "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=400&h=500&fit=crop",
       instagram_post_url: "https://instagram.com/p/example1",
     },
     {
@@ -60,10 +59,11 @@ export default function Store() {
       item_name: "Legging Premium",
       category: "Legging",
       description: "Legging de alta compressão",
-      price: 189.90,
+      price: 189.9,
       available_colors: ["Preto", "Azul Marinho"],
       available_sizes: ["P", "M", "G"],
-      item_photo_url: "https://images.unsplash.com/photo-1506629082632-ee5e4dae1a59?w=400&h=500&fit=crop",
+      item_photo_url:
+        "https://images.unsplash.com/photo-1506629082632-ee5e4dae1a59?w=400&h=500&fit=crop",
       instagram_post_url: "https://instagram.com/p/example2",
     },
     {
@@ -75,10 +75,11 @@ export default function Store() {
       item_name: "Short de Treino",
       category: "Shorts",
       description: "Short leve com bolsos",
-      price: 89.90,
+      price: 89.9,
       available_colors: ["Preto", "Azul", "Vermelho"],
       available_sizes: ["P", "M", "G", "GG"],
-      item_photo_url: "https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=400&h=500&fit=crop",
+      item_photo_url:
+        "https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=400&h=500&fit=crop",
       instagram_post_url: "https://instagram.com/p/example3",
     },
     {
@@ -90,10 +91,22 @@ export default function Store() {
       item_name: "Tênis Running",
       category: "Calçados",
       description: "Tênis esportivo profissional",
-      price: 299.90,
+      price: 299.9,
       available_colors: ["Branco", "Preto", "Azul"],
-      available_sizes: ["34", "35", "36", "37", "38", "39", "40", "41", "42", "43"],
-      item_photo_url: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&h=500&fit=crop",
+      available_sizes: [
+        "34",
+        "35",
+        "36",
+        "37",
+        "38",
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+      ],
+      item_photo_url:
+        "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&h=500&fit=crop",
       instagram_post_url: "https://instagram.com/p/example4",
     },
     {
@@ -105,10 +118,11 @@ export default function Store() {
       item_name: "Top Esportivo",
       category: "Top",
       description: "Top com suporte alto para yoga",
-      price: 119.90,
+      price: 119.9,
       available_colors: ["Branco", "Rosa", "Roxo"],
       available_sizes: ["P", "M", "G"],
-      item_photo_url: "https://images.unsplash.com/photo-1506629082632-ee5e4dae1a59?w=400&h=500&fit=crop",
+      item_photo_url:
+        "https://images.unsplash.com/photo-1506629082632-ee5e4dae1a59?w=400&h=500&fit=crop",
       instagram_post_url: "https://instagram.com/p/example5",
     },
     {
@@ -120,10 +134,11 @@ export default function Store() {
       item_name: "Tapete de Yoga",
       category: "Acessórios",
       description: "Tapete antiderrapante premium",
-      price: 159.90,
+      price: 159.9,
       available_colors: ["Roxo", "Verde", "Cinza"],
       available_sizes: ["Único"],
-      item_photo_url: "https://images.unsplash.com/photo-1524438549888-9c1efab60aae?w=400&h=500&fit=crop",
+      item_photo_url:
+        "https://images.unsplash.com/photo-1524438549888-9c1efab60aae?w=400&h=500&fit=crop",
       instagram_post_url: "https://instagram.com/p/example6",
     },
   ];
@@ -160,7 +175,7 @@ export default function Store() {
   });
 
   const categories = Array.from(
-    new Set(items.map((item) => item.category))
+    new Set(items.map((item) => item.category)),
   ).sort();
 
   const groupedByStore = filteredItems.reduce(
@@ -186,7 +201,7 @@ export default function Store() {
         store_logo_url?: string;
         items: StoreCatalogItem[];
       }
-    >
+    >,
   );
 
   return (
@@ -341,10 +356,7 @@ export default function Store() {
                         rel="noopener noreferrer"
                         className="block"
                       >
-                        <Button
-                          className="w-full rounded-full"
-                          size="sm"
-                        >
+                        <Button className="w-full rounded-full" size="sm">
                           <ExternalLink className="h-4 w-4 mr-2" />
                           Ver no Instagram
                         </Button>
