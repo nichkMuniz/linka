@@ -53,6 +53,9 @@ export default function Index() {
     React.useState<StoryWithUser | null>(null);
   const [storyViewerOpen, setStoryViewerOpen] = React.useState(false);
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
+  const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
+  const [reportType, setReportType] = React.useState<"user" | "post" | null>(null);
+  const [reportedPost, setReportedPost] = React.useState<PostWithStats | null>(null);
 
   React.useEffect(() => {
     (async () => {
