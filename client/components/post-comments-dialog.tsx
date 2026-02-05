@@ -47,6 +47,14 @@ export function PostCommentsDialog({
     if (!open) return;
 
     setLoading(true);
+
+    // Mark comments as read if user is the post owner
+    if (isPostOwner && hasUnreadComments) {
+      markPostCommentsAsReadDb(postId).catch((err) =>
+        console.error("Error marking comments as read:", err),
+      );
+    }
+
     getPostCommentsDb(postId)
       .then((data) => setComments(data))
       .catch((err) => {
@@ -57,7 +65,7 @@ export function PostCommentsDialog({
         });
       })
       .finally(() => setLoading(false));
-  }, [open, postId]);
+  }, [open, postId, isPostOwner, hasUnreadComments]);
 
   const handleSubmit = React.useCallback(async () => {
     if (!draft.trim()) {
