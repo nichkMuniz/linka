@@ -88,6 +88,7 @@ const App = () => {
                   <Route path="/postar" element={<NewPost />} />
                   <Route path="/metas" element={<Goals />} />
                   <Route path="/perfil" element={<Profile />} />
+                  <Route path="/buscar" element={<Search />} />
 
                   {/* compatibility */}
                   <Route
