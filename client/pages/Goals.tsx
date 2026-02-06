@@ -439,7 +439,7 @@ export default function Goals() {
             series: series.map((s) => ({
               volume: s.kg,
               reps: s.reps,
-              time_rest: s.time_rest,
+              time_rest: workoutExerciseRestTimes[workoutId] || 0,
             })),
             duration: workoutDuration,
           });
