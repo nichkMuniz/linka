@@ -63,15 +63,15 @@ export default function Goals() {
   const [goals, setGoals] = React.useState<ProgrammedGoal[]>([]);
   const [selectedGoalIds, setSelectedGoalIds] = React.useState<string[]>([]);
 
-  // Rotinas tab state
-  const [routines, setRoutines] = React.useState<Routine[]>([]);
-  const [userWorkouts, setUserWorkouts] = React.useState<
-    UserWorkoutWithDetails[]
-  >([]);
-  const [userDiets, setUserDiets] = React.useState<UserDietWithDetails[]>([]);
-  const [userHabits, setUserHabits] = React.useState<UserHabitWithDetails[]>(
-    [],
+  // Add routine modal state
+  const [addRoutineModalOpen, setAddRoutineModalOpen] = React.useState(false);
+  const [selectedRoutineType, setSelectedRoutineType] = React.useState<
+    number | null
+  >(null);
+  const [selectedItems, setSelectedItems] = React.useState<Set<string>>(
+    new Set(),
   );
+  const [isAddingRoutine, setIsAddingRoutine] = React.useState(false);
 
   // Base data for lookups
   const [workouts, setWorkouts] = React.useState<Workout[]>([]);
