@@ -286,7 +286,9 @@ export async function getUnreadCommentCountDb(postId: string): Promise<number> {
     .eq("read", false);
 
   if (error) {
-    console.error("Error counting unread comments:", error?.message || JSON.stringify(error));
+    const errorCode = error?.code || "UNKNOWN";
+    const errorMsg = error?.message || error?.details || JSON.stringify(error);
+    console.error(`[getUnreadCommentCountDb] Error [${errorCode}]:`, errorMsg);
     return 0;
   }
 
