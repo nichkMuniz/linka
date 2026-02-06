@@ -24,7 +24,6 @@ import {
   getActiveStoriesDb,
   createStoryDb,
   deleteOldStoriesDb,
-  getUnreadCommentCountDb,
   type PostIncentiveType,
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
@@ -106,15 +105,6 @@ export default function Index() {
     const loadUnreadCounts = async () => {
       const userPosts = posts.filter((p) => p.user_id === user.id);
       const unreadCounts: Record<string, number> = {};
-
-      for (const post of userPosts) {
-        try {
-          const count = await getUnreadCommentCountDb(post.id);
-          unreadCounts[post.id] = count;
-        } catch (err) {
-          console.error(`Error loading unread count for post ${post.id}:`, err);
-        }
-      }
 
       setUnreadCommentsByPost(unreadCounts);
     };
