@@ -36,6 +36,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ImageWithFallback } from "@/components/image-with-fallback";
 import {
   Dialog,
   DialogContent,
@@ -325,15 +326,20 @@ export default function Profile() {
       let photoUrl = profile.photo;
 
       if (editPhotoFile) {
-        const filePath = `${user.id}/profile-${Date.now()}`;
+        // Send original file without any modifications
+        const extension = editPhotoFile.name.split(".").pop() || "jpg";
+        const filePath = `${user.id}/profile-${Date.now()}.${extension}`;
+
         const { error: uploadError } = await supabase.storage
           .from("posts")
           .upload(filePath, editPhotoFile);
 
         if (uploadError) throw uploadError;
 
-        const { data } = supabase.storage.from("posts").getPublicUrl(filePath);
-        photoUrl = data.publicUrl;
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("posts").getPublicUrl(filePath);
+        photoUrl = publicUrl;
       }
 
       const updatedProfile = await updateUserProfileDb(user.id, {
@@ -611,16 +617,30 @@ export default function Profile() {
           <div className="flex items-start justify-between gap-4">
             <div className="flex gap-4 flex-1 min-w-0">
               {/* Avatar */}
-              <div className="shrink-0">
+              <div className="shrink-0 relative">
                 {profile.photo ? (
-                  <img
+                  <ImageWithFallback
                     src={profile.photo}
                     alt={profile.nickname}
+                    fallback="/placeholder.svg"
                     className="h-20 w-20 rounded-full object-cover ring-2 ring-border/60"
                   />
                 ) : (
                   <div className="h-20 w-20 rounded-full bg-muted ring-2 ring-border/60" />
                 )}
+                {/* Add Story Button */}
+                <button
+                  onClick={() => {
+                    toast({
+                      title: "Criar Story",
+                      description: "Funcionalidade em desenvolvimento.",
+                    });
+                  }}
+                  className="absolute bottom-0 right-0 h-7 w-7 rounded-full bg-brand text-white flex items-center justify-center ring-2 ring-background hover:bg-brand/90 transition-colors shadow-sm"
+                  title="Adicionar novo story"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
               </div>
 
               {/* Info */}
@@ -908,12 +928,6 @@ export default function Profile() {
               }
             }}
           >
-            <DialogTrigger asChild>
-              <Button className="rounded-full">
-                <Plus className="h-4 w-4 mr-2" />
-                Rotina
-              </Button>
-            </DialogTrigger>
 
             <DialogContent>
               {selectedRoutineType === null ? (
@@ -976,11 +990,10 @@ export default function Profile() {
                               }
                               setSelectedWorkoutIds(newSelected);
                             }}
-                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${
-                              isSelected
+                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${isSelected
                                 ? "border-brand bg-brand/5"
                                 : "border-border/60 hover:border-border/80 hover:bg-muted/50"
-                            }`}
+                              }`}
                           >
                             <div className="flex items-start gap-3">
                               {workout.photo ? (
@@ -994,11 +1007,10 @@ export default function Profile() {
                               )}
                               <div className="flex-1 min-w-0">
                                 <p
-                                  className={`font-medium transition-colors ${
-                                    isSelected
+                                  className={`font-medium transition-colors ${isSelected
                                       ? "text-brand"
                                       : "group-hover:text-brand"
-                                  }`}
+                                    }`}
                                 >
                                   {workout.name}
                                 </p>
@@ -1074,11 +1086,10 @@ export default function Profile() {
                               }
                               setSelectedDietIds(newSelected);
                             }}
-                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${
-                              isSelected
+                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${isSelected
                                 ? "border-brand bg-brand/5"
                                 : "border-border/60 hover:border-border/80 hover:bg-muted/50"
-                            }`}
+                              }`}
                           >
                             <div className="flex items-start gap-3">
                               {diet.photo ? (
@@ -1092,11 +1103,10 @@ export default function Profile() {
                               )}
                               <div className="flex-1 min-w-0">
                                 <p
-                                  className={`font-medium transition-colors ${
-                                    isSelected
+                                  className={`font-medium transition-colors ${isSelected
                                       ? "text-brand"
                                       : "group-hover:text-brand"
-                                  }`}
+                                    }`}
                                 >
                                   {diet.name}
                                 </p>
@@ -1177,11 +1187,10 @@ export default function Profile() {
                               }
                               setSelectedHabitIds(newSelected);
                             }}
-                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${
-                              isSelected
+                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${isSelected
                                 ? "border-brand bg-brand/5"
                                 : "border-border/60 hover:border-border/80 hover:bg-muted/50"
-                            }`}
+                              }`}
                           >
                             <div className="flex items-start gap-3">
                               {habit.photo ? (
@@ -1195,11 +1204,10 @@ export default function Profile() {
                               )}
                               <div className="flex-1 min-w-0">
                                 <p
-                                  className={`font-medium transition-colors ${
-                                    isSelected
+                                  className={`font-medium transition-colors ${isSelected
                                       ? "text-brand"
                                       : "group-hover:text-brand"
-                                  }`}
+                                    }`}
                                 >
                                   {habit.name}
                                 </p>
@@ -1354,11 +1362,10 @@ export default function Profile() {
                               e.stopPropagation();
                               openGoalIndicatorModal(routinesOfType[0]);
                             }}
-                            className={`shrink-0 p-2 rounded-lg transition-all ${
-                              routinesOfType[0]?.goal_id
+                            className={`shrink-0 p-2 rounded-lg transition-all ${routinesOfType[0]?.goal_id
                                 ? "bg-brand/10 text-brand hover:bg-brand/20"
                                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                            }`}
+                              }`}
                             title={
                               routinesOfType[0]?.goal_id
                                 ? "Meta vinculada"
@@ -1443,9 +1450,8 @@ export default function Profile() {
                       </Dialog>
 
                       <div
-                        className={`transform transition-transform ${
-                          isExpanded ? "rotate-180" : ""
-                        }`}
+                        className={`transform transition-transform ${isExpanded ? "rotate-180" : ""
+                          }`}
                       >
                         <svg
                           className="w-5 h-5"
@@ -1578,10 +1584,34 @@ export default function Profile() {
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                Nenhuma rotina criada ainda.
-              </p>
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma rotina criada ainda.
+                </p>
+              </div>
+              <div className="flex justify-center">
+                <Button
+                  onClick={() => setIsCreateRoutineOpen(true)}
+                  className="rounded-full"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Rotina
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Add routine button when routines exist */}
+          {routines.length > 0 && (
+            <div className="flex justify-center pt-4">
+              <Button
+                onClick={() => setIsCreateRoutineOpen(true)}
+                className="rounded-full"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Rotina
+              </Button>
             </div>
           )}
         </TabsContent>
