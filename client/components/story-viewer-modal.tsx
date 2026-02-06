@@ -43,12 +43,16 @@ export function StoryViewerModal({
     (story.media_url?.startsWith("data:") &&
       story.media_url?.includes("video"));
 
+  // Check if there are more stories to skip to
+  const currentIndex = stories.findIndex((s) => s.id === story?.id);
+  const hasNextStory = currentIndex < stories.length - 1;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl w-full max-h-[90vh] p-0 border-0 bg-black/95">
+      <DialogContent className="w-screen h-screen max-w-none max-h-none p-0 border-0 bg-black">
         <div className="relative w-full h-full flex flex-col">
           {/* Header with user info and close button */}
-          <div className="flex items-center justify-between p-4 border-b border-white/10">
+          <div className="flex items-center justify-between p-4 border-b border-white/10 z-10">
             <div className="flex items-center gap-3">
               {story.userPhoto && (
                 <img
@@ -74,32 +78,45 @@ export function StoryViewerModal({
             </button>
           </div>
 
-          {/* Media and Description */}
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 p-4 min-h-[300px]">
+          {/* Media - Full Screen */}
+          <div className="flex-1 flex items-center justify-center relative">
             {isVideo ? (
               <video
                 src={story.media_url}
-                controls
-                className="max-h-[60vh] max-w-full rounded-lg"
+                className="w-full h-full object-cover"
                 autoPlay
               />
             ) : (
               <img
                 src={story.media_url}
                 alt="Story"
-                className="max-h-[60vh] max-w-full rounded-lg object-contain"
+                className="w-full h-full object-cover"
               />
             )}
 
+            {/* Skip Button */}
+            {hasNextStory && (
+              <button
+                onClick={onNextStory}
+                className="absolute bottom-4 right-4 bg-white/20 hover:bg-white/30 text-white p-3 rounded-full transition-colors z-20"
+                aria-label="Próximo story"
+              >
+                <ChevronRight className="h-6 w-6" />
+              </button>
+            )}
+
+            {/* Description Overlay */}
             {story.description && (
-              <p className="text-sm text-gray-100 text-center max-w-md">
-                {story.description}
-              </p>
+              <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent z-10">
+                <p className="text-sm text-white">
+                  {story.description}
+                </p>
+              </div>
             )}
           </div>
 
           {/* Progress bar */}
-          <div className="h-1 bg-gray-800">
+          <div className="h-1 bg-gray-800 z-10">
             <div className="h-full bg-white/60 animate-pulse" />
           </div>
         </div>
