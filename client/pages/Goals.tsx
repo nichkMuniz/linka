@@ -74,6 +74,7 @@ export default function Goals() {
   );
 
   // Base data for lookups
+  const [workouts, setWorkouts] = React.useState<Workout[]>([]);
   const [diets, setDiets] = React.useState<Diet[]>([]);
   const [habits, setHabits] = React.useState<Habit[]>([]);
 
