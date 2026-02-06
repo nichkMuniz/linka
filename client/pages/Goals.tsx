@@ -265,6 +265,16 @@ export default function Goals() {
     setSelectedItems(newSelected);
   };
 
+  const handleToggleMuscleGroup = (muscleGroup: string) => {
+    const newSelected = new Set(selectedMuscleGroups);
+    if (newSelected.has(muscleGroup)) {
+      newSelected.delete(muscleGroup);
+    } else {
+      newSelected.add(muscleGroup);
+    }
+    setSelectedMuscleGroups(newSelected);
+  };
+
   const handleSaveRoutines = async () => {
     if (!user || selectedRoutineType === null || selectedItems.size === 0) {
       toast({
