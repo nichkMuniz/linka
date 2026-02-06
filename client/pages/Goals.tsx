@@ -459,28 +459,40 @@ export default function Goals() {
                     key={typeCode}
                     className="border-border/60 overflow-hidden"
                   >
-                    <button
-                      onClick={() =>
-                        setExpandedRoutineId(
-                          isExpanded ? null : `type-${typeCode}`,
-                        )
-                      }
-                      className="w-full p-4 flex items-center justify-between hover:bg-muted/30 transition-colors text-left"
-                    >
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">{typeLabel}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {itemsForType.length > 0
-                            ? `${itemsForType.length} item(ns)`
-                            : "Sem itens"}
-                        </p>
-                      </div>
-                      {isExpanded ? (
-                        <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                    <div className="w-full p-4 flex items-center justify-between hover:bg-muted/30 transition-colors text-left">
+                      <button
+                        onClick={() =>
+                          setExpandedRoutineId(
+                            isExpanded ? null : `type-${typeCode}`,
+                          )
+                        }
+                        className="flex-1 flex items-center justify-between"
+                      >
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{typeLabel}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {itemsForType.length > 0
+                              ? `${itemsForType.length} item(ns)`
+                              : "Sem itens"}
+                          </p>
+                        </div>
+                        {isExpanded ? (
+                          <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                        )}
+                      </button>
+
+                      {/* Play button for exercises */}
+                      {typeCode === 1 && itemsForType.length > 0 && (
+                        <button
+                          onClick={() => setWorkoutModalOpen(true)}
+                          className="ml-3 p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors"
+                        >
+                          <Play className="h-5 w-5 text-brand" />
+                        </button>
                       )}
-                    </button>
+                    </div>
 
                     {/* Expanded content */}
                     {isExpanded && (
