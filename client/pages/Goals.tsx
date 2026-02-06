@@ -210,11 +210,29 @@ export default function Goals() {
 
     setIsAddingRoutine(true);
     try {
-      // TODO: Implement save logic based on selectedRoutineType
-      // For now, just close the modal
+      const itemIds = Array.from(selectedItems);
+
+      if (selectedRoutineType === 1) {
+        // Save workouts
+        await createUserWorkoutsDb(user.id, itemIds);
+      } else if (selectedRoutineType === 2) {
+        // Save diets
+        await createUserDietsDb(user.id, itemIds);
+      } else if (selectedRoutineType === 3) {
+        // Save habits
+        await createUserHabitsDb(user.id, itemIds);
+      }
+
+      const typeLabel =
+        selectedRoutineType === 1
+          ? "Exercício(s)"
+          : selectedRoutineType === 2
+            ? "Dieta(s)"
+            : "Hábito(s)";
+
       toast({
         title: "Rotinas adicionadas!",
-        description: `${selectedItems.size} item(s) adicionado(s) com sucesso.`,
+        description: `${selectedItems.size} ${typeLabel} adicionado(s) com sucesso.`,
       });
       setAddRoutineModalOpen(false);
       setSelectedRoutineType(null);
