@@ -388,16 +388,146 @@ export default function Goals() {
 
         {/* Rotinas Tab */}
         <TabsContent value="rotinas" className="space-y-4">
-          <div className="flex justify-center pt-8 pb-8">
-            <Button
-              onClick={handleAddRoutineClick}
-              className="rounded-full gap-2"
-              size="lg"
-            >
-              <Plus className="h-5 w-5" />
-              Adicionar
-            </Button>
-          </div>
+          {routines.length > 0 ? (
+            <div className="space-y-4">
+              {/* Group routines by type */}
+              {[1, 2, 3].map((typeCode) => {
+                const routinesOfType = routines.filter((r) => r.type === typeCode);
+                if (routinesOfType.length === 0) return null;
+
+                const typeLabel =
+                  typeCode === 1
+                    ? "Exercícios"
+                    : typeCode === 2
+                      ? "Dietas"
+                      : "Hábitos";
+
+                // Get items for this type
+                const itemsForType =
+                  typeCode === 1
+                    ? userWorkouts
+                    : typeCode === 2
+                      ? userDiets
+                      : userHabits;
+
+                return (
+                  <div key={typeCode} className="space-y-3">
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                      {typeLabel}
+                    </h3>
+                    <div className="space-y-2">
+                      {routinesOfType.map((routine) => (
+                        <Card
+                          key={routine.id}
+                          className="border-border/60 overflow-hidden"
+                        >
+                          <button
+                            onClick={() =>
+                              setExpandedRoutineId(
+                                expandedRoutineId === routine.id
+                                  ? null
+                                  : routine.id,
+                              )
+                            }
+                            className="w-full p-4 flex items-center justify-between hover:bg-muted/30 transition-colors text-left"
+                          >
+                            <div className="flex-1">
+                              <p className="text-sm font-medium">
+                                {typeLabel}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {itemsForType.length > 0
+                                  ? `${itemsForType.length} item(ns)`
+                                  : "Sem itens"}
+                              </p>
+                            </div>
+                            {expandedRoutineId === routine.id ? (
+                              <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                            )}
+                          </button>
+
+                          {/* Expanded content */}
+                          {expandedRoutineId === routine.id && (
+                            <div className="border-t border-border/60 bg-muted/20 p-4 space-y-2">
+                              {itemsForType.length > 0 ? (
+                                itemsForType.map((item: any) => (
+                                  <div
+                                    key={item.id}
+                                    className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50"
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium truncate">
+                                        {typeCode === 1
+                                          ? item.workoutName
+                                          : typeCode === 2
+                                            ? item.dietName
+                                            : item.habitName}
+                                      </p>
+                                      {(item.workoutDescription ||
+                                        item.dietDescription ||
+                                        item.habitDescription) && (
+                                        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                          {typeCode === 1
+                                            ? item.workoutDescription
+                                            : typeCode === 2
+                                              ? item.dietDescription
+                                              : item.habitDescription}
+                                        </p>
+                                      )}
+                                      {typeCode === 2 &&
+                                        item.dietCalories && (
+                                          <p className="text-xs text-muted-foreground mt-1">
+                                            {item.dietCalories} cal
+                                          </p>
+                                        )}
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-xs text-muted-foreground text-center py-2">
+                                  Nenhum item adicionado
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Add more button */}
+              <div className="flex justify-center pt-4 pb-4">
+                <Button
+                  onClick={handleAddRoutineClick}
+                  className="rounded-full gap-2"
+                  variant="outline"
+                >
+                  <Plus className="h-5 w-5" />
+                  Adicionar Mais
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-center pt-12 pb-12">
+              <div className="text-center space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma rotina adicionada ainda
+                </p>
+                <Button
+                  onClick={handleAddRoutineClick}
+                  className="rounded-full gap-2"
+                  size="lg"
+                >
+                  <Plus className="h-5 w-5" />
+                  Adicionar
+                </Button>
+              </div>
+            </div>
+          )}
         </TabsContent>
 
         {/* Ranking Tab */}
