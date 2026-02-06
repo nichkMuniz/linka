@@ -3,7 +3,20 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
-import { ExternalLink, Search, Instagram } from "lucide-react";
+import {
+  ExternalLink,
+  Search,
+  Instagram,
+  Tag,
+  ChevronDown,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 // Placeholder type - will be replaced with database type
 interface StoreCatalogItem {
