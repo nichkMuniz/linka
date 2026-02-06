@@ -32,6 +32,7 @@ export default function Messages() {
   const [loading, setLoading] = React.useState(true);
   const [isSending, setIsSending] = React.useState(false);
   const [followers, setFollowers] = React.useState<SearchUser[]>([]);
+  const [searchQuery, setSearchQuery] = React.useState("");
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
   // Load conversations and followers
