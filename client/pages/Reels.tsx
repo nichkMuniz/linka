@@ -410,13 +410,16 @@ export default function Reels() {
         })}
       </div>
 
-      {/* Pagination Indicator */}
+      {/* Pagination Dots - Bottom Center */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-20">
         {reels.map((_, index) => (
-          <div
+          <button
             key={index}
-            className={`h-1 transition-all ${
-              index === currentReelIndex ? "w-8 bg-white" : "w-2 bg-white/40"
+            onClick={() => setCurrentReelIndex(index)}
+            className={`transition-all rounded-full ${
+              index === currentReelIndex
+                ? "w-8 h-1 bg-white"
+                : "w-2 h-1 bg-white/40 hover:bg-white/60"
             }`}
           />
         ))}
