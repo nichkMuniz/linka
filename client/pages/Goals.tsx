@@ -312,6 +312,27 @@ export default function Goals() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const getWorkoutName = (workoutId: string) => {
+    const workout = userWorkouts.find(
+      (w) => String(w.workout_id) === workoutId,
+    );
+    return (
+      workout?.workoutName ||
+      (workout?.workouts as any)?.name ||
+      "Exercício"
+    );
+  };
+
+  const getDietName = (dietId: string) => {
+    const diet = diets.find((d) => String(d.id) === dietId);
+    return diet?.name || "Dieta";
+  };
+
+  const getHabitName = (habitId: string) => {
+    const habit = habits.find((h) => String(h.id) === habitId);
+    return habit?.name || "Hábito";
+  };
+
   if (loading) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
