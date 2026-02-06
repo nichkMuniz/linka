@@ -1195,6 +1195,30 @@ export default function Goals() {
                     </div>
                   </div>
 
+                  {/* Rest Time Selector - Exercise Level */}
+                  <div className="space-y-2 p-3 bg-brand/5 rounded-lg border border-brand/20">
+                    <label className="text-xs font-medium text-muted-foreground block">
+                      Tempo de descanso entre séries
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {REST_TIME_OPTIONS.map((time) => (
+                        <button
+                          key={time}
+                          onClick={() =>
+                            handleSetExerciseRestTime(workout.workout_id, time)
+                          }
+                          className={`px-3 py-1.5 text-xs rounded-full border transition-all font-medium ${
+                            workoutExerciseRestTimes[workout.workout_id] === time
+                              ? "border-brand bg-brand text-white"
+                              : "border-border/60 text-muted-foreground hover:border-brand/60 hover:bg-brand/10"
+                          }`}
+                        >
+                          {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Series List */}
                   <div className="space-y-2">
                     {(workoutSeries[workout.workout_id] || []).map(
