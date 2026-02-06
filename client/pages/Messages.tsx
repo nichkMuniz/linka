@@ -350,7 +350,7 @@ export default function Messages() {
           </div>
 
           <div className="space-y-2">
-            {followers.map((follower) => (
+            {filteredFollowers.map((follower) => (
               <button
                 key={follower.id}
                 onClick={() => {
