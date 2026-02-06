@@ -16,11 +16,39 @@ export function useAuth() {
 
     let unsubscribe: (() => void) | null = null;
     let isMounted = true;
+    let listenerSetupAttempted = false;
 
+    // Try to get user from localStorage first (faster and doesn't require network)
+    const getInitialUser = () => {
+      try {
+        // Supabase stores session in localStorage
+        const keys = Object.keys(window.localStorage);
+        const authKey = keys.find(
+          (k) => k.startsWith("sb-") && k.endsWith("-auth-token"),
+        );
+        if (authKey) {
+          const session = JSON.parse(window.localStorage.getItem(authKey) || "{}");
+          return session?.user || null;
+        }
+      } catch {
+        // Ignore localStorage errors
+      }
+      return null;
+    };
+
+    // Set initial user from localStorage to avoid waiting for network
+    const initialUser = getInitialUser();
+    if (initialUser) {
+      setUser(initialUser);
+    }
+
+    // Then verify with server (may fail due to network)
     getUserSafe()
       .then((u) => {
         if (isMounted) {
-          setUser(u);
+          if (u !== initialUser) {
+            setUser(u);
+          }
           setError(null);
         }
       })
@@ -28,9 +56,9 @@ export function useAuth() {
         if (isMounted) {
           const errorMsg =
             err instanceof Error ? err.message : "Failed to authenticate";
-          console.error("Auth error:", err);
-          setUser(null);
-          setError(errorMsg);
+          console.error("[useAuth] getUserSafe error:", errorMsg);
+          // Don't set error state - we may have a valid user from localStorage
+          setError(null);
         }
       })
       .finally(() => {
@@ -39,8 +67,11 @@ export function useAuth() {
         }
       });
 
-    // Only set up listener if we have a session
-    const setupListener = async () => {
+    // Set up auth state change listener
+    const setupListener = () => {
+      if (listenerSetupAttempted || !supabase) return;
+      listenerSetupAttempted = true;
+
       try {
         const { data: listener } = supabase.auth.onAuthStateChange(
           (_event, session) => {
@@ -53,16 +84,25 @@ export function useAuth() {
           },
         );
 
-        unsubscribe = () => listener.subscription.unsubscribe();
+        unsubscribe = () => {
+          try {
+            listener.subscription.unsubscribe();
+          } catch {
+            // Ignore unsubscribe errors
+          }
+        };
       } catch (err) {
-        console.error("Failed to set up auth listener:", err);
+        console.warn("[useAuth] Failed to set up auth listener:", err);
+        // This is non-fatal, user might still be logged in from localStorage
       }
     };
 
-    setupListener();
+    // Setup listener with a small delay to ensure Supabase is ready
+    const listenerId = setTimeout(setupListener, 100);
 
     return () => {
       isMounted = false;
+      clearTimeout(listenerId);
       unsubscribe?.();
     };
   }, []);
