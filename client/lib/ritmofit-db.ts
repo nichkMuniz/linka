@@ -1082,7 +1082,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, volume, calories, duration, series, time_rest, workouts(name, photo, description)",
+      "id, workout_id, user_id, volume, reps, calories, duration, time_rest, is_completed, workouts(name, photo, description)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
