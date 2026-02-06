@@ -75,6 +75,34 @@ const App = () => {
       .catch((err) => console.warn("SW registration failed", err));
   }, []);
 
+  React.useEffect(() => {
+    // Handle unhandled promise rejections from network errors
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+
+      // Suppress network errors from Supabase during auth initialization
+      if (
+        reason instanceof TypeError &&
+        reason.message.includes("Failed to fetch")
+      ) {
+        console.warn(
+          "[Network] Supabase unreachable - app may be offline or CORS not configured",
+        );
+        event.preventDefault();
+        return;
+      }
+
+      // Let other errors propagate
+      console.error("[Unhandled rejection]", reason);
+    };
+
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+
+    return () => {
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+    };
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
