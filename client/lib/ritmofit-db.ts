@@ -2465,14 +2465,37 @@ export async function getReelCommentsDb(
 
   try {
     const { data, error } = await supabase
-      .from("comments")
+      .from("reel_comments")
       .select("*")
-      .eq("post_id", reelId)
+      .eq("reel_id", reelId)
       .order("created_at", { ascending: true });
 
     if (error) {
-      console.error("Error fetching reel comments:", error);
-      return [];
+      console.error("Error fetching reel comments:", error?.message || JSON.stringify(error));
+      // Try legacy format if reel_comments table doesn't exist
+      const { data: legacyData, error: legacyError } = await supabase
+        .from("comments")
+        .select("*")
+        .eq("post_id", reelId)
+        .order("created_at", { ascending: true });
+
+      if (legacyError) {
+        console.error("Error fetching reel comments (legacy):", legacyError?.message || JSON.stringify(legacyError));
+        return [];
+      }
+
+      return (legacyData ?? []).map(
+        (row: any) =>
+          ({
+            id: String(row.id),
+            reelId: String(row.post_id),
+            userId: String(row.user_id),
+            userName: String(row.user_name ?? "Usuário"),
+            userHandle: String(row.user_handle ?? "@user"),
+            text: String(row.text ?? ""),
+            createdAt: String(row.created_at ?? new Date().toISOString()),
+          }) satisfies ReelComment,
+      );
     }
 
     return (data ?? []).map(
