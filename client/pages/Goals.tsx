@@ -385,15 +385,47 @@ export default function Goals() {
   ) => {
     const currentSeries = workoutSeries[workoutId] || [];
     const updated = [...currentSeries];
+    const isMarking = !updated[seriesIndex].completed;
+
     updated[seriesIndex] = {
       ...updated[seriesIndex],
-      completed: !updated[seriesIndex].completed,
+      completed: isMarking,
     };
     setWorkoutSeries({
       ...workoutSeries,
       [workoutId]: updated,
     });
+
+    // If marking as completed and rest time is set, open rest timer modal
+    if (isMarking && workoutExerciseRestTimes[workoutId]) {
+      setRestTimerExerciseId(workoutId);
+      setRestTimerRemaining(workoutExerciseRestTimes[workoutId]);
+      setRestTimerModalOpen(true);
+    }
   };
+
+  // Rest timer effect
+  React.useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (restTimerModalOpen && restTimerRemaining > 0) {
+      interval = setInterval(() => {
+        setRestTimerRemaining((prev) => {
+          if (prev <= 1) {
+            // Timer finished - play sound or show notification
+            toast({
+              title: "Tempo de descanso terminou!",
+              description: "Pronto para a próxima série?",
+            });
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [restTimerModalOpen, restTimerRemaining]);
 
   const handleFinishWorkout = async () => {
     if (!user) return;
