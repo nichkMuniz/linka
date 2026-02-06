@@ -326,15 +326,28 @@ export default function Profile() {
       let photoUrl = profile.photo;
 
       if (editPhotoFile) {
-        const filePath = `${user.id}/profile-${Date.now()}`;
+        // 🔥 Ensure we send a real Blob, never JSON
+        const blob =
+          editPhotoFile instanceof Blob
+            ? editPhotoFile
+            : new Blob([editPhotoFile as any], { type: "image/jpeg" });
+
+        const extension = blob.type.split("/")[1] || "jpg";
+        const filePath = `${user.id}/profile-${Date.now()}.${extension}`;
+
         const { error: uploadError } = await supabase.storage
           .from("posts")
-          .upload(filePath, editPhotoFile);
+          .upload(filePath, blob, {
+            contentType: blob.type,
+            upsert: false,
+          });
 
         if (uploadError) throw uploadError;
 
-        const { data } = supabase.storage.from("posts").getPublicUrl(filePath);
-        photoUrl = data.publicUrl;
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("posts").getPublicUrl(filePath);
+        photoUrl = publicUrl;
       }
 
       const updatedProfile = await updateUserProfileDb(user.id, {
@@ -612,16 +625,30 @@ export default function Profile() {
           <div className="flex items-start justify-between gap-4">
             <div className="flex gap-4 flex-1 min-w-0">
               {/* Avatar */}
-              <div className="shrink-0">
+              <div className="shrink-0 relative">
                 {profile.photo ? (
-                  <img
+                  <ImageWithFallback
                     src={profile.photo}
                     alt={profile.nickname}
+                    fallback="/placeholder.svg"
                     className="h-20 w-20 rounded-full object-cover ring-2 ring-border/60"
                   />
                 ) : (
                   <div className="h-20 w-20 rounded-full bg-muted ring-2 ring-border/60" />
                 )}
+                {/* Add Story Button */}
+                <button
+                  onClick={() => {
+                    toast({
+                      title: "Criar Story",
+                      description: "Funcionalidade em desenvolvimento.",
+                    });
+                  }}
+                  className="absolute bottom-0 right-0 h-7 w-7 rounded-full bg-brand text-white flex items-center justify-center ring-2 ring-background hover:bg-brand/90 transition-colors shadow-sm"
+                  title="Adicionar novo story"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
               </div>
 
               {/* Info */}
