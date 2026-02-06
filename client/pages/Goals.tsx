@@ -16,7 +16,7 @@ import {
   getUserWorkoutsDb,
   getUserDietsDb,
   getUserHabitsDb,
-  saveWorkoutSeriesDb,
+  updateWorkoutSeriesDb,
   type ProgrammedGoal,
   type RankingUser,
   type Workout,
