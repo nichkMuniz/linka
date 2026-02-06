@@ -1068,7 +1068,6 @@ export type UserWorkoutWithDetails = {
   calories?: number | null;
   duration?: number | null;
   time_rest?: number | null;
-  is_completed?: boolean;
   workoutName?: string;
   workoutPhoto?: string | null;
   workoutDescription?: string;
