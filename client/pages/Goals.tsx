@@ -1090,59 +1090,112 @@ export default function Goals() {
                       (series, index) => (
                         <div
                           key={index}
-                          className="flex items-end gap-2 p-2 bg-muted/20 rounded-lg"
+                          className={`p-3 bg-muted/20 rounded-lg space-y-2 transition-all ${
+                            series.completed ? "opacity-60" : ""
+                          }`}
                         >
-                          <div className="flex-shrink-0">
-                            <label className="text-xs font-medium text-muted-foreground">
-                              Série
-                            </label>
-                            <input
-                              type="number"
-                              value={series.series}
-                              disabled
-                              className="w-12 h-9 px-2 py-1 border border-border/60 rounded text-sm bg-muted"
-                            />
+                          {/* First row: Série number, kg, reps, completed checkbox */}
+                          <div className="flex items-end gap-2">
+                            <div className="flex-shrink-0">
+                              <label className="text-xs font-medium text-muted-foreground">
+                                Série
+                              </label>
+                              <input
+                                type="number"
+                                value={series.series}
+                                disabled
+                                className="w-12 h-9 px-2 py-1 border border-border/60 rounded text-sm bg-muted"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground">
+                                kg
+                              </label>
+                              <input
+                                type="number"
+                                step="0.5"
+                                value={series.kg}
+                                onChange={(e) =>
+                                  handleUpdateSerie(
+                                    workout.workout_id,
+                                    index,
+                                    "kg",
+                                    parseFloat(e.target.value) || 0,
+                                  )
+                                }
+                                placeholder="0"
+                                className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-xs font-medium text-muted-foreground">
+                                Reps
+                              </label>
+                              <input
+                                type="number"
+                                value={series.reps}
+                                onChange={(e) =>
+                                  handleUpdateSerie(
+                                    workout.workout_id,
+                                    index,
+                                    "reps",
+                                    parseInt(e.target.value) || 0,
+                                  )
+                                }
+                                placeholder="0"
+                                className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm"
+                              />
+                            </div>
+
+                            {/* Completed checkbox */}
+                            <div className="flex-1 flex justify-end">
+                              <button
+                                onClick={() =>
+                                  handleToggleSerieCompleted(
+                                    workout.workout_id,
+                                    index,
+                                  )
+                                }
+                                className="p-2 hover:bg-muted/40 rounded transition-colors"
+                              >
+                                {series.completed ? (
+                                  <CheckCircle2 className="h-5 w-5 text-brand" />
+                                ) : (
+                                  <Circle className="h-5 w-5 text-muted-foreground" />
+                                )}
+                              </button>
+                            </div>
                           </div>
 
+                          {/* Second row: Rest time selector */}
                           <div>
-                            <label className="text-xs font-medium text-muted-foreground">
-                              kg
+                            <label className="text-xs font-medium text-muted-foreground block mb-1.5">
+                              Tempo de descanso
                             </label>
-                            <input
-                              type="number"
-                              step="0.5"
-                              value={series.kg}
-                              onChange={(e) =>
-                                handleUpdateSerie(
-                                  workout.workout_id,
-                                  index,
-                                  "kg",
-                                  parseFloat(e.target.value) || 0,
-                                )
-                              }
-                              placeholder="0"
-                              className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-xs font-medium text-muted-foreground">
-                              Reps
-                            </label>
-                            <input
-                              type="number"
-                              value={series.reps}
-                              onChange={(e) =>
-                                handleUpdateSerie(
-                                  workout.workout_id,
-                                  index,
-                                  "reps",
-                                  parseInt(e.target.value) || 0,
-                                )
-                              }
-                              placeholder="0"
-                              className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm"
-                            />
+                            <div className="flex flex-wrap gap-1.5">
+                              {REST_TIME_OPTIONS.map((time) => (
+                                <button
+                                  key={time}
+                                  onClick={() =>
+                                    handleUpdateSerie(
+                                      workout.workout_id,
+                                      index,
+                                      "time_rest",
+                                      time,
+                                    )
+                                  }
+                                  className={`px-2.5 py-1 text-xs rounded border transition-all ${
+                                    series.time_rest === time
+                                      ? "border-brand bg-brand/20 text-brand font-medium"
+                                      : "border-border/60 text-muted-foreground hover:border-border/80"
+                                  }`}
+                                >
+                                  {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       ),
