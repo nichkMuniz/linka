@@ -320,7 +320,11 @@ export async function markPostCommentsAsReadDb(postId: string): Promise<void> {
     .eq("read", false);
 
   if (error) {
-    console.error("Error marking comments as read:", error);
+    const errorCode = error?.code || "UNKNOWN";
+    const errorMsg = error?.message || error?.details || JSON.stringify(error);
+    console.error(
+      `[markPostCommentsAsReadDb] Error [${errorCode}]: ${errorMsg}`,
+    );
   }
 }
 
