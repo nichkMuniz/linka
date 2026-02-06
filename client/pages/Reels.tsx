@@ -425,17 +425,17 @@ export default function Reels() {
         ))}
       </div>
 
-      {/* Comments Dialog */}
-      <Dialog
+      {/* Comments Drawer */}
+      <Drawer
         open={commentsOpen && selectedReel !== null}
         onOpenChange={setCommentsOpen}
       >
-        <DialogContent className="max-h-[80dvh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Comentários</DialogTitle>
-          </DialogHeader>
+        <DrawerContent className="max-h-[70vh] flex flex-col">
+          <DrawerHeader>
+            <DrawerTitle>Comentários</DrawerTitle>
+          </DrawerHeader>
 
-          <div className="flex-1 overflow-y-auto space-y-4 py-4">
+          <div className="flex-1 overflow-y-auto space-y-4 px-4 py-4">
             {isLoadingComments ? (
               <p className="text-sm text-muted-foreground text-center">
                 Carregando comentários...
@@ -479,7 +479,7 @@ export default function Reels() {
 
           {/* Comment Input */}
           {selectedReel && (
-            <div className="flex gap-2 border-t border-border/60 pt-4">
+            <div className="flex gap-2 border-t border-border/60 px-4 py-4">
               <Input
                 placeholder="Adicione um comentário..."
                 value={commentText}
@@ -503,8 +503,8 @@ export default function Reels() {
               </Button>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }
