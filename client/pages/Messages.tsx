@@ -341,7 +341,7 @@ export default function Messages() {
             </button>
           ))}
         </div>
-      ) : followers.length > 0 ? (
+      ) : filteredFollowers.length > 0 ? (
         <div className="space-y-4">
           <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
             <p className="text-sm text-muted-foreground">
