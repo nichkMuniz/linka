@@ -348,18 +348,34 @@ export default function Goals() {
   const handleUpdateSerie = (
     workoutId: string,
     seriesIndex: number,
-    field: "kg" | "reps" | "time_rest",
-    value: number | boolean,
+    field: "kg" | "reps",
+    value: number | string,
   ) => {
     const currentSeries = workoutSeries[workoutId] || [];
     const updated = [...currentSeries];
+
+    // Handle empty values for numeric fields
+    let numValue: number;
+    if (value === "" || value === null) {
+      numValue = 0;
+    } else {
+      numValue = typeof value === "string" ? parseFloat(value) || 0 : value;
+    }
+
     updated[seriesIndex] = {
       ...updated[seriesIndex],
-      [field]: value,
+      [field]: numValue,
     };
     setWorkoutSeries({
       ...workoutSeries,
       [workoutId]: updated,
+    });
+  };
+
+  const handleSetExerciseRestTime = (workoutId: string, seconds: number) => {
+    setWorkoutExerciseRestTimes({
+      ...workoutExerciseRestTimes,
+      [workoutId]: seconds,
     });
   };
 
