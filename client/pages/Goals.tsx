@@ -713,9 +713,12 @@ export default function Goals() {
                       {/* Muscle Group Filter */}
                       {uniqueMuscleGroups.length > 0 && (
                         <div className="space-y-2">
-                          <p className="text-xs font-medium text-muted-foreground">
-                            Filtrar por grupo muscular:
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <Filter className="h-4 w-4 text-muted-foreground" />
+                            <p className="text-xs font-medium text-muted-foreground">
+                              Filtrar por grupo muscular:
+                            </p>
+                          </div>
                           <div className="flex flex-wrap gap-2">
                             {uniqueMuscleGroups.map((muscleGroup) => (
                               <button
