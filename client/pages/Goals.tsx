@@ -595,71 +595,160 @@ export default function Goals() {
         </TabsList>
 
         {/* Metas Tab */}
-        <TabsContent value="metas" className="space-y-4">
+        <TabsContent value="metas" className="space-y-6">
           {goals.length ? (
-            <div className="grid gap-4 md:grid-cols-3">
-              {goals.map((goal) => {
-                const goalTypeLabel =
-                  goal.type === 1
-                    ? "1 - Fitness"
-                    : goal.type === 2
-                      ? "2 - Saúde"
-                      : "3 - Hábitos";
-                const goalTypeColor =
-                  goal.type === 1
-                    ? "bg-blue-500/10 text-blue-600"
-                    : goal.type === 2
-                      ? "bg-emerald-500/10 text-emerald-600"
-                      : "bg-orange-500/10 text-orange-600";
+            <>
+              {/* Selected Goals Section */}
+              {selectedGoalIds.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Minhas Metas Ativas</h3>
+                    <span className="text-xs text-muted-foreground">
+                      {selectedGoalIds.length} meta{selectedGoalIds.length > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {goals
+                      .filter((goal) => selectedGoalIds.includes(goal.id))
+                      .map((goal) => {
+                        const goalTypeLabel =
+                          goal.type === 1
+                            ? "Fitness"
+                            : goal.type === 2
+                              ? "Saúde"
+                              : "Hábitos";
+                        const goalTypeColor =
+                          goal.type === 1
+                            ? "bg-blue-500/10 text-blue-600"
+                            : goal.type === 2
+                              ? "bg-emerald-500/10 text-emerald-600"
+                              : "bg-orange-500/10 text-orange-600";
 
-                return (
-                  <Card
-                    key={goal.id}
-                    className="border-border/60 hover:border-border/80 transition-all cursor-pointer flex flex-col overflow-hidden"
-                  >
-                    <div
-                      className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold`}
-                    >
-                      {goalTypeLabel}
-                    </div>
-                    <CardHeader className="pb-2 pt-2">
-                      <CardTitle className="text-sm line-clamp-2">
-                        {goal.description}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2 flex-1 flex flex-col">
-                      <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
-                        <div className="bg-muted rounded p-1.5">
-                          <p className="text-muted-foreground">Duração</p>
-                          <p className="font-bold">{goal.duration}d</p>
-                        </div>
-                        <div className="bg-muted rounded p-1.5">
-                          <p className="text-muted-foreground">Qtd</p>
-                          <p className="font-bold">{goal.quantity}</p>
-                        </div>
-                      </div>
+                        return (
+                          <Card
+                            key={goal.id}
+                            className="border-brand/40 bg-brand/5 overflow-hidden flex flex-col"
+                          >
+                            <div className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold`}>
+                              ✓ {goalTypeLabel}
+                            </div>
+                            <CardHeader className="pb-2 pt-2">
+                              <CardTitle className="text-sm line-clamp-2">
+                                {goal.description}
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-2 flex-1 flex flex-col">
+                              <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
+                                <div className="bg-muted rounded p-1.5">
+                                  <p className="text-muted-foreground">Duração</p>
+                                  <p className="font-bold">{goal.duration}d</p>
+                                </div>
+                                <div className="bg-muted rounded p-1.5">
+                                  <p className="text-muted-foreground">Qtd</p>
+                                  <p className="font-bold">{goal.quantity}</p>
+                                </div>
+                              </div>
 
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="w-full rounded-full mt-auto text-xs h-8"
-                        disabled={
-                          selectingGoalId === goal.id ||
-                          selectedGoalIds.includes(goal.id)
-                        }
-                        onClick={() => handleSelectGoal(goal)}
-                      >
-                        {selectingGoalId === goal.id
-                          ? "Salvando..."
-                          : selectedGoalIds.includes(goal.id)
-                            ? "Selecionada"
-                            : "Selecionar"}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="w-full rounded-full mt-auto text-xs h-8"
+                                onClick={() => {
+                                  setEditingGoal({
+                                    id: goal.id,
+                                    goal_id: goal.id,
+                                    user_id: user?.id || "",
+                                    description: goal.description,
+                                    duration: goal.duration,
+                                    quantity: goal.quantity,
+                                    type: goal.type,
+                                  });
+                                  setEditGoalDuration(goal.duration);
+                                  setEditGoalQuantity(goal.quantity);
+                                  setEditGoalModalOpen(true);
+                                }}
+                              >
+                                Editar
+                              </Button>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* Available Goals Section */}
+              {goals.filter((g) => !selectedGoalIds.includes(g.id)).length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Metas Disponíveis</h3>
+                    <span className="text-xs text-muted-foreground">
+                      {goals.filter((g) => !selectedGoalIds.includes(g.id)).length} meta{
+                        goals.filter((g) => !selectedGoalIds.includes(g.id)).length > 1 ? "s" : ""
+                      }
+                    </span>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {goals
+                      .filter((g) => !selectedGoalIds.includes(g.id))
+                      .map((goal) => {
+                        const goalTypeLabel =
+                          goal.type === 1
+                            ? "Fitness"
+                            : goal.type === 2
+                              ? "Saúde"
+                              : "Hábitos";
+                        const goalTypeColor =
+                          goal.type === 1
+                            ? "bg-blue-500/10 text-blue-600"
+                            : goal.type === 2
+                              ? "bg-emerald-500/10 text-emerald-600"
+                              : "bg-orange-500/10 text-orange-600";
+
+                        return (
+                          <Card
+                            key={goal.id}
+                            className="border-border/60 hover:border-border/80 transition-all cursor-pointer flex flex-col overflow-hidden"
+                          >
+                            <div className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold`}>
+                              {goalTypeLabel}
+                            </div>
+                            <CardHeader className="pb-2 pt-2">
+                              <CardTitle className="text-sm line-clamp-2">
+                                {goal.description}
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-2 flex-1 flex flex-col">
+                              <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
+                                <div className="bg-muted rounded p-1.5">
+                                  <p className="text-muted-foreground">Duração</p>
+                                  <p className="font-bold">{goal.duration}d</p>
+                                </div>
+                                <div className="bg-muted rounded p-1.5">
+                                  <p className="text-muted-foreground">Qtd</p>
+                                  <p className="font-bold">{goal.quantity}</p>
+                                </div>
+                              </div>
+
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="w-full rounded-full mt-auto text-xs h-8"
+                                disabled={selectingGoalId === goal.id}
+                                onClick={() => handleSelectGoal(goal)}
+                              >
+                                {selectingGoalId === goal.id ? "Salvando..." : "Selecionar"}
+                              </Button>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
               <p className="text-sm text-muted-foreground">
