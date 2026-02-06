@@ -360,23 +360,23 @@ export default function Store() {
                           )}
                         </div>
                       )}
+
+                      {/* Visit Store Button */}
+                      <a
+                        href={store.store_instagram_profile_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full mt-2"
+                      >
+                        <Button variant="outline" className="w-full rounded-full gap-2 text-xs h-8">
+                          <Instagram className="h-3 w-3" />
+                          Visitar {store.store_name}
+                        </Button>
+                      </a>
                     </CardContent>
                   </Card>
                 ))}
               </div>
-
-              {/* Store Instagram Button */}
-              <a
-                href={store.store_instagram_profile_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full"
-              >
-                <Button className="w-full rounded-full gap-2">
-                  <Instagram className="h-4 w-4" />
-                  Visitar {store.store_name}
-                </Button>
-              </a>
             </div>
           ))}
         </div>
