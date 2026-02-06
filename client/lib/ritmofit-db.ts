@@ -1089,10 +1089,18 @@ export async function getUserWorkoutsDb(
   if (error) {
     const errorMsg = error?.message || String(error);
     const errorCode = error?.code || "UNKNOWN";
-    const errorDetails = error?.details || error?.message || "";
+    const errorDetails = (error?.details || error?.message || "").toLowerCase();
 
     // Silently handle relationship errors - try without join and fetch workouts separately
-    if (errorDetails.includes("relationship")) {
+    if (
+      errorDetails.includes("relationship") ||
+      errorCode === "PGRST200" ||
+      errorMsg.includes("relationship")
+    ) {
+      console.warn(
+        `[getUserWorkoutsDb] Relationship error detected, using fallback method: ${errorMsg}`,
+      );
+
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_workouts")
         .select(
@@ -1137,6 +1145,13 @@ export async function getUserWorkoutsDb(
             workoutDescription: workoutDetails?.description || undefined,
           };
         });
+      } else if (errorFallback) {
+        const fallbackMsg = errorFallback?.message || String(errorFallback);
+        const fallbackCode = errorFallback?.code || "UNKNOWN";
+        console.error(
+          `[getUserWorkoutsDb] Fallback also failed [${fallbackCode}]:`,
+          fallbackMsg,
+        );
       }
     }
 
