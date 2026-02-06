@@ -343,6 +343,27 @@ export async function createUserGoalDb(
   await addPointsDb(5);
 }
 
+export async function updateUserGoalDb(
+  userGoalId: string,
+  duration: number,
+  quantity: number,
+) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const { error } = await supabase
+    .from("user_goals")
+    .update({
+      duration,
+      quantity,
+    })
+    .eq("id", userGoalId);
+
+  if (error) {
+    console.error("Error updating user goal:", error);
+    throw error;
+  }
+}
+
 export type UserGoal = {
   id: string;
   goal_id: string;
@@ -2803,7 +2824,42 @@ export async function toggleUserHabitCompletionDb(
   return true;
 }
 
-// Save workout series data
+// Update existing workout records instead of creating duplicates
+export async function updateWorkoutSeriesDb(
+  workoutRecords: Array<{
+    id: string;
+    volume?: number;
+    reps?: number;
+    time_rest?: number;
+    duration?: number;
+  }>,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase || workoutRecords.length === 0) return;
+
+  for (const record of workoutRecords) {
+    const { error } = await supabase
+      .from("user_workouts")
+      .update({
+        volume: record.volume || null,
+        reps: record.reps || null,
+        time_rest: record.time_rest || null,
+        duration: record.duration || null,
+      })
+      .eq("id", record.id);
+
+    if (error) {
+      const errorMsg = error?.message || String(error);
+      const errorCode = error?.code || "UNKNOWN";
+      console.error(
+        `Error updating workout series [${errorCode}]:`,
+        errorMsg,
+      );
+      throw new Error(`Erro ao atualizar treino: ${errorMsg}`);
+    }
+  }
+}
+
+// Save workout series data - creates new records for each series
 export async function saveWorkoutSeriesDb(
   userId: string,
   workoutData: Array<{
