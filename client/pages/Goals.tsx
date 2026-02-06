@@ -86,26 +86,6 @@ export default function Goals() {
   const [selectingGoalId, setSelectingGoalId] = React.useState<string | null>(
     null,
   );
-  const [expandedRoutineType, setExpandedRoutineType] = React.useState<
-    number | null
-  >(null);
-
-  // Exercise modal state
-  const [exerciseModalOpen, setExerciseModalOpen] = React.useState(false);
-  const [selectedRoutineForExercise, setSelectedRoutineForExercise] =
-    React.useState<Routine | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
-  const [exerciseFormData, setExerciseFormData] = React.useState<{
-    [workoutId: string]: { series: string; weight: string };
-  }>({});
-
-  // Completion tracking state
-  const [completedDiets, setCompletedDiets] = React.useState<Set<string>>(
-    new Set(),
-  );
-  const [completedHabits, setCompletedHabits] = React.useState<Set<string>>(
-    new Set(),
-  );
 
   // Load all data on mount
   React.useEffect(() => {
