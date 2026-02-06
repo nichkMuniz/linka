@@ -101,7 +101,7 @@ export default function Goals() {
   // Workout modal state
   const [workoutModalOpen, setWorkoutModalOpen] = React.useState(false);
   const [workoutSeries, setWorkoutSeries] = React.useState<
-    Record<string, Array<{ series: number; kg: number; reps: number; completed: boolean; time_rest: number }>>
+    Record<string, Array<{ series: number; kg: number; reps: number; time_rest: number; completed: boolean }>>
   >({});
   const [workoutDuration, setWorkoutDuration] = React.useState(0);
   const [workoutStartTime, setWorkoutStartTime] = React.useState<number | null>(null);
