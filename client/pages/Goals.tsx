@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   getProgrammedGoalsDb,
   createUserGoalDb,
+  updateUserGoalDb,
   getUserSelectedGoalIdsDb,
   getRankingDb,
   getWorkoutsDb,
@@ -15,7 +16,7 @@ import {
   getUserWorkoutsDb,
   getUserDietsDb,
   getUserHabitsDb,
-  saveWorkoutSeriesDb,
+  updateWorkoutSeriesDb,
   type ProgrammedGoal,
   type RankingUser,
   type Workout,
@@ -26,6 +27,7 @@ import {
   type UserDietWithDetails,
   type UserHabitWithDetails,
 } from "@/lib/ritmofit-db";
+import { supabase } from "@/lib/supabase";
 import {
   Card,
   CardContent,
@@ -113,15 +115,29 @@ export default function Goals() {
         series: number;
         kg: number;
         reps: number;
-        time_rest: number;
         completed: boolean;
       }>
     >
   >({});
+  const [workoutExerciseRestTimes, setWorkoutExerciseRestTimes] = React.useState<
+    Record<string, number>
+  >({}); // Rest time per exercise, not per series
   const [workoutDuration, setWorkoutDuration] = React.useState(0);
   const [workoutStartTime, setWorkoutStartTime] = React.useState<number | null>(
     null,
   );
+  const [restTimerModalOpen, setRestTimerModalOpen] = React.useState(false);
+  const [restTimerExerciseId, setRestTimerExerciseId] = React.useState<
+    string | null
+  >(null);
+  const [restTimerRemaining, setRestTimerRemaining] = React.useState(0);
+
+  // Edit goal modal state
+  const [editGoalModalOpen, setEditGoalModalOpen] = React.useState(false);
+  const [editingGoal, setEditingGoal] = React.useState<UserGoal | null>(null);
+  const [editGoalDuration, setEditGoalDuration] = React.useState(0);
+  const [editGoalQuantity, setEditGoalQuantity] = React.useState(0);
+  const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
 
   const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
@@ -249,11 +265,6 @@ export default function Goals() {
       });
 
       setSelectedGoalIds([...selectedGoalIds, goal.id]);
-
-      // Redirect to home after a short delay
-      setTimeout(() => {
-        navigate("/");
-      }, 1500);
     } catch (err: any) {
       console.error("Erro ao selecionar meta:", err);
       toast({
@@ -339,18 +350,34 @@ export default function Goals() {
   const handleUpdateSerie = (
     workoutId: string,
     seriesIndex: number,
-    field: "kg" | "reps" | "time_rest",
-    value: number | boolean,
+    field: "kg" | "reps",
+    value: number | string,
   ) => {
     const currentSeries = workoutSeries[workoutId] || [];
     const updated = [...currentSeries];
+
+    // Handle empty values for numeric fields
+    let numValue: number;
+    if (value === "" || value === null) {
+      numValue = 0;
+    } else {
+      numValue = typeof value === "string" ? parseFloat(value) || 0 : value;
+    }
+
     updated[seriesIndex] = {
       ...updated[seriesIndex],
-      [field]: value,
+      [field]: numValue,
     };
     setWorkoutSeries({
       ...workoutSeries,
       [workoutId]: updated,
+    });
+  };
+
+  const handleSetExerciseRestTime = (workoutId: string, seconds: number) => {
+    setWorkoutExerciseRestTimes({
+      ...workoutExerciseRestTimes,
+      [workoutId]: seconds,
     });
   };
 
@@ -360,36 +387,112 @@ export default function Goals() {
   ) => {
     const currentSeries = workoutSeries[workoutId] || [];
     const updated = [...currentSeries];
+    const isMarking = !updated[seriesIndex].completed;
+
     updated[seriesIndex] = {
       ...updated[seriesIndex],
-      completed: !updated[seriesIndex].completed,
+      completed: isMarking,
     };
     setWorkoutSeries({
       ...workoutSeries,
       [workoutId]: updated,
     });
+
+    // If marking as completed and rest time is set, open rest timer modal
+    if (isMarking && workoutExerciseRestTimes[workoutId]) {
+      setRestTimerExerciseId(workoutId);
+      setRestTimerRemaining(workoutExerciseRestTimes[workoutId]);
+      setRestTimerModalOpen(true);
+    }
   };
+
+  // Rest timer effect
+  React.useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (restTimerModalOpen && restTimerRemaining > 0) {
+      interval = setInterval(() => {
+        setRestTimerRemaining((prev) => {
+          if (prev <= 1) {
+            // Timer finished - play sound or show notification
+            toast({
+              title: "Tempo de descanso terminou!",
+              description: "Pronto para a próxima série?",
+            });
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [restTimerModalOpen, restTimerRemaining]);
 
   const handleFinishWorkout = async () => {
     if (!user) return;
 
     try {
-      const workoutRecords = [];
+      const recordsToUpdate: Array<{
+        id: string;
+        volume?: number;
+        reps?: number;
+        time_rest?: number;
+        duration?: number;
+      }> = [];
+
+      // Build update records from filled series
       for (const [workoutId, series] of Object.entries(workoutSeries)) {
         if (series.length > 0) {
-          workoutRecords.push({
-            workout_id: workoutId,
-            series: series.map((s) => ({
-              volume: s.kg,
-              reps: s.reps,
-              time_rest: s.time_rest,
-            })),
-            duration: workoutDuration,
-          });
+          // Find the corresponding userWorkout record(s) for this exercise
+          const workoutRecords = userWorkouts.filter(
+            (w) => w.workout_id === workoutId,
+          );
+
+          // Update existing records with series data
+          for (let i = 0; i < series.length && i < workoutRecords.length; i++) {
+            const serie = series[i];
+            recordsToUpdate.push({
+              id: workoutRecords[i].id,
+              volume: serie.kg || null,
+              reps: serie.reps || null,
+              time_rest: workoutExerciseRestTimes[workoutId] || 0,
+              duration: workoutDuration,
+            });
+          }
+
+          // If there are more series than existing records, create new ones
+          if (series.length > workoutRecords.length) {
+            const newSeriesRecords = series.slice(workoutRecords.length);
+            const newRecordsToInsert: Array<{
+              user_id: string;
+              workout_id: string;
+              volume?: number;
+              reps?: number;
+              time_rest?: number;
+              duration?: number;
+            }> = newSeriesRecords.map((s) => ({
+              user_id: user.id,
+              workout_id: workoutId,
+              volume: s.kg || null,
+              reps: s.reps || null,
+              time_rest: workoutExerciseRestTimes[workoutId] || 0,
+              duration: workoutDuration,
+            }));
+
+            // Insert new records only if there are any to insert
+            if (newRecordsToInsert.length > 0) {
+              const { error } = await supabase
+                .from("user_workouts")
+                .insert(newRecordsToInsert);
+
+              if (error) throw error;
+            }
+          }
         }
       }
 
-      if (workoutRecords.length === 0) {
+      if (recordsToUpdate.length === 0) {
         toast({
           title: "Nenhuma série registrada",
           description:
@@ -399,8 +502,8 @@ export default function Goals() {
         return;
       }
 
-      // Save to database
-      await saveWorkoutSeriesDb(user.id, workoutRecords);
+      // Update existing records
+      await updateWorkoutSeriesDb(recordsToUpdate);
 
       const minutes = Math.floor(workoutDuration / 60);
       const seconds = workoutDuration % 60;
@@ -417,6 +520,20 @@ export default function Goals() {
       setWorkoutSeries({});
       setWorkoutDuration(0);
       setWorkoutStartTime(null);
+
+      // Refresh workout list to show updated data
+      const [routinesData, userWorkoutsData, userDietsData, userHabitsData] =
+        await Promise.all([
+          getUserRoutinesDb(user.id),
+          getUserWorkoutsDb(user.id),
+          getUserDietsDb(user.id),
+          getUserHabitsDb(user.id),
+        ]);
+
+      setRoutines(routinesData);
+      setUserWorkouts(userWorkoutsData);
+      setUserDiets(userDietsData);
+      setUserHabits(userHabitsData);
     } catch (err: any) {
       console.error("Error finishing workout:", err);
       toast({
@@ -476,6 +593,29 @@ export default function Goals() {
       setAddRoutineModalOpen(false);
       setSelectedRoutineType(null);
       setSelectedItems(new Set());
+
+      // Refresh routines data to show newly added items
+      if (user) {
+        try {
+          const [
+            routinesData,
+            userWorkoutsData,
+            userDietsData,
+            userHabitsData,
+          ] = await Promise.all([
+            getUserRoutinesDb(user.id),
+            getUserWorkoutsDb(user.id),
+            getUserDietsDb(user.id),
+            getUserHabitsDb(user.id),
+          ]);
+          setRoutines(routinesData);
+          setUserWorkouts(userWorkoutsData);
+          setUserDiets(userDietsData);
+          setUserHabits(userHabitsData);
+        } catch (err) {
+          console.error("Error refreshing routines:", err);
+        }
+      }
     } catch (err: any) {
       console.error("Error adding routines:", err);
       toast({
@@ -515,71 +655,160 @@ export default function Goals() {
         </TabsList>
 
         {/* Metas Tab */}
-        <TabsContent value="metas" className="space-y-4">
+        <TabsContent value="metas" className="space-y-6">
           {goals.length ? (
-            <div className="grid gap-4 md:grid-cols-3">
-              {goals.map((goal) => {
-                const goalTypeLabel =
-                  goal.type === 1
-                    ? "1 - Fitness"
-                    : goal.type === 2
-                      ? "2 - Saúde"
-                      : "3 - Hábitos";
-                const goalTypeColor =
-                  goal.type === 1
-                    ? "bg-blue-500/10 text-blue-600"
-                    : goal.type === 2
-                      ? "bg-emerald-500/10 text-emerald-600"
-                      : "bg-orange-500/10 text-orange-600";
+            <>
+              {/* Selected Goals Section */}
+              {selectedGoalIds.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Minhas Metas Ativas</h3>
+                    <span className="text-xs text-muted-foreground">
+                      {selectedGoalIds.length} meta{selectedGoalIds.length > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {goals
+                      .filter((goal) => selectedGoalIds.includes(goal.id))
+                      .map((goal) => {
+                        const goalTypeLabel =
+                          goal.type === 1
+                            ? "Fitness"
+                            : goal.type === 2
+                              ? "Saúde"
+                              : "Hábitos";
+                        const goalTypeColor =
+                          goal.type === 1
+                            ? "bg-blue-500/10 text-blue-600"
+                            : goal.type === 2
+                              ? "bg-emerald-500/10 text-emerald-600"
+                              : "bg-orange-500/10 text-orange-600";
 
-                return (
-                  <Card
-                    key={goal.id}
-                    className="border-border/60 hover:border-border/80 transition-all cursor-pointer flex flex-col overflow-hidden"
-                  >
-                    <div
-                      className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold`}
-                    >
-                      {goalTypeLabel}
-                    </div>
-                    <CardHeader className="pb-2 pt-2">
-                      <CardTitle className="text-sm line-clamp-2">
-                        {goal.description}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2 flex-1 flex flex-col">
-                      <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
-                        <div className="bg-muted rounded p-1.5">
-                          <p className="text-muted-foreground">Duração</p>
-                          <p className="font-bold">{goal.duration}d</p>
-                        </div>
-                        <div className="bg-muted rounded p-1.5">
-                          <p className="text-muted-foreground">Qtd</p>
-                          <p className="font-bold">{goal.quantity}</p>
-                        </div>
-                      </div>
+                        return (
+                          <Card
+                            key={goal.id}
+                            className="border-brand/40 bg-brand/5 overflow-hidden flex flex-col"
+                          >
+                            <div className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold`}>
+                              ✓ {goalTypeLabel}
+                            </div>
+                            <CardHeader className="pb-2 pt-2">
+                              <CardTitle className="text-sm line-clamp-2">
+                                {goal.description}
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-2 flex-1 flex flex-col">
+                              <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
+                                <div className="bg-muted rounded p-1.5">
+                                  <p className="text-muted-foreground">Duração</p>
+                                  <p className="font-bold">{goal.duration}d</p>
+                                </div>
+                                <div className="bg-muted rounded p-1.5">
+                                  <p className="text-muted-foreground">Qtd</p>
+                                  <p className="font-bold">{goal.quantity}</p>
+                                </div>
+                              </div>
 
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="w-full rounded-full mt-auto text-xs h-8"
-                        disabled={
-                          selectingGoalId === goal.id ||
-                          selectedGoalIds.includes(goal.id)
-                        }
-                        onClick={() => handleSelectGoal(goal)}
-                      >
-                        {selectingGoalId === goal.id
-                          ? "Salvando..."
-                          : selectedGoalIds.includes(goal.id)
-                            ? "Selecionada"
-                            : "Selecionar"}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="w-full rounded-full mt-auto text-xs h-8"
+                                onClick={() => {
+                                  setEditingGoal({
+                                    id: goal.id,
+                                    goal_id: goal.id,
+                                    user_id: user?.id || "",
+                                    description: goal.description,
+                                    duration: goal.duration,
+                                    quantity: goal.quantity,
+                                    type: goal.type,
+                                  });
+                                  setEditGoalDuration(goal.duration);
+                                  setEditGoalQuantity(goal.quantity);
+                                  setEditGoalModalOpen(true);
+                                }}
+                              >
+                                Editar
+                              </Button>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* Available Goals Section */}
+              {goals.filter((g) => !selectedGoalIds.includes(g.id)).length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Metas Disponíveis</h3>
+                    <span className="text-xs text-muted-foreground">
+                      {goals.filter((g) => !selectedGoalIds.includes(g.id)).length} meta{
+                        goals.filter((g) => !selectedGoalIds.includes(g.id)).length > 1 ? "s" : ""
+                      }
+                    </span>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {goals
+                      .filter((g) => !selectedGoalIds.includes(g.id))
+                      .map((goal) => {
+                        const goalTypeLabel =
+                          goal.type === 1
+                            ? "Fitness"
+                            : goal.type === 2
+                              ? "Saúde"
+                              : "Hábitos";
+                        const goalTypeColor =
+                          goal.type === 1
+                            ? "bg-blue-500/10 text-blue-600"
+                            : goal.type === 2
+                              ? "bg-emerald-500/10 text-emerald-600"
+                              : "bg-orange-500/10 text-orange-600";
+
+                        return (
+                          <Card
+                            key={goal.id}
+                            className="border-border/60 hover:border-border/80 transition-all cursor-pointer flex flex-col overflow-hidden"
+                          >
+                            <div className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold`}>
+                              {goalTypeLabel}
+                            </div>
+                            <CardHeader className="pb-2 pt-2">
+                              <CardTitle className="text-sm line-clamp-2">
+                                {goal.description}
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-2 flex-1 flex flex-col">
+                              <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
+                                <div className="bg-muted rounded p-1.5">
+                                  <p className="text-muted-foreground">Duração</p>
+                                  <p className="font-bold">{goal.duration}d</p>
+                                </div>
+                                <div className="bg-muted rounded p-1.5">
+                                  <p className="text-muted-foreground">Qtd</p>
+                                  <p className="font-bold">{goal.quantity}</p>
+                                </div>
+                              </div>
+
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="w-full rounded-full mt-auto text-xs h-8"
+                                disabled={selectingGoalId === goal.id}
+                                onClick={() => handleSelectGoal(goal)}
+                              >
+                                {selectingGoalId === goal.id ? "Salvando..." : "Selecionar"}
+                              </Button>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
               <p className="text-sm text-muted-foreground">
@@ -692,14 +921,14 @@ export default function Goals() {
                                 {(item.workoutDescription ||
                                   item.dietDescription ||
                                   item.habitDescription) && (
-                                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                                    {typeCode === 1
-                                      ? item.workoutDescription
-                                      : typeCode === 2
-                                        ? item.dietDescription
-                                        : item.habitDescription}
-                                  </p>
-                                )}
+                                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                      {typeCode === 1
+                                        ? item.workoutDescription
+                                        : typeCode === 2
+                                          ? item.dietDescription
+                                          : item.habitDescription}
+                                    </p>
+                                  )}
                                 {typeCode === 2 && item.dietCalories && (
                                   <p className="text-xs text-muted-foreground mt-1">
                                     {item.dietCalories} cal
@@ -916,11 +1145,10 @@ export default function Goals() {
                                 onClick={() =>
                                   handleToggleMuscleGroup(muscleGroup)
                                 }
-                                className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
-                                  selectedMuscleGroups.has(muscleGroup)
+                                className={`px-3 py-1.5 text-xs rounded-full border transition-all ${selectedMuscleGroups.has(muscleGroup)
                                     ? "border-brand bg-brand/20 text-brand"
                                     : "border-border/60 text-muted-foreground hover:border-border/80"
-                                }`}
+                                  }`}
                               >
                                 {muscleGroup}
                               </button>
@@ -938,11 +1166,10 @@ export default function Goals() {
                         <button
                           key={workout.id}
                           onClick={() => handleSelectItem(workout.id)}
-                          className={`w-full p-3 rounded-lg border transition-all text-left flex gap-3 ${
-                            selectedItems.has(workout.id)
+                          className={`w-full p-3 rounded-lg border transition-all text-left flex gap-3 ${selectedItems.has(workout.id)
                               ? "border-brand bg-brand/10"
                               : "border-border/60 hover:border-border/80"
-                          }`}
+                            }`}
                         >
                           {/* Exercise Image */}
                           {workout.photo ? (
@@ -965,7 +1192,7 @@ export default function Goals() {
                                 <input
                                   type="checkbox"
                                   checked={selectedItems.has(workout.id)}
-                                  onChange={() => {}}
+                                  onChange={() => { }}
                                   className="h-4 w-4 flex-shrink-0"
                                 />
                               </div>
@@ -989,11 +1216,10 @@ export default function Goals() {
                         <button
                           key={diet.id}
                           onClick={() => handleSelectItem(diet.id)}
-                          className={`w-full p-3 rounded-lg border transition-all text-left ${
-                            selectedItems.has(diet.id)
+                          className={`w-full p-3 rounded-lg border transition-all text-left ${selectedItems.has(diet.id)
                               ? "border-brand bg-brand/10"
                               : "border-border/60 hover:border-border/80"
-                          }`}
+                            }`}
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-medium">
@@ -1002,7 +1228,7 @@ export default function Goals() {
                             <input
                               type="checkbox"
                               checked={selectedItems.has(diet.id)}
-                              onChange={() => {}}
+                              onChange={() => { }}
                               className="h-4 w-4"
                             />
                           </div>
@@ -1024,11 +1250,10 @@ export default function Goals() {
                         <button
                           key={habit.id}
                           onClick={() => handleSelectItem(habit.id)}
-                          className={`w-full p-3 rounded-lg border transition-all text-left ${
-                            selectedItems.has(habit.id)
+                          className={`w-full p-3 rounded-lg border transition-all text-left ${selectedItems.has(habit.id)
                               ? "border-brand bg-brand/10"
                               : "border-border/60 hover:border-border/80"
-                          }`}
+                            }`}
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-medium">
@@ -1037,7 +1262,7 @@ export default function Goals() {
                             <input
                               type="checkbox"
                               checked={selectedItems.has(habit.id)}
-                              onChange={() => {}}
+                              onChange={() => { }}
                               className="h-4 w-4"
                             />
                           </div>
@@ -1115,17 +1340,39 @@ export default function Goals() {
                     </div>
                   </div>
 
+                  {/* Rest Time Selector - Exercise Level */}
+                  <div className="space-y-2 p-3 bg-brand/5 rounded-lg border border-brand/20">
+                    <label className="text-xs font-medium text-muted-foreground block">
+                      Tempo de descanso entre séries
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {REST_TIME_OPTIONS.map((time) => (
+                        <button
+                          key={time}
+                          onClick={() =>
+                            handleSetExerciseRestTime(workout.workout_id, time)
+                          }
+                          className={`px-3 py-1.5 text-xs rounded-full border transition-all font-medium ${workoutExerciseRestTimes[workout.workout_id] === time
+                              ? "border-brand bg-brand text-white"
+                              : "border-border/60 text-muted-foreground hover:border-brand/60 hover:bg-brand/10"
+                            }`}
+                        >
+                          {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Series List */}
                   <div className="space-y-2">
                     {(workoutSeries[workout.workout_id] || []).map(
                       (series, index) => (
                         <div
                           key={index}
-                          className={`p-3 bg-muted/20 rounded-lg space-y-2 transition-all ${
-                            series.completed ? "opacity-60" : ""
-                          }`}
+                          className={`p-3 bg-muted/20 rounded-lg space-y-2 transition-all ${series.completed ? "opacity-60" : ""
+                            }`}
                         >
-                          {/* First row: Série number, kg, reps, completed checkbox */}
+                          {/* Series row: Série number, kg, reps, completed checkbox */}
                           <div className="flex items-end gap-2">
                             <div className="flex-shrink-0">
                               <label className="text-xs font-medium text-muted-foreground">
@@ -1146,13 +1393,13 @@ export default function Goals() {
                               <input
                                 type="number"
                                 step="0.5"
-                                value={series.kg}
+                                value={series.kg === 0 ? "" : series.kg}
                                 onChange={(e) =>
                                   handleUpdateSerie(
                                     workout.workout_id,
                                     index,
                                     "kg",
-                                    parseFloat(e.target.value) || 0,
+                                    e.target.value,
                                   )
                                 }
                                 placeholder="0"
@@ -1166,13 +1413,13 @@ export default function Goals() {
                               </label>
                               <input
                                 type="number"
-                                value={series.reps}
+                                value={series.reps === 0 ? "" : series.reps}
                                 onChange={(e) =>
                                   handleUpdateSerie(
                                     workout.workout_id,
                                     index,
                                     "reps",
-                                    parseInt(e.target.value) || 0,
+                                    e.target.value,
                                   )
                                 }
                                 placeholder="0"
@@ -1197,37 +1444,6 @@ export default function Goals() {
                                   <Circle className="h-5 w-5 text-muted-foreground" />
                                 )}
                               </button>
-                            </div>
-                          </div>
-
-                          {/* Second row: Rest time selector */}
-                          <div>
-                            <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-                              Tempo de descanso
-                            </label>
-                            <div className="flex flex-wrap gap-1.5">
-                              {REST_TIME_OPTIONS.map((time) => (
-                                <button
-                                  key={time}
-                                  onClick={() =>
-                                    handleUpdateSerie(
-                                      workout.workout_id,
-                                      index,
-                                      "time_rest",
-                                      time,
-                                    )
-                                  }
-                                  className={`px-2.5 py-1 text-xs rounded border transition-all ${
-                                    series.time_rest === time
-                                      ? "border-brand bg-brand/20 text-brand font-medium"
-                                      : "border-border/60 text-muted-foreground hover:border-border/80"
-                                  }`}
-                                >
-                                  {time < 60
-                                    ? `${time}s`
-                                    : `${Math.floor(time / 60)}m`}
-                                </button>
-                              ))}
                             </div>
                           </div>
                         </div>
@@ -1258,6 +1474,148 @@ export default function Goals() {
               Finalizar Treino
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rest Timer Modal */}
+      <Dialog open={restTimerModalOpen} onOpenChange={setRestTimerModalOpen}>
+        <DialogContent className="w-full max-w-xs rounded-2xl">
+          <DialogHeader className="text-center">
+            <DialogTitle>Tempo de Descanso</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-col items-center justify-center gap-6 py-8">
+            <div className="relative flex items-center justify-center w-48 h-48">
+              <svg className="absolute w-full h-full" viewBox="0 0 200 200">
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="90"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="text-border/60"
+                />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="90"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  className="text-brand"
+                  strokeDasharray={`${(565 * (1 - restTimerRemaining / (workoutExerciseRestTimes[restTimerExerciseId || ""] || 0))) || 0} 565`}
+                  strokeLinecap="round"
+                  style={{ transform: "rotate(-90deg)", transformOrigin: "100px 100px" }}
+                />
+              </svg>
+              <div className="absolute text-center">
+                <p className="text-4xl font-bold text-brand">
+                  {restTimerRemaining}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">segundos</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 w-full">
+              <Button
+                onClick={() => setRestTimerModalOpen(false)}
+                variant="outline"
+                className="flex-1 rounded-full"
+              >
+                Pular
+              </Button>
+              <Button
+                onClick={() => setRestTimerModalOpen(false)}
+                className="flex-1 rounded-full"
+              >
+                {restTimerRemaining === 0 ? "Próxima" : "Pausar"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Goal Modal */}
+      <Dialog open={editGoalModalOpen} onOpenChange={setEditGoalModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Meta</DialogTitle>
+          </DialogHeader>
+
+          {editingGoal && (
+            <div className="space-y-4">
+              <div className="p-4 bg-muted/20 rounded-lg">
+                <p className="text-sm font-medium">{editingGoal.description}</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Duração (dias)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={editGoalDuration}
+                  onChange={(e) => setEditGoalDuration(parseInt(e.target.value) || 0)}
+                  className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Quantidade (qtd)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={editGoalQuantity}
+                  onChange={(e) => setEditGoalQuantity(parseInt(e.target.value) || 0)}
+                  className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
+                />
+              </div>
+
+              <Button
+                onClick={async () => {
+                  if (!user || !editingGoal) return;
+                  setIsUpdatingGoal(true);
+                  try {
+                    await updateUserGoalDb(
+                      editingGoal.id,
+                      editGoalDuration,
+                      editGoalQuantity,
+                    );
+
+                    // Update local state
+                    const updatedGoals = goals.map((goal) =>
+                      goal.id === editingGoal.id
+                        ? {
+                          ...goal,
+                          duration: editGoalDuration,
+                          quantity: editGoalQuantity,
+                        }
+                        : goal,
+                    );
+                    setGoals(updatedGoals);
+
+                    toast({
+                      title: "Meta atualizada!",
+                      description: "Suas alterações foram salvas.",
+                    });
+                    setEditGoalModalOpen(false);
+                  } catch (err: any) {
+                    toast({
+                      title: "Erro ao atualizar meta",
+                      description: err?.message || "Tente novamente.",
+                      variant: "destructive",
+                    });
+                  } finally {
+                    setIsUpdatingGoal(false);
+                  }
+                }}
+                disabled={isUpdatingGoal}
+                className="w-full rounded-full"
+              >
+                {isUpdatingGoal ? "Atualizando..." : "Salvar Alterações"}
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
