@@ -40,63 +40,65 @@ export default function NewPost() {
 
   const canSubmit = Boolean(file && !busy && hasSupabaseConfig && user);
 
-  async function handlePost() {
-    if (!hasSupabaseConfig || !supabase || loading) return;
+async function handlePost() {
+  if (!hasSupabaseConfig || !supabase) return;
+  if (loading) return;
 
-    if (!user) {
-      toast({
-        title: "Faça login",
-        description: "Você precisa estar logado para publicar.",
-      });
-      navigate("/login");
-      return;
-    }
-
-    if (!file) return;
-
-    setBusy(true);
-    try {
-      // Send original file without modifications
-      const extension = file.name.split(".").pop() || "jpg";
-      const filePath = `${user.id}/${Date.now()}.${extension}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("posts")
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("posts").getPublicUrl(filePath);
-
-      const { error: insertError } = await supabase.from("posts").insert({
-        user_id: user.id,
-        description: caption.trim(),
-        photo: publicUrl,
-        user_goal_id: selectedGoalId || null,
-      });
-
-      if (insertError) throw insertError;
-
-      toast({
-        title: "Post publicado!",
-        description: "Sua foto já foi enviada.",
-      });
-
-      setFile(null);
-      setCaption("");
-      navigate("/", { replace: true });
-    } catch (err: any) {
-      console.error(err);
-      toast({
-        title: "Erro ao publicar",
-        description: err.message || "Erro inesperado",
-      });
-    } finally {
-      setBusy(false);
-    }
+  if (!user) {
+    toast({
+      title: "Faça login",
+      description: "Você precisa estar logado para publicar.",
+    });
+    navigate("/login");
+    return;
   }
+
+  if (!file) return;
+
+  setBusy(true);
+  try {
+    const ext = file.name.split(".").pop();
+    const filePath = `${user.id}/${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("posts")
+      .upload(filePath, file, {
+        contentType: file.type,
+      });
+
+    if (uploadError) throw uploadError;
+
+    const publicUrl = supabase.storage
+      .from("posts")
+      .getPublicUrl(filePath).data.publicUrl;
+
+    const { error: insertError } = await supabase.from("posts").insert({
+      user_id: user.id,
+      description: caption.trim(),
+      photo: publicUrl,
+      user_goal_id: selectedGoalId ? Number(selectedGoalId) : null,
+    });
+
+    if (insertError) throw insertError;
+
+    toast({
+      title: "Post publicado!",
+      description: "Sua foto já foi enviada.",
+    });
+
+    setFile(null);
+    setCaption("");
+    navigate("/", { replace: true });
+  } catch (err: any) {
+    toast({
+      title: "Erro ao publicar",
+      description: err.message || "Erro inesperado",
+    });
+  } finally {
+    setBusy(false);
+  }
+}
+
 
   return (
     <div className="mx-auto grid w-full max-w-md gap-6">
