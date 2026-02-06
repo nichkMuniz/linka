@@ -11,6 +11,7 @@ import * as React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { ImageWithFallback } from "@/components/image-with-fallback";
 import { getUnreadMessageCountDb, getUserProfileDb } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
