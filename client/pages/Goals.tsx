@@ -1523,7 +1523,24 @@ export default function Goals() {
                   if (!user || !editingGoal) return;
                   setIsUpdatingGoal(true);
                   try {
-                    // TODO: Add updateGoalDb function to ritmofit-db.ts
+                    await updateUserGoalDb(
+                      editingGoal.id,
+                      editGoalDuration,
+                      editGoalQuantity,
+                    );
+
+                    // Update local state
+                    const updatedGoals = goals.map((goal) =>
+                      goal.id === editingGoal.id
+                        ? {
+                            ...goal,
+                            duration: editGoalDuration,
+                            quantity: editGoalQuantity,
+                          }
+                        : goal,
+                    );
+                    setGoals(updatedGoals);
+
                     toast({
                       title: "Meta atualizada!",
                       description: "Suas alterações foram salvas.",
