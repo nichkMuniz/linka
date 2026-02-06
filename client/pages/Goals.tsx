@@ -348,26 +348,42 @@ export default function Goals() {
   const handleFinishWorkout = async () => {
     if (!user) return;
 
-    // Prepare data for user_workouts
     try {
       const workoutRecords = [];
       for (const [workoutId, series] of Object.entries(workoutSeries)) {
         if (series.length > 0) {
           workoutRecords.push({
             workout_id: workoutId,
-            series: series,
+            series: series.map((s) => ({
+              volume: s.kg,
+              reps: s.reps,
+              time_rest: s.time_rest,
+              completed: s.completed,
+            })),
             duration: workoutDuration,
           });
         }
       }
 
-      // Here you would save to user_workouts table
-      // For now we'll just log and close
-      console.log("[Workout] Saving workout data:", workoutRecords);
+      if (workoutRecords.length === 0) {
+        toast({
+          title: "Nenhuma série registrada",
+          description: "Adicione e preencha pelo menos uma série para salvar o treino.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Save to database
+      await saveWorkoutSeriesDb(user.id, workoutRecords);
+
+      const minutes = Math.floor(workoutDuration / 60);
+      const seconds = workoutDuration % 60;
+      const durationText = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 
       toast({
         title: "Treino finalizado!",
-        description: `Treino de ${Math.floor(workoutDuration / 60)}m registrado com sucesso.`,
+        description: `Treino de ${durationText} registrado com sucesso.`,
       });
 
       // Reset and close
