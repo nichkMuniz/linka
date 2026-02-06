@@ -1572,10 +1572,32 @@ export default function Profile() {
               })}
             </div>
           ) : (
-            <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                Nenhuma rotina criada ainda.
-              </p>
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma rotina criada ainda.
+                </p>
+              </div>
+              <div className="flex justify-center">
+                <DialogTrigger asChild>
+                  <Button className="rounded-full">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Rotina
+                  </Button>
+                </DialogTrigger>
+              </div>
+            </div>
+          )}
+
+          {/* Add routine button when routines exist */}
+          {routines.length > 0 && (
+            <div className="flex justify-center pt-4">
+              <DialogTrigger asChild>
+                <Button className="rounded-full">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Rotina
+                </Button>
+              </DialogTrigger>
             </div>
           )}
         </TabsContent>
