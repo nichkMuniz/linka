@@ -318,9 +318,10 @@ export default function Index() {
                 <CardContent className="space-y-3 p-0">
                   {/* Image Container with User Info Overlay */}
                   <div className="relative">
-                    <img
+                    <ImageWithFallback
                       src={post.photo}
                       alt="Post"
+                      fallback="/placeholder.svg"
                       className="w-full object-cover"
                     />
 
