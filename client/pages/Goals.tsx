@@ -446,15 +446,15 @@ export default function Goals() {
                           let items: any[] = [];
                           if (typeCode === 1) {
                             items = userWorkouts.filter(
-                              (w) => String(w.id) === routine.program_id,
+                              (w) => String(w.workout_id) === routine.program_id,
                             );
                           } else if (typeCode === 2) {
                             items = userDiets.filter(
-                              (d) => String(d.id) === routine.program_id,
+                              (d) => String(d.diet_id) === routine.program_id,
                             );
                           } else if (typeCode === 3) {
                             items = userHabits.filter(
-                              (h) => String(h.id) === routine.program_id,
+                              (h) => String(h.habit_id) === routine.program_id,
                             );
                           }
 
@@ -480,7 +480,9 @@ export default function Goals() {
                                             >
                                               <p className="font-medium">
                                                 {(workout.workouts as any)
-                                                  ?.name || "Exercício"}
+                                                  ?.name ||
+                                                  workout.workoutName ||
+                                                  "Exercício"}
                                               </p>
                                             </div>
                                           ))}
@@ -525,11 +527,14 @@ export default function Goals() {
                                         <div className="flex-1 min-w-0">
                                           <p className="text-sm font-medium truncate">
                                             {(diet.diets as any)?.name ||
+                                              diet.dietName ||
                                               "Dieta"}
                                           </p>
-                                          {(diet.diets as any)?.calories && (
+                                          {((diet.diets as any)?.calories ||
+                                            diet.dietCalories) && (
                                             <p className="text-xs text-muted-foreground">
-                                              {(diet.diets as any)?.calories}{" "}
+                                              {(diet.diets as any)?.calories ||
+                                                diet.dietCalories}{" "}
                                               cal
                                             </p>
                                           )}
@@ -563,6 +568,7 @@ export default function Goals() {
                                         )}
                                         <p className="text-sm font-medium flex-1">
                                           {(habit.habits as any)?.name ||
+                                            habit.habitName ||
                                             "Hábito"}
                                         </p>
                                       </button>
