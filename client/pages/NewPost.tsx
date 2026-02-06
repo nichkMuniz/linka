@@ -56,21 +56,13 @@ export default function NewPost() {
 
     setBusy(true);
     try {
-      // 🔥 Garante que estamos enviando um Blob real, nunca JSON
-      const blob =
-        file instanceof Blob
-          ? file
-          : new Blob([file as any], { type: "image/jpeg" });
-
-      const extension = blob.type.split("/")[1] || "jpg";
+      // Send original file without modifications
+      const extension = file.name.split(".").pop() || "jpg";
       const filePath = `${user.id}/${Date.now()}.${extension}`;
 
       const { error: uploadError } = await supabase.storage
         .from("posts")
-        .upload(filePath, blob, {
-          contentType: blob.type,
-          upsert: false,
-        });
+        .upload(filePath, file);
 
       if (uploadError) throw uploadError;
 
