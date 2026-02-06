@@ -375,7 +375,7 @@ export default function Reels() {
                 </div>
 
                 {/* Incentive Buttons - Right Side */}
-                <div className="absolute right-4 bottom-24 flex flex-col gap-4 z-20">
+                <div className="absolute right-4 bottom-1/3 flex flex-col gap-3 z-20">
                   {([1, 2, 3] as PostIncentiveType[]).map((type) => (
                     <PostIncentiveButton
                       key={type}
