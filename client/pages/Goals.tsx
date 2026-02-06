@@ -743,28 +743,49 @@ export default function Goals() {
                         <button
                           key={workout.id}
                           onClick={() => handleSelectItem(workout.id)}
-                          className={`w-full p-3 rounded-lg border transition-all text-left ${
+                          className={`w-full p-3 rounded-lg border transition-all text-left flex gap-3 ${
                             selectedItems.has(workout.id)
                               ? "border-brand bg-brand/10"
                               : "border-border/60 hover:border-border/80"
                           }`}
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">
-                              {workout.name}
-                            </span>
-                            <input
-                              type="checkbox"
-                              checked={selectedItems.has(workout.id)}
-                              onChange={() => {}}
-                              className="h-4 w-4"
+                          {/* Exercise Image */}
+                          {workout.photo ? (
+                            <img
+                              src={workout.photo}
+                              alt={workout.name}
+                              className="h-20 w-20 rounded-lg object-cover flex-shrink-0"
                             />
-                          </div>
-                          {workout.description && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {workout.description}
-                            </p>
+                          ) : (
+                            <div className="h-20 w-20 rounded-lg bg-muted flex-shrink-0" />
                           )}
+
+                          {/* Exercise Info */}
+                          <div className="flex-1 flex flex-col justify-between">
+                            <div>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm font-medium">
+                                  {workout.name}
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedItems.has(workout.id)}
+                                  onChange={() => {}}
+                                  className="h-4 w-4 flex-shrink-0"
+                                />
+                              </div>
+                              {workout.description && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {workout.description}
+                                </p>
+                              )}
+                              {workout.muscle_group && (
+                                <p className="text-xs text-brand mt-1 font-medium">
+                                  {workout.muscle_group}
+                                </p>
+                              )}
+                            </div>
+                          </div>
                         </button>
                       ))}
 
