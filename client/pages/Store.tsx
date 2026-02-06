@@ -344,12 +344,23 @@ export default function Store() {
                         )}
                       </div>
 
-                      {/* Price */}
-                      {item.price && (
-                        <p className="font-bold text-lg text-brand">
-                          R$ {item.price.toFixed(2)}
-                        </p>
-                      )}
+                      {/* Price and Instagram Link */}
+                      <div className="flex items-center justify-between gap-2">
+                        {item.price && (
+                          <p className="font-bold text-lg text-brand">
+                            R$ {item.price.toFixed(2)}
+                          </p>
+                        )}
+                        <a
+                          href={item.instagram_post_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-shrink-0 p-2 hover:bg-muted rounded-lg transition"
+                          title="Ver no Instagram"
+                        >
+                          <Instagram className="h-4 w-4 text-pink-500" />
+                        </a>
+                      </div>
 
                       {/* Variants */}
                       {(item.available_colors || item.available_sizes) && (
@@ -372,19 +383,6 @@ export default function Store() {
                           )}
                         </div>
                       )}
-
-                      {/* CTA Button */}
-                      <a
-                        href={item.instagram_post_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block"
-                      >
-                        <Button className="w-full rounded-full" size="sm">
-                          <ExternalLink className="h-4 w-4 mr-2" />
-                          Ver no Instagram
-                        </Button>
-                      </a>
                     </CardContent>
                   </Card>
                 ))}
