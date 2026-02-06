@@ -333,14 +333,8 @@ export default function Goals() {
   };
 
   const getWorkoutName = (workoutId: string) => {
-    const workout = userWorkouts.find(
-      (w) => String(w.workout_id) === workoutId,
-    );
-    return (
-      workout?.workoutName ||
-      (workout?.workouts as any)?.name ||
-      "Exercício"
-    );
+    const workout = workouts.find((w) => String(w.id) === workoutId);
+    return workout?.name || "Exercício";
   };
 
   const getDietName = (dietId: string) => {
