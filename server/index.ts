@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { handleDemo } from "./routes/demo";
+import { handleGetUser, handleSignOut, handleRefreshSession } from "./routes/auth";
 
 export function createServer() {
   const app = express();
@@ -18,6 +19,11 @@ export function createServer() {
   });
 
   app.get("/api/demo", handleDemo);
+
+  // Auth routes - proxy Supabase auth to avoid CORS issues
+  app.post("/api/auth/user", handleGetUser);
+  app.post("/api/auth/sign-out", handleSignOut);
+  app.post("/api/auth/refresh", handleRefreshSession);
 
   return app;
 }
