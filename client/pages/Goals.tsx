@@ -428,110 +428,177 @@ export default function Goals() {
         </TabsContent>
       </Tabs>
 
-      {/* Exercise Modal */}
-      <Dialog open={exerciseModalOpen} onOpenChange={setExerciseModalOpen}>
-        <DialogContent className="max-h-[90dvh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Registrar Exercício</DialogTitle>
-          </DialogHeader>
+      {/* Add Routine Drawer Modal */}
+      <Drawer open={addRoutineModalOpen} onOpenChange={setAddRoutineModalOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Adicionar Rotina</DrawerTitle>
+          </DrawerHeader>
 
-          {selectedRoutineForExercise && (
-            <div className="space-y-4 overflow-y-auto flex-1">
-              {/* Timer */}
-              <div className="bg-brand/10 rounded-lg p-4 text-center">
-                <p className="text-sm text-muted-foreground mb-2">Tempo</p>
-                <p className="text-4xl font-bold font-mono">
-                  {formatTime(elapsedSeconds)}
-                </p>
-              </div>
-
-              {/* Exercises Form */}
+          <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
+            {/* Type Selection */}
+            {selectedRoutineType === null ? (
               <div className="space-y-3">
-                <p className="text-sm font-semibold">
-                  {getWorkoutName(
-                    selectedRoutineForExercise.program_id || "",
-                  )}
-                </p>
-                {userWorkouts
-                  .filter(
-                    (w) =>
-                      String(w.workout_id) ===
-                      selectedRoutineForExercise.program_id,
-                  )
-                  .map((workout) => (
-                    <div
-                      key={workout.id}
-                      className="border border-border/60 rounded-lg p-3 space-y-2"
-                    >
-                      <p className="text-sm font-medium text-muted-foreground">
-                        Seu Registro
-                      </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-xs text-muted-foreground block mb-1">
-                            Série
-                          </label>
-                          <Input
-                            type="number"
-                            placeholder="0"
-                            value={exerciseFormData[workout.id]?.series || ""}
-                            onChange={(e) =>
-                              setExerciseFormData({
-                                ...exerciseFormData,
-                                [workout.id]: {
-                                  ...exerciseFormData[workout.id],
-                                  series: e.target.value,
-                                },
-                              })
-                            }
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs text-muted-foreground block mb-1">
-                            Peso (KG)
-                          </label>
-                          <Input
-                            type="number"
-                            placeholder="0"
-                            value={exerciseFormData[workout.id]?.weight || ""}
-                            onChange={(e) =>
-                              setExerciseFormData({
-                                ...exerciseFormData,
-                                [workout.id]: {
-                                  ...exerciseFormData[workout.id],
-                                  weight: e.target.value,
-                                },
-                              })
-                            }
-                            className="h-8 text-sm"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                <p className="text-sm font-medium">Selecione o tipo:</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {[1, 2, 3].map((typeCode) => {
+                    const typeLabel =
+                      typeCode === 1
+                        ? "Exercícios"
+                        : typeCode === 2
+                          ? "Dietas"
+                          : "Hábitos";
+                    return (
+                      <button
+                        key={typeCode}
+                        onClick={() => setSelectedRoutineType(typeCode)}
+                        className="p-4 border border-border/60 rounded-lg hover:bg-muted/50 transition-colors text-left"
+                      >
+                        <p className="font-semibold text-sm">{typeLabel}</p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            ) : (
+              <>
+                {/* Item Selection */}
+                <div className="space-y-3 flex-1 overflow-y-auto">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">
+                      {selectedRoutineType === 1
+                        ? "Exercícios"
+                        : selectedRoutineType === 2
+                          ? "Dietas"
+                          : "Hábitos"}
+                    </p>
+                    <button
+                      onClick={() => {
+                        setSelectedRoutineType(null);
+                        setSelectedItems(new Set());
+                      }}
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Voltar
+                    </button>
+                  </div>
 
-          {/* Actions */}
-          <div className="flex gap-2 pt-4 border-t border-border/60">
-            <Button
-              variant="outline"
-              className="flex-1 rounded-full"
-              onClick={() => setExerciseModalOpen(false)}
-            >
-              Cancelar
-            </Button>
-            <Button
-              className="flex-1 rounded-full"
-              onClick={handleSaveExerciseData}
-            >
-              Salvar Exercício
-            </Button>
+                  {/* Items List */}
+                  <div className="space-y-2">
+                    {selectedRoutineType === 1 &&
+                      workouts.map((workout) => (
+                        <button
+                          key={workout.id}
+                          onClick={() => handleSelectItem(workout.id)}
+                          className={`w-full p-3 rounded-lg border transition-all text-left ${
+                            selectedItems.has(workout.id)
+                              ? "border-brand bg-brand/10"
+                              : "border-border/60 hover:border-border/80"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">
+                              {workout.name}
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={selectedItems.has(workout.id)}
+                              onChange={() => {}}
+                              className="h-4 w-4"
+                            />
+                          </div>
+                          {workout.description && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {workout.description}
+                            </p>
+                          )}
+                        </button>
+                      ))}
+
+                    {selectedRoutineType === 2 &&
+                      diets.map((diet) => (
+                        <button
+                          key={diet.id}
+                          onClick={() => handleSelectItem(diet.id)}
+                          className={`w-full p-3 rounded-lg border transition-all text-left ${
+                            selectedItems.has(diet.id)
+                              ? "border-brand bg-brand/10"
+                              : "border-border/60 hover:border-border/80"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">
+                              {diet.name}
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={selectedItems.has(diet.id)}
+                              onChange={() => {}}
+                              className="h-4 w-4"
+                            />
+                          </div>
+                          {diet.description && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {diet.description}
+                            </p>
+                          )}
+                          {diet.calories && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {diet.calories} cal
+                            </p>
+                          )}
+                        </button>
+                      ))}
+
+                    {selectedRoutineType === 3 &&
+                      habits.map((habit) => (
+                        <button
+                          key={habit.id}
+                          onClick={() => handleSelectItem(habit.id)}
+                          className={`w-full p-3 rounded-lg border transition-all text-left ${
+                            selectedItems.has(habit.id)
+                              ? "border-brand bg-brand/10"
+                              : "border-border/60 hover:border-border/80"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">
+                              {habit.name}
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={selectedItems.has(habit.id)}
+                              onChange={() => {}}
+                              className="h-4 w-4"
+                            />
+                          </div>
+                          {habit.description && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {habit.description}
+                            </p>
+                          )}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Save Button */}
+                {selectedItems.size > 0 && (
+                  <Button
+                    onClick={handleSaveRoutines}
+                    disabled={isAddingRoutine}
+                    className="w-full rounded-full"
+                  >
+                    {isAddingRoutine
+                      ? "Salvando..."
+                      : `Salvar (${selectedItems.size})`}
+                  </Button>
+                )}
+              </>
+            )}
           </div>
-        </DialogContent>
-      </Dialog>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }
