@@ -62,7 +62,9 @@ export default function Login() {
     !busy &&
     email.trim().length > 0 &&
     password.trim().length >= 6 &&
-    hasSupabaseConfig;
+    hasSupabaseConfig &&
+    networkStatus.isOnline &&
+    networkStatus.isSupabaseReachable;
 
   React.useEffect(() => {
     const unsubscribe = addNetworkStatusListener((status) => {
