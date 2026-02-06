@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
 import { PostCommentsDialog } from "@/components/post-comments-dialog";
+import { ImageWithFallback } from "@/components/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import {
   incrementGoalProgressDb,
