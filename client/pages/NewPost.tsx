@@ -33,20 +33,15 @@ export default function NewPost() {
 
     setGoalsLoading(true);
     getUserGoalsDb()
-      .then((data) => {
-        setUserGoals(data);
-      })
-      .catch((err) => {
-        console.error("Error loading user goals:", err);
-      })
+      .then(setUserGoals)
+      .catch((err) => console.error("Error loading user goals:", err))
       .finally(() => setGoalsLoading(false));
   }, [user]);
 
   const canSubmit = Boolean(file && !busy && hasSupabaseConfig && user);
 
   async function handlePost() {
-    if (!hasSupabaseConfig || !supabase) return;
-    if (loading) return;
+    if (!hasSupabaseConfig || !supabase || loading) return;
 
     if (!user) {
       toast({
@@ -61,7 +56,9 @@ export default function NewPost() {
 
     setBusy(true);
     try {
-      const filePath = `${user.id}/${Date.now()}-${file.name}`;
+      // Send original file without modifications
+      const extension = file.name.split(".").pop() || "jpg";
+      const filePath = `${user.id}/${Date.now()}.${extension}`;
 
       const { error: uploadError } = await supabase.storage
         .from("posts")
@@ -69,14 +66,15 @@ export default function NewPost() {
 
       if (uploadError) throw uploadError;
 
-      const publicUrl = supabase.storage.from("posts").getPublicUrl(filePath)
-        .data.publicUrl;
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("posts").getPublicUrl(filePath);
 
       const { error: insertError } = await supabase.from("posts").insert({
         user_id: user.id,
         description: caption.trim(),
         photo: publicUrl,
-        user_goal_id: selectedGoalId ? parseInt(selectedGoalId) : null,
+        user_goal_id: selectedGoalId || null,
       });
 
       if (insertError) throw insertError;
@@ -90,6 +88,7 @@ export default function NewPost() {
       setCaption("");
       navigate("/", { replace: true });
     } catch (err: any) {
+      console.error(err);
       toast({
         title: "Erro ao publicar",
         description: err.message || "Erro inesperado",
