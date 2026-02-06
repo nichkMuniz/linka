@@ -13,6 +13,7 @@ import {
   toggleUserDietCompletionDb,
   toggleUserHabitCompletionDb,
   updateUserWorkoutDb,
+  getWorkoutsDb,
   getDietsDb,
   getHabitsDb,
   type ProgrammedGoal,
@@ -21,6 +22,7 @@ import {
   type UserWorkoutWithDetails,
   type UserDietWithDetails,
   type UserHabitWithDetails,
+  type Workout,
   type Diet,
   type Habit,
 } from "@/lib/ritmofit-db";
