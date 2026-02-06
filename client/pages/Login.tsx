@@ -56,6 +56,7 @@ export default function Login() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [networkStatus, setNetworkStatus] = React.useState(getNetworkStatus());
 
   const canSubmit =
     !busy &&
