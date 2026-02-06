@@ -329,9 +329,10 @@ export default function Index() {
                     <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
                       <div className="flex items-center gap-2">
                         {post.userPhoto ? (
-                          <img
+                          <ImageWithFallback
                             src={post.userPhoto}
                             alt={post.userNickname}
+                            fallback="/placeholder.svg"
                             className="h-8 w-8 rounded-full object-cover border border-white/30"
                           />
                         ) : (
