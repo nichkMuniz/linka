@@ -1140,7 +1140,6 @@ export async function getUserWorkoutsDb(
             calories: row.calories,
             duration: row.duration,
             time_rest: row.time_rest,
-            is_completed: row.is_completed,
             workoutName: workoutDetails?.name || "Exercício desconhecido",
             workoutPhoto: workoutDetails?.photo || null,
             workoutDescription: workoutDetails?.description || undefined,
