@@ -157,9 +157,6 @@ export function PostCommentsDialog({
       <DrawerContent className="max-h-[60vh] flex flex-col">
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Comentários</DrawerTitle>
-          <DrawerDescription>
-            {commentCount} {commentCount === 1 ? "comentário" : "comentários"}
-          </DrawerDescription>
         </DrawerHeader>
 
         <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
