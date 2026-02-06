@@ -663,23 +663,22 @@ export default function Profile() {
             </div>
 
             {/* Settings Button */}
-            <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 rounded-full"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
-              </DialogTrigger>
+            <Drawer open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+              <Button
+                onClick={() => setIsSettingsOpen(true)}
+                variant="outline"
+                size="sm"
+                className="shrink-0 rounded-full"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
 
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Configurações</DialogTitle>
-                </DialogHeader>
+              <DrawerContent className="max-h-[90dvh] flex flex-col">
+                <DrawerHeader className="shrink-0">
+                  <DrawerTitle>Configurações</DrawerTitle>
+                </DrawerHeader>
 
-                <div className="space-y-3">
+                <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4">
                   <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
                     <DialogTrigger asChild>
                       <Button
@@ -795,8 +794,8 @@ export default function Profile() {
                     Desconectar
                   </Button>
                 </div>
-              </DialogContent>
-            </Dialog>
+              </DrawerContent>
+            </Drawer>
           </div>
         </CardContent>
       </Card>
