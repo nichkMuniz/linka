@@ -151,6 +151,18 @@ export default function Index() {
     setStoryViewerOpen(true);
   }, []);
 
+  const handleSkipStory = React.useCallback(() => {
+    if (!selectedStory) return;
+
+    const currentIndex = stories.findIndex((s) => s.id === selectedStory.id);
+    if (currentIndex < stories.length - 1) {
+      const nextStory = stories[currentIndex + 1];
+      setSelectedStory(nextStory);
+    } else {
+      setStoryViewerOpen(false);
+    }
+  }, [selectedStory, stories]);
+
   const handleAddStoryClick = React.useCallback(() => {
     setStoryCreationOpen(true);
   }, []);
