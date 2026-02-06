@@ -114,10 +114,34 @@ export default function Index() {
   }, [user, posts]);
 
   const handleCreateStory = React.useCallback(
-    async (mediaUrl: string, description: string) => {
+    async (mediaDataUrl: string, description: string) => {
       setIsCreatingStory(true);
       try {
-        const newStory = await createStoryDb(description, mediaUrl);
+        if (!user || !supabase) throw new Error("User not authenticated");
+
+        // Convert data URL to Blob
+        const response = await fetch(mediaDataUrl);
+        const blob = await response.blob();
+
+        // Determine file extension based on media type
+        const isVideo = mediaDataUrl.startsWith("data:video");
+        const fileExtension = isVideo ? "mp4" : "jpg";
+        const fileName = `${Date.now()}-story.${fileExtension}`;
+        const filePath = `${user.id}/stories/${fileName}`;
+
+        // Upload to Supabase storage
+        const { error: uploadError } = await supabase.storage
+          .from("posts")
+          .upload(filePath, blob);
+
+        if (uploadError) throw uploadError;
+
+        // Get public URL
+        const { data } = supabase.storage.from("posts").getPublicUrl(filePath);
+        const publicMediaUrl = data.publicUrl;
+
+        // Create story with public URL
+        const newStory = await createStoryDb(description, publicMediaUrl);
         if (newStory && user) {
           // Add the new story to the list
           const enrichedStory: StoryWithUser = {
