@@ -70,13 +70,12 @@ export default function Reels() {
         let direction = 0;
 
         if (e instanceof WheelEvent) {
-          direction = e.deltaY > 0 ? 1 : -1;
+          // deltaY > 0 = scrolling down (should go to previous/up)
+          // deltaY < 0 = scrolling up (should go to next/down)
+          direction = e.deltaY > 0 ? -1 : 1;
         } else if (e instanceof TouchEvent) {
-          // Handle touch swipe
-          const touch = e.touches[0];
-          const startY = (e as any).startY || touch.clientY;
-          const currentY = touch.clientY;
-          direction = currentY < startY ? 1 : -1;
+          // Handle touch swipe - already handled in touchend
+          return;
         }
 
         if (direction !== 0) {
