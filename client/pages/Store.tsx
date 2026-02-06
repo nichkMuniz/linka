@@ -283,34 +283,6 @@ export default function Store() {
         <div className="space-y-8">
           {Object.values(groupedByStore).map((store, storeIndex) => (
             <div key={storeIndex} className="space-y-4">
-              {/* Store Header */}
-              <div className="flex items-center justify-between p-4 border border-border/60 rounded-lg bg-muted/30">
-                <div className="flex items-center gap-3">
-                  {store.store_logo_url && (
-                    <img
-                      src={store.store_logo_url}
-                      alt={store.store_name}
-                      className="h-10 w-10 rounded-full object-cover"
-                    />
-                  )}
-                  <div>
-                    <p className="font-semibold text-sm">{store.store_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      @{store.store_instagram_handle}
-                    </p>
-                  </div>
-                </div>
-                <a
-                  href={store.store_instagram_profile_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-shrink-0 p-2 hover:bg-background rounded-lg transition"
-                  title="Abrir no Instagram"
-                >
-                  <Instagram className="h-5 w-5 text-pink-500" />
-                </a>
-              </div>
-
               {/* Products Grid */}
               <div className="grid gap-3 grid-cols-2">
                 {store.items.map((item) => (
