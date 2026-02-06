@@ -1248,10 +1248,18 @@ export async function getUserDietsDb(
   if (error) {
     const errorMsg = error?.message || String(error);
     const errorCode = error?.code || "UNKNOWN";
-    const errorDetails = error?.details || error?.message || "";
+    const errorDetails = (error?.details || error?.message || "").toLowerCase();
 
     // Silently handle relationship errors - try without join and fetch diets separately
-    if (errorDetails.includes("relationship")) {
+    if (
+      errorDetails.includes("relationship") ||
+      errorCode === "PGRST200" ||
+      errorMsg.includes("relationship")
+    ) {
+      console.warn(
+        `[getUserDietsDb] Relationship error detected, using fallback method: ${errorMsg}`,
+      );
+
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_diets")
         .select("id, diet_id, user_id, quantity, calories")
@@ -1292,6 +1300,13 @@ export async function getUserDietsDb(
             dietCalories: dietDetails?.calories || 0,
           };
         });
+      } else if (errorFallback) {
+        const fallbackMsg = errorFallback?.message || String(errorFallback);
+        const fallbackCode = errorFallback?.code || "UNKNOWN";
+        console.error(
+          `[getUserDietsDb] Fallback also failed [${fallbackCode}]:`,
+          fallbackMsg,
+        );
       }
     }
 
