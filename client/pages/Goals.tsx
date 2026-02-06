@@ -97,6 +97,14 @@ export default function Goals() {
   const [userHabits, setUserHabits] = React.useState<UserHabitWithDetails[]>([]);
   const [expandedRoutineId, setExpandedRoutineId] = React.useState<string | null>(null);
 
+  // Workout modal state
+  const [workoutModalOpen, setWorkoutModalOpen] = React.useState(false);
+  const [workoutSeries, setWorkoutSeries] = React.useState<
+    Record<string, Array<{ series: number; kg: number; reps: number }>>
+  >({});
+  const [workoutDuration, setWorkoutDuration] = React.useState(0);
+  const [workoutStartTime, setWorkoutStartTime] = React.useState<number | null>(null);
+
   // Ranking tab state
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
 
