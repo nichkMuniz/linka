@@ -65,6 +65,14 @@ export default function Login() {
     hasSupabaseConfig;
 
   React.useEffect(() => {
+    const unsubscribe = addNetworkStatusListener((status) => {
+      setNetworkStatus(status);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  React.useEffect(() => {
     if (authLoading) return;
     if (!user) return;
 
