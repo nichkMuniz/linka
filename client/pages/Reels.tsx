@@ -287,19 +287,18 @@ export default function Reels() {
   return (
     <div
       ref={containerRef}
-      className="relative h-[calc(100dvh-120px)] w-full max-w-6xl mx-auto bg-black overflow-hidden"
+      className="relative h-[calc(100dvh-120px)] w-full bg-black overflow-hidden flex items-center justify-center"
     >
       {/* Videos Container */}
-      <div className="relative h-full w-full">
+      <div className="relative h-full w-full max-w-2xl">
         {reels.map((reel, index) => {
           const isVisible = index === currentReelIndex;
 
           return (
             <div
               key={reel.id}
-              className={`absolute inset-0 transition-opacity duration-300 ${
-                isVisible ? "opacity-100" : "opacity-0 pointer-events-none"
-              }`}
+              className={`absolute inset-0 transition-opacity duration-300 ${isVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+                }`}
             >
               {/* Video */}
               <div className="relative h-full w-full overflow-hidden bg-black">
@@ -318,43 +317,72 @@ export default function Reels() {
                   </div>
                 )}
 
-                {/* User Info Overlay - Top Left */}
-                <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/60 to-transparent z-10">
-                  <div className="flex items-center gap-3">
-                    {reel.userPhoto && (
-                      <img
-                        src={reel.userPhoto}
-                        alt={reel.userNickname || "Usuário"}
-                        className="h-10 w-10 rounded-full object-cover border-2 border-white/30"
-                      />
-                    )}
-                    <div>
-                      <p className="text-sm font-semibold text-white drop-shadow-sm">
-                        {reel.userNickname || "Usuário"}
-                      </p>
-                    </div>
+                {/* Gradient Overlay for Better Text Visibility */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
+
+                {/* User Info - Top Left */}
+                <div className="absolute top-4 left-4 z-10 flex items-center gap-3">
+                  {reel.userPhoto && (
+                    <img
+                      src={reel.userPhoto}
+                      alt={reel.userNickname || "Usuário"}
+                      className="h-12 w-12 rounded-full object-cover border-2 border-white/30 shadow-lg"
+                    />
+                  )}
+                  <div>
+                    <p className="text-sm font-bold text-white drop-shadow-md">
+                      {reel.userNickname || "Usuário"}
+                    </p>
+                    <p className="text-xs text-white/70">Seguir</p>
                   </div>
                 </div>
 
-                {/* Description and Comment Input - Bottom Left */}
-                <div className="absolute bottom-24 left-0 right-0 p-4 z-10">
+                {/* Description - Bottom Left */}
+                <div className="absolute bottom-24 left-4 right-16 z-10">
                   {reel.description && (
-                    <div className="bg-gradient-to-t from-black/60 to-transparent p-4 rounded-lg mb-2">
-                      <p className="text-sm text-white drop-shadow-sm">
-                        {reel.description}
-                      </p>
-                    </div>
+                    <p className="text-sm text-white drop-shadow-md leading-relaxed">
+                      {reel.description}
+                    </p>
                   )}
+                </div>
 
-                  {/* Quick Comment Input - Semi-transparent */}
-                  {user && (
-                    <div className="flex gap-2 bg-black/30 backdrop-blur-sm p-2 rounded-lg">
+                {/* Incentive Buttons + Comments - Right Side */}
+                <div className="absolute right-4 bottom-24 flex flex-col gap-4 z-20">
+                  {/* Like/Incentive Buttons */}
+                  <div className="flex flex-col gap-3">
+                    {([1, 2, 3] as PostIncentiveType[]).map((type) => (
+                      <PostIncentiveButton
+                        key={type}
+                        type={type}
+                        isActive={(reel.userLikes || [])?.includes(type) ?? false}
+                        onClick={() => handleIncentiveClick(reel, type)}
+                        loading={togglingReelId === reel.id}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Comments Button */}
+                  <button
+                    onClick={() => handleOpenComments(reel)}
+                    className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/10 transition-colors group"
+                  >
+                    <MessageCircle className="h-7 w-7 text-white group-hover:scale-110 transition-transform" />
+                    <span className="text-xs text-white/70 font-medium">
+                      {(reel.commentCount || 0) > 0 ? reel.commentCount : ""}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Bottom Left Comment Input */}
+                {user && (
+                  <div className="absolute bottom-4 left-4 right-16 z-10">
+                    <div className="flex gap-2 bg-white/10 backdrop-blur-sm p-2 rounded-full border border-white/20">
                       <Input
                         placeholder="Comente..."
                         value={quickCommentText}
                         onChange={(e) => setQuickCommentText(e.target.value)}
                         disabled={isAddingQuickComment}
-                        className="bg-white/10 border-white/20 text-white placeholder:text-white/50 text-xs h-8"
+                        className="bg-transparent border-0 text-white placeholder:text-white/50 text-xs h-8 focus:ring-0 focus:outline-none"
                         onKeyPress={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
@@ -368,48 +396,29 @@ export default function Reels() {
                         disabled={
                           !quickCommentText.trim() || isAddingQuickComment
                         }
-                        className="h-8 w-8 p-0 rounded-full"
+                        className="h-8 w-8 p-0 rounded-full bg-white/20 hover:bg-white/30"
                       >
-                        <Send className="h-3 w-3" />
+                        <Send className="h-3 w-3 text-white" />
                       </Button>
                     </div>
-                  )}
-                </div>
-
-                {/* Incentive Buttons - Right Side */}
-                <div className="absolute right-4 bottom-1/3 flex flex-col gap-3 z-20">
-                  {([1, 2, 3] as PostIncentiveType[]).map((type) => (
-                    <PostIncentiveButton
-                      key={type}
-                      type={type}
-                      isActive={(reel.userLikes || [])?.includes(type) ?? false}
-                      onClick={() => handleIncentiveClick(reel, type)}
-                      loading={togglingReelId === reel.id}
-                    />
-                  ))}
-
-                  {/* Comments Button */}
-                  <button
-                    onClick={() => handleOpenComments(reel)}
-                    className="flex items-center justify-center transition-opacity hover:opacity-80"
-                  >
-                    <MessageCircle className="h-7 w-7 text-white" />
-                  </button>
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Pagination Indicator */}
+      {/* Pagination Dots - Bottom Center */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-20">
         {reels.map((_, index) => (
-          <div
+          <button
             key={index}
-            className={`h-1 transition-all ${
-              index === currentReelIndex ? "w-8 bg-white" : "w-2 bg-white/40"
-            }`}
+            onClick={() => setCurrentReelIndex(index)}
+            className={`transition-all rounded-full ${index === currentReelIndex
+                ? "w-8 h-1 bg-white"
+                : "w-2 h-1 bg-white/40 hover:bg-white/60"
+              }`}
           />
         ))}
       </div>
