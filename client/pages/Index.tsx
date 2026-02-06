@@ -304,9 +304,9 @@ export default function Index() {
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-2xl gap-4">
+    <div className="mx-auto w-full max-w-2xl flex flex-col h-screen overflow-hidden">
       {/* Stories Carousel */}
-      <div className="bg-background border-b border-border/60">
+      <div className="bg-background border-b border-border/60 shrink-0">
         <StoriesCarousel
           stories={stories}
           onAddStoryClick={handleAddStoryClick}
@@ -315,132 +315,139 @@ export default function Index() {
         />
       </div>
 
-      {posts.length ? (
-        posts.map((post) => (
-          <Card
-            key={post.id}
-            className="border-border/60 relative overflow-hidden"
-          >
-            <CardContent className="space-y-3 p-0">
-              {/* Image Container with User Info Overlay */}
-              <div className="relative">
-                <img
-                  src={post.photo}
-                  alt="Post"
-                  className="w-full object-cover"
-                />
-                {/* User Info Overlay - Inside Image */}
-                <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
-                  <div className="flex items-center gap-2">
-                    {post.userPhoto ? (
-                      <img
-                        src={post.userPhoto}
-                        alt={post.userNickname}
-                        className="h-8 w-8 rounded-full object-cover border border-white/30"
-                      />
-                    ) : (
-                      <div className="h-8 w-8 rounded-full bg-white/30" />
+      {/* Feed Content */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="grid w-full gap-3 p-4">
+          {posts.length ? (
+            posts.map((post) => (
+              <Card
+                key={post.id}
+                className="border-border/60 relative overflow-hidden"
+              >
+                <CardContent className="space-y-3 p-0">
+                  {/* Image Container with User Info and Incentives Overlay */}
+                  <div className="relative">
+                    <img
+                      src={post.photo}
+                      alt="Post"
+                      className="w-full object-cover"
+                    />
+                    {/* Top Right - Incentives and Comments */}
+                    <div className="absolute top-3 right-3 flex items-center gap-2">
+                      <div className="flex items-center gap-2 bg-black/30 backdrop-blur-sm rounded-full px-2 py-1">
+                        {([1, 2, 3] as PostIncentiveType[]).map((type) => (
+                          <PostIncentiveButton
+                            key={type}
+                            type={type}
+                            isActive={post.userLikes.includes(type)}
+                            onClick={() => handleToggleLike(post.id, type)}
+                            loading={togglingPostId === post.id}
+                          />
+                        ))}
+                      </div>
+                      <div className="bg-black/30 backdrop-blur-sm rounded-full">
+                        <PostCommentsDialog
+                          postId={post.id}
+                          commentCount={post.commentCount}
+                          hasActivity={post.hasActivity}
+                          isPostOwner={post.user_id === user?.id}
+                          hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0}
+                        />
+                      </div>
+                    </div>
+
+                    {/* User Info Overlay - Bottom Left */}
+                    <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
+                      <div className="flex items-center gap-2">
+                        {post.userPhoto ? (
+                          <img
+                            src={post.userPhoto}
+                            alt={post.userNickname}
+                            className="h-8 w-8 rounded-full object-cover border border-white/30"
+                          />
+                        ) : (
+                          <div className="h-8 w-8 rounded-full bg-white/30" />
+                        )}
+                        <span className="text-xs font-medium text-white drop-shadow-sm">
+                          {post.userNickname}
+                        </span>
+                      </div>
+                      {/* Menu Button */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-white hover:bg-white/20"
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem onClick={() => handleReportUser(post)}>
+                            <Flag className="h-4 w-4 mr-2" />
+                            Denunciar usuário
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleReportPost(post)}>
+                            <Flag className="h-4 w-4 mr-2" />
+                            Denunciar post
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+
+                  {/* Post Content */}
+                  <div className="p-4 space-y-3">
+                    {post.description && (
+                      <p className="text-sm leading-relaxed">{post.description}</p>
                     )}
-                    <span className="text-xs font-medium text-white drop-shadow-sm">
-                      {post.userNickname}
-                    </span>
-                  </div>
-                  {/* Menu Button */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-white hover:bg-white/20"
+
+                    {/* Goal Progress Bar */}
+                    {post.userGoal && (
+                      <button
+                        onClick={() => openGoalModal(post)}
+                        className="w-full space-y-3 pt-3 text-left hover:opacity-80 transition-opacity rounded-lg p-3 bg-muted/30 hover:bg-muted/50"
                       >
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-40">
-                      <DropdownMenuItem onClick={() => handleReportUser(post)}>
-                        <Flag className="h-4 w-4 mr-2" />
-                        Denunciar usuário
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => handleReportPost(post)}>
-                        <Flag className="h-4 w-4 mr-2" />
-                        Denunciar post
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-foreground">
+                            {post.userGoal.description}
+                          </span>
+                          <span className="text-sm font-bold text-brand">
+                            {Math.round(post.userGoal.perc)}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-4 overflow-hidden">
+                          <div
+                            className="bg-brand h-full rounded-full transition-all duration-300"
+                            style={{
+                              width: `${post.userGoal.perc}%`,
+                            }}
+                          />
+                        </div>
+                      </button>
+                    )}
 
-              {/* Post Content */}
-              <div className="p-4 space-y-3">
-                {post.description && (
-                  <p className="text-sm leading-relaxed">{post.description}</p>
-                )}
-
-                {/* Incentives and Comments Row */}
-                <div className="flex items-center justify-between pt-1">
-                  <div className="flex items-center gap-3">
-                    {([1, 2, 3] as PostIncentiveType[]).map((type) => (
-                      <PostIncentiveButton
-                        key={type}
-                        type={type}
-                        isActive={post.userLikes.includes(type)}
-                        onClick={() => handleToggleLike(post.id, type)}
-                        loading={togglingPostId === post.id}
-                      />
-                    ))}
+                    <p className="text-xs text-muted-foreground pt-1">
+                      {formatTimeAgo(post.created_at)}
+                    </p>
                   </div>
-                  <PostCommentsDialog
-                    postId={post.id}
-                    commentCount={post.commentCount}
-                    hasActivity={post.hasActivity}
-                    isPostOwner={post.user_id === user?.id}
-                    hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0}
-                  />
-                </div>
-
-                {/* Goal Progress Bar */}
-                {post.userGoal && (
-                  <button
-                    onClick={() => openGoalModal(post)}
-                    className="w-full space-y-3 pt-3 text-left hover:opacity-80 transition-opacity rounded-lg p-3 bg-muted/30 hover:bg-muted/50"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-foreground">
-                        {post.userGoal.description}
-                      </span>
-                      <span className="text-sm font-bold text-brand">
-                        {Math.round(post.userGoal.perc)}%
-                      </span>
-                    </div>
-                    <div className="w-full bg-muted rounded-full h-4 overflow-hidden">
-                      <div
-                        className="bg-brand h-full rounded-full transition-all duration-300"
-                        style={{
-                          width: `${post.userGoal.perc}%`,
-                        }}
-                      />
-                    </div>
-                  </button>
-                )}
-
-                <p className="text-xs text-muted-foreground pt-1">
-                  {formatTimeAgo(post.created_at)}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        ))
-      ) : (
-        <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Comece agora a acompanhar as rotinas de seus amigos
-          </p>
-          <a href="/buscar">
-            <Button className="rounded-full">Buscar</Button>
-          </a>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Comece agora a acompanhar as rotinas de seus amigos
+              </p>
+              <a href="/buscar">
+                <Button className="rounded-full">Buscar</Button>
+              </a>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Story Creation Dialog */}
       <StoryCreationDialog
