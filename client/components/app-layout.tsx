@@ -151,8 +151,20 @@ export function AppLayout() {
             </span>
           </Link>
 
-          {/* Right: Messages and Search (absolute positioned on desktop) */}
+          {/* Right: Search and Messages (absolute positioned on desktop) */}
           <div className="absolute right-4 flex items-center gap-1">
+            <Link to="/buscar">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-11 w-11 rounded-full"
+                aria-label="Buscar pessoas, treinos e dietas"
+              >
+                <Search className="h-5 w-5" />
+              </Button>
+            </Link>
+
             <Link to="/mensagens">
               <Button
                 type="button"
@@ -167,18 +179,6 @@ export function AppLayout() {
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 )}
-              </Button>
-            </Link>
-
-            <Link to="/buscar">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-11 w-11 rounded-full"
-                aria-label="Buscar pessoas, treinos e dietas"
-              >
-                <Search className="h-5 w-5" />
               </Button>
             </Link>
           </div>
