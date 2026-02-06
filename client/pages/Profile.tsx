@@ -908,12 +908,6 @@ export default function Profile() {
               }
             }}
           >
-            <DialogTrigger asChild>
-              <Button className="rounded-full">
-                <Plus className="h-4 w-4 mr-2" />
-                Rotina
-              </Button>
-            </DialogTrigger>
 
             <DialogContent>
               {selectedRoutineType === null ? (
