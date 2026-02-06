@@ -2438,22 +2438,34 @@ export async function addReelCommentDb(reelId: string, text: string) {
   const userHandle = profile?.handle ?? "@voce";
 
   try {
-    const { error } = await supabase.from("comments").insert({
-      post_id: reelId,
+    const { error } = await supabase.from("reel_comments").insert({
+      reel_id: reelId,
       user_id: viewer.id,
       user_handle: userHandle,
+      user_name: userName,
       text: text.trim(),
     });
 
     if (error) {
-      console.error("Error adding reel comment:", error);
-      throw error;
+      // Try legacy format if reel_comments table doesn't exist
+      const { error: legacyError } = await supabase.from("comments").insert({
+        post_id: reelId,
+        user_id: viewer.id,
+        user_handle: userHandle,
+        user_name: userName,
+        text: text.trim(),
+      });
+
+      if (legacyError) {
+        console.error("Error adding reel comment:", legacyError?.message || JSON.stringify(legacyError));
+        throw legacyError;
+      }
     }
 
     // Award 1 point for commenting on a reel
     await addPointsDb(1);
   } catch (err: any) {
-    console.error("Error adding reel comment:", err);
+    console.error("Error adding reel comment:", err?.message || JSON.stringify(err));
     throw err;
   }
 }
