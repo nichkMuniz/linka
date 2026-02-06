@@ -705,7 +705,7 @@ export default function Goals() {
                 {userWorkouts
                   .filter(
                     (w) =>
-                      String(w.id) === selectedRoutineForExercise.program_id,
+                      String(w.workout_id) === selectedRoutineForExercise.program_id,
                   )
                   .map((workout) => (
                     <div
@@ -713,7 +713,9 @@ export default function Goals() {
                       className="border border-border/60 rounded-lg p-3 space-y-2"
                     >
                       <p className="text-sm font-medium">
-                        {(workout.workouts as any)?.name || "Exercício"}
+                        {(workout.workouts as any)?.name ||
+                          workout.workoutName ||
+                          "Exercício"}
                       </p>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
