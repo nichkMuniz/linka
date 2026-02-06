@@ -2521,16 +2521,24 @@ export async function deleteReelCommentDb(commentId: string) {
 
   try {
     const { error } = await supabase
-      .from("comments")
+      .from("reel_comments")
       .delete()
       .eq("id", commentId);
 
     if (error) {
-      console.error("Error deleting reel comment:", error);
-      throw error;
+      // Try legacy format if reel_comments table doesn't exist
+      const { error: legacyError } = await supabase
+        .from("comments")
+        .delete()
+        .eq("id", commentId);
+
+      if (legacyError) {
+        console.error("Error deleting reel comment:", legacyError?.message || JSON.stringify(legacyError));
+        throw legacyError;
+      }
     }
   } catch (err: any) {
-    console.error("Error deleting reel comment:", err);
+    console.error("Error deleting reel comment:", err?.message || JSON.stringify(err));
     throw err;
   }
 }
