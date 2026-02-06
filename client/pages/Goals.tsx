@@ -1205,7 +1205,7 @@ export default function Goals() {
                             series.completed ? "opacity-60" : ""
                           }`}
                         >
-                          {/* First row: Série number, kg, reps, completed checkbox */}
+                          {/* Series row: Série number, kg, reps, completed checkbox */}
                           <div className="flex items-end gap-2">
                             <div className="flex-shrink-0">
                               <label className="text-xs font-medium text-muted-foreground">
@@ -1226,13 +1226,13 @@ export default function Goals() {
                               <input
                                 type="number"
                                 step="0.5"
-                                value={series.kg}
+                                value={series.kg === 0 ? "" : series.kg}
                                 onChange={(e) =>
                                   handleUpdateSerie(
                                     workout.workout_id,
                                     index,
                                     "kg",
-                                    parseFloat(e.target.value) || 0,
+                                    e.target.value,
                                   )
                                 }
                                 placeholder="0"
@@ -1246,13 +1246,13 @@ export default function Goals() {
                               </label>
                               <input
                                 type="number"
-                                value={series.reps}
+                                value={series.reps === 0 ? "" : series.reps}
                                 onChange={(e) =>
                                   handleUpdateSerie(
                                     workout.workout_id,
                                     index,
                                     "reps",
-                                    parseInt(e.target.value) || 0,
+                                    e.target.value,
                                   )
                                 }
                                 placeholder="0"
@@ -1277,37 +1277,6 @@ export default function Goals() {
                                   <Circle className="h-5 w-5 text-muted-foreground" />
                                 )}
                               </button>
-                            </div>
-                          </div>
-
-                          {/* Second row: Rest time selector */}
-                          <div>
-                            <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-                              Tempo de descanso
-                            </label>
-                            <div className="flex flex-wrap gap-1.5">
-                              {REST_TIME_OPTIONS.map((time) => (
-                                <button
-                                  key={time}
-                                  onClick={() =>
-                                    handleUpdateSerie(
-                                      workout.workout_id,
-                                      index,
-                                      "time_rest",
-                                      time,
-                                    )
-                                  }
-                                  className={`px-2.5 py-1 text-xs rounded border transition-all ${
-                                    series.time_rest === time
-                                      ? "border-brand bg-brand/20 text-brand font-medium"
-                                      : "border-border/60 text-muted-foreground hover:border-border/80"
-                                  }`}
-                                >
-                                  {time < 60
-                                    ? `${time}s`
-                                    : `${Math.floor(time / 60)}m`}
-                                </button>
-                              ))}
                             </div>
                           </div>
                         </div>
