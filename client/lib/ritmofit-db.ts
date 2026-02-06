@@ -1386,10 +1386,18 @@ export async function getUserHabitsDb(
   if (error) {
     const errorMsg = error?.message || String(error);
     const errorCode = error?.code || "UNKNOWN";
-    const errorDetails = error?.details || error?.message || "";
+    const errorDetails = (error?.details || error?.message || "").toLowerCase();
 
     // Silently handle relationship errors - try without join and fetch habits separately
-    if (errorDetails.includes("relationship")) {
+    if (
+      errorDetails.includes("relationship") ||
+      errorCode === "PGRST200" ||
+      errorMsg.includes("relationship")
+    ) {
+      console.warn(
+        `[getUserHabitsDb] Relationship error detected, using fallback method: ${errorMsg}`,
+      );
+
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_habits")
         .select("id, habit_id, user_id")
@@ -1427,6 +1435,13 @@ export async function getUserHabitsDb(
             habitDescription: habitDetails?.description || undefined,
           };
         });
+      } else if (errorFallback) {
+        const fallbackMsg = errorFallback?.message || String(errorFallback);
+        const fallbackCode = errorFallback?.code || "UNKNOWN";
+        console.error(
+          `[getUserHabitsDb] Fallback also failed [${fallbackCode}]:`,
+          fallbackMsg,
+        );
       }
     }
 
