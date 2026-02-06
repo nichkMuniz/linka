@@ -266,11 +266,30 @@ export default function Messages() {
     );
   }
 
+  // Filter conversations and followers based on search query
+  const filteredConversations = conversations.filter((conv) =>
+    conv.userNickname.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+
+  const filteredFollowers = followers.filter((follower) =>
+    follower.nickname.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-4 p-4">
-      <h1 className="text-2xl font-bold tracking-tight">Mensagens</h1>
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold tracking-tight">Mensagens</h1>
 
-      {conversations.length > 0 ? (
+        {/* Search Bar */}
+        <Input
+          placeholder="Pesquisar pessoas..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="rounded-full"
+        />
+      </div>
+
+      {filteredConversations.length > 0 ? (
         <div className="space-y-2">
           {conversations.map((conversation) => (
             <button
