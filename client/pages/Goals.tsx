@@ -686,6 +686,8 @@ export default function Goals() {
                       onClick={() => {
                         setSelectedRoutineType(null);
                         setSelectedItems(new Set());
+                        setSearchQuery("");
+                        setSelectedMuscleGroups(new Set());
                       }}
                       className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                     >
@@ -693,10 +695,51 @@ export default function Goals() {
                     </button>
                   </div>
 
+                  {/* Search and Filter for Exercises */}
+                  {selectedRoutineType === 1 && (
+                    <div className="space-y-3">
+                      {/* Search Bar */}
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          type="text"
+                          placeholder="Buscar exercício..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="pl-10 h-9"
+                        />
+                      </div>
+
+                      {/* Muscle Group Filter */}
+                      {uniqueMuscleGroups.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground">
+                            Filtrar por grupo muscular:
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {uniqueMuscleGroups.map((muscleGroup) => (
+                              <button
+                                key={muscleGroup}
+                                onClick={() => handleToggleMuscleGroup(muscleGroup)}
+                                className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
+                                  selectedMuscleGroups.has(muscleGroup)
+                                    ? "border-brand bg-brand/20 text-brand"
+                                    : "border-border/60 text-muted-foreground hover:border-border/80"
+                                }`}
+                              >
+                                {muscleGroup}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Items List */}
                   <div className="space-y-2">
                     {selectedRoutineType === 1 &&
-                      workouts.map((workout) => (
+                      filteredWorkouts.map((workout) => (
                         <button
                           key={workout.id}
                           onClick={() => handleSelectItem(workout.id)}
