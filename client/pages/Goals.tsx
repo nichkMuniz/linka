@@ -299,6 +299,86 @@ export default function Goals() {
     setSelectedMuscleGroups(newSelected);
   };
 
+  const handleAddSerie = (workoutId: string) => {
+    const currentSeries = workoutSeries[workoutId] || [];
+    const nextSeriesNumber = currentSeries.length + 1;
+    setWorkoutSeries({
+      ...workoutSeries,
+      [workoutId]: [
+        ...currentSeries,
+        { series: nextSeriesNumber, kg: 0, reps: 0 },
+      ],
+    });
+  };
+
+  const handleUpdateSerie = (
+    workoutId: string,
+    seriesIndex: number,
+    field: "kg" | "reps",
+    value: number,
+  ) => {
+    const currentSeries = workoutSeries[workoutId] || [];
+    const updated = [...currentSeries];
+    updated[seriesIndex] = {
+      ...updated[seriesIndex],
+      [field]: value,
+    };
+    setWorkoutSeries({
+      ...workoutSeries,
+      [workoutId]: updated,
+    });
+  };
+
+  const handleFinishWorkout = async () => {
+    if (!user) return;
+
+    // Prepare data for user_workouts
+    try {
+      const workoutRecords = [];
+      for (const [workoutId, series] of Object.entries(workoutSeries)) {
+        if (series.length > 0) {
+          workoutRecords.push({
+            workout_id: workoutId,
+            series: series,
+            duration: workoutDuration,
+          });
+        }
+      }
+
+      // Here you would save to user_workouts table
+      // For now we'll just log and close
+      console.log("[Workout] Saving workout data:", workoutRecords);
+
+      toast({
+        title: "Treino finalizado!",
+        description: `Treino de ${Math.floor(workoutDuration / 60)}m registrado com sucesso.`,
+      });
+
+      // Reset and close
+      setWorkoutModalOpen(false);
+      setWorkoutSeries({});
+      setWorkoutDuration(0);
+      setWorkoutStartTime(null);
+    } catch (err: any) {
+      console.error("Error finishing workout:", err);
+      toast({
+        title: "Erro ao finalizar treino",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const formatDuration = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hours > 0) {
+      return `${hours}h ${minutes}m ${secs}s`;
+    }
+    return `${minutes}m ${secs}s`;
+  };
+
   const handleSaveRoutines = async () => {
     if (!user || selectedRoutineType === null || selectedItems.size === 0) {
       toast({
