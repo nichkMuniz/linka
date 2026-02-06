@@ -326,7 +326,9 @@ export default function Profile() {
       let photoUrl = profile.photo;
 
       if (editPhotoFile) {
-        const filePath = `${user.id}/profile-${Date.now()}`;
+        // Ensure file has proper extension (jpg/jpeg for images)
+        const fileExtension = editPhotoFile.type.startsWith("image/") ? "jpg" : editPhotoFile.name.split(".").pop() || "jpg";
+        const filePath = `${user.id}/profile-${Date.now()}.${fileExtension}`;
         const { error: uploadError } = await supabase.storage
           .from("posts")
           .upload(filePath, editPhotoFile);
