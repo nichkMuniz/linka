@@ -1594,12 +1594,13 @@ export default function Profile() {
                 </p>
               </div>
               <div className="flex justify-center">
-                <DialogTrigger asChild>
-                  <Button className="rounded-full">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Rotina
-                  </Button>
-                </DialogTrigger>
+                <Button
+                  onClick={() => setIsCreateRoutineOpen(true)}
+                  className="rounded-full"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Rotina
+                </Button>
               </div>
             </div>
           )}
@@ -1607,12 +1608,13 @@ export default function Profile() {
           {/* Add routine button when routines exist */}
           {routines.length > 0 && (
             <div className="flex justify-center pt-4">
-              <DialogTrigger asChild>
-                <Button className="rounded-full">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Rotina
-                </Button>
-              </DialogTrigger>
+              <Button
+                onClick={() => setIsCreateRoutineOpen(true)}
+                className="rounded-full"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Rotina
+              </Button>
             </div>
           )}
         </TabsContent>
