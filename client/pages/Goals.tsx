@@ -485,20 +485,30 @@ export default function Goals() {
                     {isExpanded && (
                       <div className="border-t border-border/60 bg-muted/30 p-4 space-y-3">
                         {routinesOfType.map((routine) => {
-                          // Get items linked to this routine
-                          let items: any[] = [];
+                          // Get user items linked to this routine
+                          let userItems: any[] = [];
                           if (typeCode === 1) {
-                            items = userWorkouts.filter(
+                            userItems = userWorkouts.filter(
                               (w) => String(w.workout_id) === routine.program_id,
                             );
                           } else if (typeCode === 2) {
-                            items = userDiets.filter(
+                            userItems = userDiets.filter(
                               (d) => String(d.diet_id) === routine.program_id,
                             );
                           } else if (typeCode === 3) {
-                            items = userHabits.filter(
+                            userItems = userHabits.filter(
                               (h) => String(h.habit_id) === routine.program_id,
                             );
+                          }
+
+                          // Get the name from program_id
+                          let programName = "";
+                          if (typeCode === 1) {
+                            programName = getWorkoutName(routine.program_id || "");
+                          } else if (typeCode === 2) {
+                            programName = getDietName(routine.program_id || "");
+                          } else if (typeCode === 3) {
+                            programName = getHabitName(routine.program_id || "");
                           }
 
                           return (
@@ -509,118 +519,65 @@ export default function Goals() {
                               {/* Exercises Type (1) */}
                               {typeCode === 1 && (
                                 <CardContent className="p-4 space-y-3">
-                                  {items.length > 0 ? (
-                                    <>
-                                      <div>
-                                        <p className="font-semibold text-sm mb-2">
-                                          Exercícios ({items.length})
-                                        </p>
-                                        <div className="space-y-2">
-                                          {items.map((workout) => (
-                                            <div
-                                              key={workout.id}
-                                              className="text-xs bg-muted/30 p-2 rounded"
-                                            >
-                                              <p className="font-medium">
-                                                {(workout.workouts as any)
-                                                  ?.name ||
-                                                  workout.workoutName ||
-                                                  "Exercício"}
-                                              </p>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                      <Button
-                                        onClick={() =>
-                                          handleOpenExerciseModal(routine)
-                                        }
-                                        className="w-full rounded-full gap-2 text-sm"
-                                      >
-                                        <Play className="h-4 w-4" />
-                                        Iniciar
-                                      </Button>
-                                    </>
-                                  ) : (
-                                    <p className="text-xs text-muted-foreground">
-                                      Nenhum exercício vinculado
+                                  <div>
+                                    <p className="font-semibold text-sm mb-2">
+                                      Exercício
                                     </p>
-                                  )}
+                                    <div className="text-xs bg-muted/30 p-2 rounded">
+                                      <p className="font-medium">{programName}</p>
+                                    </div>
+                                  </div>
+                                  <Button
+                                    onClick={() =>
+                                      handleOpenExerciseModal(routine)
+                                    }
+                                    className="w-full rounded-full gap-2 text-sm"
+                                  >
+                                    <Play className="h-4 w-4" />
+                                    Iniciar
+                                  </Button>
                                 </CardContent>
                               )}
 
                               {/* Diet Type (2) */}
                               {typeCode === 2 && (
                                 <CardContent className="p-4 space-y-2">
-                                  {items.length > 0 ? (
-                                    items.map((diet) => (
-                                      <button
-                                        key={diet.id}
-                                        onClick={() =>
-                                          handleToggleDiet(diet.id)
-                                        }
-                                        className="w-full flex items-center gap-3 p-2 rounded hover:bg-muted/30 transition-colors text-left"
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          checked={completedDiets.has(diet.id)}
-                                          onChange={() => {}}
-                                          className="h-4 w-4"
-                                        />
-                                        <div className="flex-1 min-w-0">
-                                          <p className="text-sm font-medium truncate">
-                                            {(diet.diets as any)?.name ||
-                                              diet.dietName ||
-                                              "Dieta"}
-                                          </p>
-                                          {((diet.diets as any)?.calories ||
-                                            diet.dietCalories) && (
-                                            <p className="text-xs text-muted-foreground">
-                                              {(diet.diets as any)?.calories ||
-                                                diet.dietCalories}{" "}
-                                              cal
-                                            </p>
-                                          )}
-                                        </div>
-                                      </button>
-                                    ))
-                                  ) : (
-                                    <p className="text-xs text-muted-foreground">
-                                      Nenhuma dieta vinculada
-                                    </p>
-                                  )}
+                                  <div className="flex items-center gap-3 p-2 rounded bg-muted/30">
+                                    <input
+                                      type="checkbox"
+                                      checked={completedDiets.has(routine.id)}
+                                      onChange={() =>
+                                        handleToggleDiet(routine.id)
+                                      }
+                                      className="h-4 w-4"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium truncate">
+                                        {programName}
+                                      </p>
+                                    </div>
+                                  </div>
                                 </CardContent>
                               )}
 
                               {/* Habit Type (3) */}
                               {typeCode === 3 && (
                                 <CardContent className="p-4 space-y-2">
-                                  {items.length > 0 ? (
-                                    items.map((habit) => (
-                                      <button
-                                        key={habit.id}
-                                        onClick={() =>
-                                          handleToggleHabit(habit.id)
-                                        }
-                                        className="w-full flex items-center gap-3 p-2 rounded hover:bg-muted/30 transition-colors text-left"
-                                      >
-                                        {completedHabits.has(habit.id) ? (
-                                          <CheckCircle2 className="h-5 w-5 text-brand flex-shrink-0" />
-                                        ) : (
-                                          <Circle className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                                        )}
-                                        <p className="text-sm font-medium flex-1">
-                                          {(habit.habits as any)?.name ||
-                                            habit.habitName ||
-                                            "Hábito"}
-                                        </p>
-                                      </button>
-                                    ))
-                                  ) : (
-                                    <p className="text-xs text-muted-foreground">
-                                      Nenhum hábito vinculado
+                                  <button
+                                    onClick={() =>
+                                      handleToggleHabit(routine.id)
+                                    }
+                                    className="w-full flex items-center gap-3 p-2 rounded hover:bg-muted/30 transition-colors text-left"
+                                  >
+                                    {completedHabits.has(routine.id) ? (
+                                      <CheckCircle2 className="h-5 w-5 text-brand flex-shrink-0" />
+                                    ) : (
+                                      <Circle className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                                    )}
+                                    <p className="text-sm font-medium flex-1">
+                                      {programName}
                                     </p>
-                                  )}
+                                  </button>
                                 </CardContent>
                               )}
                             </Card>
