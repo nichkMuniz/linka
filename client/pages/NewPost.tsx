@@ -33,20 +33,15 @@ export default function NewPost() {
 
     setGoalsLoading(true);
     getUserGoalsDb()
-      .then((data) => {
-        setUserGoals(data);
-      })
-      .catch((err) => {
-        console.error("Error loading user goals:", err);
-      })
+      .then(setUserGoals)
+      .catch((err) => console.error("Error loading user goals:", err))
       .finally(() => setGoalsLoading(false));
   }, [user]);
 
   const canSubmit = Boolean(file && !busy && hasSupabaseConfig && user);
 
   async function handlePost() {
-    if (!hasSupabaseConfig || !supabase) return;
-    if (loading) return;
+    if (!hasSupabaseConfig || !supabase || loading) return;
 
     if (!user) {
       toast({
@@ -61,28 +56,33 @@ export default function NewPost() {
 
     setBusy(true);
     try {
-      // Ensure file has proper extension (jpg/jpeg for images)
-      const fileExtension = file.type.startsWith("image/") ? "jpg" : file.name.split(".").pop() || "jpg";
-      const sanitizedFileName = file.name.replace(/\.[^/.]+$/, ""); // Remove existing extension
-      const filePath = `${user.id}/${Date.now()}-${sanitizedFileName}.${fileExtension}`;
+      // 🔥 Garante que estamos enviando um Blob real, nunca JSON
+      const blob =
+        file instanceof Blob
+          ? file
+          : new Blob([file as any], { type: "image/jpeg" });
 
-      const { data, error } = await supabase.storage
+      const extension = blob.type.split("/")[1] || "jpg";
+      const filePath = `${user.id}/${Date.now()}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage
         .from("posts")
-        .upload(filePath, file, {
-          contentType: file.type,
+        .upload(filePath, blob, {
+          contentType: blob.type,
           upsert: false,
         });
 
       if (uploadError) throw uploadError;
 
-      const publicUrl = supabase.storage.from("posts").getPublicUrl(filePath)
-        .data.publicUrl;
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("posts").getPublicUrl(filePath);
 
       const { error: insertError } = await supabase.from("posts").insert({
         user_id: user.id,
         description: caption.trim(),
         photo: publicUrl,
-        user_goal_id: selectedGoalId ? parseInt(selectedGoalId) : null,
+        user_goal_id: selectedGoalId || null,
       });
 
       if (insertError) throw insertError;
@@ -96,6 +96,7 @@ export default function NewPost() {
       setCaption("");
       navigate("/", { replace: true });
     } catch (err: any) {
+      console.error(err);
       toast({
         title: "Erro ao publicar",
         description: err.message || "Erro inesperado",
@@ -167,7 +168,7 @@ export default function NewPost() {
                     placeholder={
                       selectedGoalId
                         ? userGoals.find((g) => g.id === selectedGoalId)
-                            ?.description
+                          ?.description
                         : "Selecione uma meta"
                     }
                   />
