@@ -325,36 +325,13 @@ export default function Index() {
                 className="border-border/60 relative overflow-hidden"
               >
                 <CardContent className="space-y-3 p-0">
-                  {/* Image Container with User Info and Incentives Overlay */}
+                  {/* Image Container with User Info Overlay */}
                   <div className="relative">
                     <img
                       src={post.photo}
                       alt="Post"
                       className="w-full object-cover"
                     />
-                    {/* Top Right - Incentives and Comments */}
-                    <div className="absolute top-3 right-3 flex items-center gap-2">
-                      <div className="flex items-center gap-2 bg-black/30 backdrop-blur-sm rounded-full px-2 py-1">
-                        {([1, 2, 3] as PostIncentiveType[]).map((type) => (
-                          <PostIncentiveButton
-                            key={type}
-                            type={type}
-                            isActive={post.userLikes.includes(type)}
-                            onClick={() => handleToggleLike(post.id, type)}
-                            loading={togglingPostId === post.id}
-                          />
-                        ))}
-                      </div>
-                      <div className="bg-black/30 backdrop-blur-sm rounded-full">
-                        <PostCommentsDialog
-                          postId={post.id}
-                          commentCount={post.commentCount}
-                          hasActivity={post.hasActivity}
-                          isPostOwner={post.user_id === user?.id}
-                          hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0}
-                        />
-                      </div>
-                    </div>
 
                     {/* User Info Overlay - Bottom Left */}
                     <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
