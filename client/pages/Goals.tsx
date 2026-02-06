@@ -131,16 +131,6 @@ export default function Goals() {
     })();
   }, [user]);
 
-  // Timer effect for exercise modal
-  React.useEffect(() => {
-    if (!exerciseModalOpen) return;
-
-    const interval = setInterval(() => {
-      setElapsedSeconds((prev) => prev + 1);
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [exerciseModalOpen]);
 
   const handleSelectGoal = async (goal: ProgrammedGoal) => {
     if (!user) {
