@@ -125,10 +125,29 @@ export default function Goals() {
         setDiets(dietsBaseData);
         setHabits(habitsBaseData);
 
-        // Debug logging
-        console.log("[Goals] Base workouts:", workoutsBaseData);
-        console.log("[Goals] Base diets:", dietsBaseData);
-        console.log("[Goals] Base habits:", habitsBaseData);
+        // Load routines and linked items if user is logged in
+        if (user) {
+          const [
+            routinesData,
+            userWorkoutsData,
+            userDietsData,
+            userHabitsData,
+          ] = await Promise.all([
+            getUserRoutinesDb(user.id),
+            getUserWorkoutsDb(user.id),
+            getUserDietsDb(user.id),
+            getUserHabitsDb(user.id),
+          ]);
+          setRoutines(routinesData);
+          setUserWorkouts(userWorkoutsData);
+          setUserDiets(userDietsData);
+          setUserHabits(userHabitsData);
+
+          console.log("[Goals] Routines:", routinesData);
+          console.log("[Goals] User workouts:", userWorkoutsData);
+          console.log("[Goals] User diets:", userDietsData);
+          console.log("[Goals] User habits:", userHabitsData);
+        }
       } catch (err: any) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         console.error("Erro ao carregar dados:", errorMessage);
