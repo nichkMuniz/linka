@@ -40,53 +40,59 @@ export default function NewPost() {
 
   const canSubmit = Boolean(file && !busy && hasSupabaseConfig && user);
 
-async function handlePost() {
-  if (!hasSupabaseConfig || !supabase) return;
-  if (loading || !user || !file) return;
+  async function handlePost() {
+    if (!hasSupabaseConfig || !supabase) return;
+    if (loading || !user) return;
 
-  setBusy(true);
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const blob = new Blob([arrayBuffer], { type: file.type || "image/jpeg" });
+    const input = document.getElementById("post-file") as HTMLInputElement;
+    const file = input?.files?.[0];
 
-    const extension = file.name.split(".").pop() || "jpg";
-    const filePath = `${user.id}/${Date.now()}.${extension}`;
+    if (!file) {
+      toast({ title: "Selecione uma imagem" });
+      return;
+    }
 
-    const { error: uploadError } = await supabase.storage
-      .from("posts")
-      .upload(filePath, blob, {
-        contentType: blob.type,
-        upsert: false,
+    setBusy(true);
+    try {
+      const extension = file.name.split(".").pop() || "jpg";
+      const filePath = `${user.id}/${Date.now()}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("posts")
+        .upload(filePath, file, {
+          contentType: file.type,
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const publicUrl = supabase.storage
+        .from("posts")
+        .getPublicUrl(filePath).data.publicUrl;
+
+      const { error: insertError } = await supabase.from("posts").insert({
+        user_id: user.id,
+        description: caption.trim(),
+        photo: publicUrl,
+        user_goal_id: selectedGoalId ? Number(selectedGoalId) : null,
       });
 
-    if (uploadError) throw uploadError;
+      if (insertError) throw insertError;
 
-    const publicUrl = supabase.storage
-      .from("posts")
-      .getPublicUrl(filePath).data.publicUrl;
-
-    const { error: insertError } = await supabase.from("posts").insert({
-      user_id: user.id,
-      description: caption.trim(),
-      photo: publicUrl,
-      user_goal_id: selectedGoalId ? Number(selectedGoalId) : null,
-    });
-
-    if (insertError) throw insertError;
-
-    toast({ title: "Post publicado!" });
-    setFile(null);
-    setCaption("");
-    navigate("/", { replace: true });
-  } catch (err: any) {
-    toast({
-      title: "Erro ao publicar",
-      description: err.message || "Erro inesperado",
-    });
-  } finally {
-    setBusy(false);
+      toast({ title: "Post publicado!" });
+      input.value = "";
+      setCaption("");
+      navigate("/", { replace: true });
+    } catch (err: any) {
+      toast({
+        title: "Erro ao publicar",
+        description: err.message || "Erro inesperado",
+      });
+    } finally {
+      setBusy(false);
+    }
   }
-}
+
 
 
   return (
