@@ -555,42 +555,63 @@ export default function Goals() {
                               {/* Diet Type (2) */}
                               {typeCode === 2 && (
                                 <CardContent className="p-4 space-y-2">
-                                  <div className="flex items-center gap-3 p-2 rounded bg-muted/30">
-                                    <input
-                                      type="checkbox"
-                                      checked={completedDiets.has(routine.id)}
-                                      onChange={() =>
-                                        handleToggleDiet(routine.id)
-                                      }
-                                      className="h-4 w-4"
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium truncate">
-                                        {programName}
-                                      </p>
-                                    </div>
-                                  </div>
+                                  {(() => {
+                                    const userDiet = userDiets.find(
+                                      (d) =>
+                                        String(d.diet_id) === routine.program_id,
+                                    );
+                                    return (
+                                      <div className="flex items-center gap-3 p-2 rounded bg-muted/30">
+                                        <input
+                                          type="checkbox"
+                                          checked={
+                                            userDiet
+                                              ? completedDiets.has(userDiet.id)
+                                              : false
+                                          }
+                                          onChange={() =>
+                                            handleToggleDiet(routine.id, routine)
+                                          }
+                                          className="h-4 w-4"
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-sm font-medium truncate">
+                                            {programName}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                 </CardContent>
                               )}
 
                               {/* Habit Type (3) */}
                               {typeCode === 3 && (
                                 <CardContent className="p-4 space-y-2">
-                                  <button
-                                    onClick={() =>
-                                      handleToggleHabit(routine.id)
-                                    }
-                                    className="w-full flex items-center gap-3 p-2 rounded hover:bg-muted/30 transition-colors text-left"
-                                  >
-                                    {completedHabits.has(routine.id) ? (
-                                      <CheckCircle2 className="h-5 w-5 text-brand flex-shrink-0" />
-                                    ) : (
-                                      <Circle className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                                    )}
-                                    <p className="text-sm font-medium flex-1">
-                                      {programName}
-                                    </p>
-                                  </button>
+                                  {(() => {
+                                    const userHabit = userHabits.find(
+                                      (h) =>
+                                        String(h.habit_id) === routine.program_id,
+                                    );
+                                    return (
+                                      <button
+                                        onClick={() =>
+                                          handleToggleHabit(routine.id, routine)
+                                        }
+                                        className="w-full flex items-center gap-3 p-2 rounded hover:bg-muted/30 transition-colors text-left"
+                                      >
+                                        {userHabit &&
+                                        completedHabits.has(userHabit.id) ? (
+                                          <CheckCircle2 className="h-5 w-5 text-brand flex-shrink-0" />
+                                        ) : (
+                                          <Circle className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                                        )}
+                                        <p className="text-sm font-medium flex-1">
+                                          {programName}
+                                        </p>
+                                      </button>
+                                    );
+                                  })()}
                                 </CardContent>
                               )}
                             </Card>
