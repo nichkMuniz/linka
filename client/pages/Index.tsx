@@ -333,6 +333,28 @@ export default function Index() {
                       className="w-full object-cover"
                     />
 
+                    {/* Incentive Icons Overlay - Above User Info */}
+                    <div className="absolute bottom-16 left-0 right-0 flex items-center justify-between px-3 z-10">
+                      <div className="flex items-center gap-2">
+                        {([1, 2, 3] as PostIncentiveType[]).map((type) => (
+                          <PostIncentiveButton
+                            key={type}
+                            type={type}
+                            isActive={post.userLikes.includes(type)}
+                            onClick={() => handleToggleLike(post.id, type)}
+                            loading={togglingPostId === post.id}
+                          />
+                        ))}
+                      </div>
+                      <PostCommentsDialog
+                        postId={post.id}
+                        commentCount={post.commentCount}
+                        hasActivity={post.hasActivity}
+                        isPostOwner={post.user_id === user?.id}
+                        hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0}
+                      />
+                    </div>
+
                     {/* User Info Overlay - Bottom Left */}
                     <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
                       <div className="flex items-center gap-2">
