@@ -243,6 +243,29 @@ export default function Reels() {
     }
   }, []);
 
+  const handleAddQuickComment = React.useCallback(async () => {
+    if (!quickCommentText.trim() || !currentReel) return;
+
+    setIsAddingQuickComment(true);
+    try {
+      await addReelCommentDb(currentReel.id, quickCommentText);
+      setQuickCommentText("");
+      toast({
+        title: "Comentário enviado!",
+        description: "Seu comentário foi publicado.",
+      });
+    } catch (err: any) {
+      console.error("Error adding comment:", err);
+      toast({
+        title: "Erro ao enviar comentário",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAddingQuickComment(false);
+    }
+  }, [quickCommentText, currentReel]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
