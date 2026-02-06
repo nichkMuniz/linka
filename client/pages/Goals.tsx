@@ -114,6 +114,22 @@ export default function Goals() {
     null,
   );
 
+  // Timer effect for workout duration
+  React.useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (workoutModalOpen && workoutStartTime === null) {
+      setWorkoutStartTime(Date.now());
+    }
+    if (workoutModalOpen && workoutStartTime !== null) {
+      interval = setInterval(() => {
+        setWorkoutDuration((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [workoutModalOpen, workoutStartTime]);
+
   // Load all data on mount
   React.useEffect(() => {
     (async () => {
