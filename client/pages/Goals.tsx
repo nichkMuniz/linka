@@ -234,26 +234,6 @@ export default function Goals() {
     }
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  const getWorkoutName = (workoutId: string) => {
-    const workout = workouts.find((w) => String(w.id) === workoutId);
-    return workout?.name || "Exercício";
-  };
-
-  const getDietName = (dietId: string) => {
-    const diet = diets.find((d) => String(d.id) === dietId);
-    return diet?.name || "Dieta";
-  };
-
-  const getHabitName = (habitId: string) => {
-    const habit = habits.find((h) => String(h.id) === habitId);
-    return habit?.name || "Hábito";
-  };
 
   if (loading) {
     return (
