@@ -656,144 +656,141 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Edit Button - Responsive */}
-            <div className="flex items-center gap-2">
-              <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+            {/* Settings Button */}
+            <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
               <DialogTrigger asChild>
                 <Button
                   variant="outline"
                   size="sm"
                   className="shrink-0 rounded-full"
-                  onClick={openEditDialog}
                 >
-                  <Edit2 className="h-4 w-4" />
-                  <span className="hidden sm:inline ml-2">Editar</span>
+                  <Settings className="h-4 w-4" />
                 </Button>
               </DialogTrigger>
 
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Editar Perfil</DialogTitle>
-                  <DialogDescription>
-                    Atualize suas informações de perfil
-                  </DialogDescription>
+                  <DialogTitle>Configurações</DialogTitle>
                 </DialogHeader>
 
-                <div className="space-y-4">
-                  {/* Photo Preview and Upload */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">
-                      Foto do Perfil
-                    </label>
-                    <div className="flex items-center gap-4">
-                      <div className="h-16 w-16 rounded-full overflow-hidden bg-muted shrink-0">
-                        {editPhotoPreview ? (
-                          <img
-                            src={editPhotoPreview}
-                            alt="preview"
-                            className="h-full w-full object-cover"
+                <div className="space-y-3">
+                  <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button
+                        onClick={openEditDialog}
+                        variant="outline"
+                        className="w-full rounded-full gap-2"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                        Editar Perfil
+                      </Button>
+                    </DialogTrigger>
+
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Editar Perfil</DialogTitle>
+                        <DialogDescription>
+                          Atualize suas informações de perfil
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      <div className="space-y-4">
+                        {/* Photo Preview and Upload */}
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">
+                            Foto do Perfil
+                          </label>
+                          <div className="flex items-center gap-4">
+                            <div className="h-16 w-16 rounded-full overflow-hidden bg-muted shrink-0">
+                              {editPhotoPreview ? (
+                                <img
+                                  src={editPhotoPreview}
+                                  alt="preview"
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="h-full w-full bg-muted" />
+                              )}
+                            </div>
+                            <label className="flex-1">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                asChild
+                              >
+                                <span>
+                                  <Upload className="h-4 w-4 mr-2" />
+                                  Alterar foto
+                                </span>
+                              </Button>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handlePhotoChange}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Nickname */}
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Nome</label>
+                          <Input
+                            value={editNickname}
+                            onChange={(e) => setEditNickname(e.target.value)}
+                            placeholder="Seu nome"
                           />
-                        ) : (
-                          <div className="h-full w-full bg-muted" />
-                        )}
-                      </div>
-                      <label className="flex-1">
+                        </div>
+
+                        {/* Bio */}
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Bio</label>
+                          <Textarea
+                            value={editBio}
+                            onChange={(e) => setEditBio(e.target.value)}
+                            placeholder="Sua bio"
+                            className="min-h-24"
+                          />
+                        </div>
+
+                        {/* Save Button */}
                         <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          asChild
+                          onClick={handleSaveProfile}
+                          disabled={isSaving}
+                          className="w-full rounded-full"
                         >
-                          <span>
-                            <Upload className="h-4 w-4 mr-2" />
-                            Alterar foto
-                          </span>
+                          {isSaving ? "Salvando..." : "Salvar Alterações"}
                         </Button>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handlePhotoChange}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                  </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
 
-                  {/* Nickname */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Nome</label>
-                    <Input
-                      value={editNickname}
-                      onChange={(e) => setEditNickname(e.target.value)}
-                      placeholder="Seu nome"
-                    />
-                  </div>
-
-                  {/* Bio */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Bio</label>
-                    <Textarea
-                      value={editBio}
-                      onChange={(e) => setEditBio(e.target.value)}
-                      placeholder="Sua bio"
-                      className="min-h-24"
-                    />
-                  </div>
-
-                  {/* Save Button */}
                   <Button
-                    onClick={handleSaveProfile}
-                    disabled={isSaving}
-                    className="w-full rounded-full"
+                    onClick={() => setTheme(isDark ? "light" : "dark")}
+                    variant="outline"
+                    className="w-full rounded-full gap-2"
                   >
-                    {isSaving ? "Salvando..." : "Salvar Alterações"}
+                    {isDark ? (
+                      <Sun className="h-4 w-4" />
+                    ) : (
+                      <Moon className="h-4 w-4" />
+                    )}
+                    {isDark ? "Modo Claro" : "Modo Noturno"}
+                  </Button>
+
+                  <Button
+                    onClick={handleLogout}
+                    variant="destructive"
+                    className="w-full rounded-full gap-2"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Desconectar
                   </Button>
                 </div>
               </DialogContent>
             </Dialog>
-
-              <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 rounded-full"
-                  >
-                    <Settings className="h-4 w-4" />
-                  </Button>
-                </DialogTrigger>
-
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Configurações</DialogTitle>
-                  </DialogHeader>
-
-                  <div className="space-y-3">
-                    <Button
-                      onClick={() => setTheme(isDark ? "light" : "dark")}
-                      variant="outline"
-                      className="w-full rounded-full gap-2"
-                    >
-                      {isDark ? (
-                        <Sun className="h-4 w-4" />
-                      ) : (
-                        <Moon className="h-4 w-4" />
-                      )}
-                      {isDark ? "Modo Claro" : "Modo Noturno"}
-                    </Button>
-
-                    <Button
-                      onClick={handleLogout}
-                      variant="destructive"
-                      className="w-full rounded-full gap-2"
-                    >
-                      <LogOut className="h-4 w-4" />
-                      Desconectar
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
           </div>
         </CardContent>
       </Card>
