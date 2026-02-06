@@ -269,38 +269,50 @@ export default function Goals() {
     }
   };
 
-  const handleToggleDiet = async (userDietId: string) => {
+  const handleToggleDiet = async (routineId: string, routine: Routine) => {
+    // Find the user_diet that corresponds to this routine
+    const userDiet = userDiets.find(
+      (d) => String(d.diet_id) === routine.program_id,
+    );
+    if (!userDiet) return;
+
     const newCompleted = new Set(completedDiets);
-    if (newCompleted.has(userDietId)) {
-      newCompleted.delete(userDietId);
+    if (newCompleted.has(userDiet.id)) {
+      newCompleted.delete(userDiet.id);
     } else {
-      newCompleted.add(userDietId);
+      newCompleted.add(userDiet.id);
     }
     setCompletedDiets(newCompleted);
 
     try {
       await toggleUserDietCompletionDb(
-        userDietId,
-        newCompleted.has(userDietId),
+        userDiet.id,
+        newCompleted.has(userDiet.id),
       );
     } catch (err) {
       console.error("Error toggling diet:", err);
     }
   };
 
-  const handleToggleHabit = async (userHabitId: string) => {
+  const handleToggleHabit = async (routineId: string, routine: Routine) => {
+    // Find the user_habit that corresponds to this routine
+    const userHabit = userHabits.find(
+      (h) => String(h.habit_id) === routine.program_id,
+    );
+    if (!userHabit) return;
+
     const newCompleted = new Set(completedHabits);
-    if (newCompleted.has(userHabitId)) {
-      newCompleted.delete(userHabitId);
+    if (newCompleted.has(userHabit.id)) {
+      newCompleted.delete(userHabit.id);
     } else {
-      newCompleted.add(userHabitId);
+      newCompleted.add(userHabit.id);
     }
     setCompletedHabits(newCompleted);
 
     try {
       await toggleUserHabitCompletionDb(
-        userHabitId,
-        newCompleted.has(userHabitId),
+        userHabit.id,
+        newCompleted.has(userHabit.id),
       );
     } catch (err) {
       console.error("Error toggling habit:", err);
