@@ -227,7 +227,33 @@ export default function Goals() {
     setAddRoutineModalOpen(true);
     setSelectedRoutineType(null);
     setSelectedItems(new Set());
+    setSearchQuery("");
+    setSelectedMuscleGroups(new Set());
   };
+
+  // Get unique muscle groups from workouts
+  const uniqueMuscleGroups = React.useMemo(() => {
+    const groups = new Set<string>();
+    workouts.forEach((workout: any) => {
+      if (workout.muscle_group) {
+        groups.add(workout.muscle_group);
+      }
+    });
+    return Array.from(groups).sort();
+  }, [workouts]);
+
+  // Filter workouts based on search and muscle groups
+  const filteredWorkouts = React.useMemo(() => {
+    return workouts.filter((workout: any) => {
+      const matchesSearch = workout.name
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
+      const matchesMuscleGroup =
+        selectedMuscleGroups.size === 0 ||
+        selectedMuscleGroups.has(workout.muscle_group);
+      return matchesSearch && matchesMuscleGroup;
+    });
+  }, [workouts, searchQuery, selectedMuscleGroups]);
 
   const handleSelectItem = (itemId: string) => {
     const newSelected = new Set(selectedItems);
