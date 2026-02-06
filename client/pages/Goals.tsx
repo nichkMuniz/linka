@@ -71,6 +71,10 @@ export default function Goals() {
     [],
   );
 
+  // Base data for lookups
+  const [diets, setDiets] = React.useState<Diet[]>([]);
+  const [habits, setHabits] = React.useState<Habit[]>([]);
+
   // Ranking tab state
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
 
