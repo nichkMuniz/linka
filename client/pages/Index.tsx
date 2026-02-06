@@ -119,23 +119,20 @@ export default function Index() {
       try {
         if (!user || !supabase) throw new Error("User not authenticated");
 
-        // Convert data URL to Blob
+        // Convert data URL to Blob - preserves original MIME type
         const response = await fetch(mediaDataUrl);
         const blob = await response.blob();
 
-        // Determine file extension based on media type
-        const isVideo = mediaDataUrl.startsWith("data:video");
-        const fileExtension = isVideo ? "mp4" : "jpg";
-        const fileName = `${Date.now()}-story.${fileExtension}`;
+        // Extract extension from blob MIME type
+        const mimeType = blob.type || "image/jpeg";
+        const extension = mimeType.split("/")[1] || "jpg";
+        const fileName = `${Date.now()}-story.${extension}`;
         const filePath = `${user.id}/stories/${fileName}`;
 
         // Upload to Supabase storage
         const { error: uploadError } = await supabase.storage
           .from("posts")
-          .upload(filePath, blob, {
-            contentType: blob.type,
-            upsert: false,
-          });
+          .upload(filePath, blob);
 
         if (uploadError) throw uploadError;
 
