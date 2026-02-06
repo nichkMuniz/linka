@@ -13,12 +13,16 @@ import {
   toggleUserDietCompletionDb,
   toggleUserHabitCompletionDb,
   updateUserWorkoutDb,
+  getDietsDb,
+  getHabitsDb,
   type ProgrammedGoal,
   type Routine,
   type RankingUser,
   type UserWorkoutWithDetails,
   type UserDietWithDetails,
   type UserHabitWithDetails,
+  type Diet,
+  type Habit,
 } from "@/lib/ritmofit-db";
 import {
   Card,
