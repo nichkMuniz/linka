@@ -380,19 +380,6 @@ export default function Reels() {
                     <PostIncentiveButton
                       key={type}
                       type={type}
-                      count={
-                        (reel.likes || {
-                          apoio: 0,
-                          continua: 0,
-                          ganhador: 0,
-                        })[
-                          type === 1
-                            ? "apoio"
-                            : type === 2
-                              ? "continua"
-                              : "ganhador"
-                        ] || 0
-                      }
                       isActive={(reel.userLikes || [])?.includes(type) ?? false}
                       onClick={() => handleIncentiveClick(reel, type)}
                       loading={togglingReelId === reel.id}
