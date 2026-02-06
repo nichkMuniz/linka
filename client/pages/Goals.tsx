@@ -503,6 +503,21 @@ export default function Goals() {
                               key={item.id}
                               className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50"
                             >
+                              {/* Image for exercises */}
+                              {typeCode === 1 && (
+                                <>
+                                  {item.workoutPhoto ? (
+                                    <img
+                                      src={item.workoutPhoto}
+                                      alt={item.workoutName}
+                                      className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
+                                    />
+                                  ) : (
+                                    <div className="h-16 w-16 rounded-lg bg-muted flex-shrink-0" />
+                                  )}
+                                </>
+                              )}
+
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium truncate">
                                   {typeCode === 1
