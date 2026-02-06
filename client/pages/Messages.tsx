@@ -158,7 +158,7 @@ export default function Messages() {
 
   if (viewMode === "conversation" && selectedConversation) {
     return (
-      <div className="mx-auto grid w-full max-w-2xl gap-4 h-screen flex flex-col p-0">
+      <div className="w-screen h-screen flex flex-col p-0">
         {/* Header */}
         <div className="sticky top-0 z-10 border-b border-border/60 bg-background p-4 flex items-center gap-3">
           <button
