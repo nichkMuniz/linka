@@ -208,6 +208,16 @@ export default function Login() {
           </CardHeader>
 
           <CardContent className="space-y-4">
+            {!networkStatus.isOnline ? (
+              <div className="rounded-2xl border border-red-200/30 bg-red-50/20 p-4 text-sm text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-200">
+                Você parece estar offline. Verifique sua conexão com a internet.
+              </div>
+            ) : !networkStatus.isSupabaseReachable ? (
+              <div className="rounded-2xl border border-yellow-200/30 bg-yellow-50/20 p-4 text-sm text-yellow-700 dark:border-yellow-900/30 dark:bg-yellow-950/20 dark:text-yellow-200">
+                Não foi possível alcançar o Supabase. Pode ser um problema de CORS ou conectividade. Tente novamente em alguns momentos.
+              </div>
+            ) : null}
+
             {!hasSupabaseConfig ? (
               <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
                 Para habilitar login, defina as variáveis:
