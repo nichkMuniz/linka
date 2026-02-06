@@ -2326,7 +2326,7 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     >();
 
     (allLikes ?? []).forEach((like: any) => {
-      const reelId = String(like.post_id);
+      const reelId = String(like.reel_id);
       if (!likesMap.has(reelId)) {
         likesMap.set(reelId, {
           likes: { apoio: 0, continua: 0, ganhador: 0 },
