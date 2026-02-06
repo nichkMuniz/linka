@@ -61,7 +61,10 @@ export default function NewPost() {
 
     setBusy(true);
     try {
-      const filePath = `${user.id}/${Date.now()}-${file.name}`;
+      // Ensure file has proper extension (jpg/jpeg for images)
+      const fileExtension = file.type.startsWith("image/") ? "jpg" : file.name.split(".").pop() || "jpg";
+      const sanitizedFileName = file.name.replace(/\.[^/.]+$/, ""); // Remove existing extension
+      const filePath = `${user.id}/${Date.now()}-${sanitizedFileName}.${fileExtension}`;
 
       const { error: uploadError } = await supabase.storage
         .from("posts")
