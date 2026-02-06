@@ -2375,7 +2375,7 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     console.log("[getReelsDb] Returning reels:", reelsWithUserData.length);
     return reelsWithUserData;
   } catch (err: any) {
-    console.error("Error getting reels:", err);
+    console.error("Error getting reels:", err?.message || JSON.stringify(err));
     return [];
   }
 }
