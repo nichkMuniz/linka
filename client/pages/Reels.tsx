@@ -318,21 +318,23 @@ export default function Reels() {
                   </div>
                 )}
 
-                {/* User Info Overlay - Top Left */}
-                <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/60 to-transparent z-10">
-                  <div className="flex items-center gap-3">
-                    {reel.userPhoto && (
-                      <img
-                        src={reel.userPhoto}
-                        alt={reel.userNickname || "Usuário"}
-                        className="h-10 w-10 rounded-full object-cover border-2 border-white/30"
-                      />
-                    )}
-                    <div>
-                      <p className="text-sm font-semibold text-white drop-shadow-sm">
-                        {reel.userNickname || "Usuário"}
-                      </p>
-                    </div>
+                {/* Gradient Overlay for Better Text Visibility */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
+
+                {/* User Info - Top Left */}
+                <div className="absolute top-4 left-4 z-10 flex items-center gap-3">
+                  {reel.userPhoto && (
+                    <img
+                      src={reel.userPhoto}
+                      alt={reel.userNickname || "Usuário"}
+                      className="h-12 w-12 rounded-full object-cover border-2 border-white/30 shadow-lg"
+                    />
+                  )}
+                  <div>
+                    <p className="text-sm font-bold text-white drop-shadow-md">
+                      {reel.userNickname || "Usuário"}
+                    </p>
+                    <p className="text-xs text-white/70">Seguir</p>
                   </div>
                 </div>
 
