@@ -6,18 +6,22 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { StoryWithUser } from "@/lib/ritmofit-db";
-import { X } from "lucide-react";
+import { X, ChevronRight } from "lucide-react";
 
 interface StoryViewerModalProps {
   story: StoryWithUser | null;
+  stories: StoryWithUser[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onNextStory: () => void;
 }
 
 export function StoryViewerModal({
   story,
+  stories,
   open,
   onOpenChange,
+  onNextStory,
 }: StoryViewerModalProps) {
   React.useEffect(() => {
     if (!open) return;
@@ -28,7 +32,7 @@ export function StoryViewerModal({
     }, 5000);
 
     return () => clearTimeout(timer);
-  }, [open, onOpenChange]);
+  }, [open, onOpenChange, story]);
 
   if (!story) return null;
 
