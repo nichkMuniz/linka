@@ -432,22 +432,66 @@ export default function Goals() {
     if (!user) return;
 
     try {
-      const workoutRecords = [];
+      const recordsToUpdate: Array<{
+        id: string;
+        volume?: number;
+        reps?: number;
+        time_rest?: number;
+        duration?: number;
+      }> = [];
+
+      // Build update records from filled series
       for (const [workoutId, series] of Object.entries(workoutSeries)) {
         if (series.length > 0) {
-          workoutRecords.push({
-            workout_id: workoutId,
-            series: series.map((s) => ({
-              volume: s.kg,
-              reps: s.reps,
+          // Find the corresponding userWorkout record(s) for this exercise
+          const workoutRecords = userWorkouts.filter(
+            (w) => w.workout_id === workoutId,
+          );
+
+          // Update existing records with series data
+          for (let i = 0; i < series.length && i < workoutRecords.length; i++) {
+            const serie = series[i];
+            recordsToUpdate.push({
+              id: workoutRecords[i].id,
+              volume: serie.kg || null,
+              reps: serie.reps || null,
               time_rest: workoutExerciseRestTimes[workoutId] || 0,
-            })),
-            duration: workoutDuration,
-          });
+              duration: workoutDuration,
+            });
+          }
+
+          // If there are more series than existing records, create new ones
+          if (series.length > workoutRecords.length) {
+            const newSeriesRecords = series.slice(workoutRecords.length);
+            const newRecordsToInsert: Array<{
+              user_id: string;
+              workout_id: string;
+              volume?: number;
+              reps?: number;
+              time_rest?: number;
+              duration?: number;
+            }> = newSeriesRecords.map((s) => ({
+              user_id: user.id,
+              workout_id: workoutId,
+              volume: s.kg || null,
+              reps: s.reps || null,
+              time_rest: workoutExerciseRestTimes[workoutId] || 0,
+              duration: workoutDuration,
+            }));
+
+            // Insert new records only if there are any to insert
+            if (newRecordsToInsert.length > 0) {
+              const { error } = await supabase
+                .from("user_workouts")
+                .insert(newRecordsToInsert);
+
+              if (error) throw error;
+            }
+          }
         }
       }
 
-      if (workoutRecords.length === 0) {
+      if (recordsToUpdate.length === 0) {
         toast({
           title: "Nenhuma série registrada",
           description:
@@ -457,8 +501,8 @@ export default function Goals() {
         return;
       }
 
-      // Save to database
-      await saveWorkoutSeriesDb(user.id, workoutRecords);
+      // Update existing records
+      await updateWorkoutSeriesDb(recordsToUpdate);
 
       const minutes = Math.floor(workoutDuration / 60);
       const seconds = workoutDuration % 60;
@@ -475,6 +519,20 @@ export default function Goals() {
       setWorkoutSeries({});
       setWorkoutDuration(0);
       setWorkoutStartTime(null);
+
+      // Refresh workout list to show updated data
+      const [routinesData, userWorkoutsData, userDietsData, userHabitsData] =
+        await Promise.all([
+          getUserRoutinesDb(user.id),
+          getUserWorkoutsDb(user.id),
+          getUserDietsDb(user.id),
+          getUserHabitsDb(user.id),
+        ]);
+
+      setRoutines(routinesData);
+      setUserWorkouts(userWorkoutsData);
+      setUserDiets(userDietsData);
+      setUserHabits(userHabitsData);
     } catch (err: any) {
       console.error("Error finishing workout:", err);
       toast({
