@@ -116,9 +116,10 @@ export default function Goals() {
           selectedIds,
           routinesData,
           rankingData,
-          workoutsData,
+          workoutsUserData,
           dietsUserData,
           habitsUserData,
+          workoutsBaseData,
           dietsBaseData,
           habitsBaseData,
         ] = await Promise.all([
@@ -129,6 +130,7 @@ export default function Goals() {
           user ? getUserWorkoutsDb(user.id) : Promise.resolve([]),
           user ? getUserDietsDb(user.id) : Promise.resolve([]),
           user ? getUserHabitsDb(user.id) : Promise.resolve([]),
+          getWorkoutsDb(),
           getDietsDb(),
           getHabitsDb(),
         ]);
@@ -136,17 +138,19 @@ export default function Goals() {
         setSelectedGoalIds(selectedIds);
         setRoutines(routinesData);
         setRanking(rankingData);
-        setUserWorkouts(workoutsData);
+        setUserWorkouts(workoutsUserData);
         setUserDiets(dietsUserData);
         setUserHabits(habitsUserData);
+        setWorkouts(workoutsBaseData);
         setDiets(dietsBaseData);
         setHabits(habitsBaseData);
 
         // Debug logging
         console.log("[Goals] Routines loaded:", routinesData);
-        console.log("[Goals] User workouts:", workoutsData);
+        console.log("[Goals] User workouts:", workoutsUserData);
         console.log("[Goals] User diets:", dietsUserData);
         console.log("[Goals] User habits:", habitsUserData);
+        console.log("[Goals] Base workouts:", workoutsBaseData);
         console.log("[Goals] Base diets:", dietsBaseData);
         console.log("[Goals] Base habits:", habitsBaseData);
       } catch (err: any) {
