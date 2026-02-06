@@ -132,13 +132,18 @@ export default function Index() {
         // Upload to Supabase storage
         const { error: uploadError } = await supabase.storage
           .from("posts")
-          .upload(filePath, blob);
+          .upload(filePath, blob, {
+            contentType: blob.type,
+            upsert: false,
+          });
 
         if (uploadError) throw uploadError;
 
         // Get public URL
-        const { data } = supabase.storage.from("posts").getPublicUrl(filePath);
-        const publicMediaUrl = data.publicUrl;
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("posts").getPublicUrl(filePath);
+        const publicMediaUrl = publicUrl;
 
         // Create story with public URL
         const newStory = await createStoryDb(description, publicMediaUrl);
