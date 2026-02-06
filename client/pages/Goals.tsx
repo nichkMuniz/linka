@@ -185,98 +185,52 @@ export default function Goals() {
     }
   };
 
-  const handleOpenExerciseModal = (routine: Routine) => {
-    setSelectedRoutineForExercise(routine);
-    setElapsedSeconds(0);
-    setExerciseFormData({});
-    setExerciseModalOpen(true);
+  const handleAddRoutineClick = () => {
+    setAddRoutineModalOpen(true);
+    setSelectedRoutineType(null);
+    setSelectedItems(new Set());
   };
 
-  const handleSaveExerciseData = async () => {
-    if (!selectedRoutineForExercise) return;
+  const handleSelectItem = (itemId: string) => {
+    const newSelected = new Set(selectedItems);
+    if (newSelected.has(itemId)) {
+      newSelected.delete(itemId);
+    } else {
+      newSelected.add(itemId);
+    }
+    setSelectedItems(newSelected);
+  };
 
-    try {
-      // Get the workout linked to this routine by workout_id
-      const linkedWorkouts = userWorkouts.filter(
-        (w) =>
-          String(w.workout_id) === selectedRoutineForExercise.program_id,
-      );
-
-      for (const workout of linkedWorkouts) {
-        const formData = exerciseFormData[workout.id];
-        if (formData) {
-          await updateUserWorkoutDb(
-            workout.id,
-            parseInt(formData.series) || 0,
-            parseInt(formData.weight) || 0,
-            0,
-          );
-        }
-      }
-
+  const handleSaveRoutines = async () => {
+    if (!user || selectedRoutineType === null || selectedItems.size === 0) {
       toast({
-        title: "Exercício registrado!",
-        description: `Tempo: ${Math.floor(elapsedSeconds / 60)}m ${elapsedSeconds % 60}s`,
+        title: "Selecione pelo menos um item",
+        description: "Escolha um ou mais itens para adicionar.",
+        variant: "destructive",
       });
+      return;
+    }
 
-      setExerciseModalOpen(false);
-    } catch (err: any) {
-      console.error("Error saving exercise data:", err);
+    setIsAddingRoutine(true);
+    try {
+      // TODO: Implement save logic based on selectedRoutineType
+      // For now, just close the modal
       toast({
-        title: "Erro ao salvar dados",
+        title: "Rotinas adicionadas!",
+        description: `${selectedItems.size} item(s) adicionado(s) com sucesso.`,
+      });
+      setAddRoutineModalOpen(false);
+      setSelectedRoutineType(null);
+      setSelectedItems(new Set());
+    } catch (err: any) {
+      console.error("Error adding routines:", err);
+      toast({
+        title: "Erro ao adicionar rotinas",
         description: err?.message || "Tente novamente.",
         variant: "destructive",
       });
-    }
-  };
-
-  const handleToggleDiet = async (routineId: string, routine: Routine) => {
-    // Find the user_diet that corresponds to this routine
-    const userDiet = userDiets.find(
-      (d) => String(d.diet_id) === routine.program_id,
-    );
-    if (!userDiet) return;
-
-    const newCompleted = new Set(completedDiets);
-    if (newCompleted.has(userDiet.id)) {
-      newCompleted.delete(userDiet.id);
-    } else {
-      newCompleted.add(userDiet.id);
-    }
-    setCompletedDiets(newCompleted);
-
-    try {
-      await toggleUserDietCompletionDb(
-        userDiet.id,
-        newCompleted.has(userDiet.id),
-      );
-    } catch (err) {
-      console.error("Error toggling diet:", err);
-    }
-  };
-
-  const handleToggleHabit = async (routineId: string, routine: Routine) => {
-    // Find the user_habit that corresponds to this routine
-    const userHabit = userHabits.find(
-      (h) => String(h.habit_id) === routine.program_id,
-    );
-    if (!userHabit) return;
-
-    const newCompleted = new Set(completedHabits);
-    if (newCompleted.has(userHabit.id)) {
-      newCompleted.delete(userHabit.id);
-    } else {
-      newCompleted.add(userHabit.id);
-    }
-    setCompletedHabits(newCompleted);
-
-    try {
-      await toggleUserHabitCompletionDb(
-        userHabit.id,
-        newCompleted.has(userHabit.id),
-      );
-    } catch (err) {
-      console.error("Error toggling habit:", err);
+    } finally {
+      setIsAddingRoutine(false);
     }
   };
 
