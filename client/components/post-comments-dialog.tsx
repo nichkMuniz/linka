@@ -138,14 +138,10 @@ export function PostCommentsDialog({
           whileHover={{ scale: 1.08 }}
           whileTap={{ scale: 0.92 }}
           className={cn(
-            "relative inline-flex shrink-0 items-center justify-center rounded-lg p-2 transition-colors",
-            "border border-border/50 bg-background/80 backdrop-blur",
-            "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
-            isPostOwner &&
-              hasUnreadComments &&
-              "border-blue-500/50 bg-blue-500/10",
+            "inline-flex shrink-0 items-center justify-center transition-colors",
+            isPostOwner && hasUnreadComments && "text-blue-500",
           )}
-          aria-label={`Ver ${commentCount} comentários`}
+          aria-label="Ver comentários"
         >
           <MessageCircle
             className={cn(
@@ -155,20 +151,6 @@ export function PostCommentsDialog({
                 : "text-muted-foreground",
             )}
           />
-          {commentCount > 0 && (
-            <motion.span
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className={cn(
-                "absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold",
-                isPostOwner && hasUnreadComments
-                  ? "bg-blue-500 text-white"
-                  : "bg-muted text-muted-foreground",
-              )}
-            >
-              {commentCount > 99 ? "99+" : commentCount}
-            </motion.span>
-          )}
         </motion.button>
       </DrawerTrigger>
 
