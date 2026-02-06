@@ -614,9 +614,10 @@ export default function Profile() {
               {/* Avatar */}
               <div className="shrink-0 relative">
                 {profile.photo ? (
-                  <img
+                  <ImageWithFallback
                     src={profile.photo}
                     alt={profile.nickname}
+                    fallback="/placeholder.svg"
                     className="h-20 w-20 rounded-full object-cover ring-2 ring-border/60"
                   />
                 ) : (
