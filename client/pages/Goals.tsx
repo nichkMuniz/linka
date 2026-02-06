@@ -113,15 +113,29 @@ export default function Goals() {
         series: number;
         kg: number;
         reps: number;
-        time_rest: number;
         completed: boolean;
       }>
     >
   >({});
+  const [workoutExerciseRestTimes, setWorkoutExerciseRestTimes] = React.useState<
+    Record<string, number>
+  >({}); // Rest time per exercise, not per series
   const [workoutDuration, setWorkoutDuration] = React.useState(0);
   const [workoutStartTime, setWorkoutStartTime] = React.useState<number | null>(
     null,
   );
+  const [restTimerModalOpen, setRestTimerModalOpen] = React.useState(false);
+  const [restTimerExerciseId, setRestTimerExerciseId] = React.useState<
+    string | null
+  >(null);
+  const [restTimerRemaining, setRestTimerRemaining] = React.useState(0);
+
+  // Edit goal modal state
+  const [editGoalModalOpen, setEditGoalModalOpen] = React.useState(false);
+  const [editingGoal, setEditingGoal] = React.useState<UserGoal | null>(null);
+  const [editGoalDuration, setEditGoalDuration] = React.useState(0);
+  const [editGoalQuantity, setEditGoalQuantity] = React.useState(0);
+  const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
 
   const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
