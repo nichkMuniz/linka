@@ -17,6 +17,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
+import {
+  addNetworkStatusListener,
+  getNetworkStatus,
+  checkSupabaseReachability,
+} from "@/lib/network-status";
 
 function isEmailNotConfirmed(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
