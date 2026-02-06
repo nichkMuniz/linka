@@ -56,7 +56,7 @@ export function PostIncentiveButton({
           <motion.button
             type="button"
             disabled={loading}
-            aria-label={`${config.label} (${count})`}
+            aria-label={config.label}
             onClick={onClick}
             whileHover={{ scale: 1.12 }}
             whileTap={{ scale: 0.9 }}
@@ -75,15 +75,10 @@ export function PostIncentiveButton({
                 shouldHighlight && "fill-current",
               )}
             />
-            {count > 0 && (
-              <span className="text-xs text-muted-foreground font-medium">
-                {count > 99 ? "99+" : count}
-              </span>
-            )}
           </motion.button>
         </TooltipTrigger>
         <TooltipContent side="top" className="text-xs">
-          {config.label} ({count})
+          {config.label}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
