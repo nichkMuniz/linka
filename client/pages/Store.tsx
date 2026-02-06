@@ -312,7 +312,7 @@ export default function Store() {
               </div>
 
               {/* Products Grid */}
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 grid-cols-2">
                 {store.items.map((item) => (
                   <Card
                     key={item.id}
@@ -351,15 +351,20 @@ export default function Store() {
                             R$ {item.price.toFixed(2)}
                           </p>
                         )}
-                        <a
-                          href={item.instagram_post_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-shrink-0 p-2 hover:bg-muted rounded-lg transition"
-                          title="Ver no Instagram"
-                        >
-                          <Instagram className="h-4 w-4 text-pink-500" />
-                        </a>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-muted-foreground">
+                            @{item.store_instagram_handle}
+                          </span>
+                          <a
+                            href={item.instagram_post_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-shrink-0 p-2 hover:bg-muted rounded-lg transition"
+                            title="Ver no Instagram"
+                          >
+                            <Instagram className="h-4 w-4 text-pink-500" />
+                          </a>
+                        </div>
                       </div>
 
                       {/* Variants */}
@@ -387,6 +392,19 @@ export default function Store() {
                   </Card>
                 ))}
               </div>
+
+              {/* Store Instagram Button */}
+              <a
+                href={store.store_instagram_profile_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full"
+              >
+                <Button className="w-full rounded-full gap-2">
+                  <Instagram className="h-4 w-4" />
+                  Visitar {store.store_name}
+                </Button>
+              </a>
             </div>
           ))}
         </div>
