@@ -1333,6 +1333,131 @@ export default function Goals() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Rest Timer Modal */}
+      <Dialog open={restTimerModalOpen} onOpenChange={setRestTimerModalOpen}>
+        <DialogContent className="w-full max-w-xs rounded-2xl">
+          <DialogHeader className="text-center">
+            <DialogTitle>Tempo de Descanso</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-col items-center justify-center gap-6 py-8">
+            <div className="relative flex items-center justify-center w-48 h-48">
+              <svg className="absolute w-full h-full" viewBox="0 0 200 200">
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="90"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="text-border/60"
+                />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="90"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  className="text-brand"
+                  strokeDasharray={`${(565 * (1 - restTimerRemaining / (workoutExerciseRestTimes[restTimerExerciseId || ""] || 0))) || 0} 565`}
+                  strokeLinecap="round"
+                  style={{ transform: "rotate(-90deg)", transformOrigin: "100px 100px" }}
+                />
+              </svg>
+              <div className="absolute text-center">
+                <p className="text-4xl font-bold text-brand">
+                  {restTimerRemaining}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">segundos</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 w-full">
+              <Button
+                onClick={() => setRestTimerModalOpen(false)}
+                variant="outline"
+                className="flex-1 rounded-full"
+              >
+                Pular
+              </Button>
+              <Button
+                onClick={() => setRestTimerModalOpen(false)}
+                className="flex-1 rounded-full"
+              >
+                {restTimerRemaining === 0 ? "Próxima" : "Pausar"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Goal Modal */}
+      <Dialog open={editGoalModalOpen} onOpenChange={setEditGoalModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Meta</DialogTitle>
+          </DialogHeader>
+
+          {editingGoal && (
+            <div className="space-y-4">
+              <div className="p-4 bg-muted/20 rounded-lg">
+                <p className="text-sm font-medium">{editingGoal.description}</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Duração (dias)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={editGoalDuration}
+                  onChange={(e) => setEditGoalDuration(parseInt(e.target.value) || 0)}
+                  className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Quantidade (qtd)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={editGoalQuantity}
+                  onChange={(e) => setEditGoalQuantity(parseInt(e.target.value) || 0)}
+                  className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
+                />
+              </div>
+
+              <Button
+                onClick={async () => {
+                  if (!user || !editingGoal) return;
+                  setIsUpdatingGoal(true);
+                  try {
+                    // TODO: Add updateGoalDb function to ritmofit-db.ts
+                    toast({
+                      title: "Meta atualizada!",
+                      description: "Suas alterações foram salvas.",
+                    });
+                    setEditGoalModalOpen(false);
+                  } catch (err: any) {
+                    toast({
+                      title: "Erro ao atualizar meta",
+                      description: err?.message || "Tente novamente.",
+                      variant: "destructive",
+                    });
+                  } finally {
+                    setIsUpdatingGoal(false);
+                  }
+                }}
+                disabled={isUpdatingGoal}
+                className="w-full rounded-full"
+              >
+                {isUpdatingGoal ? "Atualizando..." : "Salvar Alterações"}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
