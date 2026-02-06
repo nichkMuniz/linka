@@ -343,6 +343,27 @@ export async function createUserGoalDb(
   await addPointsDb(5);
 }
 
+export async function updateUserGoalDb(
+  userGoalId: string,
+  duration: number,
+  quantity: number,
+) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const { error } = await supabase
+    .from("user_goals")
+    .update({
+      duration,
+      quantity,
+    })
+    .eq("id", userGoalId);
+
+  if (error) {
+    console.error("Error updating user goal:", error);
+    throw error;
+  }
+}
+
 export type UserGoal = {
   id: string;
   goal_id: string;
