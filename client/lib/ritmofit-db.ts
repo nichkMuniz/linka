@@ -278,20 +278,6 @@ export async function markPostCommentsAsReadDb(postId: string): Promise<void> {
 
   if (postError || !post || post.user_id !== viewer.id) return;
 
-  // Update all unread comments to read = true
-  const { error } = await supabase
-    .from("comments")
-    .update({ read: true })
-    .eq("post_id", postId)
-    .eq("read", false);
-
-  if (error) {
-    const errorCode = error?.code || "UNKNOWN";
-    const errorMsg = error?.message || error?.details || JSON.stringify(error);
-    console.error(
-      `[markPostCommentsAsReadDb] Error [${errorCode}]: ${errorMsg}`,
-    );
-  }
 }
 
 export type ProgrammedGoal = {
