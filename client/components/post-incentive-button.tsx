@@ -36,22 +36,18 @@ const incentiveConfig: Record<PostIncentiveType, IncentiveConfig> = {
 
 export function PostIncentiveButton({
   type,
-  count,
   isActive,
   onClick,
   loading,
-  hasActivity,
 }: {
   type: PostIncentiveType;
-  count: number;
   isActive: boolean;
   onClick: () => void;
   loading?: boolean;
-  hasActivity?: boolean;
 }) {
   const config = incentiveConfig[type];
   const Icon = config.Icon;
-  const shouldHighlight = isActive || (hasActivity && count > 0);
+  const shouldHighlight = isActive;
 
   return (
     <TooltipProvider>
