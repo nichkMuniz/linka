@@ -101,10 +101,12 @@ export default function Goals() {
   // Workout modal state
   const [workoutModalOpen, setWorkoutModalOpen] = React.useState(false);
   const [workoutSeries, setWorkoutSeries] = React.useState<
-    Record<string, Array<{ series: number; kg: number; reps: number }>>
+    Record<string, Array<{ series: number; kg: number; reps: number; completed: boolean; time_rest: number }>>
   >({});
   const [workoutDuration, setWorkoutDuration] = React.useState(0);
   const [workoutStartTime, setWorkoutStartTime] = React.useState<number | null>(null);
+
+  const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
   // Ranking tab state
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
