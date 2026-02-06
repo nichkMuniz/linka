@@ -114,8 +114,10 @@ export default function Goals() {
           routinesData,
           rankingData,
           workoutsData,
-          dietsData,
-          habitsData,
+          dietsUserData,
+          habitsUserData,
+          dietsBaseData,
+          habitsBaseData,
         ] = await Promise.all([
           getProgrammedGoalsDb(),
           getUserSelectedGoalIdsDb(),
@@ -124,20 +126,26 @@ export default function Goals() {
           user ? getUserWorkoutsDb(user.id) : Promise.resolve([]),
           user ? getUserDietsDb(user.id) : Promise.resolve([]),
           user ? getUserHabitsDb(user.id) : Promise.resolve([]),
+          getDietsDb(),
+          getHabitsDb(),
         ]);
         setGoals(goalsData);
         setSelectedGoalIds(selectedIds);
         setRoutines(routinesData);
         setRanking(rankingData);
         setUserWorkouts(workoutsData);
-        setUserDiets(dietsData);
-        setUserHabits(habitsData);
+        setUserDiets(dietsUserData);
+        setUserHabits(habitsUserData);
+        setDiets(dietsBaseData);
+        setHabits(habitsBaseData);
 
         // Debug logging
         console.log("[Goals] Routines loaded:", routinesData);
         console.log("[Goals] User workouts:", workoutsData);
-        console.log("[Goals] User diets:", dietsData);
-        console.log("[Goals] User habits:", habitsData);
+        console.log("[Goals] User diets:", dietsUserData);
+        console.log("[Goals] User habits:", habitsUserData);
+        console.log("[Goals] Base diets:", dietsBaseData);
+        console.log("[Goals] Base habits:", habitsBaseData);
       } catch (err: any) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         console.error("Erro ao carregar dados:", errorMessage);
