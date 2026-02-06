@@ -326,17 +326,28 @@ export default function Profile() {
       let photoUrl = profile.photo;
 
       if (editPhotoFile) {
-        // Ensure file has proper extension (jpg/jpeg for images)
-        const fileExtension = editPhotoFile.type.startsWith("image/") ? "jpg" : editPhotoFile.name.split(".").pop() || "jpg";
-        const filePath = `${user.id}/profile-${Date.now()}.${fileExtension}`;
+        // 🔥 Ensure we send a real Blob, never JSON
+        const blob =
+          editPhotoFile instanceof Blob
+            ? editPhotoFile
+            : new Blob([editPhotoFile as any], { type: "image/jpeg" });
+
+        const extension = blob.type.split("/")[1] || "jpg";
+        const filePath = `${user.id}/profile-${Date.now()}.${extension}`;
+
         const { error: uploadError } = await supabase.storage
           .from("posts")
-          .upload(filePath, editPhotoFile);
+          .upload(filePath, blob, {
+            contentType: blob.type,
+            upsert: false,
+          });
 
         if (uploadError) throw uploadError;
 
-        const { data } = supabase.storage.from("posts").getPublicUrl(filePath);
-        photoUrl = data.publicUrl;
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("posts").getPublicUrl(filePath);
+        photoUrl = publicUrl;
       }
 
       const updatedProfile = await updateUserProfileDb(user.id, {
