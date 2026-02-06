@@ -322,15 +322,15 @@ export default function Goals() {
             <div className="grid gap-4 md:grid-cols-3">
               {goals.map((goal) => {
                 const goalTypeLabel =
-                  goal.type === "Fitness"
+                  goal.type === 1
                     ? "1 - Fitness"
-                    : goal.type === "Saúde"
+                    : goal.type === 2
                       ? "2 - Saúde"
                       : "3 - Hábitos";
                 const goalTypeColor =
-                  goal.type === "Fitness"
+                  goal.type === 1
                     ? "bg-blue-500/10 text-blue-600"
-                    : goal.type === "Saúde"
+                    : goal.type === 2
                       ? "bg-emerald-500/10 text-emerald-600"
                       : "bg-orange-500/10 text-orange-600";
 
