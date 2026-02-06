@@ -45,6 +45,7 @@ import {
   Circle,
   Plus,
   X,
+  ChevronUp,
 } from "lucide-react";
 import {
   Dialog,
