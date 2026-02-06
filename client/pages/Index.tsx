@@ -453,8 +453,10 @@ export default function Index() {
       {/* Story Viewer Modal */}
       <StoryViewerModal
         story={selectedStory}
+        stories={stories}
         open={storyViewerOpen}
         onOpenChange={setStoryViewerOpen}
+        onNextStory={handleSkipStory}
       />
 
       {/* Goal Progress Modal */}
