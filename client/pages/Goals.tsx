@@ -78,6 +78,10 @@ export default function Goals() {
     new Set(),
   );
   const [isAddingRoutine, setIsAddingRoutine] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [selectedMuscleGroups, setSelectedMuscleGroups] = React.useState<
+    Set<string>
+  >(new Set());
 
   // Base data for lookups
   const [workouts, setWorkouts] = React.useState<Workout[]>([]);
