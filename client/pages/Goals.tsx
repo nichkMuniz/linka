@@ -93,18 +93,35 @@ export default function Goals() {
 
   // Routines data
   const [routines, setRoutines] = React.useState<Routine[]>([]);
-  const [userWorkouts, setUserWorkouts] = React.useState<UserWorkoutWithDetails[]>([]);
+  const [userWorkouts, setUserWorkouts] = React.useState<
+    UserWorkoutWithDetails[]
+  >([]);
   const [userDiets, setUserDiets] = React.useState<UserDietWithDetails[]>([]);
-  const [userHabits, setUserHabits] = React.useState<UserHabitWithDetails[]>([]);
-  const [expandedRoutineId, setExpandedRoutineId] = React.useState<string | null>(null);
+  const [userHabits, setUserHabits] = React.useState<UserHabitWithDetails[]>(
+    [],
+  );
+  const [expandedRoutineId, setExpandedRoutineId] = React.useState<
+    string | null
+  >(null);
 
   // Workout modal state
   const [workoutModalOpen, setWorkoutModalOpen] = React.useState(false);
   const [workoutSeries, setWorkoutSeries] = React.useState<
-    Record<string, Array<{ series: number; kg: number; reps: number; time_rest: number; completed: boolean }>>
+    Record<
+      string,
+      Array<{
+        series: number;
+        kg: number;
+        reps: number;
+        time_rest: number;
+        completed: boolean;
+      }>
+    >
   >({});
   const [workoutDuration, setWorkoutDuration] = React.useState(0);
-  const [workoutStartTime, setWorkoutStartTime] = React.useState<number | null>(null);
+  const [workoutStartTime, setWorkoutStartTime] = React.useState<number | null>(
+    null,
+  );
 
   const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
@@ -195,7 +212,6 @@ export default function Goals() {
       }
     })();
   }, [user]);
-
 
   const handleSelectGoal = async (goal: ProgrammedGoal) => {
     if (!user) {
@@ -309,7 +325,13 @@ export default function Goals() {
       ...workoutSeries,
       [workoutId]: [
         ...currentSeries,
-        { series: nextSeriesNumber, kg: 0, reps: 0, completed: false, time_rest: 30 },
+        {
+          series: nextSeriesNumber,
+          kg: 0,
+          reps: 0,
+          completed: false,
+          time_rest: 30,
+        },
       ],
     });
   };
@@ -332,7 +354,10 @@ export default function Goals() {
     });
   };
 
-  const handleToggleSerieCompleted = (workoutId: string, seriesIndex: number) => {
+  const handleToggleSerieCompleted = (
+    workoutId: string,
+    seriesIndex: number,
+  ) => {
     const currentSeries = workoutSeries[workoutId] || [];
     const updated = [...currentSeries];
     updated[seriesIndex] = {
@@ -367,7 +392,8 @@ export default function Goals() {
       if (workoutRecords.length === 0) {
         toast({
           title: "Nenhuma série registrada",
-          description: "Adicione e preencha pelo menos uma série para salvar o treino.",
+          description:
+            "Adicione e preencha pelo menos uma série para salvar o treino.",
           variant: "destructive",
         });
         return;
@@ -378,7 +404,8 @@ export default function Goals() {
 
       const minutes = Math.floor(workoutDuration / 60);
       const seconds = workoutDuration % 60;
-      const durationText = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+      const durationText =
+        minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 
       toast({
         title: "Treino finalizado!",
@@ -460,7 +487,6 @@ export default function Goals() {
       setIsAddingRoutine(false);
     }
   };
-
 
   if (loading) {
     return (
@@ -569,7 +595,9 @@ export default function Goals() {
             <div className="space-y-4">
               {/* Show one card per type that has routines */}
               {[1, 2, 3].map((typeCode) => {
-                const hasRoutinesOfType = routines.some((r) => r.type === typeCode);
+                const hasRoutinesOfType = routines.some(
+                  (r) => r.type === typeCode,
+                );
                 if (!hasRoutinesOfType) return null;
 
                 const typeLabel =
@@ -885,7 +913,9 @@ export default function Goals() {
                             {uniqueMuscleGroups.map((muscleGroup) => (
                               <button
                                 key={muscleGroup}
-                                onClick={() => handleToggleMuscleGroup(muscleGroup)}
+                                onClick={() =>
+                                  handleToggleMuscleGroup(muscleGroup)
+                                }
                                 className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
                                   selectedMuscleGroups.has(muscleGroup)
                                     ? "border-brand bg-brand/20 text-brand"
@@ -1074,7 +1104,9 @@ export default function Goals() {
                       />
                     )}
                     <div className="flex-1">
-                      <p className="text-sm font-medium">{workout.workoutName}</p>
+                      <p className="text-sm font-medium">
+                        {workout.workoutName}
+                      </p>
                       {workout.workoutDescription && (
                         <p className="text-xs text-muted-foreground mt-1">
                           {workout.workoutDescription}
@@ -1191,7 +1223,9 @@ export default function Goals() {
                                       : "border-border/60 text-muted-foreground hover:border-border/80"
                                   }`}
                                 >
-                                  {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
+                                  {time < 60
+                                    ? `${time}s`
+                                    : `${Math.floor(time / 60)}m`}
                                 </button>
                               ))}
                             </div>

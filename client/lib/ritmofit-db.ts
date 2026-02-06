@@ -277,7 +277,6 @@ export async function markPostCommentsAsReadDb(postId: string): Promise<void> {
     .maybeSingle();
 
   if (postError || !post || post.user_id !== viewer.id) return;
-
 }
 
 export type ProgrammedGoal = {
@@ -2305,7 +2304,10 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
         .in("reel_id", reelIds);
 
       if (likesError) {
-        console.error("[getReelsDb] Error fetching likes:", likesError?.message || JSON.stringify(likesError));
+        console.error(
+          "[getReelsDb] Error fetching likes:",
+          likesError?.message || JSON.stringify(likesError),
+        );
         // Try legacy format if reel_likes table doesn't exist
         const { data: legacyLikes, error: legacyError } = await supabase
           .from("likes")
@@ -2315,7 +2317,7 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
         if (!legacyError && legacyLikes) {
           allLikes = (legacyLikes ?? []).map((like: any) => ({
             ...like,
-            reel_id: like.post_id
+            reel_id: like.post_id,
           }));
         }
       } else {
@@ -2423,19 +2425,23 @@ export async function toggleReelIncentiveDb(
     } else {
       // Add the like - try reel_likes first, then legacy likes
       let insertError = null;
-      const { error: reelLikeError } = await supabase.from("reel_likes").insert({
-        reel_id: reelId,
-        user_id: viewer.id,
-        type: incentiveType,
-      });
-
-      if (reelLikeError) {
-        // Try legacy format
-        const { error: legacyInsertError } = await supabase.from("likes").insert({
-          post_id: reelId,
+      const { error: reelLikeError } = await supabase
+        .from("reel_likes")
+        .insert({
+          reel_id: reelId,
           user_id: viewer.id,
           type: incentiveType,
         });
+
+      if (reelLikeError) {
+        // Try legacy format
+        const { error: legacyInsertError } = await supabase
+          .from("likes")
+          .insert({
+            post_id: reelId,
+            user_id: viewer.id,
+            type: incentiveType,
+          });
         insertError = legacyInsertError;
       }
 
@@ -2445,7 +2451,10 @@ export async function toggleReelIncentiveDb(
       }
     }
   } catch (err: any) {
-    console.error("Error toggling reel incentive:", err?.message || JSON.stringify(err));
+    console.error(
+      "Error toggling reel incentive:",
+      err?.message || JSON.stringify(err),
+    );
   }
 }
 
@@ -2489,7 +2498,10 @@ export async function addReelCommentDb(reelId: string, text: string) {
       });
 
       if (legacyError) {
-        console.error("Error adding reel comment:", legacyError?.message || JSON.stringify(legacyError));
+        console.error(
+          "Error adding reel comment:",
+          legacyError?.message || JSON.stringify(legacyError),
+        );
         throw legacyError;
       }
     }
@@ -2497,7 +2509,10 @@ export async function addReelCommentDb(reelId: string, text: string) {
     // Award 1 point for commenting on a reel
     await addPointsDb(1);
   } catch (err: any) {
-    console.error("Error adding reel comment:", err?.message || JSON.stringify(err));
+    console.error(
+      "Error adding reel comment:",
+      err?.message || JSON.stringify(err),
+    );
     throw err;
   }
 }
@@ -2515,7 +2530,10 @@ export async function getReelCommentsDb(
       .order("created_at", { ascending: true });
 
     if (error) {
-      console.error("Error fetching reel comments:", error?.message || JSON.stringify(error));
+      console.error(
+        "Error fetching reel comments:",
+        error?.message || JSON.stringify(error),
+      );
       // Try legacy format if reel_comments table doesn't exist
       const { data: legacyData, error: legacyError } = await supabase
         .from("comments")
@@ -2524,7 +2542,10 @@ export async function getReelCommentsDb(
         .order("created_at", { ascending: true });
 
       if (legacyError) {
-        console.error("Error fetching reel comments (legacy):", legacyError?.message || JSON.stringify(legacyError));
+        console.error(
+          "Error fetching reel comments (legacy):",
+          legacyError?.message || JSON.stringify(legacyError),
+        );
         return [];
       }
 
@@ -2555,7 +2576,10 @@ export async function getReelCommentsDb(
         }) satisfies ReelComment,
     );
   } catch (err: any) {
-    console.error("Error getting reel comments:", err?.message || JSON.stringify(err));
+    console.error(
+      "Error getting reel comments:",
+      err?.message || JSON.stringify(err),
+    );
     return [];
   }
 }
@@ -2577,12 +2601,18 @@ export async function deleteReelCommentDb(commentId: string) {
         .eq("id", commentId);
 
       if (legacyError) {
-        console.error("Error deleting reel comment:", legacyError?.message || JSON.stringify(legacyError));
+        console.error(
+          "Error deleting reel comment:",
+          legacyError?.message || JSON.stringify(legacyError),
+        );
         throw legacyError;
       }
     }
   } catch (err: any) {
-    console.error("Error deleting reel comment:", err?.message || JSON.stringify(err));
+    console.error(
+      "Error deleting reel comment:",
+      err?.message || JSON.stringify(err),
+    );
     throw err;
   }
 }
@@ -2810,9 +2840,7 @@ export async function saveWorkoutSeriesDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .insert(seriesToInsert)
-    .select(
-      "id, workout_id, user_id, volume, reps, time_rest, duration",
-    );
+    .select("id, workout_id, user_id, volume, reps, time_rest, duration");
 
   if (error) {
     const errorMsg = error?.message || String(error);

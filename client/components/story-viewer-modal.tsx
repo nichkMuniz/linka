@@ -108,9 +108,7 @@ export function StoryViewerModal({
             {/* Description Overlay */}
             {story.description && (
               <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent z-10">
-                <p className="text-sm text-white">
-                  {story.description}
-                </p>
+                <p className="text-sm text-white">{story.description}</p>
               </div>
             )}
           </div>

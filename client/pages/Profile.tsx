@@ -118,7 +118,9 @@ export default function Profile() {
     new Set(),
   );
   const [isSavingHabits, setIsSavingHabits] = React.useState(false);
-  const [userHabits, setUserHabits] = React.useState<UserHabitWithDetails[]>([]);
+  const [userHabits, setUserHabits] = React.useState<UserHabitWithDetails[]>(
+    [],
+  );
   const [expandedRoutineType, setExpandedRoutineType] = React.useState<
     number | null
   >(null);
@@ -679,7 +681,10 @@ export default function Profile() {
                 </DrawerHeader>
 
                 <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4">
-                  <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+                  <Dialog
+                    open={isEditDialogOpen}
+                    onOpenChange={setIsEditDialogOpen}
+                  >
                     <DialogTrigger asChild>
                       <Button
                         onClick={openEditDialog}
@@ -1498,21 +1503,24 @@ export default function Profile() {
                                             ? item.dietName
                                             : item.habitName}
                                       </p>
-                                      {typeCode === 1 && item.workoutDescription && (
-                                        <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                          {item.workoutDescription}
-                                        </p>
-                                      )}
-                                      {typeCode === 2 && item.dietDescription && (
-                                        <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                          {item.dietDescription}
-                                        </p>
-                                      )}
-                                      {typeCode === 3 && item.habitDescription && (
-                                        <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                          {item.habitDescription}
-                                        </p>
-                                      )}
+                                      {typeCode === 1 &&
+                                        item.workoutDescription && (
+                                          <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                            {item.workoutDescription}
+                                          </p>
+                                        )}
+                                      {typeCode === 2 &&
+                                        item.dietDescription && (
+                                          <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                            {item.dietDescription}
+                                          </p>
+                                        )}
+                                      {typeCode === 3 &&
+                                        item.habitDescription && (
+                                          <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                            {item.habitDescription}
+                                          </p>
+                                        )}
                                       <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
                                         {typeCode === 1 && (
                                           <>

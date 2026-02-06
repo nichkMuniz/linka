@@ -351,12 +351,16 @@ export default function Index() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
-                          <DropdownMenuItem onClick={() => handleReportUser(post)}>
+                          <DropdownMenuItem
+                            onClick={() => handleReportUser(post)}
+                          >
                             <Flag className="h-4 w-4 mr-2" />
                             Denunciar usuário
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleReportPost(post)}>
+                          <DropdownMenuItem
+                            onClick={() => handleReportPost(post)}
+                          >
                             <Flag className="h-4 w-4 mr-2" />
                             Denunciar post
                           </DropdownMenuItem>
@@ -383,14 +387,18 @@ export default function Index() {
                       commentCount={post.commentCount}
                       hasActivity={post.hasActivity}
                       isPostOwner={post.user_id === user?.id}
-                      hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0}
+                      hasUnreadComments={
+                        (unreadCommentsByPost[post.id] ?? 0) > 0
+                      }
                     />
                   </div>
 
                   {/* Post Content */}
                   <div className="p-4 space-y-3">
                     {post.description && (
-                      <p className="text-sm leading-relaxed">{post.description}</p>
+                      <p className="text-sm leading-relaxed">
+                        {post.description}
+                      </p>
                     )}
 
                     {/* Goal Progress Bar */}

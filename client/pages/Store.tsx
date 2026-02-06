@@ -368,7 +368,10 @@ export default function Store() {
                         rel="noopener noreferrer"
                         className="w-full mt-2"
                       >
-                        <Button variant="outline" className="w-full rounded-full gap-2 text-xs h-8">
+                        <Button
+                          variant="outline"
+                          className="w-full rounded-full gap-2 text-xs h-8"
+                        >
                           <Instagram className="h-3 w-3" />
                           Visitar {store.store_name}
                         </Button>

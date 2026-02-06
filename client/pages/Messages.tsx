@@ -66,7 +66,9 @@ export default function Messages() {
 
     const loadMessages = async () => {
       try {
-        const data = await getConversationMessagesDb(selectedConversation.userId);
+        const data = await getConversationMessagesDb(
+          selectedConversation.userId,
+        );
         setMessages(data);
 
         // Mark messages as read
@@ -206,9 +208,7 @@ export default function Messages() {
                     <div className="flex items-center justify-between gap-2">
                       <p
                         className={`text-xs ${
-                          isOwn
-                            ? "text-white/70"
-                            : "text-muted-foreground"
+                          isOwn ? "text-white/70" : "text-muted-foreground"
                         }`}
                       >
                         {new Date(message.created_at).toLocaleTimeString(
@@ -379,9 +379,7 @@ export default function Messages() {
                     )}
 
                     <div className="flex-1 min-w-0 text-left">
-                      <p className="font-medium text-sm">
-                        {follower.nickname}
-                      </p>
+                      <p className="font-medium text-sm">{follower.nickname}</p>
                       {follower.bio && (
                         <p className="text-xs text-muted-foreground truncate">
                           {follower.bio}

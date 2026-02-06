@@ -365,7 +365,9 @@ export default function Reels() {
                       <Button
                         size="sm"
                         onClick={handleAddQuickComment}
-                        disabled={!quickCommentText.trim() || isAddingQuickComment}
+                        disabled={
+                          !quickCommentText.trim() || isAddingQuickComment
+                        }
                         className="h-8 w-8 p-0 rounded-full"
                       >
                         <Send className="h-3 w-3" />
