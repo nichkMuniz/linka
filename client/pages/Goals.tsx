@@ -358,7 +358,6 @@ export default function Goals() {
               volume: s.kg,
               reps: s.reps,
               time_rest: s.time_rest,
-              completed: s.completed,
             })),
             duration: workoutDuration,
           });
