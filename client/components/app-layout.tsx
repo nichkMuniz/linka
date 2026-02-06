@@ -125,9 +125,10 @@ export function AppLayout() {
               className="flex-shrink-0 rounded-full hover:opacity-80 transition"
             >
               {profilePhoto ? (
-                <img
+                <ImageWithFallback
                   src={profilePhoto}
                   alt="Seu Perfil"
+                  fallback="/placeholder.svg"
                   className="h-10 w-10 rounded-full object-cover border-2 border-border/60"
                 />
               ) : (
