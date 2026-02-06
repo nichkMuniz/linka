@@ -228,39 +228,50 @@ export default function Store() {
 
       {/* Search and Filter Section */}
       <div className="space-y-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Buscar produtos ou lojas..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 rounded-full"
-          />
-        </div>
-
-        {categories.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant={categoryFilter === "all" ? "default" : "outline"}
-              size="sm"
-              className="rounded-full"
-              onClick={() => setCategoryFilter("all")}
-            >
-              Todos
-            </Button>
-            {categories.map((category) => (
-              <Button
-                key={category}
-                variant={categoryFilter === category ? "default" : "outline"}
-                size="sm"
-                className="rounded-full"
-                onClick={() => setCategoryFilter(category)}
-              >
-                {category}
-              </Button>
-            ))}
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar produtos ou lojas..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 rounded-full"
+            />
           </div>
-        )}
+
+          {categories.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 rounded-full gap-1"
+                >
+                  <Tag className="h-4 w-4" />
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => setCategoryFilter("all")}
+                  className={categoryFilter === "all" ? "bg-muted" : ""}
+                >
+                  Todos
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {categories.map((category) => (
+                  <DropdownMenuItem
+                    key={category}
+                    onClick={() => setCategoryFilter(category)}
+                    className={categoryFilter === category ? "bg-muted" : ""}
+                  >
+                    {category}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
 
       {/* Stores and Products Grid */}
