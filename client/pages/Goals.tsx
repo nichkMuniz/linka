@@ -471,6 +471,29 @@ export default function Goals() {
       setAddRoutineModalOpen(false);
       setSelectedRoutineType(null);
       setSelectedItems(new Set());
+
+      // Refresh routines data to show newly added items
+      if (user) {
+        try {
+          const [
+            routinesData,
+            userWorkoutsData,
+            userDietsData,
+            userHabitsData,
+          ] = await Promise.all([
+            getUserRoutinesDb(user.id),
+            getUserWorkoutsDb(user.id),
+            getUserDietsDb(user.id),
+            getUserHabitsDb(user.id),
+          ]);
+          setRoutines(routinesData);
+          setUserWorkouts(userWorkoutsData);
+          setUserDiets(userDietsData);
+          setUserHabits(userHabitsData);
+        } catch (err) {
+          console.error("Error refreshing routines:", err);
+        }
+      }
     } catch (err: any) {
       console.error("Error adding routines:", err);
       toast({
