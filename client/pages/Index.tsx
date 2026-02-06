@@ -431,28 +431,6 @@ export default function Index() {
                     <p className="text-xs text-muted-foreground pt-1">
                       {formatTimeAgo(post.created_at)}
                     </p>
-
-                    {/* Incentive Icons and Comments - Below Post */}
-                    <div className="flex items-center gap-4 pt-3 border-t border-border/60">
-                      <div className="flex items-center gap-2">
-                        {([1, 2, 3] as PostIncentiveType[]).map((type) => (
-                          <PostIncentiveButton
-                            key={type}
-                            type={type}
-                            isActive={post.userLikes.includes(type)}
-                            onClick={() => handleToggleLike(post.id, type)}
-                            loading={togglingPostId === post.id}
-                          />
-                        ))}
-                      </div>
-                      <PostCommentsDialog
-                        postId={post.id}
-                        commentCount={post.commentCount}
-                        hasActivity={post.hasActivity}
-                        isPostOwner={post.user_id === user?.id}
-                        hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0}
-                      />
-                    </div>
                   </div>
                 </CardContent>
               </Card>
