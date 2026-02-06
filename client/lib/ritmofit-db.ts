@@ -1015,9 +1015,9 @@ export async function createUserWorkoutsDb(
   workoutIds: string[],
   options?: {
     volume?: number;
+    reps?: number;
     calories?: number;
     duration?: number;
-    series?: number;
     time_rest?: number;
   },
 ): Promise<UserWorkout[]> {
@@ -1027,9 +1027,9 @@ export async function createUserWorkoutsDb(
     workout_id: workoutId,
     user_id: userId,
     volume: options?.volume || null,
+    reps: options?.reps || null,
     calories: options?.calories || null,
     duration: options?.duration || null,
-    series: options?.series || null,
     time_rest: options?.time_rest || null,
   }));
 
@@ -1037,7 +1037,7 @@ export async function createUserWorkoutsDb(
     .from("user_workouts")
     .insert(workoutsToInsert)
     .select(
-      "id, workout_id, user_id, volume, calories, duration, series, time_rest",
+      "id, workout_id, user_id, volume, reps, calories, duration, time_rest",
     );
 
   if (error) {
@@ -1052,9 +1052,9 @@ export async function createUserWorkoutsDb(
     workout_id: String(row.workout_id ?? ""),
     user_id: String(row.user_id ?? ""),
     volume: row.volume,
+    reps: row.reps,
     calories: row.calories,
     duration: row.duration,
-    series: row.series,
     time_rest: row.time_rest,
   }));
 }
