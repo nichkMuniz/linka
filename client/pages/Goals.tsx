@@ -1007,6 +1007,141 @@ export default function Goals() {
           </div>
         </DrawerContent>
       </Drawer>
+
+      {/* Workout Modal */}
+      <Dialog open={workoutModalOpen} onOpenChange={setWorkoutModalOpen}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Registrar Treino</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Workout Duration Timer */}
+            <div className="bg-brand/10 rounded-lg p-4 text-center">
+              <p className="text-xs font-medium text-muted-foreground mb-2">
+                Duração do Treino
+              </p>
+              <p className="text-3xl font-bold text-brand">
+                {formatDuration(workoutDuration)}
+              </p>
+            </div>
+
+            {/* Exercises List */}
+            <div className="space-y-4">
+              {userWorkouts.map((workout) => (
+                <div
+                  key={workout.id}
+                  className="border border-border/60 rounded-lg p-4 space-y-3"
+                >
+                  {/* Exercise Header */}
+                  <div className="flex items-start gap-3">
+                    {workout.workoutPhoto && (
+                      <img
+                        src={workout.workoutPhoto}
+                        alt={workout.workoutName}
+                        className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
+                      />
+                    )}
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{workout.workoutName}</p>
+                      {workout.workoutDescription && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {workout.workoutDescription}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Series List */}
+                  <div className="space-y-2">
+                    {(workoutSeries[workout.workout_id] || []).map(
+                      (series, index) => (
+                        <div
+                          key={index}
+                          className="flex items-end gap-2 p-2 bg-muted/20 rounded-lg"
+                        >
+                          <div className="flex-shrink-0">
+                            <label className="text-xs font-medium text-muted-foreground">
+                              Série
+                            </label>
+                            <input
+                              type="number"
+                              value={series.series}
+                              disabled
+                              className="w-12 h-9 px-2 py-1 border border-border/60 rounded text-sm bg-muted"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground">
+                              kg
+                            </label>
+                            <input
+                              type="number"
+                              step="0.5"
+                              value={series.kg}
+                              onChange={(e) =>
+                                handleUpdateSerie(
+                                  workout.workout_id,
+                                  index,
+                                  "kg",
+                                  parseFloat(e.target.value) || 0,
+                                )
+                              }
+                              placeholder="0"
+                              className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground">
+                              Reps
+                            </label>
+                            <input
+                              type="number"
+                              value={series.reps}
+                              onChange={(e) =>
+                                handleUpdateSerie(
+                                  workout.workout_id,
+                                  index,
+                                  "reps",
+                                  parseInt(e.target.value) || 0,
+                                )
+                              }
+                              placeholder="0"
+                              className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm"
+                            />
+                          </div>
+                        </div>
+                      ),
+                    )}
+                  </div>
+
+                  {/* Add Series Button */}
+                  <Button
+                    onClick={() => handleAddSerie(workout.workout_id)}
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs"
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    Adicionar Série
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            {/* Finish Button */}
+            <Button
+              onClick={handleFinishWorkout}
+              className="w-full rounded-full"
+              size="lg"
+            >
+              Finalizar Treino
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
