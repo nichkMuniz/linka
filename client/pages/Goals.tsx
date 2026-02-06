@@ -309,7 +309,7 @@ export default function Goals() {
       ...workoutSeries,
       [workoutId]: [
         ...currentSeries,
-        { series: nextSeriesNumber, kg: 0, reps: 0 },
+        { series: nextSeriesNumber, kg: 0, reps: 0, completed: false, time_rest: 30 },
       ],
     });
   };
@@ -317,14 +317,27 @@ export default function Goals() {
   const handleUpdateSerie = (
     workoutId: string,
     seriesIndex: number,
-    field: "kg" | "reps",
-    value: number,
+    field: "kg" | "reps" | "time_rest",
+    value: number | boolean,
   ) => {
     const currentSeries = workoutSeries[workoutId] || [];
     const updated = [...currentSeries];
     updated[seriesIndex] = {
       ...updated[seriesIndex],
       [field]: value,
+    };
+    setWorkoutSeries({
+      ...workoutSeries,
+      [workoutId]: updated,
+    });
+  };
+
+  const handleToggleSerieCompleted = (workoutId: string, seriesIndex: number) => {
+    const currentSeries = workoutSeries[workoutId] || [];
+    const updated = [...currentSeries];
+    updated[seriesIndex] = {
+      ...updated[seriesIndex],
+      completed: !updated[seriesIndex].completed,
     };
     setWorkoutSeries({
       ...workoutSeries,
