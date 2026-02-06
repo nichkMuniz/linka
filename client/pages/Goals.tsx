@@ -27,6 +27,7 @@ import {
   type UserDietWithDetails,
   type UserHabitWithDetails,
 } from "@/lib/ritmofit-db";
+import { supabase } from "@/lib/supabase";
 import {
   Card,
   CardContent,
