@@ -235,9 +235,10 @@ export default function Goals() {
     if (!selectedRoutineForExercise) return;
 
     try {
-      // Get the workout linked to this routine
+      // Get the workout linked to this routine by workout_id
       const linkedWorkouts = userWorkouts.filter(
-        (w) => String(w.id) === selectedRoutineForExercise.program_id,
+        (w) =>
+          String(w.workout_id) === selectedRoutineForExercise.program_id,
       );
 
       for (const workout of linkedWorkouts) {
