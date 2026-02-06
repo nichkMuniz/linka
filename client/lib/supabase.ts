@@ -13,69 +13,16 @@ export const supabase: SupabaseClient | null = hasSupabaseConfig
   ? createClient(supabaseUrl as string, supabaseAnonKey as string, {
       auth: {
         persistSession: true,
-        autoRefreshToken: true,
+        autoRefreshToken: false, // Disable auto-refresh to avoid initial network calls
         detectSessionInUrl: true,
-        // Disable automatic session refresh on init to avoid network errors
-        flowType: "implicit",
       },
       global: {
         headers: {
           "Content-Type": "application/json",
-          "Accept": "application/json",
         },
-        fetch: createNetworkAwareFetch(),
       },
     })
   : null;
-
-// Custom fetch wrapper to handle network failures gracefully
-function createNetworkAwareFetch() {
-  return async (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ): Promise<Response> => {
-    try {
-      // Add timeout to fetch requests
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-      try {
-        const response = await fetch(input, {
-          ...init,
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        return response;
-      } catch (err) {
-        clearTimeout(timeoutId);
-        throw err;
-      }
-    } catch (err) {
-      // Log network errors but don't re-throw to allow graceful degradation
-      if (
-        err instanceof TypeError &&
-        (err.message.includes("Failed to fetch") ||
-          err.message.includes("Network request failed") ||
-          err.message.includes("AbortError"))
-      ) {
-        console.warn(
-          "[Supabase Network] Request failed - returning offline response",
-          {
-            url: String(input),
-            error: err.message,
-          },
-        );
-        // Return a 503 Service Unavailable response to indicate offline state
-        return new Response(JSON.stringify({ error: "Network unavailable" }), {
-          status: 503,
-          statusText: "Service Unavailable",
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      throw err;
-    }
-  };
-}
 
 function isInvalidRefreshTokenError(err: unknown) {
   const message =
