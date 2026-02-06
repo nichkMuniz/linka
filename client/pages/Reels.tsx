@@ -336,14 +336,43 @@ export default function Reels() {
                   </div>
                 </div>
 
-                {/* Description - Bottom Left */}
-                {reel.description && (
-                  <div className="absolute bottom-24 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent z-10">
-                    <p className="text-sm text-white drop-shadow-sm">
-                      {reel.description}
-                    </p>
-                  </div>
-                )}
+                {/* Description and Comment Input - Bottom Left */}
+                <div className="absolute bottom-24 left-0 right-0 p-4 z-10">
+                  {reel.description && (
+                    <div className="bg-gradient-to-t from-black/60 to-transparent p-4 rounded-lg mb-2">
+                      <p className="text-sm text-white drop-shadow-sm">
+                        {reel.description}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Quick Comment Input - Semi-transparent */}
+                  {user && (
+                    <div className="flex gap-2 bg-black/30 backdrop-blur-sm p-2 rounded-lg">
+                      <Input
+                        placeholder="Comente..."
+                        value={quickCommentText}
+                        onChange={(e) => setQuickCommentText(e.target.value)}
+                        disabled={isAddingQuickComment}
+                        className="bg-white/10 border-white/20 text-white placeholder:text-white/50 text-xs h-8"
+                        onKeyPress={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleAddQuickComment();
+                          }
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        onClick={handleAddQuickComment}
+                        disabled={!quickCommentText.trim() || isAddingQuickComment}
+                        className="h-8 w-8 p-0 rounded-full"
+                      >
+                        <Send className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
 
                 {/* Incentive Buttons - Right Side */}
                 <div className="absolute right-4 bottom-24 flex flex-col gap-4 z-20">
