@@ -46,6 +46,8 @@ import {
   Plus,
   X,
   ChevronUp,
+  Search,
+  Filter,
 } from "lucide-react";
 import {
   Dialog,
