@@ -124,6 +124,12 @@ export default function Goals() {
         setUserWorkouts(workoutsData);
         setUserDiets(dietsData);
         setUserHabits(habitsData);
+
+        // Debug logging
+        console.log("[Goals] Routines loaded:", routinesData);
+        console.log("[Goals] User workouts:", workoutsData);
+        console.log("[Goals] User diets:", dietsData);
+        console.log("[Goals] User habits:", habitsData);
       } catch (err: any) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         console.error("Erro ao carregar dados:", errorMessage);
