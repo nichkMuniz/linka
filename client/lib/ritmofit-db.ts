@@ -263,40 +263,6 @@ export async function deletePostCommentDb(commentId: string) {
   }
 }
 
-export async function getUnreadCommentCountDb(postId: string): Promise<number> {
-  if (!hasSupabaseConfig || !supabase) return 0;
-
-  const viewer = await getViewer();
-  if (!viewer) return 0;
-
-  // Get the post to check if user is the owner
-  const { data: post, error: postError } = await supabase
-    .from("posts")
-    .select("user_id")
-    .eq("id", postId)
-    .maybeSingle();
-
-  if (postError || !post || post.user_id !== viewer.id) return 0;
-
-  // Count unread comments (read = 0 or read = false)
-  const { count, error } = await supabase
-    .from("comments")
-    .select("*", { count: "exact", head: true })
-    .eq("post_id", postId)
-    .eq("read", false);
-
-  if (error) {
-    const errorCode = error?.code || "UNKNOWN";
-    const errorMsg = error?.message || error?.details || JSON.stringify(error);
-    console.warn(
-      `[getUnreadCommentCountDb] Error [${errorCode}]: ${errorMsg}. Returning 0.`,
-    );
-    return 0;
-  }
-
-  return count ?? 0;
-}
-
 export async function markPostCommentsAsReadDb(postId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
