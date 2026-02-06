@@ -66,9 +66,12 @@ export default function NewPost() {
       const sanitizedFileName = file.name.replace(/\.[^/.]+$/, ""); // Remove existing extension
       const filePath = `${user.id}/${Date.now()}-${sanitizedFileName}.${fileExtension}`;
 
-      const { error: uploadError } = await supabase.storage
+      const { data, error } = await supabase.storage
         .from("posts")
-        .upload(filePath, file);
+        .upload(filePath, file, {
+          contentType: file.type,
+          upsert: false,
+        });
 
       if (uploadError) throw uploadError;
 
