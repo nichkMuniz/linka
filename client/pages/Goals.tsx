@@ -249,11 +249,6 @@ export default function Goals() {
       });
 
       setSelectedGoalIds([...selectedGoalIds, goal.id]);
-
-      // Redirect to home after a short delay
-      setTimeout(() => {
-        navigate("/");
-      }, 1500);
     } catch (err: any) {
       console.error("Erro ao selecionar meta:", err);
       toast({
