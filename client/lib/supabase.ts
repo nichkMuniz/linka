@@ -69,11 +69,23 @@ export async function getUserSafe(): Promise<User | null> {
     const { data } = await supabase.auth.getUser();
     return data.user ?? null;
   } catch (err) {
+    // Handle network-level errors (fetch failures)
+    if (err instanceof TypeError && err.message.includes("Failed to fetch")) {
+      console.error(
+        "[getUserSafe] Network error reaching Supabase. This may be a CORS issue or network connectivity problem.",
+        err,
+      );
+      // Return null instead of throwing to allow the app to load
+      // The session might be in localStorage and can be used
+      return null;
+    }
+
     if (isInvalidRefreshTokenError(err)) {
       await resetSupabaseAuth();
       return null;
     }
 
+    console.error("[getUserSafe] Auth error:", err);
     throw err;
   }
 }
