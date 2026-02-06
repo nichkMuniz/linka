@@ -1004,9 +1004,9 @@ export type UserWorkout = {
   workout_id: string;
   user_id: string;
   volume?: number | null;
+  reps?: number | null;
   calories?: number | null;
   duration?: number | null;
-  series?: number | null;
   time_rest?: number | null;
 };
 
