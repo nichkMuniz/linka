@@ -2767,3 +2767,64 @@ export async function toggleUserHabitCompletionDb(
 
   return true;
 }
+
+// Save workout series data
+export async function saveWorkoutSeriesDb(
+  userId: string,
+  workoutData: Array<{
+    workout_id: string;
+    series: Array<{
+      volume: number; // kg
+      reps: number;
+      time_rest: number; // in seconds
+      completed: boolean;
+    }>;
+    duration: number; // total workout duration in seconds
+  }>,
+): Promise<UserWorkout[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const seriesToInsert: any[] = [];
+
+  for (const workout of workoutData) {
+    for (const serie of workout.series) {
+      seriesToInsert.push({
+        user_id: userId,
+        workout_id: workout.workout_id,
+        volume: serie.volume || null,
+        reps: serie.reps || null,
+        time_rest: serie.time_rest || null,
+        duration: workout.duration || null,
+        is_completed: serie.completed ? true : false,
+      });
+    }
+  }
+
+  if (seriesToInsert.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("user_workouts")
+    .insert(seriesToInsert)
+    .select(
+      "id, workout_id, user_id, volume, reps, time_rest, duration, is_completed",
+    );
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error saving workout series [${errorCode}]:`, errorMsg);
+    throw new Error(`Erro ao registrar treino: ${errorMsg}`);
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id ?? ""),
+    workout_id: String(row.workout_id ?? ""),
+    user_id: String(row.user_id ?? ""),
+    volume: row.volume,
+    reps: row.reps,
+    time_rest: row.time_rest,
+    duration: row.duration,
+  }));
+}
