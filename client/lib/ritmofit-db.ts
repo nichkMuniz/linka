@@ -2502,7 +2502,7 @@ export async function getReelCommentsDb(
       (row: any) =>
         ({
           id: String(row.id),
-          reelId: String(row.post_id),
+          reelId: String(row.reel_id),
           userId: String(row.user_id),
           userName: String(row.user_name ?? "Usuário"),
           userHandle: String(row.user_handle ?? "@user"),
@@ -2511,7 +2511,7 @@ export async function getReelCommentsDb(
         }) satisfies ReelComment,
     );
   } catch (err: any) {
-    console.error("Error getting reel comments:", err);
+    console.error("Error getting reel comments:", err?.message || JSON.stringify(err));
     return [];
   }
 }
