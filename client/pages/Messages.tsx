@@ -291,7 +291,7 @@ export default function Messages() {
 
       {filteredConversations.length > 0 ? (
         <div className="space-y-2">
-          {conversations.map((conversation) => (
+          {filteredConversations.map((conversation) => (
             <button
               key={conversation.userId}
               onClick={() => handleOpenConversation(conversation)}
