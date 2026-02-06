@@ -611,7 +611,7 @@ export default function Profile() {
           <div className="flex items-start justify-between gap-4">
             <div className="flex gap-4 flex-1 min-w-0">
               {/* Avatar */}
-              <div className="shrink-0">
+              <div className="shrink-0 relative">
                 {profile.photo ? (
                   <img
                     src={profile.photo}
@@ -621,6 +621,19 @@ export default function Profile() {
                 ) : (
                   <div className="h-20 w-20 rounded-full bg-muted ring-2 ring-border/60" />
                 )}
+                {/* Add Story Button */}
+                <button
+                  onClick={() => {
+                    toast({
+                      title: "Criar Story",
+                      description: "Funcionalidade em desenvolvimento.",
+                    });
+                  }}
+                  className="absolute bottom-0 right-0 h-7 w-7 rounded-full bg-brand text-white flex items-center justify-center ring-2 ring-background hover:bg-brand/90 transition-colors shadow-sm"
+                  title="Adicionar novo story"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
               </div>
 
               {/* Info */}
