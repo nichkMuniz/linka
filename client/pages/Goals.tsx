@@ -83,6 +83,13 @@ export default function Goals() {
   const [diets, setDiets] = React.useState<Diet[]>([]);
   const [habits, setHabits] = React.useState<Habit[]>([]);
 
+  // Routines data
+  const [routines, setRoutines] = React.useState<Routine[]>([]);
+  const [userWorkouts, setUserWorkouts] = React.useState<UserWorkoutWithDetails[]>([]);
+  const [userDiets, setUserDiets] = React.useState<UserDietWithDetails[]>([]);
+  const [userHabits, setUserHabits] = React.useState<UserHabitWithDetails[]>([]);
+  const [expandedRoutineId, setExpandedRoutineId] = React.useState<string | null>(null);
+
   // Ranking tab state
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
 
