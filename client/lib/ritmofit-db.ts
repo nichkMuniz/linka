@@ -2295,12 +2295,24 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     let allLikes: any[] = [];
     if (reelIds.length > 0) {
       const { data: likesData, error: likesError } = await supabase
-        .from("likes")
-        .select("post_id, type, user_id")
-        .in("post_id", reelIds);
+        .from("reel_likes")
+        .select("reel_id, type, user_id")
+        .in("reel_id", reelIds);
 
       if (likesError) {
-        console.error("[getReelsDb] Error fetching likes:", likesError);
+        console.error("[getReelsDb] Error fetching likes:", likesError?.message || JSON.stringify(likesError));
+        // Try legacy format if reel_likes table doesn't exist
+        const { data: legacyLikes, error: legacyError } = await supabase
+          .from("likes")
+          .select("post_id, type, user_id")
+          .in("post_id", reelIds);
+
+        if (!legacyError && legacyLikes) {
+          allLikes = (legacyLikes ?? []).map((like: any) => ({
+            ...like,
+            reel_id: like.post_id
+          }));
+        }
       } else {
         allLikes = likesData ?? [];
       }
