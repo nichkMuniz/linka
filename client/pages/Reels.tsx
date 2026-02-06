@@ -287,10 +287,10 @@ export default function Reels() {
   return (
     <div
       ref={containerRef}
-      className="relative h-[calc(100dvh-120px)] w-full max-w-6xl mx-auto bg-black overflow-hidden"
+      className="relative h-[calc(100dvh-120px)] w-full bg-black overflow-hidden flex items-center justify-center"
     >
       {/* Videos Container */}
-      <div className="relative h-full w-full">
+      <div className="relative h-full w-full max-w-2xl">
         {reels.map((reel, index) => {
           const isVisible = index === currentReelIndex;
 
