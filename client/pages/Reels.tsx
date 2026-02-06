@@ -40,6 +40,8 @@ export default function Reels() {
   const [commentText, setCommentText] = React.useState("");
   const [isLoadingComments, setIsLoadingComments] = React.useState(false);
   const [isAddingComment, setIsAddingComment] = React.useState(false);
+  const [quickCommentText, setQuickCommentText] = React.useState("");
+  const [isAddingQuickComment, setIsAddingQuickComment] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const scrollTimeoutRef = React.useRef<NodeJS.Timeout>();
 
