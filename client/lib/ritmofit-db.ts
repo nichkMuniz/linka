@@ -2390,30 +2390,57 @@ export async function toggleReelIncentiveDb(
   if (!viewer) return;
 
   try {
-    const { data: existing } = await supabase
-      .from("likes")
+    let { data: existing, error: checkError } = await supabase
+      .from("reel_likes")
       .select("id")
-      .eq("post_id", reelId)
+      .eq("reel_id", reelId)
       .eq("user_id", viewer.id)
       .eq("type", incentiveType)
       .maybeSingle();
 
+    // If reel_likes table doesn't exist, try legacy likes table
+    if (checkError) {
+      const { data: legacyExisting } = await supabase
+        .from("likes")
+        .select("id")
+        .eq("post_id", reelId)
+        .eq("user_id", viewer.id)
+        .eq("type", incentiveType)
+        .maybeSingle();
+
+      existing = legacyExisting;
+    }
+
     if (existing?.id) {
       // Remove the like
-      await supabase.from("likes").delete().eq("id", existing.id);
+      const tableName = checkError ? "likes" : "reel_likes";
+      await supabase.from(tableName).delete().eq("id", existing.id);
     } else {
-      // Add the like
-      await supabase.from("likes").insert({
-        post_id: reelId,
+      // Add the like - try reel_likes first, then legacy likes
+      let insertError = null;
+      const { error: reelLikeError } = await supabase.from("reel_likes").insert({
+        reel_id: reelId,
         user_id: viewer.id,
         type: incentiveType,
       });
 
-      // Award 1 point for interacting with a reel
-      await addPointsDb(1);
+      if (reelLikeError) {
+        // Try legacy format
+        const { error: legacyInsertError } = await supabase.from("likes").insert({
+          post_id: reelId,
+          user_id: viewer.id,
+          type: incentiveType,
+        });
+        insertError = legacyInsertError;
+      }
+
+      if (!reelLikeError || !insertError) {
+        // Award 1 point for interacting with a reel
+        await addPointsDb(1);
+      }
     }
   } catch (err: any) {
-    console.error("Error toggling reel incentive:", err);
+    console.error("Error toggling reel incentive:", err?.message || JSON.stringify(err));
   }
 }
 
