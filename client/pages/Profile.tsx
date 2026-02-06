@@ -637,8 +637,7 @@ export default function Profile() {
                     <div className="text-xs text-muted-foreground">Posts</div>
                   </div>
                   <div className="space-y-1">
-                    <div className="text-lg font-semibold flex items-center gap-1">
-                      <Users className="h-3 w-3" />
+                    <div className="text-lg font-semibold">
                       {stats.followersCount}
                     </div>
                     <div className="text-xs text-muted-foreground">
@@ -646,9 +645,8 @@ export default function Profile() {
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <div className="text-lg font-semibold flex items-center gap-1">
+                    <div className="text-lg font-semibold">
                       {stats.followingCount}
-                      <Users className="h-3 w-3" />
                     </div>
                     <div className="text-xs text-muted-foreground">
                       Seguindo
