@@ -2822,7 +2822,6 @@ export async function saveWorkoutSeriesDb(
       volume: number; // kg
       reps: number;
       time_rest: number; // in seconds
-      completed: boolean;
     }>;
     duration: number; // total workout duration in seconds
   }>,
@@ -2840,7 +2839,6 @@ export async function saveWorkoutSeriesDb(
         reps: serie.reps || null,
         time_rest: serie.time_rest || null,
         duration: workout.duration || null,
-        is_completed: serie.completed ? true : false,
       });
     }
   }
@@ -2853,7 +2851,7 @@ export async function saveWorkoutSeriesDb(
     .from("user_workouts")
     .insert(seriesToInsert)
     .select(
-      "id, workout_id, user_id, volume, reps, time_rest, duration, is_completed",
+      "id, workout_id, user_id, volume, reps, time_rest, duration",
     );
 
   if (error) {
