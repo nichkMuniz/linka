@@ -372,19 +372,9 @@ export default function Index() {
                       <PostIncentiveButton
                         key={type}
                         type={type}
-                        count={
-                          post.likes[
-                            type === 1
-                              ? "apoio"
-                              : type === 2
-                                ? "continua"
-                                : "ganhador"
-                          ]
-                        }
                         isActive={post.userLikes.includes(type)}
                         onClick={() => handleToggleLike(post.id, type)}
                         loading={togglingPostId === post.id}
-                        hasActivity={post.hasActivity}
                       />
                     ))}
                   </div>
