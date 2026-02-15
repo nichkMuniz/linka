@@ -244,17 +244,78 @@ export function StoryViewerModal({
               </button>
             )}
 
+            {/* Incentive Buttons - Right Side */}
+            <div className="absolute right-4 bottom-20 flex flex-col gap-2 z-20">
+              {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                <PostIncentiveButton
+                  key={type}
+                  type={type}
+                  isActive={userLikes.includes(type)}
+                  onClick={() => handleToggleLike(type)}
+                  loading={togglingLikeId === story.id}
+                />
+              ))}
+            </div>
+
             {/* Description Overlay */}
             {story.description && (
-              <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/60 to-transparent z-10">
+              <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10">
                 <p className="text-sm text-white">{story.description}</p>
               </div>
             )}
           </div>
 
-          {/* Progress bar */}
-          <div className="h-1 bg-gray-800 z-10">
-            <div className="h-full bg-white/60 animate-pulse" />
+          {/* Bottom Section - Comments */}
+          <div className="shrink-0 bg-black/90 border-t border-white/10 p-3 space-y-3 max-h-32 flex flex-col z-20">
+            {/* Comments List */}
+            {comments.length > 0 && (
+              <div className="overflow-y-auto flex-1 space-y-2 max-h-20">
+                {comments.map((comment) => (
+                  <div key={comment.id} className="flex items-start gap-2 text-xs">
+                    <div className="flex-1">
+                      <span className="font-semibold text-white">
+                        {comment.userName}
+                      </span>
+                      <span className="text-white/70 ml-2">{comment.text}</span>
+                    </div>
+                    {user?.id === comment.userId && (
+                      <button
+                        onClick={() => handleDeleteComment(comment.id)}
+                        className="text-red-400 hover:text-red-500 shrink-0"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Comment Input */}
+            {user && (
+              <div className="flex gap-2 items-center bg-white/10 rounded-full px-3 py-1.5">
+                <Input
+                  type="text"
+                  placeholder="Comentário..."
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter" && newComment.trim()) {
+                      handleAddComment();
+                    }
+                  }}
+                  className="flex-1 bg-transparent border-0 text-xs text-white placeholder-white/50 focus:outline-none focus-visible:ring-0 h-6"
+                  disabled={isAddingComment}
+                />
+                <button
+                  onClick={handleAddComment}
+                  disabled={!newComment.trim() || isAddingComment}
+                  className="text-white hover:text-brand disabled:opacity-50 shrink-0"
+                >
+                  <Send className="h-3 w-3" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>
