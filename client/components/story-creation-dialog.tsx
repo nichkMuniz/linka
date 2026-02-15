@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import { Upload, X } from "lucide-react";
+import { Upload, X, Camera, Upload2 } from "lucide-react";
 
 interface StoryCreationDialogProps {
   open: boolean;
@@ -27,7 +27,61 @@ export function StoryCreationDialog({
   const [mediaPreview, setMediaPreview] = React.useState<string | null>(null);
   const [description, setDescription] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [useCamera, setUseCamera] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const videoRef = React.useRef<HTMLVideoElement>(null);
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const [cameraStream, setCameraStream] = React.useState<MediaStream | null>(null);
+
+  const startCamera = React.useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setCameraStream(stream);
+        setUseCamera(true);
+      }
+    } catch (err: any) {
+      console.error("Error accessing camera:", err);
+      toast({
+        title: "Erro ao acessar câmera",
+        description:
+          "Verifique as permissões de câmera do navegador",
+        variant: "destructive",
+      });
+    }
+  }, []);
+
+  const capturePhoto = React.useCallback(() => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    const context = canvasRef.current.getContext("2d");
+    if (!context) return;
+
+    canvasRef.current.width = videoRef.current.videoWidth;
+    canvasRef.current.height = videoRef.current.videoHeight;
+
+    context.drawImage(videoRef.current, 0, 0);
+    const dataUrl = canvasRef.current.toDataURL("image/jpeg");
+
+    setMediaPreview(dataUrl);
+    stopCamera();
+  }, []);
+
+  const stopCamera = React.useCallback(() => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+      setUseCamera(false);
+    }
+  }, [cameraStream]);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -109,9 +163,14 @@ export function StoryCreationDialog({
       // Reset state when closing
       setMediaPreview(null);
       setDescription("");
+      setUseCamera(false);
+      stopCamera();
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
+    } else {
+      // Auto-start camera when opening dialog
+      startCamera();
     }
     onOpenChange(newOpen);
   };
@@ -127,7 +186,7 @@ export function StoryCreationDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Media Preview or Upload Area */}
+          {/* Media Preview or Camera Feed */}
           {mediaPreview ? (
             <div className="relative">
               {mediaPreview.includes("data:video") ||
@@ -146,6 +205,8 @@ export function StoryCreationDialog({
               <button
                 onClick={() => {
                   setMediaPreview(null);
+                  setUseCamera(true);
+                  startCamera();
                   if (fileInputRef.current) {
                     fileInputRef.current.value = "";
                   }
@@ -153,6 +214,42 @@ export function StoryCreationDialog({
                 className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1"
               >
                 <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : useCamera ? (
+            <div className="relative rounded-lg overflow-hidden bg-black w-full aspect-video">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-3">
+                <Button
+                  onClick={capturePhoto}
+                  className="rounded-full w-16 h-16 bg-white hover:bg-gray-200"
+                  variant="ghost"
+                >
+                  <div className="w-12 h-12 rounded-full bg-white border-2 border-gray-300" />
+                </Button>
+              </div>
+              <button
+                onClick={() => {
+                  stopCamera();
+                  setUseCamera(false);
+                }}
+                className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => {
+                  stopCamera();
+                  setUseCamera(false);
+                }}
+                className="absolute top-2 left-2 bg-gray-500 hover:bg-gray-600 text-white rounded-full p-2 flex items-center gap-1"
+              >
+                <Upload2 className="h-4 w-4" />
               </button>
             </div>
           ) : (
@@ -179,6 +276,8 @@ export function StoryCreationDialog({
             onChange={handleFileSelect}
             className="hidden"
           />
+
+          <canvas ref={canvasRef} className="hidden" />
 
           {/* Description */}
           <div>

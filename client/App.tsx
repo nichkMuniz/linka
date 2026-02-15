@@ -121,6 +121,7 @@ const App = () => {
                   <Route path="/metas" element={<Goals />} />
                   <Route path="/loja" element={<Store />} />
                   <Route path="/perfil" element={<Profile />} />
+                  <Route path="/usuario/:userId" element={<Profile />} />
                   <Route path="/buscar" element={<Search />} />
                   <Route path="/mensagens" element={<Messages />} />
 

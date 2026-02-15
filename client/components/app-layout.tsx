@@ -142,16 +142,29 @@ export function AppLayout() {
           </div>
 
           {/* Center: Brand (centered on all sizes) */}
-          <Link
-            to="/"
-            aria-label="Ir para Home"
-            className="flex items-center justify-center rounded-2xl px-3 py-1 transition hover:bg-muted/50"
+          <button
+            onClick={() => {
+              if (location.pathname === "/") {
+                // Trigger refresh by dispatching custom event
+                window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
+                // Scroll to top
+                const feedContainer = document.querySelector('[data-feed-container]');
+                if (feedContainer) {
+                  feedContainer.scrollTop = 0;
+                }
+              } else {
+                // Navigate to home if not already there
+                window.location.href = "/";
+              }
+            }}
+            aria-label="Ir para Home ou Atualizar Feed"
+            className="flex items-center justify-center rounded-2xl px-3 py-1 transition hover:bg-muted/50 cursor-pointer"
           >
             <span className="text-lg font-bold tracking-tight text-foreground">
               Ritmo
               <span className="text-brand">Fit</span>
             </span>
-          </Link>
+          </button>
 
           {/* Right: Search and Messages (absolute positioned on desktop) */}
           <div className="absolute right-4 flex items-center gap-1">

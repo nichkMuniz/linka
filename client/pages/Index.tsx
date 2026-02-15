@@ -25,6 +25,7 @@ import {
   getActiveStoriesDb,
   createStoryDb,
   deleteOldStoriesDb,
+  createUserGoalDb,
   type PostIncentiveType,
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
@@ -42,9 +43,11 @@ import { StoriesCarousel } from "@/components/stories-carousel";
 import { StoryCreationDialog } from "@/components/story-creation-dialog";
 import { StoryViewerModal } from "@/components/story-viewer-modal";
 import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 
 export default function Index() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [posts, setPosts] = React.useState<PostWithStats[]>([]);
   const [stories, setStories] = React.useState<StoryWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -72,6 +75,11 @@ export default function Index() {
   const [unreadCommentsByPost, setUnreadCommentsByPost] = React.useState<
     Record<string, number>
   >({});
+  const [showStories, setShowStories] = React.useState(true);
+  const [lastScrollY, setLastScrollY] = React.useState(0);
+  const feedContainerRef = React.useRef<HTMLDivElement>(null);
+  const [isCopyingGoal, setIsCopyingGoal] = React.useState(false);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
 
   React.useEffect(() => {
     (async () => {
@@ -112,6 +120,84 @@ export default function Index() {
 
     loadUnreadCounts();
   }, [user, posts]);
+
+  const refreshFeed = React.useCallback(async () => {
+    if (isRefreshing) return;
+
+    setIsRefreshing(true);
+    try {
+      const [postsData, storiesData] = await Promise.all([
+        getFeedPosts(),
+        getActiveStoriesDb(),
+      ]);
+      setPosts(postsData);
+      setStories(storiesData);
+
+      toast({
+        title: "Feed atualizado!",
+        description: "Novos posts carregados.",
+      });
+    } catch (err: any) {
+      console.error("Erro ao atualizar feed:", err?.message || err);
+      toast({
+        title: "Erro ao atualizar feed",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [isRefreshing]);
+
+  // Handle scroll to hide/show stories and pull-to-refresh
+  React.useEffect(() => {
+    const feedContainer = feedContainerRef.current;
+    if (!feedContainer) return;
+
+    let pullStartY = 0;
+
+    const handleScroll = () => {
+      const currentScrollY = feedContainer.scrollTop;
+      const isScrollingDown = currentScrollY > lastScrollY;
+
+      if (isScrollingDown && showStories) {
+        setShowStories(false);
+      } else if (!isScrollingDown && !showStories && currentScrollY < 50) {
+        setShowStories(true);
+      }
+
+      setLastScrollY(currentScrollY);
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      pullStartY = e.touches[0].clientY;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (feedContainer.scrollTop === 0) {
+        const pullDistance = e.touches[0].clientY - pullStartY;
+        if (pullDistance > 80 && !isRefreshing) {
+          refreshFeed();
+          pullStartY = 0; // Reset to prevent multiple triggers
+        }
+      }
+    };
+
+    const handleRefreshEvent = () => {
+      refreshFeed();
+    };
+
+    feedContainer.addEventListener("scroll", handleScroll);
+    feedContainer.addEventListener("touchstart", handleTouchStart);
+    feedContainer.addEventListener("touchmove", handleTouchMove);
+    window.addEventListener("ritmofit-refresh-feed", handleRefreshEvent);
+
+    return () => {
+      feedContainer.removeEventListener("scroll", handleScroll);
+      feedContainer.removeEventListener("touchstart", handleTouchStart);
+      feedContainer.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("ritmofit-refresh-feed", handleRefreshEvent);
+    };
+  }, [lastScrollY, showStories, isRefreshing, refreshFeed]);
 
   const handleCreateStory = React.useCallback(
     async (mediaDataUrl: string, description: string) => {
@@ -239,6 +325,36 @@ export default function Index() {
     }
   }, [selectedGoalPost?.userGoal?.id, selectedGoalPost?.id]);
 
+  const handleCopyGoal = React.useCallback(async () => {
+    if (!selectedGoalPost?.userGoal || !user) return;
+
+    setIsCopyingGoal(true);
+    try {
+      await createUserGoalDb(
+        selectedGoalPost.userGoal.goal_id,
+        user.id,
+        selectedGoalPost.userGoal.type_goal,
+        selectedGoalPost.userGoal.duration,
+        selectedGoalPost.userGoal.quantity,
+      );
+
+      toast({
+        title: "Meta copiada com sucesso!",
+        description: "Você agora tem a mesma meta que este usuário.",
+      });
+
+      setGoalModalOpen(false);
+    } catch (err: any) {
+      console.error("Error copying goal:", err);
+      toast({
+        title: "Erro ao copiar meta",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setIsCopyingGoal(false);
+    }
+  }, [selectedGoalPost?.userGoal, user]);
+
   const handleToggleLike = React.useCallback(
     async (postId: string, incentiveType: PostIncentiveType) => {
       try {
@@ -258,12 +374,21 @@ export default function Index() {
               apoio: post.likes.apoio,
               continua: post.likes.continua,
               ganhador: post.likes.ganhador,
+              consegueMais: post.likes.consegueMais,
+              limiteMaior: post.likes.limiteMaior,
+              maisAlgum: post.likes.maisAlgum,
             };
             if (incentiveType === 1) likesMap.apoio += wasActive ? -1 : 1;
             else if (incentiveType === 2)
               likesMap.continua += wasActive ? -1 : 1;
             else if (incentiveType === 3)
               likesMap.ganhador += wasActive ? -1 : 1;
+            else if (incentiveType === 4)
+              likesMap.consegueMais += wasActive ? -1 : 1;
+            else if (incentiveType === 5)
+              likesMap.limiteMaior += wasActive ? -1 : 1;
+            else if (incentiveType === 6)
+              likesMap.maisAlgum += wasActive ? -1 : 1;
 
             return {
               ...post,
@@ -323,17 +448,19 @@ export default function Index() {
   return (
     <div className="mx-auto w-full max-w-2xl flex flex-col h-screen overflow-hidden">
       {/* Stories Carousel */}
-      <div className="bg-background border-b border-border/60 shrink-0">
-        <StoriesCarousel
-          stories={stories}
-          onAddStoryClick={handleAddStoryClick}
-          onStoryClick={handleStoryClick}
-          currentUserId={user?.id || ""}
-        />
-      </div>
+      {showStories && (
+        <div className="bg-background border-b border-border/60 shrink-0 transition-all duration-200">
+          <StoriesCarousel
+            stories={stories}
+            onAddStoryClick={handleAddStoryClick}
+            onStoryClick={handleStoryClick}
+            currentUserId={user?.id || ""}
+          />
+        </div>
+      )}
 
       {/* Feed Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={feedContainerRef} data-feed-container className="flex-1 overflow-y-auto">
         <div className="grid w-full gap-3 p-4">
           {posts.length ? (
             posts.map((post) => (
@@ -353,7 +480,10 @@ export default function Index() {
 
                     {/* User Info Overlay - Bottom Left */}
                     <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
-                      <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => navigate(`/usuario/${post.user_id}`)}
+                        className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                      >
                         {post.userPhoto ? (
                           <ImageWithFallback
                             src={post.userPhoto}
@@ -367,7 +497,7 @@ export default function Index() {
                         <span className="text-xs font-medium text-white drop-shadow-sm">
                           {post.userNickname}
                         </span>
-                      </div>
+                      </button>
                       {/* Menu Button */}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -400,8 +530,8 @@ export default function Index() {
 
                   {/* Incentive Icons - Below User Info, Above Description */}
                   <div className="flex items-center justify-between gap-4 px-4 pt-3 border-t border-border/60">
-                    <div className="flex items-center gap-2">
-                      {([1, 2, 3] as PostIncentiveType[]).map((type) => (
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                      {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
                         <PostIncentiveButton
                           key={type}
                           type={type}
@@ -596,21 +726,37 @@ export default function Index() {
                   </div>
                 )}
 
-                {/* Check Button */}
-                <Button
-                  onClick={handleIncrementGoalProgress}
-                  disabled={
-                    isUpdatingGoal || selectedGoalPost.userGoal.perc >= 100
-                  }
-                  className="w-full rounded-full gap-2 shrink-0"
-                >
-                  <Check className="h-4 w-4" />
-                  {isUpdatingGoal
-                    ? "Atualizando..."
-                    : selectedGoalPost.userGoal.perc >= 100
-                      ? "Meta Completa!"
-                      : "Atualizar Progresso"}
-                </Button>
+                {/* Buttons */}
+                <div className="flex gap-2">
+                  {/* Check Button - Only show for own goals */}
+                  {selectedGoalPost.user_id === user?.id && (
+                    <Button
+                      onClick={handleIncrementGoalProgress}
+                      disabled={
+                        isUpdatingGoal || selectedGoalPost.userGoal.perc >= 100
+                      }
+                      className="flex-1 rounded-full gap-2 shrink-0"
+                    >
+                      <Check className="h-4 w-4" />
+                      {isUpdatingGoal
+                        ? "Atualizando..."
+                        : selectedGoalPost.userGoal.perc >= 100
+                          ? "Meta Completa!"
+                          : "Atualizar Progresso"}
+                    </Button>
+                  )}
+
+                  {/* Copy Goal Button - Only show for other users' goals */}
+                  {selectedGoalPost.user_id !== user?.id && (
+                    <Button
+                      onClick={handleCopyGoal}
+                      disabled={isCopyingGoal}
+                      className="flex-1 rounded-full gap-2 shrink-0"
+                    >
+                      {isCopyingGoal ? "Copiando..." : "Copiar Meta"}
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
           </div>

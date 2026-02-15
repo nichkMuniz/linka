@@ -5,8 +5,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { StoryWithUser } from "@/lib/ritmofit-db";
-import { X, ChevronRight } from "lucide-react";
+import {
+  getStoryLikesDb,
+  getUserStoryLikesDb,
+  toggleStoryLikeDb,
+  getStoryCommentsDb,
+  addStoryCommentDb,
+  deleteStoryCommentDb,
+  type StoryWithUser,
+  type PostIncentiveType,
+  type StoryComment,
+} from "@/lib/ritmofit-db";
+import { X, ChevronRight, Send, Trash2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { PostIncentiveButton } from "@/components/post-incentive-button";
+import { toast } from "@/components/ui/use-toast";
+import { Input } from "@/components/ui/input";
 
 interface StoryViewerModalProps {
   story: StoryWithUser | null;
@@ -23,16 +38,134 @@ export function StoryViewerModal({
   onOpenChange,
   onNextStory,
 }: StoryViewerModalProps) {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [likes, setLikes] = React.useState<Record<string, any>>({});
+  const [userLikes, setUserLikes] = React.useState<PostIncentiveType[]>([]);
+  const [comments, setComments] = React.useState<StoryComment[]>([]);
+  const [newComment, setNewComment] = React.useState("");
+  const [isAddingComment, setIsAddingComment] = React.useState(false);
+  const [togglingLikeId, setTogglingLikeId] = React.useState<string | null>(null);
   React.useEffect(() => {
-    if (!open) return;
+    if (!open || !story) return;
 
-    // Auto-close after 5 seconds
+    const loadStoryData = async () => {
+      try {
+        const [likesData, userLikesData, commentsData] = await Promise.all([
+          getStoryLikesDb(story.id),
+          getUserStoryLikesDb(story.id),
+          getStoryCommentsDb(story.id),
+        ]);
+
+        setLikes(likesData);
+        setUserLikes(userLikesData);
+        setComments(commentsData);
+      } catch (err) {
+        console.error("Error loading story data:", err);
+      }
+    };
+
+    loadStoryData();
+
+    // Auto-close after 8 seconds
     const timer = setTimeout(() => {
       onOpenChange(false);
-    }, 5000);
+    }, 8000);
 
     return () => clearTimeout(timer);
   }, [open, onOpenChange, story]);
+
+  const handleToggleLike = React.useCallback(
+    async (incentiveType: PostIncentiveType) => {
+      if (!story || !user) return;
+
+      setTogglingLikeId(story.id);
+      try {
+        await toggleStoryLikeDb(story.id, incentiveType);
+
+        // Update local state
+        const wasActive = userLikes.includes(incentiveType);
+        setUserLikes(
+          wasActive
+            ? userLikes.filter((t) => t !== incentiveType)
+            : [...userLikes, incentiveType],
+        );
+
+        // Update likes count
+        setLikes((prev) => {
+          const updated = { ...prev };
+          const fieldMap: Record<PostIncentiveType, string> = {
+            1: "apoio",
+            2: "continua",
+            3: "ganhador",
+            4: "consegueMais",
+            5: "limiteMaior",
+            6: "maisAlgum",
+          };
+          const field = fieldMap[incentiveType];
+          if (field) {
+            updated[field] = (updated[field] || 0) + (wasActive ? -1 : 1);
+          }
+          return updated;
+        });
+      } catch (err: any) {
+        console.error("Error toggling story like:", err);
+        toast({
+          title: "Erro ao reagir",
+          description: err?.message || "Tente novamente.",
+        });
+      } finally {
+        setTogglingLikeId(null);
+      }
+    },
+    [story, user, userLikes],
+  );
+
+  const handleAddComment = React.useCallback(async () => {
+    if (!story || !user || !newComment.trim()) return;
+
+    setIsAddingComment(true);
+    try {
+      const comment = await addStoryCommentDb(story.id, newComment);
+      if (comment) {
+        setComments((prev) => [...prev, comment]);
+        setNewComment("");
+        toast({
+          title: "Comentário adicionado!",
+          description: "Seu comentário foi compartilhado.",
+        });
+      }
+    } catch (err: any) {
+      console.error("Error adding comment:", err);
+      toast({
+        title: "Erro ao adicionar comentário",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setIsAddingComment(false);
+    }
+  }, [story, user, newComment]);
+
+  const handleDeleteComment = React.useCallback(
+    async (commentId: string) => {
+      try {
+        const success = await deleteStoryCommentDb(commentId);
+        if (success) {
+          setComments((prev) => prev.filter((c) => c.id !== commentId));
+          toast({
+            title: "Comentário removido",
+          });
+        }
+      } catch (err: any) {
+        console.error("Error deleting comment:", err);
+        toast({
+          title: "Erro ao remover comentário",
+          description: err?.message || "Tente novamente.",
+        });
+      }
+    },
+    [],
+  );
 
   if (!story) return null;
 
@@ -53,7 +186,13 @@ export function StoryViewerModal({
         <div className="relative w-full h-full flex flex-col">
           {/* Header with user info and close button */}
           <div className="flex items-center justify-between p-4 border-b border-white/10 z-10">
-            <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                onOpenChange(false);
+                navigate(`/usuario/${story.user_id}`);
+              }}
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity flex-1"
+            >
               {story.userPhoto && (
                 <img
                   src={story.userPhoto}
@@ -69,10 +208,10 @@ export function StoryViewerModal({
                   {formatTimeAgo(story.created_at)}
                 </p>
               </div>
-            </div>
+            </button>
             <button
               onClick={() => onOpenChange(false)}
-              className="text-white hover:text-gray-300"
+              className="text-white hover:text-gray-300 shrink-0"
             >
               <X className="h-6 w-6" />
             </button>

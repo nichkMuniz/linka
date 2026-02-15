@@ -1,6 +1,6 @@
 import * as React from "react";
 import { motion } from "framer-motion";
-import { HeartHandshake, Flame, Trophy } from "lucide-react";
+import { HeartHandshake, Flame, Trophy, Rocket, Target, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -31,6 +31,21 @@ const incentiveConfig: Record<PostIncentiveType, IncentiveConfig> = {
     label: "Ganhador",
     Icon: Trophy,
     iconClassName: "text-emerald-500",
+  },
+  4: {
+    label: "Você consegue mais",
+    Icon: Rocket,
+    iconClassName: "text-blue-500",
+  },
+  5: {
+    label: "Seu limite é maior do que imagina",
+    Icon: Target,
+    iconClassName: "text-purple-500",
+  },
+  6: {
+    label: "Aguentava mais 10",
+    Icon: Zap,
+    iconClassName: "text-yellow-500",
   },
 };
 

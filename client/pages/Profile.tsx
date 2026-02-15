@@ -68,15 +68,20 @@ import {
   Sun,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useTheme } from "next-themes";
 
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const { userId } = useParams<{ userId?: string }>();
   const { theme, setTheme, resolvedTheme } = useTheme();
   const isDark = (resolvedTheme ?? theme) === "dark";
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
+
+  // Determine if we're viewing another user's profile
+  const isViewingOtherProfile = !!userId && userId !== user?.id;
+  const profileUserId = userId || user?.id;
 
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [posts, setPosts] = React.useState<PostWithUser[]>([]);
@@ -143,7 +148,7 @@ export default function Profile() {
   );
 
   const loadProfile = React.useCallback(async () => {
-    if (!user) return;
+    if (!profileUserId) return;
 
     try {
       const [
@@ -156,13 +161,13 @@ export default function Profile() {
         userHabitsData,
         userGoalsData,
       ] = await Promise.all([
-        getUserProfileDb(user.id),
-        getUserPostsDb(user.id),
-        getUserStatsDb(user.id),
-        getUserRoutinesDb(user.id),
-        getUserWorkoutsDb(user.id),
-        getUserDietsDb(user.id),
-        getUserHabitsDb(user.id),
+        getUserProfileDb(profileUserId),
+        getUserPostsDb(profileUserId),
+        getUserStatsDb(profileUserId),
+        getUserRoutinesDb(profileUserId),
+        getUserWorkoutsDb(profileUserId),
+        getUserDietsDb(profileUserId),
+        getUserHabitsDb(profileUserId),
         getUserGoalsDb(),
       ]);
 
@@ -184,18 +189,18 @@ export default function Profile() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [profileUserId]);
 
   React.useEffect(() => {
     loadProfile();
-  }, [user, loadProfile]);
+  }, [profileUserId, loadProfile]);
 
   // Refresh stats when page becomes visible (user returns from another tab/page)
   React.useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden && user) {
+      if (!document.hidden && profileUserId) {
         // Page became visible, refresh stats
-        getUserStatsDb(user.id).then((newStats) => {
+        getUserStatsDb(profileUserId).then((newStats) => {
           setStats(newStats);
         });
       }
@@ -205,7 +210,7 @@ export default function Profile() {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [user]);
+  }, [profileUserId]);
 
   const openEditDialog = () => {
     if (profile) {
@@ -687,143 +692,145 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Settings Button */}
-            <Drawer open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-              <Button
-                onClick={() => setIsSettingsOpen(true)}
-                variant="outline"
-                size="sm"
-                className="shrink-0 rounded-full"
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
+            {/* Settings Button - Only show for own profile */}
+            {!isViewingOtherProfile && (
+              <Drawer open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                <Button
+                  onClick={() => setIsSettingsOpen(true)}
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 rounded-full"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
 
-              <DrawerContent className="max-h-[90dvh] flex flex-col">
-                <DrawerHeader className="shrink-0">
-                  <DrawerTitle>Configurações</DrawerTitle>
-                </DrawerHeader>
+                <DrawerContent className="max-h-[90dvh] flex flex-col">
+                  <DrawerHeader className="shrink-0">
+                    <DrawerTitle>Configurações</DrawerTitle>
+                  </DrawerHeader>
 
-                <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4">
-                  <Dialog
-                    open={isEditDialogOpen}
-                    onOpenChange={setIsEditDialogOpen}
-                  >
-                    <DialogTrigger asChild>
-                      <Button
-                        onClick={openEditDialog}
-                        variant="outline"
-                        className="w-full rounded-full gap-2"
-                      >
-                        <Edit2 className="h-4 w-4" />
-                        Editar Perfil
-                      </Button>
-                    </DialogTrigger>
-
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Editar Perfil</DialogTitle>
-                        <DialogDescription>
-                          Atualize suas informações de perfil
-                        </DialogDescription>
-                      </DialogHeader>
-
-                      <div className="space-y-4">
-                        {/* Photo Preview and Upload */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">
-                            Foto do Perfil
-                          </label>
-                          <div className="flex items-center gap-4">
-                            <div className="h-16 w-16 rounded-full overflow-hidden bg-muted shrink-0">
-                              {editPhotoPreview ? (
-                                <img
-                                  src={editPhotoPreview}
-                                  alt="preview"
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <div className="h-full w-full bg-muted" />
-                              )}
-                            </div>
-                            <label className="flex-1">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                asChild
-                              >
-                                <span>
-                                  <Upload className="h-4 w-4 mr-2" />
-                                  Alterar foto
-                                </span>
-                              </Button>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={handlePhotoChange}
-                                className="hidden"
-                              />
-                            </label>
-                          </div>
-                        </div>
-
-                        {/* Nickname */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">Nome</label>
-                          <Input
-                            value={editNickname}
-                            onChange={(e) => setEditNickname(e.target.value)}
-                            placeholder="Seu nome"
-                          />
-                        </div>
-
-                        {/* Bio */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">Bio</label>
-                          <Textarea
-                            value={editBio}
-                            onChange={(e) => setEditBio(e.target.value)}
-                            placeholder="Sua bio"
-                            className="min-h-24"
-                          />
-                        </div>
-
-                        {/* Save Button */}
+                  <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4">
+                    <Dialog
+                      open={isEditDialogOpen}
+                      onOpenChange={setIsEditDialogOpen}
+                    >
+                      <DialogTrigger asChild>
                         <Button
-                          onClick={handleSaveProfile}
-                          disabled={isSaving}
-                          className="w-full rounded-full"
+                          onClick={openEditDialog}
+                          variant="outline"
+                          className="w-full rounded-full gap-2"
                         >
-                          {isSaving ? "Salvando..." : "Salvar Alterações"}
+                          <Edit2 className="h-4 w-4" />
+                          Editar Perfil
                         </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                      </DialogTrigger>
 
-                  <Button
-                    onClick={() => setTheme(isDark ? "light" : "dark")}
-                    variant="outline"
-                    className="w-full rounded-full gap-2"
-                  >
-                    {isDark ? (
-                      <Sun className="h-4 w-4" />
-                    ) : (
-                      <Moon className="h-4 w-4" />
-                    )}
-                    {isDark ? "Modo Claro" : "Modo Noturno"}
-                  </Button>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Editar Perfil</DialogTitle>
+                          <DialogDescription>
+                            Atualize suas informações de perfil
+                          </DialogDescription>
+                        </DialogHeader>
 
-                  <Button
-                    onClick={handleLogout}
-                    variant="destructive"
-                    className="w-full rounded-full gap-2"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Desconectar
-                  </Button>
-                </div>
-              </DrawerContent>
-            </Drawer>
+                        <div className="space-y-4">
+                          {/* Photo Preview and Upload */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">
+                              Foto do Perfil
+                            </label>
+                            <div className="flex items-center gap-4">
+                              <div className="h-16 w-16 rounded-full overflow-hidden bg-muted shrink-0">
+                                {editPhotoPreview ? (
+                                  <img
+                                    src={editPhotoPreview}
+                                    alt="preview"
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="h-full w-full bg-muted" />
+                                )}
+                              </div>
+                              <label className="flex-1">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  asChild
+                                >
+                                  <span>
+                                    <Upload className="h-4 w-4 mr-2" />
+                                    Alterar foto
+                                  </span>
+                                </Button>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handlePhotoChange}
+                                  className="hidden"
+                                />
+                              </label>
+                            </div>
+                          </div>
+
+                          {/* Nickname */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Nome</label>
+                            <Input
+                              value={editNickname}
+                              onChange={(e) => setEditNickname(e.target.value)}
+                              placeholder="Seu nome"
+                            />
+                          </div>
+
+                          {/* Bio */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Bio</label>
+                            <Textarea
+                              value={editBio}
+                              onChange={(e) => setEditBio(e.target.value)}
+                              placeholder="Sua bio"
+                              className="min-h-24"
+                            />
+                          </div>
+
+                          {/* Save Button */}
+                          <Button
+                            onClick={handleSaveProfile}
+                            disabled={isSaving}
+                            className="w-full rounded-full"
+                          >
+                            {isSaving ? "Salvando..." : "Salvar Alterações"}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+
+                    <Button
+                      onClick={() => setTheme(isDark ? "light" : "dark")}
+                      variant="outline"
+                      className="w-full rounded-full gap-2"
+                    >
+                      {isDark ? (
+                        <Sun className="h-4 w-4" />
+                      ) : (
+                        <Moon className="h-4 w-4" />
+                      )}
+                      {isDark ? "Modo Claro" : "Modo Noturno"}
+                    </Button>
+
+                    <Button
+                      onClick={handleLogout}
+                      variant="destructive"
+                      className="w-full rounded-full gap-2"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Desconectar
+                    </Button>
+                  </div>
+                </DrawerContent>
+              </Drawer>
+            )}
           </div>
         </CardContent>
       </Card>

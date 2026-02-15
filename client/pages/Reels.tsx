@@ -146,6 +146,9 @@ export default function Reels() {
                 apoio: 0,
                 continua: 0,
                 ganhador: 0,
+                consegueMais: 0,
+                limiteMaior: 0,
+                maisAlgum: 0,
               };
 
               return {
@@ -166,6 +169,18 @@ export default function Reels() {
                     incentiveType === 3
                       ? currentLikes.ganhador + (userLiked ? -1 : 1)
                       : currentLikes.ganhador,
+                  consegueMais:
+                    incentiveType === 4
+                      ? currentLikes.consegueMais + (userLiked ? -1 : 1)
+                      : currentLikes.consegueMais,
+                  limiteMaior:
+                    incentiveType === 5
+                      ? currentLikes.limiteMaior + (userLiked ? -1 : 1)
+                      : currentLikes.limiteMaior,
+                  maisAlgum:
+                    incentiveType === 6
+                      ? currentLikes.maisAlgum + (userLiked ? -1 : 1)
+                      : currentLikes.maisAlgum,
                 },
               };
             }
@@ -322,7 +337,10 @@ export default function Reels() {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
 
                 {/* User Info - Top Left */}
-                <div className="absolute top-4 left-4 z-10 flex items-center gap-3">
+                <button
+                  onClick={() => navigate(`/usuario/${reel.user_id}`)}
+                  className="absolute top-4 left-4 z-10 flex items-center gap-3 hover:opacity-80 transition-opacity"
+                >
                   {reel.userPhoto && (
                     <img
                       src={reel.userPhoto}
@@ -336,7 +354,7 @@ export default function Reels() {
                     </p>
                     <p className="text-xs text-white/70">Seguir</p>
                   </div>
-                </div>
+                </button>
 
                 {/* Description - Bottom Left */}
                 <div className="absolute bottom-24 left-4 right-16 z-10">
@@ -351,7 +369,7 @@ export default function Reels() {
                 <div className="absolute right-4 bottom-24 flex flex-col gap-4 z-20">
                   {/* Like/Incentive Buttons */}
                   <div className="flex flex-col gap-3">
-                    {([1, 2, 3] as PostIncentiveType[]).map((type) => (
+                    {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
                       <PostIncentiveButton
                         key={type}
                         type={type}

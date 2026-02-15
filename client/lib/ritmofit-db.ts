@@ -87,13 +87,19 @@ export async function getMyProfileDb(): Promise<DbProfile | null> {
  * 1 = "te apoio" (HeartHandshake)
  * 2 = "continua" (Flame)
  * 3 = "ganhador" (Trophy)
+ * 4 = "você consegue mais" (Rocket)
+ * 5 = "seu limite é maior" (Target)
+ * 6 = "aguentava mais 10" (Zap)
  */
-export type PostIncentiveType = 1 | 2 | 3;
+export type PostIncentiveType = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type PostLikeStats = {
   apoio: number; // type 1
   continua: number; // type 2
   ganhador: number; // type 3
+  consegueMais: number; // type 4
+  limiteMaior: number; // type 5
+  maisAlgum: number; // type 6
 };
 
 export type PostWithLikes = {
@@ -142,7 +148,7 @@ export async function togglePostIncentiveDb(
 
 export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
   if (!hasSupabaseConfig || !supabase) {
-    return { apoio: 0, continua: 0, ganhador: 0 };
+    return { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
   }
 
   const { data } = await supabase
@@ -150,13 +156,16 @@ export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
     .select("type")
     .eq("post_id", postId);
 
-  const stats: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0 };
+  const stats: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
 
   (data ?? []).forEach((row: any) => {
     const incentiveType = Number(row.type) as PostIncentiveType;
     if (incentiveType === 1) stats.apoio += 1;
     else if (incentiveType === 2) stats.continua += 1;
     else if (incentiveType === 3) stats.ganhador += 1;
+    else if (incentiveType === 4) stats.consegueMais += 1;
+    else if (incentiveType === 5) stats.limiteMaior += 1;
+    else if (incentiveType === 6) stats.maisAlgum += 1;
   });
 
   return stats;
@@ -179,7 +188,7 @@ export async function getUserPostLikesDb(
   return (data ?? [])
     .map((row: any) => Number(row.type) as PostIncentiveType)
     .filter((incentiveType): incentiveType is PostIncentiveType =>
-      [1, 2, 3].includes(incentiveType),
+      [1, 2, 3, 4, 5, 6].includes(incentiveType),
     );
 }
 
@@ -1945,6 +1954,187 @@ export async function deleteOldStoriesDb(): Promise<boolean> {
   }
 }
 
+// Story likes (incentives)
+export async function toggleStoryLikeDb(
+  storyId: string,
+  incentiveType: PostIncentiveType,
+) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const { data: existing } = await supabase
+    .from("story_likes")
+    .select("id")
+    .eq("story_id", storyId)
+    .eq("user_id", viewer.id)
+    .eq("type", incentiveType)
+    .maybeSingle();
+
+  if (existing?.id) {
+    // Remove the like
+    await supabase.from("story_likes").delete().eq("id", existing.id);
+  } else {
+    // Add the like
+    await supabase.from("story_likes").insert({
+      story_id: storyId,
+      user_id: viewer.id,
+      type: incentiveType,
+    });
+
+    // Award 1 point for interacting with a story
+    await addPointsDb(1);
+  }
+}
+
+export async function getStoryLikesDb(storyId: string): Promise<PostLikeStats> {
+  if (!hasSupabaseConfig || !supabase) {
+    return { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
+  }
+
+  const { data } = await supabase
+    .from("story_likes")
+    .select("type")
+    .eq("story_id", storyId);
+
+  const stats: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
+
+  (data ?? []).forEach((row: any) => {
+    const incentiveType = Number(row.type) as PostIncentiveType;
+    if (incentiveType === 1) stats.apoio += 1;
+    else if (incentiveType === 2) stats.continua += 1;
+    else if (incentiveType === 3) stats.ganhador += 1;
+    else if (incentiveType === 4) stats.consegueMais += 1;
+    else if (incentiveType === 5) stats.limiteMaior += 1;
+    else if (incentiveType === 6) stats.maisAlgum += 1;
+  });
+
+  return stats;
+}
+
+export async function getUserStoryLikesDb(
+  storyId: string,
+): Promise<PostIncentiveType[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const { data } = await supabase
+    .from("story_likes")
+    .select("type")
+    .eq("story_id", storyId)
+    .eq("user_id", viewer.id);
+
+  return (data ?? [])
+    .map((row: any) => Number(row.type) as PostIncentiveType)
+    .filter((incentiveType): incentiveType is PostIncentiveType =>
+      [1, 2, 3, 4, 5, 6].includes(incentiveType),
+    );
+}
+
+// Story comments
+export type StoryComment = {
+  id: string;
+  storyId: string;
+  userId: string;
+  userName: string;
+  text: string;
+  createdAt: string;
+};
+
+export async function addStoryCommentDb(
+  storyId: string,
+  text: string,
+): Promise<StoryComment | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  try {
+    const userProfile = await getUserProfileDb(viewer.id);
+    const userName = userProfile?.nickname || "Usuário";
+
+    const { data, error } = await supabase
+      .from("story_comments")
+      .insert({
+        story_id: storyId,
+        user_id: viewer.id,
+        text,
+      })
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return {
+      id: data?.id || "",
+      storyId: storyId,
+      userId: viewer.id,
+      userName,
+      text,
+      createdAt: data?.created_at || new Date().toISOString(),
+    };
+  } catch (err: any) {
+    console.error("Error adding story comment:", err);
+    return null;
+  }
+}
+
+export async function getStoryCommentsDb(
+  storyId: string,
+): Promise<StoryComment[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("story_comments")
+      .select("*")
+      .eq("story_id", storyId)
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+
+    const enrichedComments = await Promise.all(
+      (data ?? []).map(async (comment: any) => {
+        const userProfile = await getUserProfileDb(comment.user_id);
+        return {
+          id: comment.id,
+          storyId: storyId,
+          userId: comment.user_id,
+          userName: userProfile?.nickname || "Usuário",
+          text: comment.text,
+          createdAt: comment.created_at,
+        };
+      }),
+    );
+
+    return enrichedComments;
+  } catch (err: any) {
+    console.error("Error fetching story comments:", err);
+    return [];
+  }
+}
+
+export async function deleteStoryCommentDb(commentId: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  try {
+    const { error } = await supabase
+      .from("story_comments")
+      .delete()
+      .eq("id", commentId);
+
+    if (error) throw error;
+    return true;
+  } catch (err: any) {
+    console.error("Error deleting story comment:", err);
+    return false;
+  }
+}
+
 // Messages functionality
 export type Message = {
   id: string;
@@ -2357,7 +2547,7 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
       const reelId = String(like.reel_id);
       if (!likesMap.has(reelId)) {
         likesMap.set(reelId, {
-          likes: { apoio: 0, continua: 0, ganhador: 0 },
+          likes: { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 },
           userLikes: [],
         });
       }
@@ -2368,6 +2558,9 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
       if (type === 1) entry.likes.apoio += 1;
       else if (type === 2) entry.likes.continua += 1;
       else if (type === 3) entry.likes.ganhador += 1;
+      else if (type === 4) entry.likes.consegueMais += 1;
+      else if (type === 5) entry.likes.limiteMaior += 1;
+      else if (type === 6) entry.likes.maisAlgum += 1;
 
       if (like.user_id === viewer.id) {
         entry.userLikes.push(type);
@@ -2382,7 +2575,7 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
           photo: null,
         };
         const likeData = likesMap.get(String(reel.id)) || {
-          likes: { apoio: 0, continua: 0, ganhador: 0 },
+          likes: { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 },
           userLikes: [],
         };
 
