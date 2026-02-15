@@ -725,23 +725,23 @@ export default function Profile() {
                   </div>
                   <button
                     onClick={() => setShowFollowersModal(true)}
-                    className="flex flex-col items-center space-y-1 hover:opacity-80 transition-opacity"
+                    className="flex flex-col items-center space-y-1 hover:opacity-80 transition-opacity min-w-16"
                   >
                     <div className="text-lg font-semibold">
                       {stats.followersCount}
                     </div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground line-clamp-2 text-center h-5">
                       Seguidores
                     </div>
                   </button>
                   <button
                     onClick={() => setShowFollowingModal(true)}
-                    className="flex flex-col items-center space-y-1 hover:opacity-80 transition-opacity"
+                    className="flex flex-col items-center space-y-1 hover:opacity-80 transition-opacity min-w-16"
                   >
                     <div className="text-lg font-semibold">
                       {stats.followingCount}
                     </div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground line-clamp-2 text-center h-5">
                       Seguindo
                     </div>
                   </button>
@@ -1392,7 +1392,7 @@ export default function Profile() {
                       </button>
 
                       {/* Goal Indicator */}
-                      <Dialog
+                      <Drawer
                         open={goalIndicatorRoutineId === routinesOfType[0]?.id}
                         onOpenChange={(open) => {
                           if (!open) {
@@ -1402,99 +1402,113 @@ export default function Profile() {
                           }
                         }}
                       >
-                        <DialogTrigger asChild>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openGoalIndicatorModal(routinesOfType[0]);
-                            }}
-                            className={`shrink-0 p-2 rounded-lg transition-all ${
-                              routinesOfType[0]?.goal_id
-                                ? "bg-brand/10 text-brand hover:bg-brand/20"
-                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                            }`}
-                            title={
-                              routinesOfType[0]?.goal_id
-                                ? "Meta vinculada"
-                                : "Vincular meta"
-                            }
-                          >
-                            <Tag className="h-5 w-5" />
-                          </button>
-                        </DialogTrigger>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openGoalIndicatorModal(routinesOfType[0]);
+                          }}
+                          className={`shrink-0 p-2 rounded-lg transition-all ${
+                            routinesOfType[0]?.goal_id
+                              ? "bg-brand/10 text-brand hover:bg-brand/20"
+                              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                          }`}
+                          title={
+                            routinesOfType[0]?.goal_id
+                              ? "Meta vinculada"
+                              : "Vincular meta"
+                          }
+                        >
+                          <Tag className="h-5 w-5" />
+                        </button>
 
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>
+                        <DrawerContent className="max-h-[90dvh] flex flex-col">
+                          <DrawerHeader className="shrink-0">
+                            <DrawerTitle>
                               {linkedGoal ? "Meta Vinculada" : "Vincular Meta"}
-                            </DialogTitle>
-                          </DialogHeader>
+                            </DrawerTitle>
+                          </DrawerHeader>
 
-                          {linkedGoal ? (
-                            <div className="space-y-4">
-                              <div className="p-4 border border-border/60 rounded-lg bg-muted/30">
-                                <p className="text-sm font-medium mb-2">
-                                  {linkedGoal.description}
-                                </p>
-                                <div className="grid grid-cols-2 gap-2 text-xs">
-                                  <div>
-                                    <span className="text-muted-foreground">
-                                      Duração:
-                                    </span>
-                                    <p className="font-medium">
-                                      {linkedGoal.duration} dias
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <span className="text-muted-foreground">
-                                      Quantidade:
-                                    </span>
-                                    <p className="font-medium">
-                                      {linkedGoal.quantity}
-                                    </p>
+                          <div className="flex-1 overflow-y-auto px-4 pb-6">
+                            {linkedGoal ? (
+                              <div className="space-y-4">
+                                <div className="p-4 border border-border/60 rounded-lg bg-muted/30">
+                                  <p className="text-sm font-medium mb-2">
+                                    {linkedGoal.description}
+                                  </p>
+                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div>
+                                      <span className="text-muted-foreground">
+                                        Duração:
+                                      </span>
+                                      <p className="font-medium">
+                                        {linkedGoal.duration} dias
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">
+                                        Quantidade:
+                                      </span>
+                                      <p className="font-medium">
+                                        {linkedGoal.quantity}
+                                      </p>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
 
-                              <Button
-                                onClick={handleUnlinkGoal}
-                                disabled={isUpdatingGoal}
-                                variant="outline"
-                                className="w-full"
-                              >
-                                {isUpdatingGoal
-                                  ? "Desvinculando..."
-                                  : "Desvincular Meta"}
-                              </Button>
-                            </div>
-                          ) : (
-                            <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-                              {userGoals.length > 0 ? (
-                                userGoals.map((goal) => (
-                                  <button
-                                    key={goal.id}
-                                    onClick={() => handleLinkGoal(goal.goal_id)}
-                                    disabled={isUpdatingGoal}
-                                    className="w-full p-3 border border-border/60 rounded-lg hover:border-brand/60 hover:bg-brand/5 transition-all text-left"
-                                  >
-                                    <p className="font-medium text-sm">
-                                      {goal.description}
-                                    </p>
-                                    <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
-                                      <span>Duração: {goal.duration} dias</span>
-                                      <span>Quantidade: {goal.quantity}</span>
-                                    </div>
-                                  </button>
-                                ))
-                              ) : (
-                                <p className="text-sm text-muted-foreground text-center py-6">
-                                  Você ainda não tem metas vinculadas.
-                                </p>
-                              )}
-                            </div>
-                          )}
-                        </DialogContent>
-                      </Dialog>
+                                <Button
+                                  onClick={handleUnlinkGoal}
+                                  disabled={isUpdatingGoal}
+                                  variant="outline"
+                                  className="w-full rounded-full"
+                                >
+                                  {isUpdatingGoal
+                                    ? "Desvinculando..."
+                                    : "Desvincular Meta"}
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                {userGoals.length > 0 ? (
+                                  userGoals.map((goal) => (
+                                    <button
+                                      key={goal.id}
+                                      onClick={() => handleLinkGoal(goal.goal_id)}
+                                      disabled={isUpdatingGoal}
+                                      className="w-full p-3 border border-border/60 rounded-lg hover:border-brand/60 hover:bg-brand/5 transition-all text-left"
+                                    >
+                                      <p className="font-medium text-sm">
+                                        {goal.description}
+                                      </p>
+                                      <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
+                                        <span>Duração: {goal.duration} dias</span>
+                                        <span>Quantidade: {goal.quantity}</span>
+                                      </div>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <p className="text-sm text-muted-foreground text-center py-6">
+                                    Você ainda não tem metas vinculadas.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </DrawerContent>
+                      </Drawer>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toast({
+                            title: "Editar Rotina",
+                            description: "Funcionalidade em desenvolvimento.",
+                          });
+                        }}
+                        className="shrink-0 p-2 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-all"
+                        title="Editar rotina"
+                      >
+                        <Edit2 className="h-5 w-5" />
+                      </button>
 
                       <div
                         className={`transform transition-transform ${
@@ -1665,13 +1679,13 @@ export default function Profile() {
         </TabsContent>
       </Tabs>
 
-      {/* Followers Modal */}
-      <Dialog open={showFollowersModal} onOpenChange={setShowFollowersModal}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Seguidores</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 max-h-96 overflow-y-auto">
+      {/* Followers Drawer */}
+      <Drawer open={showFollowersModal} onOpenChange={setShowFollowersModal}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Seguidores</DrawerTitle>
+          </DrawerHeader>
+          <div className="flex-1 overflow-y-auto px-4 space-y-3 pb-6">
             {isLoadingFollowers ? (
               <div className="text-center py-6 text-sm text-muted-foreground">
                 Carregando...
@@ -1711,16 +1725,16 @@ export default function Profile() {
               </div>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
+        </DrawerContent>
+      </Drawer>
 
-      {/* Following Modal */}
-      <Dialog open={showFollowingModal} onOpenChange={setShowFollowingModal}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Seguindo</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 max-h-96 overflow-y-auto">
+      {/* Following Drawer */}
+      <Drawer open={showFollowingModal} onOpenChange={setShowFollowingModal}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Seguindo</DrawerTitle>
+          </DrawerHeader>
+          <div className="flex-1 overflow-y-auto px-4 space-y-3 pb-6">
             {isLoadingFollowers ? (
               <div className="text-center py-6 text-sm text-muted-foreground">
                 Carregando...
@@ -1760,8 +1774,8 @@ export default function Profile() {
               </div>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }

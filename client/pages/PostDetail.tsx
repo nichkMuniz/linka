@@ -6,9 +6,15 @@ import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { ArrowLeft, Edit2, Trash2 } from "lucide-react";
+import { ArrowLeft, Edit2, Trash2, MoreVertical } from "lucide-react";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
 import { PostCommentsDialog } from "@/components/post-comments-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function PostDetail() {
   const { postId } = useParams<{ postId?: string }>();
@@ -81,13 +87,37 @@ export default function PostDetail() {
       <div className="max-w-2xl mx-auto px-4 py-6">
         <Card className="border-border/60 overflow-hidden">
           <CardContent className="space-y-3 p-0">
-            {/* Image */}
-            <ImageWithFallback
-              src={post.photo}
-              alt="Post"
-              fallback="/placeholder.svg"
-              className="w-full max-h-96 object-cover"
-            />
+            {/* Image with Settings Menu */}
+            <div className="relative">
+              <ImageWithFallback
+                src={post.photo}
+                alt="Post"
+                fallback="/placeholder.svg"
+                className="w-full max-h-96 object-cover"
+              />
+
+              {/* Settings Menu Icon - Top Right */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="absolute top-3 right-3 bg-black/40 hover:bg-black/60 text-white p-2 rounded-full transition-colors z-10"
+                    aria-label="Configurações do post"
+                  >
+                    <MoreVertical className="h-5 w-5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem>
+                    <Edit2 className="h-4 w-4 mr-2" />
+                    Editar
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950">
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Excluir
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
 
             {/* Content */}
             <div className="p-4 space-y-4">
@@ -118,26 +148,6 @@ export default function PostDetail() {
                   isPostOwner={true}
                   hasUnreadComments={false}
                 />
-              </div>
-
-              {/* Edit and Delete Buttons */}
-              <div className="flex gap-2 pt-3 border-t border-border/60">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1 rounded-full gap-2"
-                >
-                  <Edit2 className="h-4 w-4" />
-                  Editar
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="flex-1 rounded-full gap-2"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Excluir
-                </Button>
               </div>
             </div>
           </CardContent>
