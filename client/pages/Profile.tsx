@@ -195,6 +195,39 @@ export default function Profile() {
     }
   }, [profileUserId]);
 
+  // Define callback functions first
+  const loadFollowersData = React.useCallback(async () => {
+    setIsLoadingFollowers(true);
+    try {
+      const data = await getFollowersDb();
+      setFollowers(data);
+    } catch (err: any) {
+      console.error("Error loading followers:", err);
+      toast({
+        title: "Erro ao carregar seguidores",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setIsLoadingFollowers(false);
+    }
+  }, []);
+
+  const loadFollowingData = React.useCallback(async () => {
+    setIsLoadingFollowers(true);
+    try {
+      const data = await getFollowingDb(profileUserId);
+      setFollowing(data);
+    } catch (err: any) {
+      console.error("Error loading following:", err);
+      toast({
+        title: "Erro ao carregar seguindo",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setIsLoadingFollowers(false);
+    }
+  }, [profileUserId]);
+
   React.useEffect(() => {
     loadProfile();
   }, [profileUserId, loadProfile]);
@@ -239,38 +272,6 @@ export default function Profile() {
       setIsEditDialogOpen(true);
     }
   };
-
-  const loadFollowersData = React.useCallback(async () => {
-    setIsLoadingFollowers(true);
-    try {
-      const data = await getFollowersDb();
-      setFollowers(data);
-    } catch (err: any) {
-      console.error("Error loading followers:", err);
-      toast({
-        title: "Erro ao carregar seguidores",
-        description: err?.message || "Tente novamente.",
-      });
-    } finally {
-      setIsLoadingFollowers(false);
-    }
-  }, []);
-
-  const loadFollowingData = React.useCallback(async () => {
-    setIsLoadingFollowers(true);
-    try {
-      const data = await getFollowingDb(profileUserId);
-      setFollowing(data);
-    } catch (err: any) {
-      console.error("Error loading following:", err);
-      toast({
-        title: "Erro ao carregar seguindo",
-        description: err?.message || "Tente novamente.",
-      });
-    } finally {
-      setIsLoadingFollowers(false);
-    }
-  }, [profileUserId]);
 
   const openGoalIndicatorModal = async (routine: Routine) => {
     setGoalIndicatorRoutineId(routine.id);
