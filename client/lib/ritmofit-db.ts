@@ -2113,7 +2113,7 @@ export async function getStoryCommentsDb(
 
     return enrichedComments;
   } catch (err: any) {
-    console.error("Error fetching story comments:", err);
+    console.error("Error fetching story comments:", err?.message || err);
     return [];
   }
 }

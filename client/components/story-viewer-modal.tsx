@@ -183,6 +183,7 @@ export function StoryViewerModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-screen h-screen max-w-none max-h-none p-0 border-0 bg-black">
+        <DialogTitle className="sr-only">Story viewer</DialogTitle>
         <div className="relative w-full h-full flex flex-col">
           {/* Header with user info and close button */}
           <div className="flex items-center justify-between p-4 border-b border-white/10 z-10">
