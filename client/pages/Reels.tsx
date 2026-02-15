@@ -312,9 +312,8 @@ export default function Reels() {
           return (
             <div
               key={reel.id}
-              className={`absolute inset-0 transition-opacity duration-300 ${
-                isVisible ? "opacity-100" : "opacity-0 pointer-events-none"
-              }`}
+              className={`absolute inset-0 transition-opacity duration-300 ${isVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+                }`}
             >
               {/* Video */}
               <div className="relative h-full w-full overflow-hidden bg-black">
@@ -379,7 +378,6 @@ export default function Reels() {
                       />
                     ))}
                   </div>
-
                   {/* Comments Button */}
                   <button
                     onClick={() => handleOpenComments(reel)}

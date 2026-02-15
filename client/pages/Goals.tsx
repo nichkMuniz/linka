@@ -921,14 +921,14 @@ export default function Goals() {
                                 {(item.workoutDescription ||
                                   item.dietDescription ||
                                   item.habitDescription) && (
-                                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                                    {typeCode === 1
-                                      ? item.workoutDescription
-                                      : typeCode === 2
-                                        ? item.dietDescription
-                                        : item.habitDescription}
-                                  </p>
-                                )}
+                                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                      {typeCode === 1
+                                        ? item.workoutDescription
+                                        : typeCode === 2
+                                          ? item.dietDescription
+                                          : item.habitDescription}
+                                    </p>
+                                  )}
                                 {typeCode === 2 && item.dietCalories && (
                                   <p className="text-xs text-muted-foreground mt-1">
                                     {item.dietCalories} cal
@@ -1145,11 +1145,10 @@ export default function Goals() {
                                 onClick={() =>
                                   handleToggleMuscleGroup(muscleGroup)
                                 }
-                                className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
-                                  selectedMuscleGroups.has(muscleGroup)
+                                className={`px-3 py-1.5 text-xs rounded-full border transition-all ${selectedMuscleGroups.has(muscleGroup)
                                     ? "border-brand bg-brand/20 text-brand"
                                     : "border-border/60 text-muted-foreground hover:border-border/80"
-                                }`}
+                                  }`}
                               >
                                 {muscleGroup}
                               </button>
@@ -1167,11 +1166,10 @@ export default function Goals() {
                         <button
                           key={workout.id}
                           onClick={() => handleSelectItem(workout.id)}
-                          className={`w-full p-3 rounded-lg border transition-all text-left flex gap-3 ${
-                            selectedItems.has(workout.id)
+                          className={`w-full p-3 rounded-lg border transition-all text-left flex gap-3 ${selectedItems.has(workout.id)
                               ? "border-brand bg-brand/10"
                               : "border-border/60 hover:border-border/80"
-                          }`}
+                            }`}
                         >
                           {/* Exercise Image */}
                           {workout.photo ? (
@@ -1194,7 +1192,7 @@ export default function Goals() {
                                 <input
                                   type="checkbox"
                                   checked={selectedItems.has(workout.id)}
-                                  onChange={() => {}}
+                                  onChange={() => { }}
                                   className="h-4 w-4 flex-shrink-0"
                                 />
                               </div>
@@ -1218,11 +1216,10 @@ export default function Goals() {
                         <button
                           key={diet.id}
                           onClick={() => handleSelectItem(diet.id)}
-                          className={`w-full p-3 rounded-lg border transition-all text-left ${
-                            selectedItems.has(diet.id)
+                          className={`w-full p-3 rounded-lg border transition-all text-left ${selectedItems.has(diet.id)
                               ? "border-brand bg-brand/10"
                               : "border-border/60 hover:border-border/80"
-                          }`}
+                            }`}
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-medium">
@@ -1231,7 +1228,7 @@ export default function Goals() {
                             <input
                               type="checkbox"
                               checked={selectedItems.has(diet.id)}
-                              onChange={() => {}}
+                              onChange={() => { }}
                               className="h-4 w-4"
                             />
                           </div>
@@ -1253,11 +1250,10 @@ export default function Goals() {
                         <button
                           key={habit.id}
                           onClick={() => handleSelectItem(habit.id)}
-                          className={`w-full p-3 rounded-lg border transition-all text-left ${
-                            selectedItems.has(habit.id)
+                          className={`w-full p-3 rounded-lg border transition-all text-left ${selectedItems.has(habit.id)
                               ? "border-brand bg-brand/10"
                               : "border-border/60 hover:border-border/80"
-                          }`}
+                            }`}
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-sm font-medium">
@@ -1266,7 +1262,7 @@ export default function Goals() {
                             <input
                               type="checkbox"
                               checked={selectedItems.has(habit.id)}
-                              onChange={() => {}}
+                              onChange={() => { }}
                               className="h-4 w-4"
                             />
                           </div>
@@ -1374,9 +1370,8 @@ export default function Goals() {
                       (series, index) => (
                         <div
                           key={index}
-                          className={`p-3 bg-muted/20 rounded-lg space-y-2 transition-all ${
-                            series.completed ? "opacity-60" : ""
-                          }`}
+                          className={`p-3 bg-muted/20 rounded-lg space-y-2 transition-all ${series.completed ? "opacity-60" : ""
+                            }`}
                         >
                           {/* Series row: Série number, kg, reps, completed checkbox */}
                           <div className="flex items-end gap-2">
