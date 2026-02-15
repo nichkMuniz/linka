@@ -26,6 +26,7 @@ import {
   type UserWorkoutWithDetails,
   type UserDietWithDetails,
   type UserHabitWithDetails,
+  type UserGoal,
 } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import {
@@ -104,7 +105,7 @@ export default function Goals() {
   );
   const [expandedRoutineId, setExpandedRoutineId] = React.useState<
     string | null
-  >(null);
+  >("type-1"); // Always start with exercises expanded
 
   // Workout modal state
   const [workoutModalOpen, setWorkoutModalOpen] = React.useState(false);
@@ -1302,14 +1303,22 @@ export default function Goals() {
           </DialogHeader>
 
           <div className="space-y-6">
-            {/* Workout Duration Timer */}
-            <div className="bg-brand/10 rounded-lg p-4 text-center">
-              <p className="text-xs font-medium text-muted-foreground mb-2">
-                Duração do Treino
-              </p>
-              <p className="text-3xl font-bold text-brand">
-                {formatDuration(workoutDuration)}
-              </p>
+            {/* Workout Duration Timer and Finish Button */}
+            <div className="flex gap-3 items-end">
+              <div className="flex-1 bg-brand/10 rounded-lg p-4 text-center">
+                <p className="text-xs font-medium text-muted-foreground mb-2">
+                  Duração do Treino
+                </p>
+                <p className="text-3xl font-bold text-brand">
+                  {formatDuration(workoutDuration)}
+                </p>
+              </div>
+              <Button
+                onClick={handleFinishWorkout}
+                className="rounded-full h-auto py-3 px-6 text-sm font-medium whitespace-nowrap"
+              >
+                Finalizar Treino
+              </Button>
             </div>
 
             {/* Exercises List */}
@@ -1345,23 +1354,20 @@ export default function Goals() {
                     <label className="text-xs font-medium text-muted-foreground block">
                       Tempo de descanso entre séries
                     </label>
-                    <div className="flex flex-wrap gap-2">
+                    <select
+                      value={workoutExerciseRestTimes[workout.workout_id] || ""}
+                      onChange={(e) =>
+                        handleSetExerciseRestTime(workout.workout_id, parseInt(e.target.value))
+                      }
+                      className="w-full px-3 py-2 border border-border/60 rounded-lg text-sm bg-background"
+                    >
+                      <option value="">Selecione um tempo</option>
                       {REST_TIME_OPTIONS.map((time) => (
-                        <button
-                          key={time}
-                          onClick={() =>
-                            handleSetExerciseRestTime(workout.workout_id, time)
-                          }
-                          className={`px-3 py-1.5 text-xs rounded-full border transition-all font-medium ${
-                            workoutExerciseRestTimes[workout.workout_id] === time
-                              ? "border-brand bg-brand text-white"
-                              : "border-border/60 text-muted-foreground hover:border-brand/60 hover:bg-brand/10"
-                          }`}
-                        >
+                        <option key={time} value={time}>
                           {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
-                        </button>
+                        </option>
                       ))}
-                    </div>
+                    </select>
                   </div>
 
                   {/* Series List */}
@@ -1462,18 +1468,20 @@ export default function Goals() {
                     <Plus className="h-3 w-3 mr-1" />
                     Adicionar Série
                   </Button>
+
+                  {/* Add Exercise Button */}
+                  <Button
+                    onClick={() => handleAddRoutineClick()}
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs"
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    Adicionar Exercício
+                  </Button>
                 </div>
               ))}
             </div>
-
-            {/* Finish Button */}
-            <Button
-              onClick={handleFinishWorkout}
-              className="w-full rounded-full"
-              size="lg"
-            >
-              Finalizar Treino
-            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -1537,88 +1545,90 @@ export default function Goals() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Goal Modal */}
-      <Dialog open={editGoalModalOpen} onOpenChange={setEditGoalModalOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Editar Meta</DialogTitle>
-          </DialogHeader>
+      {/* Edit Goal Drawer */}
+      <Drawer open={editGoalModalOpen} onOpenChange={setEditGoalModalOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Editar Meta</DrawerTitle>
+          </DrawerHeader>
 
           {editingGoal && (
-            <div className="space-y-4">
-              <div className="p-4 bg-muted/20 rounded-lg">
-                <p className="text-sm font-medium">{editingGoal.description}</p>
+            <div className="flex-1 overflow-y-auto px-4 pb-6">
+              <div className="space-y-4">
+                <div className="p-4 bg-muted/20 rounded-lg">
+                  <p className="text-sm font-medium">{editingGoal.description}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Duração (dias)</label>
+                  <input
+                    type="number"
+                    value={editGoalDuration === 0 ? "" : editGoalDuration}
+                    onChange={(e) => setEditGoalDuration(e.target.value === "" ? 0 : parseInt(e.target.value) || 0)}
+                    placeholder="Digite a duração"
+                    className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Quantidade (qtd)</label>
+                  <input
+                    type="number"
+                    value={editGoalQuantity === 0 ? "" : editGoalQuantity}
+                    onChange={(e) => setEditGoalQuantity(e.target.value === "" ? 0 : parseInt(e.target.value) || 0)}
+                    placeholder="Digite a quantidade"
+                    className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
+                  />
+                </div>
+
+                <Button
+                  onClick={async () => {
+                    if (!user || !editingGoal) return;
+                    setIsUpdatingGoal(true);
+                    try {
+                      await updateUserGoalDb(
+                        editingGoal.id,
+                        editGoalDuration,
+                        editGoalQuantity,
+                      );
+
+                      // Update local state
+                      const updatedGoals = goals.map((goal) =>
+                        goal.id === editingGoal.id
+                          ? {
+                              ...goal,
+                              duration: editGoalDuration,
+                              quantity: editGoalQuantity,
+                            }
+                          : goal,
+                      );
+                      setGoals(updatedGoals);
+
+                      toast({
+                        title: "Meta atualizada!",
+                        description: "Suas alterações foram salvas.",
+                      });
+                      setEditGoalModalOpen(false);
+                    } catch (err: any) {
+                      toast({
+                        title: "Erro ao atualizar meta",
+                        description: err?.message || "Tente novamente.",
+                        variant: "destructive",
+                      });
+                    } finally {
+                      setIsUpdatingGoal(false);
+                    }
+                  }}
+                  disabled={isUpdatingGoal || editGoalDuration === 0 || editGoalQuantity === 0}
+                  className="w-full rounded-full"
+                >
+                  {isUpdatingGoal ? "Atualizando..." : "Salvar Alterações"}
+                </Button>
               </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Duração (dias)</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={editGoalDuration}
-                  onChange={(e) => setEditGoalDuration(parseInt(e.target.value) || 0)}
-                  className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Quantidade (qtd)</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={editGoalQuantity}
-                  onChange={(e) => setEditGoalQuantity(parseInt(e.target.value) || 0)}
-                  className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
-                />
-              </div>
-
-              <Button
-                onClick={async () => {
-                  if (!user || !editingGoal) return;
-                  setIsUpdatingGoal(true);
-                  try {
-                    await updateUserGoalDb(
-                      editingGoal.id,
-                      editGoalDuration,
-                      editGoalQuantity,
-                    );
-
-                    // Update local state
-                    const updatedGoals = goals.map((goal) =>
-                      goal.id === editingGoal.id
-                        ? {
-                            ...goal,
-                            duration: editGoalDuration,
-                            quantity: editGoalQuantity,
-                          }
-                        : goal,
-                    );
-                    setGoals(updatedGoals);
-
-                    toast({
-                      title: "Meta atualizada!",
-                      description: "Suas alterações foram salvas.",
-                    });
-                    setEditGoalModalOpen(false);
-                  } catch (err: any) {
-                    toast({
-                      title: "Erro ao atualizar meta",
-                      description: err?.message || "Tente novamente.",
-                      variant: "destructive",
-                    });
-                  } finally {
-                    setIsUpdatingGoal(false);
-                  }
-                }}
-                disabled={isUpdatingGoal}
-                className="w-full rounded-full"
-              >
-                {isUpdatingGoal ? "Atualizando..." : "Salvar Alterações"}
-              </Button>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }
