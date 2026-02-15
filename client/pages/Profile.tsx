@@ -20,6 +20,8 @@ import {
   getGoalByIdDb,
   updateRoutineGoalDb,
   getUserGoalsDb,
+  getFollowersDb,
+  getFollowingDb,
   type UserProfile,
   type PostWithUser,
   type UserStats,
@@ -94,9 +96,6 @@ export default function Profile() {
   const [loading, setLoading] = React.useState(true);
   const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
-  const [expandedPost, setExpandedPost] = React.useState<PostWithUser | null>(
-    null,
-  );
   const [isCreateRoutineOpen, setIsCreateRoutineOpen] = React.useState(false);
   const [isCreatingRoutine, setIsCreatingRoutine] = React.useState(false);
   const [selectedRoutineType, setSelectedRoutineType] = React.useState<
@@ -138,6 +137,11 @@ export default function Profile() {
   const [linkedGoal, setLinkedGoal] = React.useState<UserGoal | null>(null);
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
+  const [showFollowersModal, setShowFollowersModal] = React.useState(false);
+  const [showFollowingModal, setShowFollowingModal] = React.useState(false);
+  const [followers, setFollowers] = React.useState<any[]>([]);
+  const [following, setFollowing] = React.useState<any[]>([]);
+  const [isLoadingFollowers, setIsLoadingFollowers] = React.useState(false);
 
   // Edit form state
   const [editNickname, setEditNickname] = React.useState("");
@@ -212,6 +216,20 @@ export default function Profile() {
     };
   }, [profileUserId]);
 
+  // Load followers when modal opens
+  React.useEffect(() => {
+    if (showFollowersModal) {
+      loadFollowersData();
+    }
+  }, [showFollowersModal, loadFollowersData]);
+
+  // Load following when modal opens
+  React.useEffect(() => {
+    if (showFollowingModal) {
+      loadFollowingData();
+    }
+  }, [showFollowingModal, loadFollowingData]);
+
   const openEditDialog = () => {
     if (profile) {
       setEditNickname(profile.nickname);
@@ -221,6 +239,38 @@ export default function Profile() {
       setIsEditDialogOpen(true);
     }
   };
+
+  const loadFollowersData = React.useCallback(async () => {
+    setIsLoadingFollowers(true);
+    try {
+      const data = await getFollowersDb();
+      setFollowers(data);
+    } catch (err: any) {
+      console.error("Error loading followers:", err);
+      toast({
+        title: "Erro ao carregar seguidores",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setIsLoadingFollowers(false);
+    }
+  }, []);
+
+  const loadFollowingData = React.useCallback(async () => {
+    setIsLoadingFollowers(true);
+    try {
+      const data = await getFollowingDb(profileUserId);
+      setFollowing(data);
+    } catch (err: any) {
+      console.error("Error loading following:", err);
+      toast({
+        title: "Erro ao carregar seguindo",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setIsLoadingFollowers(false);
+    }
+  }, [profileUserId]);
 
   const openGoalIndicatorModal = async (routine: Routine) => {
     setGoalIndicatorRoutineId(routine.id);
@@ -644,10 +694,10 @@ export default function Profile() {
                       description: "Funcionalidade em desenvolvimento.",
                     });
                   }}
-                  className="absolute bottom-0 right-0 h-7 w-7 rounded-full bg-brand text-white flex items-center justify-center ring-2 ring-background hover:bg-brand/90 transition-colors shadow-sm"
+                  className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full bg-brand text-white flex items-center justify-center ring-2 ring-background hover:bg-brand/90 transition-colors shadow-md"
                   title="Adicionar novo story"
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus className="h-5 w-5" />
                 </button>
               </div>
 
@@ -664,30 +714,36 @@ export default function Profile() {
                   )}
                 </div>
 
-                {/* Stats Inline */}
-                <div className="flex gap-4 sm:gap-6">
-                  <div className="space-y-1">
+                {/* Stats Inline - Centered */}
+                <div className="flex gap-6 sm:gap-8 justify-center">
+                  <div className="flex flex-col items-center space-y-1">
                     <div className="text-lg font-semibold">
                       {stats.postsCount}
                     </div>
                     <div className="text-xs text-muted-foreground">Posts</div>
                   </div>
-                  <div className="space-y-1">
+                  <button
+                    onClick={() => setShowFollowersModal(true)}
+                    className="flex flex-col items-center space-y-1 hover:opacity-80 transition-opacity"
+                  >
                     <div className="text-lg font-semibold">
                       {stats.followersCount}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       Seguidores
                     </div>
-                  </div>
-                  <div className="space-y-1">
+                  </button>
+                  <button
+                    onClick={() => setShowFollowingModal(true)}
+                    className="flex flex-col items-center space-y-1 hover:opacity-80 transition-opacity"
+                  >
                     <div className="text-lg font-semibold">
                       {stats.followingCount}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       Seguindo
                     </div>
-                  </div>
+                  </button>
                 </div>
               </div>
             </div>
@@ -847,69 +903,18 @@ export default function Profile() {
           {posts.length > 0 ? (
             <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {posts.map((post) => (
-                <Dialog
+                <button
                   key={post.id}
-                  open={expandedPost?.id === post.id}
-                  onOpenChange={(open) => !open && setExpandedPost(null)}
+                  onClick={() => navigate(`/post/${post.id}`)}
+                  className="group relative aspect-square overflow-hidden rounded-lg bg-muted border border-border/60 hover:border-border/80 transition-all cursor-pointer"
                 >
-                  <DialogTrigger asChild>
-                    <button
-                      onClick={() => setExpandedPost(post)}
-                      className="group relative aspect-square overflow-hidden rounded-lg bg-muted border border-border/60 hover:border-border/80 transition-all cursor-pointer"
-                    >
-                      <img
-                        src={post.photo}
-                        alt={post.description}
-                        className="h-full w-full object-cover group-hover:scale-110 transition-transform"
-                      />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                    </button>
-                  </DialogTrigger>
-
-                  <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                    <DialogTitle className="text-lg font-semibold mb-4">
-                      Detalhes do Post
-                    </DialogTitle>
-                    <div className="grid md:grid-cols-2 gap-6">
-                      {/* Post Image */}
-                      <div className="aspect-square overflow-hidden rounded-lg bg-muted">
-                        <img
-                          src={post.photo}
-                          alt={post.description}
-                          className="h-full w-full object-cover"
-                        />
-                      </div>
-
-                      {/* Post Info */}
-                      <div className="space-y-4">
-                        <div>
-                          <h2 className="text-xl font-semibold">Post</h2>
-                          {post.description && (
-                            <p className="text-sm text-muted-foreground mt-2">
-                              {post.description}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Interactions placeholder */}
-                        <div className="space-y-2 pt-4 border-t border-border/60">
-                          <div className="text-sm font-medium">Interações</div>
-                          <div className="text-xs text-muted-foreground">
-                            Nenhuma interação ainda.
-                          </div>
-                        </div>
-
-                        {/* Comments placeholder */}
-                        <div className="space-y-2 pt-4 border-t border-border/60">
-                          <div className="text-sm font-medium">Comentários</div>
-                          <div className="text-xs text-muted-foreground">
-                            Nenhum comentário ainda.
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
+                  <img
+                    src={post.photo}
+                    alt={post.description}
+                    className="h-full w-full object-cover group-hover:scale-110 transition-transform"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                </button>
               ))}
             </div>
           ) : (
@@ -923,7 +928,7 @@ export default function Profile() {
 
         {/* Routines Tab */}
         <TabsContent value="routines" className="space-y-4">
-          <Dialog
+          <Drawer
             open={isCreateRoutineOpen}
             onOpenChange={(open) => {
               setIsCreateRoutineOpen(open);
@@ -938,8 +943,11 @@ export default function Profile() {
               }
             }}
           >
-
-            <DialogContent>
+            <DrawerContent className="max-h-[90dvh] flex flex-col">
+              <DrawerHeader className="shrink-0">
+                <DrawerTitle>Nova Rotina</DrawerTitle>
+              </DrawerHeader>
+              <div className="flex-1 overflow-y-auto px-4 pb-24">
               {selectedRoutineType === null ? (
                 <>
                   <DialogHeader>
@@ -979,6 +987,26 @@ export default function Profile() {
                     </Button>
                     <DialogTitle>Selecione um ou mais Exercícios</DialogTitle>
                   </DialogHeader>
+
+                  <Input
+                    placeholder="Buscar exercício por nome..."
+                    onChange={(e) => {
+                      const query = e.target.value.toLowerCase();
+                      if (query.trim() === "") {
+                        handleSelectRoutineType(1);
+                      } else {
+                        setWorkouts(
+                          workouts.filter(
+                            (w) =>
+                              w.name.toLowerCase().includes(query) ||
+                              (w.description &&
+                                w.description.toLowerCase().includes(query))
+                          )
+                        );
+                      }
+                    }}
+                    className="mb-4"
+                  />
 
                   {workoutsLoading ? (
                     <div className="text-center py-6 text-sm text-muted-foreground">
@@ -1292,8 +1320,9 @@ export default function Profile() {
                   </div>
                 </>
               )}
-            </DialogContent>
-          </Dialog>
+              </div>
+            </DrawerContent>
+          </Drawer>
 
           {routines.length > 0 ? (
             <div className="space-y-4">
@@ -1634,6 +1663,104 @@ export default function Profile() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Followers Modal */}
+      <Dialog open={showFollowersModal} onOpenChange={setShowFollowersModal}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Seguidores</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {isLoadingFollowers ? (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                Carregando...
+              </div>
+            ) : followers.length > 0 ? (
+              followers.map((follower) => (
+                <button
+                  key={follower.id}
+                  onClick={() => {
+                    setShowFollowersModal(false);
+                    navigate(`/usuario/${follower.id}`);
+                  }}
+                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition-colors w-full text-left"
+                >
+                  {follower.photo ? (
+                    <img
+                      src={follower.photo}
+                      alt={follower.nickname}
+                      className="h-10 w-10 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded-full bg-muted" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{follower.nickname}</p>
+                    {follower.bio && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        {follower.bio}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                Nenhum seguidor ainda
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Following Modal */}
+      <Dialog open={showFollowingModal} onOpenChange={setShowFollowingModal}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Seguindo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {isLoadingFollowers ? (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                Carregando...
+              </div>
+            ) : following.length > 0 ? (
+              following.map((user) => (
+                <button
+                  key={user.id}
+                  onClick={() => {
+                    setShowFollowingModal(false);
+                    navigate(`/usuario/${user.id}`);
+                  }}
+                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition-colors w-full text-left"
+                >
+                  {user.photo ? (
+                    <img
+                      src={user.photo}
+                      alt={user.nickname}
+                      className="h-10 w-10 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded-full bg-muted" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{user.nickname}</p>
+                    {user.bio && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        {user.bio}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                Não está seguindo ninguém
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

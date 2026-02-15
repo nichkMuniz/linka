@@ -26,6 +26,7 @@ import Login from "@/pages/Login";
 import NewPost from "@/pages/NewPost";
 import Goals from "@/pages/Goals";
 import Profile from "@/pages/Profile";
+import PostDetail from "@/pages/PostDetail";
 import Search from "@/pages/Search";
 import Messages from "@/pages/Messages";
 import Reels from "@/pages/Reels";
@@ -122,6 +123,7 @@ const App = () => {
                   <Route path="/loja" element={<Store />} />
                   <Route path="/perfil" element={<Profile />} />
                   <Route path="/usuario/:userId" element={<Profile />} />
+                  <Route path="/post/:postId" element={<PostDetail />} />
                   <Route path="/buscar" element={<Search />} />
                   <Route path="/mensagens" element={<Messages />} />
 

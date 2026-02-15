@@ -2421,6 +2421,58 @@ export async function getFollowersDb(): Promise<SearchUser[]> {
   }
 }
 
+export async function getFollowingDb(
+  userId?: string,
+): Promise<SearchUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const targetUserId = userId || viewer.id;
+
+  try {
+    // Get all users that the target user is following
+    const { data, error } = await supabase
+      .from("following")
+      .select("following_id")
+      .eq("user_id", targetUserId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching following:", error);
+      return [];
+    }
+
+    const followingIds = (data ?? []).map((row: any) =>
+      String(row.following_id ?? ""),
+    );
+
+    if (followingIds.length === 0) return [];
+
+    // Fetch profile data for each user being followed
+    const { data: profiles, error: profileError } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, bio, photo")
+      .in("user_id", followingIds);
+
+    if (profileError) {
+      console.error("Error fetching following profiles:", profileError);
+      return [];
+    }
+
+    return (profiles ?? []).map((row: any) => ({
+      id: String(row.user_id ?? ""),
+      nickname: String(row.nickname ?? "Usuário"),
+      bio: row.bio ? String(row.bio) : undefined,
+      photo: row.photo ? String(row.photo) : null,
+    }));
+  } catch (err: any) {
+    console.error("Error getting following:", err);
+    return [];
+  }
+}
+
 export type Reel = {
   id: string;
   user_id: string;
