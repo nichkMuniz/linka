@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import { Upload, X, Camera, Upload2 } from "lucide-react";
+import { Upload, X, Camera, Image } from "lucide-react";
 
 interface StoryCreationDialogProps {
   open: boolean;
@@ -249,7 +249,7 @@ export function StoryCreationDialog({
                 }}
                 className="absolute top-2 left-2 bg-gray-500 hover:bg-gray-600 text-white rounded-full p-2 flex items-center gap-1"
               >
-                <Upload2 className="h-4 w-4" />
+                <Image className="h-4 w-4" />
               </button>
             </div>
           ) : (
