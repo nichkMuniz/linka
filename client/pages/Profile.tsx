@@ -687,19 +687,6 @@ export default function Profile() {
                 ) : (
                   <div className="h-20 w-20 rounded-full bg-muted ring-2 ring-border/60" />
                 )}
-                {/* Add Story Button */}
-                <button
-                  onClick={() => {
-                    toast({
-                      title: "Criar Story",
-                      description: "Funcionalidade em desenvolvimento.",
-                    });
-                  }}
-                  className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full bg-brand text-white flex items-center justify-center ring-2 ring-background hover:bg-brand/90 transition-colors shadow-md"
-                  title="Adicionar novo story"
-                >
-                  <Plus className="h-5 w-5" />
-                </button>
               </div>
 
               {/* Info */}
@@ -716,32 +703,32 @@ export default function Profile() {
                 </div>
 
                 {/* Stats Inline - Centered */}
-                <div className="flex gap-6 sm:gap-8 justify-center">
-                  <div className="flex flex-col items-center space-y-1">
-                    <div className="text-lg font-semibold">
+                <div className="flex gap-3 sm:gap-6 justify-center">
+                  <div className="flex flex-col items-center space-y-0.5">
+                    <div className="text-base sm:text-lg font-semibold">
                       {stats.postsCount}
                     </div>
-                    <div className="text-xs text-muted-foreground">Posts</div>
+                    <div className="text-xs text-muted-foreground whitespace-nowrap">Posts</div>
                   </div>
                   <button
                     onClick={() => setShowFollowersModal(true)}
-                    className="flex flex-col items-center space-y-1 hover:opacity-80 transition-opacity min-w-16"
+                    className="flex flex-col items-center space-y-0.5 hover:opacity-80 transition-opacity"
                   >
-                    <div className="text-lg font-semibold">
+                    <div className="text-base sm:text-lg font-semibold">
                       {stats.followersCount}
                     </div>
-                    <div className="text-xs text-muted-foreground line-clamp-2 text-center h-5">
+                    <div className="text-xs text-muted-foreground whitespace-nowrap">
                       Seguidores
                     </div>
                   </button>
                   <button
                     onClick={() => setShowFollowingModal(true)}
-                    className="flex flex-col items-center space-y-1 hover:opacity-80 transition-opacity min-w-16"
+                    className="flex flex-col items-center space-y-0.5 hover:opacity-80 transition-opacity"
                   >
-                    <div className="text-lg font-semibold">
+                    <div className="text-base sm:text-lg font-semibold">
                       {stats.followingCount}
                     </div>
-                    <div className="text-xs text-muted-foreground line-clamp-2 text-center h-5">
+                    <div className="text-xs text-muted-foreground whitespace-nowrap">
                       Seguindo
                     </div>
                   </button>

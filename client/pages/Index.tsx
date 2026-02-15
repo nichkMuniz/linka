@@ -26,6 +26,7 @@ import {
   createStoryDb,
   deleteOldStoriesDb,
   createUserGoalDb,
+  getUserGoalsDb,
   type PostIncentiveType,
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
@@ -75,11 +76,10 @@ export default function Index() {
   const [unreadCommentsByPost, setUnreadCommentsByPost] = React.useState<
     Record<string, number>
   >({});
-  const [showStories, setShowStories] = React.useState(true);
-  const [lastScrollY, setLastScrollY] = React.useState(0);
-  const feedContainerRef = React.useRef<HTMLDivElement>(null);
   const [isCopyingGoal, setIsCopyingGoal] = React.useState(false);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [userGoals, setUserGoals] = React.useState<any[]>([]);
+  const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
 
   React.useEffect(() => {
     (async () => {
@@ -148,56 +148,6 @@ export default function Index() {
     }
   }, [isRefreshing]);
 
-  // Handle scroll to hide/show stories and pull-to-refresh
-  React.useEffect(() => {
-    const feedContainer = feedContainerRef.current;
-    if (!feedContainer) return;
-
-    let pullStartY = 0;
-
-    const handleScroll = () => {
-      const currentScrollY = feedContainer.scrollTop;
-      const isScrollingDown = currentScrollY > lastScrollY;
-
-      if (isScrollingDown && showStories) {
-        setShowStories(false);
-      } else if (!isScrollingDown && !showStories && currentScrollY < 50) {
-        setShowStories(true);
-      }
-
-      setLastScrollY(currentScrollY);
-    };
-
-    const handleTouchStart = (e: TouchEvent) => {
-      pullStartY = e.touches[0].clientY;
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (feedContainer.scrollTop === 0) {
-        const pullDistance = e.touches[0].clientY - pullStartY;
-        if (pullDistance > 80 && !isRefreshing) {
-          refreshFeed();
-          pullStartY = 0; // Reset to prevent multiple triggers
-        }
-      }
-    };
-
-    const handleRefreshEvent = () => {
-      refreshFeed();
-    };
-
-    feedContainer.addEventListener("scroll", handleScroll);
-    feedContainer.addEventListener("touchstart", handleTouchStart);
-    feedContainer.addEventListener("touchmove", handleTouchMove);
-    window.addEventListener("ritmofit-refresh-feed", handleRefreshEvent);
-
-    return () => {
-      feedContainer.removeEventListener("scroll", handleScroll);
-      feedContainer.removeEventListener("touchstart", handleTouchStart);
-      feedContainer.removeEventListener("touchmove", handleTouchMove);
-      window.removeEventListener("ritmofit-refresh-feed", handleRefreshEvent);
-    };
-  }, [lastScrollY, showStories, isRefreshing, refreshFeed]);
 
   const handleCreateStory = React.useCallback(
     async (mediaDataUrl: string, description: string) => {
@@ -274,18 +224,28 @@ export default function Index() {
     setSelectedGoalPost(post);
     setGoalModalOpen(true);
     setExpandedRoutines(false);
+    setHasAlreadyCopiedGoal(false);
 
     // Fetch routines linked to this goal
     if (post.userGoal) {
       try {
         const routines = await getRoutinesByGoalIdDb(post.userGoal.goal_id);
         setLinkedRoutines(routines);
+
+        // Check if user has already copied this goal
+        if (user && post.user_id !== user.id) {
+          const userGoalsData = await getUserGoalsDb(user.id);
+          const alreadyCopied = userGoalsData.some(
+            (goal) => goal.goal_id === post.userGoal.goal_id
+          );
+          setHasAlreadyCopiedGoal(alreadyCopied);
+        }
       } catch (err) {
         console.error("Error fetching routines:", err);
         setLinkedRoutines([]);
       }
     }
-  }, []);
+  }, [user]);
 
   const handleIncrementGoalProgress = React.useCallback(async () => {
     if (!selectedGoalPost?.userGoal) return;
@@ -448,19 +408,17 @@ export default function Index() {
   return (
     <div className="mx-auto w-full max-w-2xl flex flex-col h-screen overflow-hidden">
       {/* Stories Carousel */}
-      {showStories && (
-        <div className="bg-background border-b border-border/60 shrink-0 transition-all duration-200">
-          <StoriesCarousel
-            stories={stories}
-            onAddStoryClick={handleAddStoryClick}
-            onStoryClick={handleStoryClick}
-            currentUserId={user?.id || ""}
-          />
-        </div>
-      )}
+      <div className="bg-background border-b border-border/60 shrink-0">
+        <StoriesCarousel
+          stories={stories}
+          onAddStoryClick={handleAddStoryClick}
+          onStoryClick={handleStoryClick}
+          currentUserId={user?.id || ""}
+        />
+      </div>
 
       {/* Feed Content */}
-      <div ref={feedContainerRef} data-feed-container className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto">
         <div className="grid w-full gap-3 p-4">
           {posts.length ? (
             posts.map((post) => (
@@ -630,7 +588,7 @@ export default function Index() {
           </DrawerHeader>
           <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
             {selectedGoalPost?.userGoal && (
-              <div className="space-y-4 overflow-y-auto flex-1">
+              <div className="space-y-4 flex-1">
                 {/* Goal Info */}
                 <div className="p-4 border border-border/60 rounded-lg bg-muted/30 space-y-3">
                   <div>
@@ -750,10 +708,14 @@ export default function Index() {
                   {selectedGoalPost.user_id !== user?.id && (
                     <Button
                       onClick={handleCopyGoal}
-                      disabled={isCopyingGoal}
+                      disabled={isCopyingGoal || hasAlreadyCopiedGoal}
                       className="flex-1 rounded-full gap-2 shrink-0"
                     >
-                      {isCopyingGoal ? "Copiando..." : "Copiar Meta"}
+                      {isCopyingGoal
+                        ? "Copiando..."
+                        : hasAlreadyCopiedGoal
+                          ? "Já copiado"
+                          : "Copiar Meta"}
                     </Button>
                   )}
                 </div>
