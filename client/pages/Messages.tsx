@@ -161,34 +161,33 @@ export default function Messages() {
 
   if (viewMode === "conversation" && selectedConversation) {
     return (
-      <div className="w-full h-[calc(100dvh-120px)] flex flex-col p-0">
+      <div className="w-full h-[calc(100dvh-120px)] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="sticky top-0 z-10 border-b border-border/60 bg-background p-4 flex items-center gap-3">
+        <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3">
           <button
             onClick={handleBackToConversations}
-            className="text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground flex-shrink-0"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <div className="flex-1 flex items-center gap-3">
+          <div className="flex-1 flex items-center gap-3 min-w-0">
             {selectedConversation.userPhoto && (
               <img
                 src={selectedConversation.userPhoto}
                 alt={selectedConversation.userNickname}
-                className="h-10 w-10 rounded-full object-cover"
+                className="h-10 w-10 rounded-full object-cover flex-shrink-0"
               />
             )}
-            <div>
-              <p className="text-sm font-medium">
+            <div className="min-w-0">
+              <p className="text-sm font-medium truncate">
                 {selectedConversation.userNickname}
               </p>
-              <p className="text-xs text-muted-foreground">Online</p>
             </div>
           </div>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto space-y-4 p-4">
+        <div className="flex-1 overflow-y-auto space-y-4 px-4 py-4">
           {messages.length > 0 ? (
             messages.map((message) => {
               const isOwn = message.id_user === user?.id;
@@ -198,7 +197,7 @@ export default function Messages() {
                   className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-xs px-4 py-2 rounded-lg space-y-1 ${
+                    className={`max-w-xs px-4 py-2 rounded-lg space-y-1 break-words ${
                       isOwn
                         ? "bg-brand text-white rounded-br-none"
                         : "bg-muted rounded-bl-none"
@@ -217,7 +216,7 @@ export default function Messages() {
                         )}
                       </p>
                       {isOwn && (
-                        <span className="text-white/70">
+                        <span className="text-white/70 flex-shrink-0">
                           {message.read === 1 ? (
                             <CheckCheck className="h-4 w-4" />
                           ) : (
@@ -239,7 +238,7 @@ export default function Messages() {
         </div>
 
         {/* Input */}
-        <div className="sticky bottom-0 border-t border-border/60 bg-background p-4 flex gap-2">
+        <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2">
           <Input
             placeholder="Envie uma mensagem..."
             value={messageText}
@@ -257,7 +256,7 @@ export default function Messages() {
             onClick={handleSendMessage}
             disabled={!messageText.trim() || isSending}
             size="sm"
-            className="rounded-full"
+            className="rounded-full flex-shrink-0"
           >
             <Send className="h-4 w-4" />
           </Button>
@@ -276,8 +275,8 @@ export default function Messages() {
   );
 
   return (
-    <div className="mx-auto grid w-full max-w-2xl gap-4 p-4">
-      <div className="space-y-4">
+    <div className="w-full h-[calc(100dvh-120px)] flex flex-col overflow-hidden">
+      <div className="space-y-4 flex-shrink-0 px-4 pt-4">
         <h1 className="text-2xl font-bold tracking-tight">Mensagens</h1>
 
         {/* Search Bar */}
@@ -289,89 +288,21 @@ export default function Messages() {
         />
       </div>
 
-      {filteredConversations.length > 0 ? (
-        <div className="space-y-2">
-          {filteredConversations.map((conversation) => (
-            <button
-              key={conversation.userId}
-              onClick={() => handleOpenConversation(conversation)}
-              className="w-full"
-            >
-              <Card className="border-border/60 hover:bg-muted/50 transition-colors cursor-pointer">
-                <CardContent className="p-4 flex items-center gap-3">
-                  {conversation.userPhoto ? (
-                    <img
-                      src={conversation.userPhoto}
-                      alt={conversation.userNickname}
-                      className="h-12 w-12 rounded-full object-cover shrink-0"
-                    />
-                  ) : (
-                    <div className="h-12 w-12 rounded-full bg-muted shrink-0" />
-                  )}
-
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium text-sm truncate">
-                        {conversation.userNickname}
-                      </p>
-                      <p className="text-xs text-muted-foreground shrink-0">
-                        {formatTimeAgo(conversation.lastMessageTime)}
-                      </p>
-                    </div>
-                    <p
-                      className={`text-sm truncate ${
-                        conversation.unreadCount > 0
-                          ? "font-medium text-foreground"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      {conversation.lastMessage}
-                    </p>
-                  </div>
-
-                  {conversation.unreadCount > 0 && (
-                    <div className="flex items-center justify-center h-6 w-6 rounded-full bg-brand text-white text-xs font-semibold shrink-0">
-                      {conversation.unreadCount > 9
-                        ? "9+"
-                        : conversation.unreadCount}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </button>
-          ))}
-        </div>
-      ) : filteredFollowers.length > 0 ? (
-        <div className="space-y-4">
-          <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
-            <p className="text-sm text-muted-foreground">
-              Você ainda não tem conversas. Inicie uma nova conversa
-            </p>
-          </div>
-
+      <div className="flex-1 overflow-y-auto px-4 pb-4">
+        {filteredConversations.length > 0 ? (
           <div className="space-y-2">
-            {filteredFollowers.map((follower) => (
+            {filteredConversations.map((conversation) => (
               <button
-                key={follower.id}
-                onClick={() => {
-                  setSelectedConversation({
-                    userId: follower.id,
-                    userNickname: follower.nickname,
-                    userPhoto: follower.photo,
-                    lastMessage: "",
-                    lastMessageTime: new Date().toISOString(),
-                    unreadCount: 0,
-                  });
-                  setViewMode("conversation");
-                }}
+                key={conversation.userId}
+                onClick={() => handleOpenConversation(conversation)}
                 className="w-full"
               >
                 <Card className="border-border/60 hover:bg-muted/50 transition-colors cursor-pointer">
                   <CardContent className="p-4 flex items-center gap-3">
-                    {follower.photo ? (
+                    {conversation.userPhoto ? (
                       <img
-                        src={follower.photo}
-                        alt={follower.nickname}
+                        src={conversation.userPhoto}
+                        alt={conversation.userNickname}
                         className="h-12 w-12 rounded-full object-cover shrink-0"
                       />
                     ) : (
@@ -379,29 +310,99 @@ export default function Messages() {
                     )}
 
                     <div className="flex-1 min-w-0 text-left">
-                      <p className="font-medium text-sm">{follower.nickname}</p>
-                      {follower.bio && (
-                        <p className="text-xs text-muted-foreground truncate">
-                          {follower.bio}
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-medium text-sm truncate">
+                          {conversation.userNickname}
                         </p>
-                      )}
+                        <p className="text-xs text-muted-foreground shrink-0">
+                          {formatTimeAgo(conversation.lastMessageTime)}
+                        </p>
+                      </div>
+                      <p
+                        className={`text-sm truncate ${
+                          conversation.unreadCount > 0
+                            ? "font-medium text-foreground"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {conversation.lastMessage}
+                      </p>
                     </div>
+
+                    {conversation.unreadCount > 0 && (
+                      <div className="flex items-center justify-center h-6 w-6 rounded-full bg-brand text-white text-xs font-semibold shrink-0">
+                        {conversation.unreadCount > 9
+                          ? "9+"
+                          : conversation.unreadCount}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </button>
             ))}
           </div>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Você ainda não tem conversas. Procure por pessoas para seguir!
-          </p>
-          <a href="/buscar">
-            <Button className="rounded-full">Buscar</Button>
-          </a>
-        </div>
-      )}
+        ) : filteredFollowers.length > 0 ? (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
+              <p className="text-sm text-muted-foreground">
+                Você ainda não tem conversas. Inicie uma nova conversa
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              {filteredFollowers.map((follower) => (
+                <button
+                  key={follower.id}
+                  onClick={() => {
+                    setSelectedConversation({
+                      userId: follower.id,
+                      userNickname: follower.nickname,
+                      userPhoto: follower.photo,
+                      lastMessage: "",
+                      lastMessageTime: new Date().toISOString(),
+                      unreadCount: 0,
+                    });
+                    setViewMode("conversation");
+                  }}
+                  className="w-full"
+                >
+                  <Card className="border-border/60 hover:bg-muted/50 transition-colors cursor-pointer">
+                    <CardContent className="p-4 flex items-center gap-3">
+                      {follower.photo ? (
+                        <img
+                          src={follower.photo}
+                          alt={follower.nickname}
+                          className="h-12 w-12 rounded-full object-cover shrink-0"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-full bg-muted shrink-0" />
+                      )}
+
+                      <div className="flex-1 min-w-0 text-left">
+                        <p className="font-medium text-sm">{follower.nickname}</p>
+                        {follower.bio && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {follower.bio}
+                          </p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Você ainda não tem conversas. Procure por pessoas para seguir!
+            </p>
+            <a href="/buscar">
+              <Button className="rounded-full">Buscar</Button>
+            </a>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
