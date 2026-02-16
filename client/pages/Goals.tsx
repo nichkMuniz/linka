@@ -53,6 +53,10 @@ import {
   ChevronUp,
   Search,
   Filter,
+  Pause,
+  MoreVertical,
+  Trash2,
+  Edit2,
 } from "lucide-react";
 import {
   Dialog,
@@ -67,6 +71,12 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function Goals() {
   const navigate = useNavigate();
@@ -234,6 +244,31 @@ export default function Goals() {
       }
     })();
   }, [user]);
+
+  // Initialize workoutSeries with one series for each exercise when modal opens
+  React.useEffect(() => {
+    if (workoutModalOpen && userWorkouts.length > 0) {
+      const initialSeries: Record<string, Array<{ series: number; kg: number; reps: number; completed: boolean }>> = {};
+      userWorkouts.forEach((workout) => {
+        if (!workoutSeries[workout.workout_id] || workoutSeries[workout.workout_id].length === 0) {
+          initialSeries[workout.workout_id] = [
+            {
+              series: 1,
+              kg: 0,
+              reps: 0,
+              completed: false,
+            },
+          ];
+        }
+      });
+      if (Object.keys(initialSeries).length > 0) {
+        setWorkoutSeries((prev) => ({
+          ...prev,
+          ...initialSeries,
+        }));
+      }
+    }
+  }, [workoutModalOpen, userWorkouts]);
 
   const handleSelectGoal = async (goal: ProgrammedGoal) => {
     if (!user) {
@@ -871,7 +906,7 @@ export default function Goals() {
                         }
                         className="flex-1 flex items-center justify-between"
                       >
-                        <div className="flex-1">
+                        <div className="flex flex-col justify-center items-center flex-1">
                           <p className="text-sm font-medium">{typeLabel}</p>
                           <p className="text-xs text-muted-foreground mt-1">
                             {itemsForType.length > 0
@@ -940,6 +975,25 @@ export default function Goals() {
                                   </p>
                                 )}
                               </div>
+
+                              {/* Edit dropdown menu */}
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button className="p-2 hover:bg-muted/50 rounded transition-colors flex-shrink-0">
+                                    <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-40">
+                                  <DropdownMenuItem onClick={() => handleAddRoutineClick()}>
+                                    <Edit2 className="h-4 w-4 mr-2" />
+                                    Adicionar exercícios
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem className="text-red-500">
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Excluir rotina
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
                           ))
                         ) : (
@@ -961,7 +1015,7 @@ export default function Goals() {
                   variant="outline"
                 >
                   <Plus className="h-5 w-5" />
-                  Adicionar Mais
+                  Nova Rotina
                 </Button>
               </div>
             </div>
@@ -1317,15 +1371,15 @@ export default function Goals() {
                   {formatDuration(workoutDuration)}
                 </p>
               </div>
-              <Button
+              <button
                 onClick={handleFinishWorkout}
-                className="rounded-full h-auto py-3 px-6 text-sm font-medium whitespace-nowrap"
+                className="rounded-full h-12 w-12 p-2 bg-destructive hover:bg-destructive/90 text-white flex items-center justify-center transition-colors flex-shrink-0"
               >
-                Finalizar Treino
-              </Button>
+                <Pause className="h-5 w-5" />
+              </button>
             </div>
 
-            {/* Exercises List */}
+            {/* Add Exercise Button - moved to bottom */}
             <div className="space-y-4">
               {userWorkouts.map((workout) => (
                 <div
@@ -1472,20 +1526,20 @@ export default function Goals() {
                     <Plus className="h-3 w-3 mr-1" />
                     Adicionar Série
                   </Button>
-
-                  {/* Add Exercise Button */}
-                  <Button
-                    onClick={() => handleAddRoutineClick()}
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-xs"
-                  >
-                    <Plus className="h-3 w-3 mr-1" />
-                    Adicionar Exercício
-                  </Button>
                 </div>
               ))}
             </div>
+
+            {/* Add Exercise Button - at bottom */}
+            <Button
+              onClick={() => handleAddRoutineClick()}
+              variant="outline"
+              size="sm"
+              className="w-full text-xs"
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Adicionar Exercício
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
