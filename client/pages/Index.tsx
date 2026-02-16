@@ -406,9 +406,9 @@ export default function Index() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl flex flex-col h-screen overflow-hidden">
+    <div className="mx-auto w-full max-w-2xl flex flex-col">
       {/* Stories Carousel */}
-      <div className="bg-background border-b border-border/60 shrink-0">
+      <div className="bg-background border-b border-border/60">
         <StoriesCarousel
           stories={stories}
           onAddStoryClick={handleAddStoryClick}
@@ -418,7 +418,7 @@ export default function Index() {
       </div>
 
       {/* Feed Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div>
         <div className="grid w-full gap-3 p-4">
           {posts.length ? (
             posts.map((post) => (
