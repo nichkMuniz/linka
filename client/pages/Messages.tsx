@@ -4,7 +4,7 @@ import {
   getConversationMessagesDb,
   sendMessageDb,
   markMessagesAsReadDb,
-  getFollowersDb,
+  getFollowingDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
@@ -35,16 +35,16 @@ export default function Messages() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
-  // Load conversations and followers
+  // Load conversations and following users
   React.useEffect(() => {
     const loadData = async () => {
       try {
-        const [conversationsData, followersData] = await Promise.all([
+        const [conversationsData, followingData] = await Promise.all([
           getConversationsDb(),
-          getFollowersDb(),
+          getFollowingDb(),
         ]);
         setConversations(conversationsData);
-        setFollowers(followersData);
+        setFollowers(followingData);
       } catch (err: any) {
         console.error("Error loading messages:", err);
         toast({
@@ -395,7 +395,7 @@ export default function Messages() {
         ) : (
           <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
             <p className="text-sm text-muted-foreground">
-              Você ainda não tem conversas. Procure por pessoas para seguir!
+              Você ainda não segue ninguém. Procure por pessoas para seguir!
             </p>
             <a href="/buscar">
               <Button className="rounded-full">Buscar</Button>
