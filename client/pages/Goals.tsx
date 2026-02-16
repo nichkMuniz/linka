@@ -337,6 +337,67 @@ export default function Goals() {
     setSelectedMuscleGroups(new Set());
   };
 
+  const handleDeleteExercise = async (userWorkoutId: string) => {
+    try {
+      const { error } = await supabase
+        .from("user_workouts")
+        .delete()
+        .eq("id", userWorkoutId);
+
+      if (error) throw error;
+
+      // Update local state
+      setUserWorkouts((prev) => prev.filter((w) => w.id !== userWorkoutId));
+
+      toast({
+        title: "Exercício removido",
+        description: "O exercício foi removido da sua lista.",
+      });
+    } catch (err: any) {
+      console.error("Error deleting exercise:", err);
+      toast({
+        title: "Erro ao remover exercício",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteRoutineType = async (typeCode: number) => {
+    try {
+      if (!user) return;
+
+      let table = "";
+      if (typeCode === 1) table = "user_workouts";
+      else if (typeCode === 2) table = "user_diets";
+      else if (typeCode === 3) table = "user_habits";
+
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      // Update local state
+      if (typeCode === 1) setUserWorkouts([]);
+      else if (typeCode === 2) setUserDiets([]);
+      else if (typeCode === 3) setUserHabits([]);
+
+      toast({
+        title: "Rotina removida",
+        description: "Todos os itens foram removidos.",
+      });
+    } catch (err: any) {
+      console.error("Error deleting routine:", err);
+      toast({
+        title: "Erro ao remover rotina",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Get unique muscle groups from workouts
   const uniqueMuscleGroups = React.useMemo(() => {
     const groups = new Set<string>();
@@ -955,11 +1016,33 @@ export default function Goals() {
                         )}
                       </button>
 
+                      {/* Dropdown menu for routine actions */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="ml-2 p-2 hover:bg-muted/50 rounded transition-colors flex-shrink-0">
+                            <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem onClick={() => handleAddRoutineClick()}>
+                            <Plus className="h-4 w-4 mr-2" />
+                            Adicionar exercícios
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleDeleteRoutineType(typeCode)}
+                            className="text-red-500"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Excluir rotina
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
                       {/* Play button for exercises */}
                       {typeCode === 1 && itemsForType.length > 0 && (
                         <button
                           onClick={() => setWorkoutModalOpen(true)}
-                          className="ml-3 p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors"
+                          className="ml-2 p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors"
                         >
                           <Play className="h-5 w-5 text-brand" />
                         </button>
@@ -1010,24 +1093,14 @@ export default function Goals() {
                                 )}
                               </div>
 
-                              {/* Edit dropdown menu */}
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button className="p-2 hover:bg-muted/50 rounded transition-colors flex-shrink-0">
-                                    <MoreVertical className="h-4 w-4 text-muted-foreground" />
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-40">
-                                  <DropdownMenuItem onClick={() => handleAddRoutineClick()}>
-                                    <Edit2 className="h-4 w-4 mr-2" />
-                                    Adicionar exercícios
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem className="text-red-500">
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Excluir rotina
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                              {/* Delete button */}
+                              <button
+                                onClick={() => handleDeleteExercise(item.id)}
+                                className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
+                                title="Remover exercício"
+                              >
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                              </button>
                             </div>
                           ))
                         ) : (
@@ -1389,182 +1462,171 @@ export default function Goals() {
 
       {/* Workout Modal */}
       <Dialog open={workoutModalOpen} onOpenChange={setWorkoutModalOpen}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-h-[90dvh] overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between">
             <DialogTitle>Registrar Treino</DialogTitle>
-          </DialogHeader>
+            <button
+              onClick={handleFinishWorkout}
+              className="rounded-full h-12 w-12 p-2 bg-destructive hover:bg-destructive/90 text-white flex items-center justify-center transition-colors flex-shrink-0"
+              title="Encerrar treino"
+            >
+              <Pause className="h-5 w-5" />
+            </button>
+          </div>
 
-          <div className="space-y-6">
-            {/* Workout Duration Timer and Finish Button */}
-            <div className="flex gap-3 items-end">
-              <div className="flex-1 rounded-lg p-4 text-center border border-border/60 bg-background">
-                <p className="text-xs font-medium text-muted-foreground mb-2">
-                  Duração do Treino
-                </p>
-                <p className="text-3xl font-bold text-brand">
-                  {formatDuration(workoutDuration)}
-                </p>
-              </div>
-              <button
-                onClick={handleFinishWorkout}
-                className="rounded-full h-12 w-12 p-2 bg-destructive hover:bg-destructive/90 text-white flex items-center justify-center transition-colors flex-shrink-0"
-              >
-                <Pause className="h-5 w-5" />
-              </button>
-            </div>
+          {/* Timer - Sticky at top */}
+          <div className="mt-4 p-4 rounded-lg border border-brand/30 bg-brand/5">
+            <p className="text-xs font-medium text-muted-foreground text-center mb-2">
+              Duração
+            </p>
+            <p className="text-4xl font-bold text-brand text-center">
+              {formatDuration(workoutDuration)}
+            </p>
+          </div>
 
-            {/* Add Exercise Button - moved to bottom */}
-            <div className="space-y-4">
-              {userWorkouts.map((workout) => (
+          {/* Exercises List - Scrollable */}
+          <div className="flex-1 overflow-y-auto mt-4 space-y-4 pr-2">
+            {userWorkouts.length > 0 ? (
+              userWorkouts.map((workout) => (
                 <div
                   key={workout.id}
-                  className="border border-border/60 rounded-lg p-4 space-y-3"
+                  className="border border-border/60 rounded-lg overflow-hidden"
                 >
                   {/* Exercise Header */}
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-3 p-3 bg-muted/30">
                     {workout.workoutPhoto && (
                       <img
                         src={workout.workoutPhoto}
                         alt={workout.workoutName}
-                        className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
+                        className="h-14 w-14 rounded-lg object-cover flex-shrink-0"
                       />
                     )}
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold truncate">
                         {workout.workoutName}
                       </p>
                       {workout.workoutDescription && (
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
                           {workout.workoutDescription}
                         </p>
                       )}
                     </div>
                   </div>
 
-                  {/* Rest Time Selector - Exercise Level */}
-                  <div className="space-y-2 p-3 rounded-lg border border-border/60 bg-background">
-                    <label className="text-xs font-medium text-muted-foreground block">
-                      Tempo de descanso entre séries
-                    </label>
-                    <select
-                      value={workoutExerciseRestTimes[workout.workout_id] || ""}
-                      onChange={(e) =>
-                        handleSetExerciseRestTime(workout.workout_id, parseInt(e.target.value))
-                      }
-                      className="w-full px-3 py-2 border border-border/60 rounded-lg text-sm bg-background"
-                    >
-                      <option value="">Selecione um tempo</option>
-                      {REST_TIME_OPTIONS.map((time) => (
-                        <option key={time} value={time}>
-                          {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {/* Exercise Content */}
+                  <div className="p-3 space-y-3">
+                    {/* Rest Time */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground block">
+                        Descanso entre séries
+                      </label>
+                      <select
+                        value={workoutExerciseRestTimes[workout.workout_id] || ""}
+                        onChange={(e) =>
+                          handleSetExerciseRestTime(workout.workout_id, parseInt(e.target.value))
+                        }
+                        className="w-full px-2.5 py-1.5 border border-border/60 rounded text-sm bg-background"
+                      >
+                        <option value="">Selecione</option>
+                        {REST_TIME_OPTIONS.map((time) => (
+                          <option key={time} value={time}>
+                            {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                  {/* Series List */}
-                  <div className="space-y-2">
-                    {(workoutSeries[workout.workout_id] || []).map(
-                      (series, index) => (
+                    {/* Series List */}
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Séries</p>
+                      {(workoutSeries[workout.workout_id] || []).map((series, index) => (
                         <div
                           key={index}
-                          className={`p-3 border border-border/60 rounded-lg space-y-2 transition-all bg-background ${series.completed ? "opacity-60" : ""
-                            }`}
+                          className={`p-2.5 bg-muted/40 rounded-lg border border-border/40 flex items-center gap-2 transition-all ${
+                            series.completed ? "opacity-60" : ""
+                          }`}
                         >
-                          {/* Series row: Série number, kg, reps, completed checkbox */}
-                          <div className="flex items-end gap-2">
-                            <div className="flex-shrink-0">
-                              <label className="text-xs font-medium text-muted-foreground">
-                                Série
-                              </label>
-                              <input
-                                type="number"
-                                value={series.series}
-                                disabled
-                                className="w-12 h-9 px-2 py-1 border border-border/60 rounded text-sm bg-background"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="text-xs font-medium text-muted-foreground">
-                                kg
-                              </label>
-                              <input
-                                type="number"
-                                step="0.5"
-                                value={series.kg === 0 ? "" : series.kg}
-                                onChange={(e) =>
-                                  handleUpdateSerie(
-                                    workout.workout_id,
-                                    index,
-                                    "kg",
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder="0"
-                                className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm bg-background"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="text-xs font-medium text-muted-foreground">
-                                Reps
-                              </label>
-                              <input
-                                type="number"
-                                value={series.reps === 0 ? "" : series.reps}
-                                onChange={(e) =>
-                                  handleUpdateSerie(
-                                    workout.workout_id,
-                                    index,
-                                    "reps",
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder="0"
-                                className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm bg-background"
-                              />
-                            </div>
-
-                            {/* Completed checkbox */}
-                            <div className="flex-1 flex justify-end">
-                              <button
-                                onClick={() =>
-                                  handleToggleSerieCompleted(
-                                    workout.workout_id,
-                                    index,
-                                  )
-                                }
-                                className="p-2 hover:bg-muted/40 rounded transition-colors"
-                              >
-                                {series.completed ? (
-                                  <CheckCircle2 className="h-5 w-5 text-brand" />
-                                ) : (
-                                  <Circle className="h-5 w-5 text-muted-foreground" />
-                                )}
-                              </button>
-                            </div>
+                          {/* Series number */}
+                          <div className="w-8 h-8 flex items-center justify-center rounded-full bg-brand/20 text-brand font-bold text-xs flex-shrink-0">
+                            {series.series}
                           </div>
+
+                          {/* Inputs */}
+                          <div className="flex items-center gap-1.5 flex-1">
+                            <input
+                              type="number"
+                              step="0.5"
+                              value={series.kg === 0 ? "" : series.kg}
+                              onChange={(e) =>
+                                handleUpdateSerie(
+                                  workout.workout_id,
+                                  index,
+                                  "kg",
+                                  e.target.value,
+                                )
+                              }
+                              placeholder="kg"
+                              className="w-14 h-7 px-1.5 border border-border/60 rounded text-xs bg-background"
+                            />
+                            <span className="text-xs text-muted-foreground">×</span>
+                            <input
+                              type="number"
+                              value={series.reps === 0 ? "" : series.reps}
+                              onChange={(e) =>
+                                handleUpdateSerie(
+                                  workout.workout_id,
+                                  index,
+                                  "reps",
+                                  e.target.value,
+                                )
+                              }
+                              placeholder="reps"
+                              className="w-14 h-7 px-1.5 border border-border/60 rounded text-xs bg-background"
+                            />
+                          </div>
+
+                          {/* Completed toggle */}
+                          <button
+                            onClick={() =>
+                              handleToggleSerieCompleted(
+                                workout.workout_id,
+                                index,
+                              )
+                            }
+                            className="p-1 hover:bg-muted/60 rounded transition-colors flex-shrink-0"
+                          >
+                            {series.completed ? (
+                              <CheckCircle2 className="h-5 w-5 text-brand" />
+                            ) : (
+                              <Circle className="h-5 w-5 text-muted-foreground" />
+                            )}
+                          </button>
                         </div>
-                      ),
-                    )}
+                      ))}
+                    </div>
+
+                    {/* Add Series Button */}
+                    <Button
+                      onClick={() => handleAddSerie(workout.workout_id)}
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs h-7"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Série
+                    </Button>
                   </div>
-
-                  {/* Add Series Button */}
-                  <Button
-                    onClick={() => handleAddSerie(workout.workout_id)}
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-xs"
-                  >
-                    <Plus className="h-3 w-3 mr-1" />
-                    Adicionar Série
-                  </Button>
                 </div>
-              ))}
-            </div>
+              ))
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-sm text-muted-foreground">Nenhum exercício adicionado</p>
+              </div>
+            )}
+          </div>
 
-            {/* Add Exercise Button - at bottom */}
+          {/* Bottom Actions - Sticky */}
+          <div className="mt-4 space-y-2 border-t border-border/40 pt-3">
             <Button
               onClick={() => handleAddExerciseFromWorkout()}
               variant="outline"
