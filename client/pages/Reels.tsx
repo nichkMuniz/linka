@@ -15,11 +15,14 @@ import {
   addReelCommentDb,
   getReelCommentsDb,
   deleteReelCommentDb,
+  followUserDb,
+  unfollowUserDb,
+  isFollowingDb,
   type ReelWithUser,
   type ReelComment,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { MessageCircle, Send, Trash2 } from "lucide-react";
+import { MessageCircle, Send, Trash2, UserPlus, UserCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 
@@ -42,6 +45,12 @@ export default function Reels() {
   const [isAddingComment, setIsAddingComment] = React.useState(false);
   const [quickCommentText, setQuickCommentText] = React.useState("");
   const [isAddingQuickComment, setIsAddingQuickComment] = React.useState(false);
+  const [followingStatus, setFollowingStatus] = React.useState<
+    Record<string, boolean>
+  >({});
+  const [isFollowingLoading, setIsFollowingLoading] = React.useState<
+    Record<string, boolean>
+  >({});
   const containerRef = React.useRef<HTMLDivElement>(null);
   const videoRefsMap = React.useRef<Record<string, HTMLVideoElement>>({});
 
@@ -51,6 +60,20 @@ export default function Reels() {
       try {
         const reelsData = await getReelsDb();
         setReels(reelsData);
+
+        // Load follow status for each reel creator
+        if (user) {
+          const statuses: Record<string, boolean> = {};
+          for (const reel of reelsData) {
+            try {
+              const isFollowing = await isFollowingDb(reel.user_id);
+              statuses[reel.user_id] = isFollowing;
+            } catch (err) {
+              console.error(`Error checking follow status for ${reel.user_id}:`, err);
+            }
+          }
+          setFollowingStatus(statuses);
+        }
       } catch (err: any) {
         console.error("Erro ao carregar reels:", err?.message || err);
         toast({
@@ -61,7 +84,7 @@ export default function Reels() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [user]);
 
   // Set up IntersectionObserver to detect visible reel and auto-play video
   React.useEffect(() => {
@@ -260,6 +283,56 @@ export default function Reels() {
     }
   }, [quickCommentText, visibleReelId, reels]);
 
+  const handleFollowUser = React.useCallback(
+    async (userId: string) => {
+      if (!user) {
+        toast({
+          title: "Faça login",
+          description: "Você precisa estar logado para seguir usuários.",
+        });
+        return;
+      }
+
+      setIsFollowingLoading((prev) => ({ ...prev, [userId]: true }));
+
+      try {
+        const isCurrentlyFollowing = followingStatus[userId];
+
+        if (isCurrentlyFollowing) {
+          // Unfollow
+          const success = await unfollowUserDb(userId);
+          if (success) {
+            setFollowingStatus((prev) => ({ ...prev, [userId]: false }));
+            toast({
+              title: "Deixado de seguir",
+              description: "Você deixou de seguir este usuário.",
+            });
+          }
+        } else {
+          // Follow
+          const success = await followUserDb(userId);
+          if (success) {
+            setFollowingStatus((prev) => ({ ...prev, [userId]: true }));
+            toast({
+              title: "Seguindo",
+              description: "Você começou a seguir este usuário.",
+            });
+          }
+        }
+      } catch (err: any) {
+        console.error("Error toggling follow:", err);
+        toast({
+          title: "Erro",
+          description: err?.message || "Não foi possível atualizar o seguimento.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsFollowingLoading((prev) => ({ ...prev, [userId]: false }));
+      }
+    },
+    [user, followingStatus]
+  );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -281,9 +354,11 @@ export default function Reels() {
   return (
     <div
       ref={containerRef}
-      className="ReelsContainer w-full h-screen bg-black overflow-y-scroll overflow-x-hidden flex flex-col"
+      className="ReelsContainer fixed inset-0 w-screen h-screen bg-black overflow-y-scroll overflow-x-hidden flex flex-col"
       style={{
         scrollSnapType: "y mandatory",
+        padding: 0,
+        margin: 0,
       }}
     >
       {reels.map((reel) => {
@@ -293,13 +368,15 @@ export default function Reels() {
           <div
             key={reel.id}
             data-reel-id={reel.id}
-            className="ReelItem w-full h-screen min-h-screen flex-shrink-0 relative flex justify-center items-center bg-black"
+            className="ReelItem w-screen h-screen flex-shrink-0 relative flex justify-center items-center bg-black"
             style={{
               scrollSnapAlign: "start",
+              padding: 0,
+              margin: 0,
             }}
           >
             {/* Video */}
-            <div className="relative h-full w-full overflow-hidden bg-black">
+            <div className="absolute inset-0 h-full w-full overflow-hidden bg-black">
               {reel.video_url ? (
                 <video
                   ref={(el) => {
@@ -321,27 +398,51 @@ export default function Reels() {
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
 
               {/* User Info - Top Left */}
-              <button
-                onClick={() => navigate(`/usuario/${reel.user_id}`)}
-                className="absolute top-4 left-4 z-10 flex items-center gap-3 hover:opacity-80 transition-opacity"
-              >
-                {reel.userPhoto && (
-                  <img
-                    src={reel.userPhoto}
-                    alt={reel.userNickname || "Usuário"}
-                    className="h-12 w-12 rounded-full object-cover border-2 border-white/30 shadow-lg"
-                  />
+              <div className="absolute top-4 left-4 z-10 flex items-center gap-3">
+                <button
+                  onClick={() => navigate(`/usuario/${reel.user_id}`)}
+                  className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+                >
+                  {reel.userPhoto && (
+                    <img
+                      src={reel.userPhoto}
+                      alt={reel.userNickname || "Usuário"}
+                      className="h-12 w-12 rounded-full object-cover border-2 border-white/30 shadow-lg"
+                    />
+                  )}
+                  <div>
+                    <p className="text-sm font-bold text-white drop-shadow-md">
+                      {reel.userNickname || "Usuário"}
+                    </p>
+                  </div>
+                </button>
+                {user && user.id !== reel.user_id && (
+                  <button
+                    onClick={() => handleFollowUser(reel.user_id)}
+                    disabled={isFollowingLoading[reel.user_id]}
+                    className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                      followingStatus[reel.user_id]
+                        ? "bg-white/20 text-white hover:bg-white/30"
+                        : "bg-white text-black hover:bg-white/90"
+                    } disabled:opacity-50`}
+                  >
+                    {followingStatus[reel.user_id] ? (
+                      <>
+                        <UserCheck className="h-3 w-3" />
+                        Seguindo
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="h-3 w-3" />
+                        Seguir
+                      </>
+                    )}
+                  </button>
                 )}
-                <div>
-                  <p className="text-sm font-bold text-white drop-shadow-md">
-                    {reel.userNickname || "Usuário"}
-                  </p>
-                  <p className="text-xs text-white/70">Seguir</p>
-                </div>
-              </button>
+              </div>
 
               {/* Description - Bottom Left */}
-              <div className="absolute bottom-24 left-4 right-16 z-10">
+              <div className="absolute bottom-20 left-4 right-20 z-10">
                 {reel.description && (
                   <p className="text-sm text-white drop-shadow-md leading-relaxed">
                     {reel.description}
@@ -350,7 +451,7 @@ export default function Reels() {
               </div>
 
               {/* Incentive Buttons + Comments - Right Side */}
-              <div className="absolute right-4 bottom-24 flex flex-col gap-4 z-20">
+              <div className="absolute right-2 bottom-20 flex flex-col gap-3 z-20">
                 {/* Like/Incentive Buttons */}
                 <div className="flex flex-col gap-3">
                   {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
@@ -375,16 +476,16 @@ export default function Reels() {
                 </button>
               </div>
 
-              {/* Bottom Left Comment Input */}
+              {/* Bottom Comment Input - Full Width */}
               {user && (
-                <div className="absolute bottom-4 left-4 right-16 z-10">
-                  <div className="flex gap-2 bg-white/10 backdrop-blur-sm p-2 rounded-full border border-white/20">
+                <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/80 to-transparent p-4">
+                  <div className="flex gap-2 bg-white/10 backdrop-blur-sm p-3 rounded-full border border-white/20">
                     <Input
                       placeholder="Comente..."
                       value={quickCommentText}
                       onChange={(e) => setQuickCommentText(e.target.value)}
                       disabled={isAddingQuickComment}
-                      className="bg-transparent border-0 text-white placeholder:text-white/50 text-xs h-8 focus:ring-0 focus:outline-none"
+                      className="bg-transparent border-0 text-white placeholder:text-white/50 text-sm h-9 focus:ring-0 focus:outline-none flex-1"
                       onKeyPress={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
@@ -398,9 +499,9 @@ export default function Reels() {
                       disabled={
                         !quickCommentText.trim() || isAddingQuickComment
                       }
-                      className="h-8 w-8 p-0 rounded-full bg-white/20 hover:bg-white/30"
+                      className="h-9 w-9 p-0 rounded-full bg-white/20 hover:bg-white/30 flex-shrink-0"
                     >
-                      <Send className="h-3 w-3 text-white" />
+                      <Send className="h-4 w-4 text-white" />
                     </Button>
                   </div>
                 </div>
