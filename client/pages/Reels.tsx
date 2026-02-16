@@ -6,7 +6,6 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -22,7 +21,7 @@ import {
   type ReelComment,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { MessageCircle, Send, Trash2, UserPlus, UserCheck } from "lucide-react";
+import { MessageCircle, Trash2, UserPlus, UserCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 
@@ -43,8 +42,6 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
   const [commentText, setCommentText] = React.useState("");
   const [isLoadingComments, setIsLoadingComments] = React.useState(false);
   const [isAddingComment, setIsAddingComment] = React.useState(false);
-  const [quickCommentText, setQuickCommentText] = React.useState("");
-  const [isAddingQuickComment, setIsAddingQuickComment] = React.useState(false);
   const [followingStatus, setFollowingStatus] = React.useState<
     Record<string, boolean>
   >({});
@@ -225,32 +222,6 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
       });
     }
   }, []);
-
-  const handleAddQuickComment = React.useCallback(async () => {
-    if (!quickCommentText.trim() || !visibleReelId) return;
-
-    const visibleReel = reels.find((r) => r.id === visibleReelId);
-    if (!visibleReel) return;
-
-    setIsAddingQuickComment(true);
-    try {
-      await addReelCommentDb(visibleReel.id, quickCommentText);
-      setQuickCommentText("");
-      toast({
-        title: "Comentário enviado!",
-        description: "Seu comentário foi publicado.",
-      });
-    } catch (err: any) {
-      console.error("Error adding comment:", err);
-      toast({
-        title: "Erro ao enviar comentário",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsAddingQuickComment(false);
-    }
-  }, [quickCommentText, visibleReelId, reels]);
 
   const handleFollowUser = React.useCallback(
     async (userId: string) => {
@@ -460,41 +431,6 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
                 </button>
               </div>
 
-              {/* Bottom Comment Input - Above Footer */}
-              {user && (
-                <div
-                  className="absolute left-0 right-0 z-10 bg-gradient-to-t from-black/80 to-transparent p-4"
-                  style={{
-                    bottom: `${footerHeight + 10}px`,
-                  }}
-                >
-                  <div className="flex gap-2 bg-white/10 backdrop-blur-sm p-3 rounded-full border border-white/20">
-                    <Input
-                      placeholder="Comente..."
-                      value={quickCommentText}
-                      onChange={(e) => setQuickCommentText(e.target.value)}
-                      disabled={isAddingQuickComment}
-                      className="bg-transparent border-0 text-white placeholder:text-white/50 text-sm h-9 focus:ring-0 focus:outline-none flex-1"
-                      onKeyPress={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          handleAddQuickComment();
-                        }
-                      }}
-                    />
-                    <Button
-                      size="sm"
-                      onClick={handleAddQuickComment}
-                      disabled={
-                        !quickCommentText.trim() || isAddingQuickComment
-                      }
-                      className="h-9 w-9 p-0 rounded-full bg-white/20 hover:bg-white/30 flex-shrink-0"
-                    >
-                      <Send className="h-4 w-4 text-white" />
-                    </Button>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
