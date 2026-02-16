@@ -15,7 +15,7 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
-import { getUserGoalsDb, type UserGoal } from "@/lib/ritmofit-db";
+import { getUserGoalsDb, incrementGoalProgressDb, type UserGoal } from "@/lib/ritmofit-db";
 
 export default function NewPost() {
   const navigate = useNavigate();
@@ -78,6 +78,16 @@ export default function NewPost() {
       });
 
       if (insertError) throw insertError;
+
+      // Update goal progress if a goal was selected
+      if (selectedGoalId) {
+        try {
+          await incrementGoalProgressDb(selectedGoalId);
+        } catch (err) {
+          console.error("Error updating goal progress:", err);
+          // Don't throw - the post was already created successfully
+        }
+      }
 
       toast({ title: "Post publicado!" });
       input.value = "";

@@ -4,6 +4,7 @@ import {
   Dumbbell,
   Search,
   MessageCircle,
+  Bell,
   Video,
   ShoppingBag,
 } from "lucide-react";
@@ -166,7 +167,7 @@ export function AppLayout() {
             </span>
           </button>
 
-          {/* Right: Search and Messages (absolute positioned on desktop) */}
+          {/* Right: Search, Notifications and Messages (absolute positioned on desktop) */}
           <div className="absolute right-4 flex items-center gap-1">
             <Link to="/buscar">
               <Button
@@ -177,6 +178,18 @@ export function AppLayout() {
                 aria-label="Buscar pessoas, treinos e dietas"
               >
                 <Search className="h-5 w-5" />
+              </Button>
+            </Link>
+
+            <Link to="/notificacoes">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-11 w-11 rounded-full"
+                aria-label="Notificações"
+              >
+                <Bell className="h-5 w-5" />
               </Button>
             </Link>
 

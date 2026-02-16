@@ -29,6 +29,7 @@ import Profile from "@/pages/Profile";
 import PostDetail from "@/pages/PostDetail";
 import Search from "@/pages/Search";
 import Messages from "@/pages/Messages";
+import Notifications from "@/pages/Notifications";
 import Reels from "@/pages/Reels";
 import Store from "@/pages/Store";
 import NotFound from "@/pages/NotFound";
@@ -126,6 +127,7 @@ const App = () => {
                   <Route path="/post/:postId" element={<PostDetail />} />
                   <Route path="/buscar" element={<Search />} />
                   <Route path="/mensagens" element={<Messages />} />
+                  <Route path="/notificacoes" element={<Notifications />} />
 
                   {/* compatibility */}
                   <Route

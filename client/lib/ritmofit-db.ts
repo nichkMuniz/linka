@@ -3160,3 +3160,174 @@ export async function saveWorkoutSeriesDb(
     duration: row.duration,
   }));
 }
+
+// Notifications functionality
+export type NotificationItem = {
+  id: string;
+  type: "like" | "comment" | "post";
+  userId: string;
+  userNickname: string;
+  userPhoto: string | null;
+  postId?: string;
+  postPhoto?: string;
+  text?: string; // For comments
+  createdAt: string;
+};
+
+export async function getNotificationsDb(): Promise<NotificationItem[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  try {
+    const notifications: NotificationItem[] = [];
+
+    // Get likes on user's posts
+    const { data: likesData, error: likesError } = await supabase
+      .from("likes")
+      .select("id, user_id, post_id, type, created_at")
+      .in("post_id",
+        (await supabase
+          .from("posts")
+          .select("id")
+          .eq("user_id", viewer.id)
+          .then(result => (result.data ?? []).map((p: any) => p.id)))
+      )
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (!likesError && likesData) {
+      // Get user profiles and post photos for likes
+      const userIds = [...new Set(likesData.map((l: any) => l.user_id))];
+      const postIds = [...new Set(likesData.map((l: any) => l.post_id))];
+
+      const [{ data: profiles }, { data: posts }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("user_id, nickname, photo")
+          .in("user_id", userIds),
+        supabase
+          .from("posts")
+          .select("id, photo")
+          .in("id", postIds),
+      ]);
+
+      const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
+      const postMap = new Map((posts ?? []).map((p: any) => [p.id, p]));
+
+      likesData.forEach((like: any) => {
+        const profile = profileMap.get(like.user_id);
+        const post = postMap.get(like.post_id);
+        if (profile && post) {
+          notifications.push({
+            id: `like-${like.id}`,
+            type: "like",
+            userId: like.user_id,
+            userNickname: profile.nickname,
+            userPhoto: profile.photo,
+            postId: like.post_id,
+            postPhoto: post.photo,
+            createdAt: like.created_at,
+          });
+        }
+      });
+    }
+
+    // Get comments on user's posts
+    const { data: commentsData, error: commentsError } = await supabase
+      .from("comments")
+      .select("id, user_id, post_id, text, created_at")
+      .in("post_id",
+        (await supabase
+          .from("posts")
+          .select("id")
+          .eq("user_id", viewer.id)
+          .then(result => (result.data ?? []).map((p: any) => p.id)))
+      )
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (!commentsError && commentsData) {
+      const userIds = [...new Set(commentsData.map((c: any) => c.user_id))];
+      const postIds = [...new Set(commentsData.map((c: any) => c.post_id))];
+
+      const [{ data: profiles }, { data: posts }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("user_id, nickname, photo")
+          .in("user_id", userIds),
+        supabase
+          .from("posts")
+          .select("id, photo")
+          .in("id", postIds),
+      ]);
+
+      const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
+      const postMap = new Map((posts ?? []).map((p: any) => [p.id, p]));
+
+      commentsData.forEach((comment: any) => {
+        const profile = profileMap.get(comment.user_id);
+        const post = postMap.get(comment.post_id);
+        if (profile && post) {
+          notifications.push({
+            id: `comment-${comment.id}`,
+            type: "comment",
+            userId: comment.user_id,
+            userNickname: profile.nickname,
+            userPhoto: profile.photo,
+            postId: comment.post_id,
+            postPhoto: post.photo,
+            text: comment.text,
+            createdAt: comment.created_at,
+          });
+        }
+      });
+    }
+
+    // Get new posts from followed users
+    const followingIds = await getFollowingIdsDb();
+    if (followingIds.length > 0) {
+      const { data: postsData } = await supabase
+        .from("posts")
+        .select("id, user_id, photo, created_at")
+        .in("user_id", followingIds)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (postsData) {
+        const userIds = [...new Set(postsData.map((p: any) => p.user_id))];
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("user_id, nickname, photo")
+          .in("user_id", userIds);
+
+        const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
+
+        postsData.forEach((post: any) => {
+          const profile = profileMap.get(post.user_id);
+          if (profile) {
+            notifications.push({
+              id: `post-${post.id}`,
+              type: "post",
+              userId: post.user_id,
+              userNickname: profile.nickname,
+              userPhoto: profile.photo,
+              postId: post.id,
+              postPhoto: post.photo,
+              createdAt: post.created_at,
+            });
+          }
+        });
+      }
+    }
+
+    // Sort all notifications by date and return top 100
+    return notifications
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 100);
+  } catch (err: any) {
+    console.error("Error getting notifications:", err);
+    return [];
+  }
+}
