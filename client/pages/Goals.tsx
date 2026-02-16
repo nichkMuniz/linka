@@ -144,6 +144,7 @@ export default function Goals() {
     string | null
   >(null);
   const [restTimerRemaining, setRestTimerRemaining] = React.useState(0);
+  const [finishWorkoutConfirmOpen, setFinishWorkoutConfirmOpen] = React.useState(false);
 
   // Edit goal modal state
   const [editGoalModalOpen, setEditGoalModalOpen] = React.useState(false);
@@ -326,6 +327,16 @@ export default function Goals() {
     setSelectedMuscleGroups(new Set());
   };
 
+  const handleAddExerciseFromWorkout = () => {
+    // When called from workout modal, automatically select exercises type and pre-check existing items
+    setAddRoutineModalOpen(true);
+    setSelectedRoutineType(1); // 1 = Exercises
+    const existingWorkoutIds = new Set(userWorkouts.map((w) => w.workout_id));
+    setSelectedItems(existingWorkoutIds);
+    setSearchQuery("");
+    setSelectedMuscleGroups(new Set());
+  };
+
   // Get unique muscle groups from workouts
   const uniqueMuscleGroups = React.useMemo(() => {
     const groups = new Set<string>();
@@ -470,7 +481,29 @@ export default function Goals() {
     };
   }, [restTimerModalOpen, restTimerRemaining]);
 
-  const handleFinishWorkout = async () => {
+  const handleFinishWorkout = () => {
+    if (!user) return;
+
+    // Check if any exercises have completed series
+    const hasCompletedSeries = userWorkouts.some((workout) => {
+      const series = workoutSeries[workout.workout_id] || [];
+      return series.some((s) => s.completed);
+    });
+
+    if (!hasCompletedSeries) {
+      toast({
+        title: "Nenhum exercício marcado como feito",
+        description: "Marque pelo menos um exercício como concluído antes de finalizar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Show confirmation dialog
+    setFinishWorkoutConfirmOpen(true);
+  };
+
+  const handleConfirmFinishWorkout = async () => {
     if (!user) return;
 
     try {
@@ -561,6 +594,7 @@ export default function Goals() {
       setWorkoutSeries({});
       setWorkoutDuration(0);
       setWorkoutStartTime(null);
+      setFinishWorkoutConfirmOpen(false);
 
       // Refresh workout list to show updated data
       const [routinesData, userWorkoutsData, userDietsData, userHabitsData] =
@@ -1363,7 +1397,7 @@ export default function Goals() {
           <div className="space-y-6">
             {/* Workout Duration Timer and Finish Button */}
             <div className="flex gap-3 items-end">
-              <div className="flex-1 bg-brand/10 rounded-lg p-4 text-center">
+              <div className="flex-1 rounded-lg p-4 text-center border border-border/60 bg-background">
                 <p className="text-xs font-medium text-muted-foreground mb-2">
                   Duração do Treino
                 </p>
@@ -1408,7 +1442,7 @@ export default function Goals() {
                   </div>
 
                   {/* Rest Time Selector - Exercise Level */}
-                  <div className="space-y-2 p-3 bg-brand/5 rounded-lg border border-brand/20">
+                  <div className="space-y-2 p-3 rounded-lg border border-border/60 bg-background">
                     <label className="text-xs font-medium text-muted-foreground block">
                       Tempo de descanso entre séries
                     </label>
@@ -1434,7 +1468,7 @@ export default function Goals() {
                       (series, index) => (
                         <div
                           key={index}
-                          className={`p-3 bg-muted/20 rounded-lg space-y-2 transition-all ${series.completed ? "opacity-60" : ""
+                          className={`p-3 border border-border/60 rounded-lg space-y-2 transition-all bg-background ${series.completed ? "opacity-60" : ""
                             }`}
                         >
                           {/* Series row: Série number, kg, reps, completed checkbox */}
@@ -1447,7 +1481,7 @@ export default function Goals() {
                                 type="number"
                                 value={series.series}
                                 disabled
-                                className="w-12 h-9 px-2 py-1 border border-border/60 rounded text-sm bg-muted"
+                                className="w-12 h-9 px-2 py-1 border border-border/60 rounded text-sm bg-background"
                               />
                             </div>
 
@@ -1468,7 +1502,7 @@ export default function Goals() {
                                   )
                                 }
                                 placeholder="0"
-                                className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm"
+                                className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm bg-background"
                               />
                             </div>
 
@@ -1488,7 +1522,7 @@ export default function Goals() {
                                   )
                                 }
                                 placeholder="0"
-                                className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm"
+                                className="w-16 h-9 px-2 py-1 border border-border/60 rounded text-sm bg-background"
                               />
                             </div>
 
@@ -1532,7 +1566,7 @@ export default function Goals() {
 
             {/* Add Exercise Button - at bottom */}
             <Button
-              onClick={() => handleAddRoutineClick()}
+              onClick={() => handleAddExerciseFromWorkout()}
               variant="outline"
               size="sm"
               className="w-full text-xs"
@@ -1687,6 +1721,35 @@ export default function Goals() {
           )}
         </DrawerContent>
       </Drawer>
+
+      {/* Finish Workout Confirmation Dialog */}
+      <Dialog open={finishWorkoutConfirmOpen} onOpenChange={setFinishWorkoutConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar Encerramento do Treino</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Tem certeza que deseja encerrar o treino? Todos os dados registrados serão salvos.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1 rounded-full"
+                onClick={() => setFinishWorkoutConfirmOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                className="flex-1 rounded-full bg-destructive hover:bg-destructive/90"
+                onClick={handleConfirmFinishWorkout}
+              >
+                Encerrar Treino
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
