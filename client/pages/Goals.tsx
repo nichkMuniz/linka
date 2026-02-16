@@ -17,6 +17,7 @@ import {
   getUserDietsDb,
   getUserHabitsDb,
   updateWorkoutSeriesDb,
+  getUserGoalsDb,
   type ProgrammedGoal,
   type RankingUser,
   type Workout,
@@ -74,6 +75,7 @@ export default function Goals() {
   // Metas tab state
   const [goals, setGoals] = React.useState<ProgrammedGoal[]>([]);
   const [selectedGoalIds, setSelectedGoalIds] = React.useState<string[]>([]);
+  const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
 
   // Add routine modal state
   const [addRoutineModalOpen, setAddRoutineModalOpen] = React.useState(false);
@@ -105,7 +107,7 @@ export default function Goals() {
   );
   const [expandedRoutineId, setExpandedRoutineId] = React.useState<
     string | null
-  >("type-1"); // Always start with exercises expanded
+  >(null); // Start with all routines closed
 
   // Workout modal state
   const [workoutModalOpen, setWorkoutModalOpen] = React.useState(false);
@@ -200,16 +202,19 @@ export default function Goals() {
             userWorkoutsData,
             userDietsData,
             userHabitsData,
+            userGoalsData,
           ] = await Promise.all([
             getUserRoutinesDb(user.id),
             getUserWorkoutsDb(user.id),
             getUserDietsDb(user.id),
             getUserHabitsDb(user.id),
+            getUserGoalsDb(user.id),
           ]);
           setRoutines(routinesData);
           setUserWorkouts(userWorkoutsData);
           setUserDiets(userDietsData);
           setUserHabits(userHabitsData);
+          setUserGoals(userGoalsData);
 
           console.log("[Goals] Routines:", routinesData);
           console.log("[Goals] User workouts:", userWorkoutsData);
@@ -672,6 +677,11 @@ export default function Goals() {
                     {goals
                       .filter((goal) => selectedGoalIds.includes(goal.id))
                       .map((goal) => {
+                        // Find the user goal data to get actual duration/quantity
+                        const userGoal = userGoals.find(ug => ug.goal_id === goal.id);
+                        const duration = userGoal?.duration || goal.duration;
+                        const quantity = userGoal?.quantity || goal.quantity;
+
                         const goalTypeLabel =
                           goal.type === 1
                             ? "Fitness"
@@ -702,11 +712,11 @@ export default function Goals() {
                               <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
                                 <div className="bg-muted rounded p-1.5">
                                   <p className="text-muted-foreground">Duração</p>
-                                  <p className="font-bold">{goal.duration}d</p>
+                                  <p className="font-bold">{duration}d</p>
                                 </div>
                                 <div className="bg-muted rounded p-1.5">
                                   <p className="text-muted-foreground">Qtd</p>
-                                  <p className="font-bold">{goal.quantity}</p>
+                                  <p className="font-bold">{quantity}</p>
                                 </div>
                               </div>
 
@@ -717,16 +727,16 @@ export default function Goals() {
                                 className="w-full rounded-full mt-auto text-xs h-8"
                                 onClick={() => {
                                   setEditingGoal({
-                                    id: goal.id,
+                                    id: userGoal?.id || goal.id,
                                     goal_id: goal.id,
                                     user_id: user?.id || "",
                                     description: goal.description,
-                                    duration: goal.duration,
-                                    quantity: goal.quantity,
+                                    duration: duration,
+                                    quantity: quantity,
                                     type: goal.type,
                                   });
-                                  setEditGoalDuration(goal.duration);
-                                  setEditGoalQuantity(goal.quantity);
+                                  setEditGoalDuration(duration);
+                                  setEditGoalQuantity(quantity);
                                   setEditGoalModalOpen(true);
                                 }}
                               >
@@ -896,19 +906,13 @@ export default function Goals() {
                               key={item.id}
                               className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50"
                             >
-                              {/* Image for exercises */}
-                              {typeCode === 1 && (
-                                <>
-                                  {item.workoutPhoto ? (
-                                    <img
-                                      src={item.workoutPhoto}
-                                      alt={item.workoutName}
-                                      className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
-                                    />
-                                  ) : (
-                                    <div className="h-16 w-16 rounded-lg bg-muted flex-shrink-0" />
-                                  )}
-                                </>
+                              {/* Image for exercises - only show if exists */}
+                              {typeCode === 1 && item.workoutPhoto && (
+                                <img
+                                  src={item.workoutPhoto}
+                                  alt={item.workoutName}
+                                  className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
+                                />
                               )}
 
                               <div className="flex-1 min-w-0">
@@ -1592,8 +1596,8 @@ export default function Goals() {
                         editGoalQuantity,
                       );
 
-                      // Update local state
-                      const updatedGoals = goals.map((goal) =>
+                      // Update local user goals state
+                      const updatedUserGoals = userGoals.map((goal) =>
                         goal.id === editingGoal.id
                           ? {
                               ...goal,
@@ -1602,7 +1606,7 @@ export default function Goals() {
                             }
                           : goal,
                       );
-                      setGoals(updatedGoals);
+                      setUserGoals(updatedUserGoals);
 
                       toast({
                         title: "Meta atualizada!",
