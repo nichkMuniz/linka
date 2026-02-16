@@ -26,7 +26,7 @@ import { MessageCircle, Send, Trash2, UserPlus, UserCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 
-export default function Reels() {
+export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [reels, setReels] = React.useState<ReelWithUser[]>([]);
@@ -319,12 +319,27 @@ export default function Reels() {
   }
 
   return (
-    <div className="w-full h-full bg-black flex flex-col overflow-hidden">
-      {/* Reels Container - ÚNICO com scroll */}
+    <div
+      className="bg-black flex flex-col overflow-hidden"
+      style={{
+        width: "100vw",
+        height: "100vh",
+        maxWidth: "100%",
+        overflowX: "hidden",
+        overflowY: "hidden",
+        position: "relative",
+        justifyContent: "center",
+        paddingBottom: `${footerHeight + 10}px`,
+      }}
+    >
+      {/* Reels Container - Scroll Snap com overflow-y-scroll */}
       <div
         ref={containerRef}
-        className="flex-1 w-full overflow-y-scroll overflow-x-hidden flex flex-col"
+        className="flex-1 w-full overflow-x-hidden flex flex-col"
         style={{
+          maxWidth: "100vw",
+          overflowY: "scroll",
+          overflowX: "hidden",
           scrollSnapType: "y mandatory",
         }}
       >
@@ -335,10 +350,13 @@ export default function Reels() {
             <div
               key={reel.id}
               data-reel-id={reel.id}
-              className="w-full flex items-center justify-center bg-black relative overflow-hidden"
+              className="flex items-center justify-center bg-black relative"
               style={{
-                scrollSnapAlign: "start",
+                width: "100%",
                 height: "100%",
+                maxWidth: "100vw",
+                overflow: "hidden",
+                scrollSnapAlign: "start",
                 minHeight: "100%",
               }}
             >
@@ -443,9 +461,14 @@ export default function Reels() {
                 </button>
               </div>
 
-              {/* Bottom Comment Input - Full Width */}
+              {/* Bottom Comment Input - Above Footer */}
               {user && (
-                <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/80 to-transparent p-4">
+                <div
+                  className="absolute left-0 right-0 z-10 bg-gradient-to-t from-black/80 to-transparent p-4"
+                  style={{
+                    bottom: `${footerHeight + 10}px`,
+                  }}
+                >
                   <div className="flex gap-2 bg-white/10 backdrop-blur-sm p-3 rounded-full border border-white/20">
                     <Input
                       placeholder="Comente..."
