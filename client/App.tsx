@@ -30,9 +30,9 @@ import PostDetail from "@/pages/PostDetail";
 import Search from "@/pages/Search";
 import Messages from "@/pages/Messages";
 import Notifications from "@/pages/Notifications";
-import Reels from "@/pages/Reels";
 import Store from "@/pages/Store";
 import NotFound from "@/pages/NotFound";
+import { ReelsLayout } from "@/components/reels-layout";
 
 const queryClient = new QueryClient();
 
@@ -116,9 +116,11 @@ const App = () => {
               <Route path="/login" element={<Login />} />
 
               <Route element={<RequireAuth />}>
+                {/* Reels with custom footer layout */}
+                <Route path="/reels" element={<ReelsLayout />} />
+
                 <Route element={<AppLayout />}>
                   <Route path="/" element={<Index />} />
-                  <Route path="/reels" element={<Reels />} />
                   <Route path="/postar" element={<NewPost />} />
                   <Route path="/metas" element={<Goals />} />
                   <Route path="/loja" element={<Store />} />

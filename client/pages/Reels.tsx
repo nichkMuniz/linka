@@ -89,9 +89,9 @@ export default function Reels() {
   // Set up IntersectionObserver to detect visible reel and auto-play video
   React.useEffect(() => {
     const observerOptions = {
-      root: null,
+      root: containerRef.current,
       rootMargin: "0px",
-      threshold: [0.5], // Trigger when 50% of the element is visible
+      threshold: [0.5],
     };
 
     const observer = new IntersectionObserver((entries) => {
@@ -101,15 +101,11 @@ export default function Reels() {
 
         if (entry.isIntersecting) {
           setVisibleReelId(reelId);
-          // Play the video
           const video = videoRefsMap.current[reelId];
           if (video) {
-            video.play().catch(() => {
-              // Auto-play might be blocked by browser
-            });
+            video.play().catch(() => {});
           }
         } else {
-          // Pause the video
           const video = videoRefsMap.current[reelId];
           if (video) {
             video.pause();
@@ -130,66 +126,37 @@ export default function Reels() {
   }, [reels]);
 
   const handleIncentiveClick = React.useCallback(
-    async (reel: ReelWithUser, incentiveType: PostIncentiveType) => {
-      setTogglingReelId(reel.id);
-      try {
-        await toggleReelIncentiveDb(reel.id, incentiveType);
+    async (reel: ReelWithUser, type: PostIncentiveType) => {
+      if (!user) {
+        toast({
+          title: "Faça login",
+          description: "Você precisa estar logado para usar incentivos.",
+        });
+        return;
+      }
 
-        // Update the reel's likes
+      setTogglingReelId(reel.id);
+
+      try {
+        await toggleReelIncentiveDb(reel.id, type);
+
+        // Update local state
         setReels((prev) =>
           prev.map((r) => {
-            if (r.id === reel.id) {
-              const currentUserLikes = r.userLikes || [];
-              const userLiked = currentUserLikes.includes(incentiveType);
-              const currentLikes = r.likes || {
-                apoio: 0,
-                continua: 0,
-                ganhador: 0,
-                consegueMais: 0,
-                limiteMaior: 0,
-                maisAlgum: 0,
-              };
+            if (r.id !== reel.id) return r;
 
-              return {
-                ...r,
-                userLikes: userLiked
-                  ? currentUserLikes.filter((t) => t !== incentiveType)
-                  : [...currentUserLikes, incentiveType],
-                likes: {
-                  apoio:
-                    incentiveType === 1
-                      ? currentLikes.apoio + (userLiked ? -1 : 1)
-                      : currentLikes.apoio,
-                  continua:
-                    incentiveType === 2
-                      ? currentLikes.continua + (userLiked ? -1 : 1)
-                      : currentLikes.continua,
-                  ganhador:
-                    incentiveType === 3
-                      ? currentLikes.ganhador + (userLiked ? -1 : 1)
-                      : currentLikes.ganhador,
-                  consegueMais:
-                    incentiveType === 4
-                      ? currentLikes.consegueMais + (userLiked ? -1 : 1)
-                      : currentLikes.consegueMais,
-                  limiteMaior:
-                    incentiveType === 5
-                      ? currentLikes.limiteMaior + (userLiked ? -1 : 1)
-                      : currentLikes.limiteMaior,
-                  maisAlgum:
-                    incentiveType === 6
-                      ? currentLikes.maisAlgum + (userLiked ? -1 : 1)
-                      : currentLikes.maisAlgum,
-                },
-              };
-            }
-            return r;
-          }),
+            const userLikes = r.userLikes || [];
+            const newLikes = userLikes.includes(type)
+              ? userLikes.filter((t) => t !== type)
+              : [...userLikes, type];
+
+            return { ...r, userLikes: newLikes };
+          })
         );
       } catch (err: any) {
         console.error("Error toggling incentive:", err);
         toast({
-          title: "Erro ao registrar incentivo",
+          title: "Erro ao enviar incentivo",
           description: err?.message || "Tente novamente.",
           variant: "destructive",
         });
@@ -197,28 +164,31 @@ export default function Reels() {
         setTogglingReelId(null);
       }
     },
-    [],
+    [user]
   );
 
-  const handleOpenComments = React.useCallback(async (reel: ReelWithUser) => {
-    setSelectedReel(reel);
-    setCommentsOpen(true);
-    setIsLoadingComments(true);
-    try {
-      const commentsData = await getReelCommentsDb(reel.id);
-      setComments(commentsData || []);
-    } catch (err: any) {
-      console.error("Error loading comments:", err);
-      setComments([]);
-      toast({
-        title: "Erro ao carregar comentários",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingComments(false);
-    }
-  }, []);
+  const handleOpenComments = React.useCallback(
+    async (reel: ReelWithUser) => {
+      setSelectedReel(reel);
+      setCommentsOpen(true);
+      setIsLoadingComments(true);
+
+      try {
+        const commentsData = await getReelCommentsDb(reel.id);
+        setComments(commentsData);
+      } catch (err: any) {
+        console.error("Error loading comments:", err);
+        toast({
+          title: "Erro ao carregar comentários",
+          description: err?.message || "Tente novamente.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoadingComments(false);
+      }
+    },
+    []
+  );
 
   const handleAddComment = React.useCallback(async () => {
     if (!commentText.trim() || !selectedReel) return;
@@ -227,7 +197,6 @@ export default function Reels() {
     try {
       await addReelCommentDb(selectedReel.id, commentText);
 
-      // Reload comments
       const updatedComments = await getReelCommentsDb(selectedReel.id);
       setComments(updatedComments);
       setCommentText("");
@@ -299,7 +268,6 @@ export default function Reels() {
         const isCurrentlyFollowing = followingStatus[userId];
 
         if (isCurrentlyFollowing) {
-          // Unfollow
           const success = await unfollowUserDb(userId);
           if (success) {
             setFollowingStatus((prev) => ({ ...prev, [userId]: false }));
@@ -309,7 +277,6 @@ export default function Reels() {
             });
           }
         } else {
-          // Follow
           const success = await followUserDb(userId);
           if (success) {
             setFollowingStatus((prev) => ({ ...prev, [userId]: true }));
@@ -335,7 +302,7 @@ export default function Reels() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-full w-full bg-black">
         <p className="text-sm text-muted-foreground">Carregando clips...</p>
       </div>
     );
@@ -343,7 +310,7 @@ export default function Reels() {
 
   if (reels.length === 0) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-full w-full bg-black">
         <p className="text-sm text-muted-foreground">
           Nenhum clip disponível no momento.
         </p>
@@ -352,31 +319,30 @@ export default function Reels() {
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="ReelsContainer w-screen h-screen bg-black overflow-y-scroll overflow-x-hidden flex flex-col"
-      style={{
-        scrollSnapType: "y mandatory",
-        margin: 0,
-        padding: 0,
-      }}
-    >
-      {reels.map((reel) => {
-        const isVisible = reel.id === visibleReelId;
+    <div className="w-full h-full bg-black flex flex-col overflow-hidden">
+      {/* Reels Container - ÚNICO com scroll */}
+      <div
+        ref={containerRef}
+        className="flex-1 w-full overflow-y-scroll overflow-x-hidden flex flex-col"
+        style={{
+          scrollSnapType: "y mandatory",
+        }}
+      >
+        {reels.map((reel) => {
+          const isVisible = reel.id === visibleReelId;
 
-        return (
-          <div
-            key={reel.id}
-            data-reel-id={reel.id}
-            className="ReelItem w-screen h-screen flex-shrink-0 relative flex justify-center items-center bg-black"
-            style={{
-              scrollSnapAlign: "start",
-              padding: 0,
-              margin: 0,
-            }}
-          >
-            {/* Video */}
-            <div className="absolute inset-0 h-full w-full overflow-hidden bg-black">
+          return (
+            <div
+              key={reel.id}
+              data-reel-id={reel.id}
+              className="w-full flex items-center justify-center bg-black relative overflow-hidden"
+              style={{
+                scrollSnapAlign: "start",
+                height: "100%",
+                minHeight: "100%",
+              }}
+            >
+              {/* Video */}
               {reel.video_url ? (
                 <video
                   ref={(el) => {
@@ -452,7 +418,6 @@ export default function Reels() {
 
               {/* Incentive Buttons + Comments - Right Side */}
               <div className="absolute right-6 bottom-20 flex flex-col gap-3 z-20">
-                {/* Like/Incentive Buttons */}
                 {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
                   <PostIncentiveButton
                     key={type}
@@ -509,9 +474,9 @@ export default function Reels() {
                 </div>
               )}
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
 
       {/* Comments Drawer */}
       <Drawer
