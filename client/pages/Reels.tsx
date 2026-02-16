@@ -354,11 +354,11 @@ export default function Reels() {
   return (
     <div
       ref={containerRef}
-      className="ReelsContainer fixed inset-0 w-screen h-screen bg-black overflow-y-scroll overflow-x-hidden flex flex-col"
+      className="ReelsContainer w-screen h-screen bg-black overflow-y-scroll overflow-x-hidden flex flex-col"
       style={{
         scrollSnapType: "y mandatory",
-        padding: 0,
         margin: 0,
+        padding: 0,
       }}
     >
       {reels.map((reel) => {
@@ -451,7 +451,7 @@ export default function Reels() {
               </div>
 
               {/* Incentive Buttons + Comments - Right Side */}
-              <div className="absolute right-2 bottom-20 flex flex-col gap-3 z-20">
+              <div className="absolute right-6 bottom-20 flex flex-col gap-3 z-20">
                 {/* Like/Incentive Buttons */}
                 {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
                   <PostIncentiveButton
