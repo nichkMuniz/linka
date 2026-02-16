@@ -6,6 +6,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -21,7 +22,7 @@ import {
   type ReelComment,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { MessageCircle, Trash2, UserPlus, UserCheck } from "lucide-react";
+import { MessageCircle, Send, Trash2, UserPlus, UserCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 
