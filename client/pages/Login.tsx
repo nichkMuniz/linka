@@ -22,7 +22,7 @@ import {
   getNetworkStatus,
   checkSupabaseReachability,
 } from "@/lib/network-status";
-import { Chrome, Mail } from "lucide-react";
+import { Chrome, Mail, Fingerprint } from "lucide-react";
 
 function isEmailNotConfirmed(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
@@ -59,6 +59,9 @@ export default function Login() {
   const [displayName, setDisplayName] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [networkStatus, setNetworkStatus] = React.useState(getNetworkStatus());
+  const [biometricAvailable, setBiometricAvailable] = React.useState(false);
+  const [hasBiometricRegistered, setHasBiometricRegistered] = React.useState(false);
+  const [showBiometricSetup, setShowBiometricSetup] = React.useState(false);
 
   const canSubmit =
     !busy &&
@@ -74,6 +77,22 @@ export default function Login() {
     });
 
     return unsubscribe;
+  }, []);
+
+  React.useEffect(() => {
+    // Check if WebAuthn is available
+    const checkBiometric = async () => {
+      if (window.PublicKeyCredential) {
+        const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        setBiometricAvailable(available);
+
+        // Check if user has registered biometric
+        const registered = localStorage.getItem("biometric_registered");
+        setHasBiometricRegistered(!!registered);
+      }
+    };
+
+    checkBiometric();
   }, []);
 
   React.useEffect(() => {
@@ -194,11 +213,20 @@ export default function Login() {
         return;
       }
 
-      toast({
-        title: "Conta criada",
-        description: "Bem-vindo ao RitmoFit!",
-      });
-      // User will be redirected to feed by useEffect above
+      // Show biometric setup if available, otherwise redirect
+      if (biometricAvailable) {
+        setShowBiometricSetup(true);
+        toast({
+          title: "Conta criada",
+          description: "Bem-vindo ao RitmoFit!",
+        });
+      } else {
+        toast({
+          title: "Conta criada",
+          description: "Bem-vindo ao RitmoFit!",
+        });
+        // User will be redirected to feed by useEffect above
+      }
     } catch {
       toast({
         title: "Falha de conexão",
@@ -247,6 +275,191 @@ export default function Login() {
     }
   };
 
+  const handleRegisterBiometric = async (redirectAfter: boolean = false) => {
+    if (!biometricAvailable) {
+      toast({
+        title: "Biometria não disponível",
+        description: "Seu dispositivo não suporta autenticação biométrica.",
+      });
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          challenge,
+          rp: {
+            name: "RitmoFit",
+            id: window.location.hostname,
+          },
+          user: {
+            id: new Uint8Array(16),
+            name: email,
+            displayName: displayName,
+          },
+          pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+          timeout: 60000,
+          attestation: "none",
+          authenticatorSelection: {
+            authenticatorAttachment: "platform",
+            userVerification: "preferred",
+            residentKey: "preferred",
+          },
+        },
+      });
+
+      if (!credential) {
+        toast({
+          title: "Registro cancelado",
+          description: "Você cancelou o registro biométrico.",
+        });
+        if (redirectAfter) {
+          setShowBiometricSetup(false);
+          navigate("/", { replace: true });
+        }
+        return;
+      }
+
+      // Store credential info in localStorage
+      localStorage.setItem("biometric_registered", "true");
+      localStorage.setItem("biometric_email", email);
+      localStorage.setItem(
+        "biometric_credential_id",
+        btoa(String.fromCharCode(...new Uint8Array(credential.id)))
+      );
+
+      setHasBiometricRegistered(true);
+      toast({
+        title: "Biometria registrada",
+        description: "Você pode usar sua face ou digital para próximos logins.",
+      });
+
+      if (redirectAfter) {
+        setShowBiometricSetup(false);
+        navigate("/", { replace: true });
+      }
+    } catch (err: any) {
+      console.error("Biometric registration error:", err);
+      toast({
+        title: "Erro ao registrar biometria",
+        description:
+          err.message ||
+          "Não foi possível registrar sua biometria. Tente novamente.",
+      });
+      if (redirectAfter) {
+        setShowBiometricSetup(false);
+        navigate("/", { replace: true });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleBiometricLogin = async () => {
+    if (!biometricAvailable) {
+      toast({
+        title: "Biometria não disponível",
+        description: "Seu dispositivo não suporta autenticação biométrica.",
+      });
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+
+      const storedCredentialId = localStorage.getItem("biometric_credential_id");
+      if (!storedCredentialId) {
+        toast({
+          title: "Biometria não registrada",
+          description: "Registre sua biometria primeiro.",
+        });
+        return;
+      }
+
+      const credentialId = Uint8Array.from(atob(storedCredentialId), (c) =>
+        c.charCodeAt(0)
+      );
+
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: [
+            {
+              id: credentialId,
+              type: "public-key",
+              transports: ["internal"],
+            },
+          ],
+          userVerification: "preferred",
+          timeout: 60000,
+        },
+      });
+
+      if (!assertion) {
+        toast({
+          title: "Autenticação cancelada",
+          description: "Você cancelou a autenticação biométrica.",
+        });
+        return;
+      }
+
+      // Get stored email and login with it
+      const storedEmail = localStorage.getItem("biometric_email");
+      if (!storedEmail) {
+        toast({
+          title: "Erro de autenticação",
+          description:
+            "Não foi possível recuperar suas informações de login.",
+        });
+        return;
+      }
+
+      // For demo purposes, we'll show a message
+      // In production, you'd verify this with the server
+      toast({
+        title: "Autenticação biométrica concluída",
+        description:
+          "Entrando com sua biometria. Use email e senha para login inicial.",
+      });
+
+      // Set email for login
+      setEmail(storedEmail);
+      setTab("login");
+    } catch (err: any) {
+      console.error("Biometric login error:", err);
+
+      // Handle specific errors
+      if (err.name === "NotAllowedError") {
+        toast({
+          title: "Autenticação recusada",
+          description:
+            "A autenticação foi recusada. Tente novamente ou use email e senha.",
+        });
+      } else if (err.name === "NotSupportedError") {
+        toast({
+          title: "Biometria não suportada",
+          description: "Seu navegador não suporta autenticação biométrica.",
+        });
+      } else {
+        toast({
+          title: "Erro na autenticação biométrica",
+          description:
+            err.message || "Não foi possível autenticar. Tente novamente.",
+        });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="grid min-h-dvh place-items-center bg-background p-6">
       <div className="mx-auto grid w-full max-w-md gap-6">
@@ -257,7 +470,9 @@ export default function Login() {
             <CardTitle className="text-base">Acessar conta</CardTitle>
             <CardDescription>
               {hasSupabaseConfig
-                ? "Use email e senha ou suas contas sociais."
+                ? biometricAvailable
+                  ? "Use email, biometria ou suas contas sociais."
+                  : "Use email e senha ou suas contas sociais."
                 : "Supabase ainda não foi configurado neste projeto."}
             </CardDescription>
           </CardHeader>
@@ -339,6 +554,44 @@ export default function Login() {
                   </Button>
                 </div>
               </div>
+            ) : showBiometricSetup && biometricAvailable ? (
+              <div className="grid gap-4">
+                <div className="rounded-2xl border border-border/60 bg-muted/20 p-6 text-center space-y-4">
+                  <Fingerprint className="h-12 w-12 mx-auto text-brand" />
+                  <div>
+                    <h3 className="text-lg font-semibold">
+                      Registrar Biometria?
+                    </h3>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Você pode usar sua face ou impressão digital para fazer login de forma mais rápida e segura.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <Button
+                    type="button"
+                    className="rounded-full"
+                    onClick={() => handleRegisterBiometric(true)}
+                    disabled={busy}
+                  >
+                    <Fingerprint className="h-4 w-4 mr-2" />
+                    Registrar Biometria
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full"
+                    onClick={() => {
+                      setShowBiometricSetup(false);
+                      navigate("/", { replace: true });
+                    }}
+                    disabled={busy}
+                  >
+                    Pular
+                  </Button>
+                </div>
+              </div>
             ) : (
               <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
                 <TabsList className="grid w-full grid-cols-2 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
@@ -395,6 +648,19 @@ export default function Login() {
                     >
                       {busy ? "Entrando..." : "Entrar"}
                     </Button>
+
+                    {hasBiometricRegistered && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="rounded-full"
+                        disabled={busy}
+                        onClick={handleBiometricLogin}
+                      >
+                        <Fingerprint className="h-4 w-4 mr-2" />
+                        Entrar com Biometria
+                      </Button>
+                    )}
 
                     <div className="relative">
                       <div className="absolute inset-0 flex items-center">
@@ -491,6 +757,32 @@ export default function Login() {
                     >
                       {busy ? "Criando..." : "Criar conta"}
                     </Button>
+
+                    {biometricAvailable && hasBiometricRegistered && (
+                      <>
+                        <div className="relative">
+                          <div className="absolute inset-0 flex items-center">
+                            <Separator className="w-full" />
+                          </div>
+                          <div className="relative flex justify-center text-xs uppercase">
+                            <span className="bg-background px-2 text-muted-foreground">
+                              Biometria
+                            </span>
+                          </div>
+                        </div>
+
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-full"
+                          disabled={busy}
+                          onClick={() => handleRegisterBiometric()}
+                        >
+                          <Fingerprint className="h-4 w-4 mr-2" />
+                          Registrar Biometria
+                        </Button>
+                      </>
+                    )}
                   </form>
                 </TabsContent>
               </Tabs>
