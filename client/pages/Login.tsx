@@ -22,6 +22,7 @@ import {
   getNetworkStatus,
   checkSupabaseReachability,
 } from "@/lib/network-status";
+import { Chrome, Mail } from "lucide-react";
 
 function isEmailNotConfirmed(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
@@ -55,6 +56,7 @@ export default function Login() {
   const [tab, setTab] = React.useState<"login" | "signup">("login");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [displayName, setDisplayName] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [networkStatus, setNetworkStatus] = React.useState(getNetworkStatus());
 
@@ -138,9 +140,23 @@ export default function Login() {
         return;
       }
 
+      const trimmedDisplayName = displayName.trim();
+      if (!trimmedDisplayName) {
+        toast({
+          title: "Nome necessário",
+          description: "Por favor, informe seu nome.",
+        });
+        return;
+      }
+
       const { error } = await supabase.auth.signUp({
         email: trimmedEmail,
         password: trimmedPassword,
+        options: {
+          data: {
+            full_name: trimmedDisplayName,
+          },
+        },
       });
 
       if (error) {
@@ -194,6 +210,43 @@ export default function Login() {
     }
   };
 
+  const handleOAuthLogin = async (provider: "google" | "microsoft") => {
+    if (!hasSupabaseConfig || !supabase) {
+      toast({
+        title: "Supabase não configurado",
+        description:
+          "Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para habilitar OAuth.",
+      });
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: provider,
+        options: {
+          redirectTo: `${window.location.origin}/`,
+        },
+      });
+
+      if (error) {
+        toast({
+          title: `Não foi possível entrar com ${provider === "google" ? "Google" : "Outlook"}`,
+          description: error.message,
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: "Falha de conexão",
+        description:
+          "Não foi possível conectar ao Supabase. Confira a URL e tente novamente.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="grid min-h-dvh place-items-center bg-background p-6">
       <div className="mx-auto grid w-full max-w-md gap-6">
@@ -204,7 +257,7 @@ export default function Login() {
             <CardTitle className="text-base">Acessar conta</CardTitle>
             <CardDescription>
               {hasSupabaseConfig
-                ? "Use email e senha."
+                ? "Use email e senha ou suas contas sociais."
                 : "Supabase ainda não foi configurado neste projeto."}
             </CardDescription>
           </CardHeader>
@@ -343,6 +396,40 @@ export default function Login() {
                       {busy ? "Entrando..." : "Entrar"}
                     </Button>
 
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <Separator className="w-full" />
+                      </div>
+                      <div className="relative flex justify-center text-xs uppercase">
+                        <span className="bg-background px-2 text-muted-foreground">
+                          Ou
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-full"
+                        disabled={busy || !hasSupabaseConfig}
+                        onClick={() => handleOAuthLogin("google")}
+                      >
+                        <Chrome className="h-4 w-4 mr-2" />
+                        Entrar com Google
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-full"
+                        disabled={busy || !hasSupabaseConfig}
+                        onClick={() => handleOAuthLogin("microsoft")}
+                      >
+                        <Mail className="h-4 w-4 mr-2" />
+                        Entrar com Outlook
+                      </Button>
+                    </div>
+
                     <button
                       type="button"
                       className="text-left text-sm font-semibold text-brand hover:underline"
@@ -361,6 +448,18 @@ export default function Login() {
                       submit("signup");
                     }}
                   >
+                    <div className="grid gap-2">
+                      <Label htmlFor="signup_name">Nome</Label>
+                      <Input
+                        id="signup_name"
+                        type="text"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        placeholder="Seu nome completo"
+                        autoComplete="name"
+                      />
+                    </div>
+
                     <div className="grid gap-2">
                       <Label htmlFor="signup_email">Email</Label>
                       <Input
@@ -388,7 +487,7 @@ export default function Login() {
                     <Button
                       type="submit"
                       className="mt-1 rounded-full"
-                      disabled={!canSubmit}
+                      disabled={!canSubmit || !displayName.trim()}
                     >
                       {busy ? "Criando..." : "Criar conta"}
                     </Button>
