@@ -116,9 +116,11 @@ const App = () => {
               <Route path="/login" element={<Login />} />
 
               <Route element={<RequireAuth />}>
+                {/* Reels is full screen - no header/footer */}
+                <Route path="/reels" element={<Reels />} />
+
                 <Route element={<AppLayout />}>
                   <Route path="/" element={<Index />} />
-                  <Route path="/reels" element={<Reels />} />
                   <Route path="/postar" element={<NewPost />} />
                   <Route path="/metas" element={<Goals />} />
                   <Route path="/loja" element={<Store />} />

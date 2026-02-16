@@ -453,26 +453,28 @@ export default function Reels() {
               {/* Incentive Buttons + Comments - Right Side */}
               <div className="absolute right-2 bottom-20 flex flex-col gap-3 z-20">
                 {/* Like/Incentive Buttons */}
-                <div className="flex flex-col gap-3">
-                  {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                    <PostIncentiveButton
-                      key={type}
-                      type={type}
-                      isActive={(reel.userLikes || [])?.includes(type) ?? false}
-                      onClick={() => handleIncentiveClick(reel, type)}
-                      loading={togglingReelId === reel.id}
-                    />
-                  ))}
-                </div>
+                {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                  <PostIncentiveButton
+                    key={type}
+                    type={type}
+                    isActive={(reel.userLikes || [])?.includes(type) ?? false}
+                    onClick={() => handleIncentiveClick(reel, type)}
+                    loading={togglingReelId === reel.id}
+                  />
+                ))}
                 {/* Comments Button */}
                 <button
                   onClick={() => handleOpenComments(reel)}
-                  className="flex flex-col items-center gap-1 p-2 rounded-lg hover:bg-white/10 transition-colors group"
+                  className="inline-flex shrink-0 items-center gap-1 transition-opacity hover:opacity-80"
                 >
-                  <MessageCircle className="h-7 w-7 text-white group-hover:scale-110 transition-transform" />
-                  <span className="text-xs text-white/70 font-medium">
-                    {(reel.commentCount || 0) > 0 ? reel.commentCount : ""}
-                  </span>
+                  <div className="flex flex-col items-center gap-1">
+                    <MessageCircle className="h-7 w-7 text-white hover:scale-110 transition-transform" />
+                    {(reel.commentCount || 0) > 0 && (
+                      <span className="text-xs text-white/70 font-medium">
+                        {reel.commentCount}
+                      </span>
+                    )}
+                  </div>
                 </button>
               </div>
 
