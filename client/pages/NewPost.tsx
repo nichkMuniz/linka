@@ -71,11 +71,11 @@ export default function NewPost() {
         return;
       }
 
-      // Validate file size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
         toast({
           title: "Arquivo muito grande",
-          description: `${file.name} deve ter no máximo 10MB.`,
+          description: `${file.name} deve ter no máximo 5MB.`,
           variant: "destructive",
         });
         return;
@@ -282,8 +282,22 @@ export default function NewPost() {
                       </button>
 
                       {/* Photo Counter */}
-                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/50 px-3 py-1 rounded-full text-xs text-white">
-                        {currentPreviewIndex + 1}/{previewUrls.length}
+                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none">
+                        <div className="flex gap-1">
+                          {previewUrls.map((_, index) => (
+                            <div
+                              key={index}
+                              className={`h-1.5 rounded-full transition-all ${
+                                currentPreviewIndex === index
+                                  ? "w-4 bg-white"
+                                  : "w-1.5 bg-white/50"
+                              }`}
+                            />
+                          ))}
+                        </div>
+                        <p className="text-white text-xs font-medium bg-black/40 px-2 py-0.5 rounded-full">
+                          {currentPreviewIndex + 1}/{previewUrls.length}
+                        </p>
                       </div>
                     </>
                   )}
@@ -349,7 +363,7 @@ export default function NewPost() {
                     Clique ou arraste imagens
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    PNG, JPG, WebP ou GIF (máx. 10MB cada)
+                    PNG, JPG, WebP ou GIF (máx. 5MB cada)
                   </p>
                 </div>
                 <input
