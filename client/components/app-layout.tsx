@@ -13,7 +13,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/image-with-fallback";
-import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb } from "@/lib/ritmofit-db";
+import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
@@ -63,9 +63,20 @@ export function AppLayout() {
 
     loadUnreadCounts();
 
-    // Poll for new messages and notifications every 30 seconds
-    const interval = setInterval(loadUnreadCounts, 30000);
-    return () => clearInterval(interval);
+    // Subscribe to real-time notifications
+    const unsubscribe = subscribeToUnreadNotificationsDb(setUnreadNotificationsCount);
+
+    // Poll for new messages every 30 seconds
+    const interval = setInterval(() => {
+      getUnreadMessageCountDb()
+        .then(setUnreadCount)
+        .catch((err) => console.error("Error loading unread message count:", err));
+    }, 30000);
+
+    return () => {
+      clearInterval(interval);
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
   React.useEffect(() => {

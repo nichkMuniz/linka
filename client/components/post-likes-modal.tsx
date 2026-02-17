@@ -7,12 +7,13 @@ import {
 } from "@/components/ui/drawer";
 import { ImageWithFallback } from "@/components/image-with-fallback";
 import { useNavigate } from "react-router-dom";
+import { Heart } from "lucide-react";
 
 export interface PostLike {
   userId: string;
   userNickname: string;
   userPhoto: string | null;
-  type: string;
+  type: number;
 }
 
 interface PostLikesModalProps {
@@ -24,16 +25,65 @@ interface PostLikesModalProps {
 export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProps) {
   const navigate = useNavigate();
 
+  const getIncentiveTypeName = (type: number): string => {
+    const incentiveNames: { [key: number]: string } = {
+      1: "Apoio",
+      2: "Continua",
+      3: "Ganhador",
+      4: "Consegue Mais",
+      5: "Limite Maior",
+      6: "Mais Algum",
+    };
+    return incentiveNames[type] || "Incentivo";
+  };
+
   const handleUserClick = (userId: string) => {
     navigate(`/usuario/${userId}`);
     onOpenChange(false);
   };
 
+  const totalIncentives = likes.length;
+  const incentiveTypeCounts = likes.reduce(
+    (acc, like) => {
+      const typeName = getIncentiveTypeName(like.type);
+      acc[typeName] = (acc[typeName] || 0) + 1;
+      return acc;
+    },
+    {} as { [key: string]: number }
+  );
+
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
-        <DrawerHeader className="shrink-0">
-          <DrawerTitle>Incentivos</DrawerTitle>
+        <DrawerHeader className="shrink-0 border-b border-border/60">
+          <div className="space-y-3">
+            <DrawerTitle className="flex items-center gap-2">
+              <Heart className="h-5 w-5 text-red-500 fill-red-500" />
+              Incentivos
+            </DrawerTitle>
+
+            {/* Total Counter */}
+            <div className="bg-muted/50 rounded-lg p-3">
+              <p className="text-sm font-medium text-foreground">
+                Total de incentivos: <span className="text-lg font-bold text-brand">{totalIncentives}</span>
+              </p>
+            </div>
+
+            {/* Incentive Type Breakdown */}
+            {Object.keys(incentiveTypeCounts).length > 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(incentiveTypeCounts).map(([typeName, count]) => (
+                  <div
+                    key={typeName}
+                    className="bg-muted/30 rounded-md p-2 text-center"
+                  >
+                    <p className="text-xs text-muted-foreground">{typeName}</p>
+                    <p className="text-sm font-semibold text-foreground">{count}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </DrawerHeader>
 
         <div className="flex-1 overflow-y-auto px-4 pb-20">
@@ -44,26 +94,31 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
               </p>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2 pt-4">
               {likes.map((like) => (
                 <button
                   key={`${like.userId}-${like.type}`}
                   onClick={() => handleUserClick(like.userId)}
-                  className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors"
+                  className="w-full flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors border border-border/40"
                 >
-                  {like.userPhoto ? (
-                    <ImageWithFallback
-                      src={like.userPhoto}
-                      alt={like.userNickname}
-                      fallback="/placeholder.svg"
-                      className="h-10 w-10 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded-full bg-muted" />
-                  )}
-                  <p className="text-sm font-medium text-foreground">
-                    {like.userNickname}
-                  </p>
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {like.userPhoto ? (
+                      <ImageWithFallback
+                        src={like.userPhoto}
+                        alt={like.userNickname}
+                        fallback="/placeholder.svg"
+                        className="h-10 w-10 rounded-full object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-full bg-muted flex-shrink-0" />
+                    )}
+                    <p className="text-sm font-medium text-foreground truncate">
+                      {like.userNickname}
+                    </p>
+                  </div>
+                  <span className="text-xs font-semibold bg-red-500/20 text-red-600 px-2 py-1 rounded-full flex-shrink-0">
+                    {getIncentiveTypeName(like.type)}
+                  </span>
                 </button>
               ))}
             </div>

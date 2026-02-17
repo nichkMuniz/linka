@@ -33,6 +33,18 @@ export default function Notifications() {
     }
   }, [user]);
 
+  const getIncentiveTypeName = (type: number): string => {
+    const incentiveNames: { [key: number]: string } = {
+      1: "Apoio",
+      2: "Continua",
+      3: "Ganhador",
+      4: "Consegue Mais",
+      5: "Limite Maior",
+      6: "Mais Algum",
+    };
+    return incentiveNames[type] || "Incentivo";
+  };
+
   const getNotificationContent = (notification: NotificationItem) => {
     switch (notification.type) {
       case 1:
@@ -44,10 +56,13 @@ export default function Notifications() {
           borderColor: "border-blue-200/50",
         };
       case 2:
+        const incentiveName = notification.incentiveType
+          ? getIncentiveTypeName(notification.incentiveType)
+          : "Incentivo";
         return {
           icon: <Heart className="h-5 w-5 text-red-500 fill-red-500" />,
-          title: "Incentivo recebido",
-          description: `${notification.userNickname} deu um incentivo na sua postagem`,
+          title: `${incentiveName} recebido`,
+          description: `${notification.userNickname} te deu ${incentiveName.toLowerCase()} na sua postagem`,
           bgColor: "bg-red-500/10",
           borderColor: "border-red-200/50",
         };

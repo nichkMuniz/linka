@@ -3220,6 +3220,7 @@ export type NotificationItem = {
   userPhoto: string | null;
   postId?: string;
   postPhoto?: string;
+  incentiveType?: number; // For type 2 (incentive): 1=apoio, 2=continua, 3=ganhador, 4=consegueMais, 5=limiteMaior, 6=maisAlgum
   createdAt: string;
 };
 
@@ -3258,9 +3259,10 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     // Get all follower IDs and post IDs to fetch related data
     const followerIds = [...new Set(notificationsData.map((n: any) => n.follower_id))];
     const postIds = [...new Set(notificationsData.map((n: any) => n.post_id).filter(Boolean))];
+    const incentiveNotifications = notificationsData.filter((n: any) => n.type === 2);
 
-    // Fetch follower profiles and post photos in parallel
-    const [{ data: profiles }, { data: posts }] = await Promise.all([
+    // Fetch follower profiles, post photos, and like data in parallel
+    const requests = [
       supabase
         .from("profiles")
         .select("user_id, nickname, photo")
@@ -3271,10 +3273,36 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
             .select("id, photo")
             .in("id", postIds)
         : Promise.resolve({ data: [] }),
-    ]);
+    ];
+
+    // Fetch like types for incentive notifications
+    if (incentiveNotifications.length > 0) {
+      const likeQueries = incentiveNotifications.map((notif: any) =>
+        supabase
+          .from("likes")
+          .select("type")
+          .eq("post_id", notif.post_id)
+          .eq("user_id", notif.follower_id)
+          .maybeSingle()
+      );
+      requests.push(Promise.all(likeQueries));
+    }
+
+    const results = await Promise.all(requests);
+    const { data: profiles } = results[0] as any;
+    const { data: posts } = results[1] as any;
+    const likesResults = results[2] as any;
 
     const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
     const postMap = new Map((posts ?? []).map((p: any) => [p.id, p]));
+    const likesMap = new Map(
+      likesResults
+        ?.map((r: any, idx: number) => [
+          incentiveNotifications[idx]?.follower_id,
+          r.data?.type,
+        ])
+        .filter(([_, type]: any) => type !== undefined) || []
+    );
 
     // Transform notifications table records to NotificationItem format
     const notifications: NotificationItem[] = notificationsData
@@ -3290,6 +3318,11 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           userPhoto: profile.photo,
           createdAt: notif.created_at,
         };
+
+        // Add incentive type for type 2 notifications
+        if (notif.type === 2 && likesMap.has(notif.follower_id)) {
+          notification.incentiveType = likesMap.get(notif.follower_id);
+        }
 
         // Add post-related fields if available
         if (notif.post_id) {
@@ -3359,6 +3392,54 @@ export async function markNotificationsAsReadDb(): Promise<boolean> {
     console.error("Error marking notifications as read:", err);
     return false;
   }
+}
+
+export function subscribeToUnreadNotificationsDb(
+  onNewNotification: (count: number) => void
+): (() => void) | null {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  let isSubscribed = true;
+
+  (async () => {
+    try {
+      const viewer = await getViewer();
+      if (!viewer || !isSubscribed) return;
+
+      // Subscribe to insert/update events on notifications table
+      const subscription = supabase
+        .channel(`notifications:${viewer.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "notifications",
+            filter: `user_id=eq.${viewer.id}`,
+          },
+          async () => {
+            if (!isSubscribed) return;
+            // Fetch updated unread count
+            const count = await getUnreadNotificationsCountDb();
+            onNewNotification(count);
+          }
+        )
+        .subscribe();
+
+      // Return unsubscribe function
+      return () => {
+        isSubscribed = false;
+        subscription.unsubscribe();
+      };
+    } catch (err: any) {
+      console.error("Error subscribing to notifications:", err);
+    }
+  })();
+
+  // Cleanup function
+  return () => {
+    isSubscribed = false;
+  };
 }
 
 // Post Creation Function
