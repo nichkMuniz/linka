@@ -12,29 +12,39 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
-import { getUserGoalsDb, incrementGoalProgressDb, type UserGoal } from "@/lib/ritmofit-db";
+import {
+  getUserGoalsDb,
+  incrementGoalProgressDb,
+  type UserGoal,
+} from "@/lib/ritmofit-db";
 
 export default function NewPost() {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
 
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+
   const [file, setFile] = React.useState<File | null>(null);
   const [caption, setCaption] = React.useState("");
   const [selectedGoalId, setSelectedGoalId] = React.useState<string>("");
+
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [goalsLoading, setGoalsLoading] = React.useState(false);
+
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (!user) return;
 
     setGoalsLoading(true);
+
     getUserGoalsDb()
       .then(setUserGoals)
-      .catch((err) => console.error("Error loading user goals:", err))
+      .catch(console.error)
       .finally(() => setGoalsLoading(false));
   }, [user]);
 
@@ -42,22 +52,32 @@ export default function NewPost() {
 
   async function handlePost() {
     if (!hasSupabaseConfig || !supabase) return;
-    if (loading || !user) return;
-
-    if (!file) {
-      toast({ title: "Selecione uma imagem" });
-      return;
-    }
+    if (!user || !file || loading) return;
 
     setBusy(true);
+
     try {
-      const extension = file.name.split(".").pop() || "jpg";
+      // Garantir tipo correto
+      const mimeType =
+        file.type && file.type.startsWith("image/")
+          ? file.type
+          : "image/jpeg";
+
+      // Converter para blob correto
+      const arrayBuffer = await file.arrayBuffer();
+
+      const blob = new Blob([arrayBuffer], {
+        type: mimeType,
+      });
+
+      const extension = mimeType.split("/")[1] || "jpg";
+
       const filePath = `${user.id}/${Date.now()}.${extension}`;
 
       const { error: uploadError } = await supabase.storage
         .from("posts")
-        .upload(filePath, file, {
-          contentType: file.type,
+        .upload(filePath, blob, {
+          contentType: mimeType,
           upsert: false,
         });
 
@@ -76,134 +96,97 @@ export default function NewPost() {
 
       if (insertError) throw insertError;
 
-      // Update goal progress if a goal was selected
+      // Atualizar meta
       if (selectedGoalId) {
-        try {
-          await incrementGoalProgressDb(selectedGoalId);
-        } catch (err) {
-          console.error("Error updating goal progress:", err);
-          // Don't throw - the post was already created successfully
-        }
+        incrementGoalProgressDb(selectedGoalId).catch(console.error);
       }
 
-      toast({ title: "Post publicado!" });
-      Input.value = "";
+      toast({
+        title: "Post publicado com sucesso!",
+      });
+
+      // Reset correto
+      setFile(null);
       setCaption("");
+
+      if (fileInputRef.current)
+        fileInputRef.current.value = "";
+
       navigate("/", { replace: true });
     } catch (err: any) {
+      console.error(err);
+
       toast({
         title: "Erro ao publicar",
-        description: err.message || "Erro inesperado",
+        description: err.message,
+        variant: "destructive",
       });
     } finally {
       setBusy(false);
     }
   }
 
-
-
   return (
     <div className="mx-auto grid w-full max-w-md gap-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Nova postagem</h1>
-        <p className="text-sm text-muted-foreground">
-          Envie uma foto para o bucket <span className="font-mono">posts</span>{" "}
-          e salve a referência no banco.
-        </p>
-      </div>
 
-      <Card className="border-border/60">
+      <Card>
+
         <CardHeader>
-          <CardTitle className="text-base">Postar</CardTitle>
+          <CardTitle>Nova postagem</CardTitle>
         </CardHeader>
+
         <CardContent className="space-y-4">
-          {!hasSupabaseConfig ? (
-            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-              Para publicar via Supabase, configure:
-              <div className="mt-2 grid gap-1 font-mono text-[12px]">
-                <div>VITE_SUPABASE_URL</div>
-                <div>VITE_SUPABASE_ANON_KEY</div>
-              </div>
-            </div>
-          ) : null}
 
-          <div className="grid gap-2">
-            <div className="text-sm font-medium">Foto</div>
-            <Input
-              id="post-file"
-              type="file"
-              accept="image/*"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-            />
-            <div className="text-xs text-muted-foreground">
-              {file
-                ? `${file.name} (${Math.round(file.size / 1024)} KB)`
-                : "Selecione uma imagem"}
-            </div>
-          </div>
+          {/* FILE INPUT */}
+          <Input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(e) =>
+              setFile(e.target.files?.[0] || null)
+            }
+          />
 
-          <div className="grid gap-2">
-            <div className="text-sm font-medium">Legenda</div>
-            <Textarea
-              placeholder="Legenda..."
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              className="min-h-24"
-            />
-          </div>
+          {/* CAPTION */}
+          <Textarea
+            placeholder="Legenda..."
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+          />
 
-          <div className="grid gap-2">
-            <div className="text-sm font-medium">Meta (Opcional)</div>
-            {goalsLoading ? (
-              <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
-                Carregando metas...
-              </div>
-            ) : userGoals.length > 0 ? (
-              <Select value={selectedGoalId} onValueChange={setSelectedGoalId}>
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={
-                      selectedGoalId
-                        ? userGoals.find((g) => g.id === selectedGoalId)
-                          ?.description
-                        : "Selecione uma meta"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {userGoals.map((goal) => (
-                    <SelectItem key={goal.id} value={goal.id}>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-sm font-medium">
-                          {goal.description}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {goal.duration}d · {goal.quantity}
-                        </span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <div className="flex h-10 items-center rounded-md border border-border/50 bg-muted/30 px-3 text-sm text-muted-foreground">
-                Nenhuma meta disponível
-              </div>
-            )}
-          </div>
+          {/* GOALS */}
+          {goalsLoading ? (
+            <p>Carregando metas...</p>
+          ) : (
+            <Select
+              value={selectedGoalId}
+              onValueChange={setSelectedGoalId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Meta (opcional)" />
+              </SelectTrigger>
+
+              <SelectContent>
+                {userGoals.map((goal) => (
+                  <SelectItem
+                    key={goal.id}
+                    value={goal.id}
+                  >
+                    {goal.description}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           <Button
-            type="button"
-            className="w-full rounded-full"
-            disabled={!canSubmit}
             onClick={handlePost}
+            disabled={!canSubmit}
+            className="w-full"
           >
-            {busy
-              ? "Publicando..."
-              : user
-                ? "Publicar"
-                : "Faça login para publicar"}
+            {busy ? "Publicando..." : "Publicar"}
           </Button>
+
         </CardContent>
       </Card>
     </div>
