@@ -2741,7 +2741,6 @@ export async function addReelCommentDb(reelId: string, text: string) {
   if (!viewer) return;
 
   const profile = await ensureProfile();
-  const userName = profile?.nickname ?? "Você";
   const userHandle = profile?.handle ?? "@voce";
 
   try {
@@ -2749,7 +2748,6 @@ export async function addReelCommentDb(reelId: string, text: string) {
       reel_id: reelId,
       user_id: viewer.id,
       user_handle: userHandle,
-      user_name: userName,
       text: text.trim(),
     });
 
@@ -2759,7 +2757,6 @@ export async function addReelCommentDb(reelId: string, text: string) {
         post_id: reelId,
         user_id: viewer.id,
         user_handle: userHandle,
-        user_name: userName,
         text: text.trim(),
       });
 
@@ -3329,5 +3326,54 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
   } catch (err: any) {
     console.error("Error getting notifications:", err);
     return [];
+  }
+}
+
+// Complaint Functions
+export async function reportUserDb(followerId: string, reason: string): Promise<boolean> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const viewer = await getViewer();
+    if (!viewer) throw new Error("Usuário não autenticado");
+
+    const { error } = await supabase
+      .from("user_complaint")
+      .insert({
+        user_id: viewer.id,
+        follower_id: followerId,
+        reason: reason,
+        created_at: new Date().toISOString(),
+      });
+
+    if (error) throw error;
+    return true;
+  } catch (err: any) {
+    console.error("Error reporting user:", err);
+    throw err;
+  }
+}
+
+export async function reportPostDb(postId: string, reason: string): Promise<boolean> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const viewer = await getViewer();
+    if (!viewer) throw new Error("Usuário não autenticado");
+
+    const { error } = await supabase
+      .from("post_complaint")
+      .insert({
+        user_id: viewer.id,
+        post_id: postId,
+        reason: reason,
+        created_at: new Date().toISOString(),
+      });
+
+    if (error) throw error;
+    return true;
+  } catch (err: any) {
+    console.error("Error reporting post:", err);
+    throw err;
   }
 }
