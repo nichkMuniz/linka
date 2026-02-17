@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
 import { Heart, MessageCircle, UserPlus, Zap } from "lucide-react";
-import { getNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
+import { getNotificationsDb, markNotificationsAsReadDb, type NotificationItem } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function Notifications() {
@@ -13,6 +13,9 @@ export default function Notifications() {
   React.useEffect(() => {
     const loadNotifications = async () => {
       try {
+        // Mark all notifications as read when page loads
+        await markNotificationsAsReadDb();
+
         const data = await getNotificationsDb();
         setNotifications(data);
       } catch (err: any) {

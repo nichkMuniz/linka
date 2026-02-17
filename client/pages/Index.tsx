@@ -28,9 +28,11 @@ import {
   createUserGoalDb,
   getUserGoalsDb,
   deletePostDb,
+  getPostLikeUsersDb,
   type PostIncentiveType,
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
+import { PostLikesModal } from "@/components/post-likes-modal";
 import { Check, ChevronDown, MoreVertical, Flag, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
@@ -84,6 +86,14 @@ export default function Index() {
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [userGoals, setUserGoals] = React.useState<any[]>([]);
   const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
+  const [likesModalOpen, setLikesModalOpen] = React.useState(false);
+  const [selectedPostForLikes, setSelectedPostForLikes] = React.useState<PostWithStats | null>(null);
+  const [postLikes, setPostLikes] = React.useState<Array<{
+    userId: string;
+    userNickname: string;
+    userPhoto: string | null;
+    type: number;
+  }>>([]);
 
   React.useEffect(() => {
     (async () => {
@@ -393,6 +403,22 @@ export default function Index() {
     setReportDialogOpen(true);
   }, []);
 
+  const handleOpenLikesModal = React.useCallback(async (post: PostWithStats) => {
+    try {
+      const likes = await getPostLikeUsersDb(post.id);
+      setPostLikes(likes);
+      setSelectedPostForLikes(post);
+      setLikesModalOpen(true);
+    } catch (err) {
+      console.error("Error loading post likes:", err);
+      toast({
+        title: "Erro",
+        description: "Não foi possível carregar os incentivos.",
+        variant: "destructive",
+      });
+    }
+  }, []);
+
   const handleDeletePost = React.useCallback(
     async (post: PostWithStats) => {
       if (!user) {
@@ -604,6 +630,20 @@ export default function Index() {
                       }
                     />
                   </div>
+
+                  {/* Likes Label */}
+                  {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 && (
+                    <button
+                      onClick={() => handleOpenLikesModal(post)}
+                      className="px-4 py-2 text-left text-sm text-foreground/70 hover:text-foreground transition-colors"
+                    >
+                      <span className="font-medium">
+                        {post.likes.apoio + post.likes.continua + post.likes.ganhador + post.likes.consegueMais + post.likes.limiteMaior + post.likes.maisAlgum === 1
+                          ? "1 pessoa te incentivou"
+                          : `${post.likes.apoio + post.likes.continua + post.likes.ganhador + post.likes.consegueMais + post.likes.limiteMaior + post.likes.maisAlgum} pessoas te incentivaram`}
+                      </span>
+                    </button>
+                  )}
 
                   {/* Post Content */}
                   <div className="p-4 space-y-3">
@@ -882,6 +922,13 @@ export default function Index() {
           )}
         </DrawerContent>
       </Drawer>
+
+      {/* Post Likes Modal */}
+      <PostLikesModal
+        open={likesModalOpen}
+        onOpenChange={setLikesModalOpen}
+        likes={postLikes}
+      />
     </div>
   );
 }

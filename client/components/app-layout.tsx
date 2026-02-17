@@ -13,7 +13,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/image-with-fallback";
-import { getUnreadMessageCountDb, getUserProfileDb } from "@/lib/ritmofit-db";
+import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
@@ -44,22 +44,27 @@ export function AppLayout() {
 
   const [headerHidden, setHeaderHidden] = React.useState(false);
   const [unreadCount, setUnreadCount] = React.useState(0);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = React.useState(0);
   const [profilePhoto, setProfilePhoto] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    const loadUnreadCount = async () => {
+    const loadUnreadCounts = async () => {
       try {
-        const count = await getUnreadMessageCountDb();
-        setUnreadCount(count);
+        const [messageCount, notificationCount] = await Promise.all([
+          getUnreadMessageCountDb(),
+          getUnreadNotificationsCountDb(),
+        ]);
+        setUnreadCount(messageCount);
+        setUnreadNotificationsCount(notificationCount);
       } catch (err) {
-        console.error("Error loading unread message count:", err);
+        console.error("Error loading unread counts:", err);
       }
     };
 
-    loadUnreadCount();
+    loadUnreadCounts();
 
-    // Poll for new messages every 30 seconds
-    const interval = setInterval(loadUnreadCount, 30000);
+    // Poll for new messages and notifications every 30 seconds
+    const interval = setInterval(loadUnreadCounts, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -186,10 +191,15 @@ export function AppLayout() {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-11 w-11 rounded-full"
+                className="h-11 w-11 rounded-full relative"
                 aria-label="Notificações"
               >
                 <Bell className="h-5 w-5" />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-white text-xs font-semibold">
+                    {unreadNotificationsCount > 9 ? "9+" : unreadNotificationsCount}
+                  </span>
+                )}
               </Button>
             </Link>
 
