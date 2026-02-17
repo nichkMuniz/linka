@@ -284,7 +284,7 @@ export default function Messages() {
           placeholder="Pesquisar pessoas..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="rounded-full"
+          className="rounded-full mt-4 mb-2.5"
         />
       </div>
 

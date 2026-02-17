@@ -123,6 +123,17 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
     };
   }, [reels]);
 
+  // Auto-play first video when reels load
+  React.useEffect(() => {
+    if (reels.length > 0 && !visibleReelId) {
+      const firstReelId = reels[0].id;
+      const firstVideo = videoRefsMap.current[firstReelId];
+      if (firstVideo) {
+        firstVideo.play().catch(() => {});
+      }
+    }
+  }, [reels, visibleReelId]);
+
   const handleIncentiveClick = React.useCallback(
     async (reel: ReelWithUser, type: PostIncentiveType) => {
       if (!user) {

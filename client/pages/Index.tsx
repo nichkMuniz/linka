@@ -2,18 +2,18 @@ import * as React from "react";
 import { getFeedPosts, togglePostLike } from "../services/post.service";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   Drawer,
   DrawerContent,
-  DrawerDescription,
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
 import { PostCommentsDialog } from "@/components/post-comments-dialog";
@@ -73,6 +73,8 @@ export default function Index() {
   const [reportedPost, setReportedPost] = React.useState<PostWithStats | null>(
     null,
   );
+  const [reportReason, setReportReason] = React.useState<string>("");
+  const [isSubmittingReport, setIsSubmittingReport] = React.useState(false);
   const [unreadCommentsByPost, setUnreadCommentsByPost] = React.useState<
     Record<string, number>
   >({});
@@ -378,26 +380,58 @@ export default function Index() {
   const handleReportUser = React.useCallback((post: PostWithStats) => {
     setReportedPost(post);
     setReportType("user");
+    setReportReason("");
     setReportDialogOpen(true);
   }, []);
 
   const handleReportPost = React.useCallback((post: PostWithStats) => {
     setReportedPost(post);
     setReportType("post");
+    setReportReason("");
     setReportDialogOpen(true);
   }, []);
 
-  const submitReport = () => {
-    if (reportType && reportedPost) {
+  const submitReport = React.useCallback(async () => {
+    if (!reportType || !reportedPost || !reportReason.trim()) {
+      toast({
+        title: "Erro",
+        description: "Selecione um motivo para continuar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmittingReport(true);
+
+    try {
+      if (reportType === "user") {
+        const { reportUserDb } = await import("@/lib/ritmofit-db");
+        await reportUserDb(reportedPost.user_id, reportReason);
+      } else {
+        const { reportPostDb } = await import("@/lib/ritmofit-db");
+        await reportPostDb(reportedPost.id, reportReason);
+      }
+
       toast({
         title: "Denúncia enviada",
         description: `Obrigado por denunciar este ${reportType === "user" ? "usuário" : "post"}. Nós analisaremos em breve.`,
       });
+
       setReportDialogOpen(false);
       setReportType(null);
       setReportedPost(null);
+      setReportReason("");
+    } catch (err: any) {
+      console.error("Error submitting report:", err);
+      toast({
+        title: "Erro ao enviar denúncia",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmittingReport(false);
     }
-  };
+  }, [reportType, reportedPost, reportReason]);
 
   if (loading) {
     return (
@@ -726,15 +760,15 @@ export default function Index() {
       </Drawer>
 
       {/* Report Dialog */}
-      <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
+      <Drawer open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>
               {reportType === "user" ? "Denunciar usuário" : "Denunciar post"}
-            </DialogTitle>
-          </DialogHeader>
+            </DrawerTitle>
+          </DrawerHeader>
           {reportedPost && (
-            <div className="space-y-4">
+            <div className="space-y-4 px-4 pb-6">
               <div className="p-4 border border-border/60 rounded-lg bg-muted/30">
                 <p className="text-sm mb-3">
                   {reportType === "user"
@@ -752,14 +786,18 @@ export default function Index() {
                 <label className="text-sm font-medium">
                   Motivo da denúncia
                 </label>
-                <select className="w-full px-3 py-2 border border-border/60 rounded-lg bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand/40">
-                  <option>Selecione um motivo</option>
-                  <option>Conteúdo inadequado</option>
-                  <option>Spam</option>
-                  <option>Assédio ou bullying</option>
-                  <option>Violação de direitos autorais</option>
-                  <option>Outro</option>
-                </select>
+                <Select value={reportReason} onValueChange={setReportReason}>
+                  <SelectTrigger className="rounded-lg">
+                    <SelectValue placeholder="Selecione um motivo" />
+                  </SelectTrigger>
+                  <SelectContent side="top" align="center">
+                    <SelectItem value="Conteúdo inadequado">Conteúdo inadequado</SelectItem>
+                    <SelectItem value="Spam">Spam</SelectItem>
+                    <SelectItem value="Assédio ou bullying">Assédio ou bullying</SelectItem>
+                    <SelectItem value="Violação de direitos autorais">Violação de direitos autorais</SelectItem>
+                    <SelectItem value="Outro">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="flex gap-2 pt-4">
@@ -767,17 +805,22 @@ export default function Index() {
                   variant="outline"
                   className="flex-1 rounded-full"
                   onClick={() => setReportDialogOpen(false)}
+                  disabled={isSubmittingReport}
                 >
                   Cancelar
                 </Button>
-                <Button className="flex-1 rounded-full" onClick={submitReport}>
-                  Enviar denúncia
+                <Button
+                  className="flex-1 rounded-full"
+                  onClick={submitReport}
+                  disabled={isSubmittingReport || !reportReason.trim()}
+                >
+                  {isSubmittingReport ? "Enviando..." : "Enviar denúncia"}
                 </Button>
               </div>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }
