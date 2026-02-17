@@ -7,6 +7,13 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
 import { PostCommentsDialog } from "@/components/post-comments-dialog";
@@ -779,18 +786,18 @@ export default function Index() {
                 <label className="text-sm font-medium">
                   Motivo da denúncia
                 </label>
-                <select
-                  value={reportReason}
-                  onChange={(e) => setReportReason(e.target.value)}
-                  className="w-full px-3 py-2 border border-border/60 rounded-lg bg-background text-sm focus:outline-none focus:ring-2 focus:ring-brand/40"
-                >
-                  <option value="">Selecione um motivo</option>
-                  <option value="Conteúdo inadequado">Conteúdo inadequado</option>
-                  <option value="Spam">Spam</option>
-                  <option value="Assédio ou bullying">Assédio ou bullying</option>
-                  <option value="Violação de direitos autorais">Violação de direitos autorais</option>
-                  <option value="Outro">Outro</option>
-                </select>
+                <Select value={reportReason} onValueChange={setReportReason}>
+                  <SelectTrigger className="rounded-lg">
+                    <SelectValue placeholder="Selecione um motivo" />
+                  </SelectTrigger>
+                  <SelectContent side="top" align="center">
+                    <SelectItem value="Conteúdo inadequado">Conteúdo inadequado</SelectItem>
+                    <SelectItem value="Spam">Spam</SelectItem>
+                    <SelectItem value="Assédio ou bullying">Assédio ou bullying</SelectItem>
+                    <SelectItem value="Violação de direitos autorais">Violação de direitos autorais</SelectItem>
+                    <SelectItem value="Outro">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="flex gap-2 pt-4">

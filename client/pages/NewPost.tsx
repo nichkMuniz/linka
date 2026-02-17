@@ -44,9 +44,6 @@ export default function NewPost() {
     if (!hasSupabaseConfig || !supabase) return;
     if (loading || !user) return;
 
-    const input = document.getElementById("post-file") as HTMLInputElement;
-    const file = input?.files?.[0];
-
     if (!file) {
       toast({ title: "Selecione uma imagem" });
       return;
@@ -133,6 +130,7 @@ export default function NewPost() {
           <div className="grid gap-2">
             <div className="text-sm font-medium">Foto</div>
             <Input
+              id="post-file"
               type="file"
               accept="image/*"
               onChange={(e) => setFile(e.target.files?.[0] || null)}

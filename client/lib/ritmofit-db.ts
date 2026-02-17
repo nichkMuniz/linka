@@ -2741,7 +2741,6 @@ export async function addReelCommentDb(reelId: string, text: string) {
   if (!viewer) return;
 
   const profile = await ensureProfile();
-  const userName = profile?.nickname ?? "Você";
   const userHandle = profile?.handle ?? "@voce";
 
   try {
@@ -2749,7 +2748,6 @@ export async function addReelCommentDb(reelId: string, text: string) {
       reel_id: reelId,
       user_id: viewer.id,
       user_handle: userHandle,
-      user_name: userName,
       text: text.trim(),
     });
 
@@ -2759,7 +2757,6 @@ export async function addReelCommentDb(reelId: string, text: string) {
         post_id: reelId,
         user_id: viewer.id,
         user_handle: userHandle,
-        user_name: userName,
         text: text.trim(),
       });
 
