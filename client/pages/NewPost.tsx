@@ -50,14 +50,24 @@ export default function NewPost() {
     }
 
     setBusy(true);
+
     try {
-      const extension = file.name.split(".").pop() || "jpg";
-      const filePath = `${user.id}/${Date.now()}.${extension}`;
+      // FORÇA o tipo correto
+      const fileExt = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${user.id}/${fileName}`;
+
+      // Converte explicitamente para Blob real
+      const arrayBuffer = await file.arrayBuffer();
+
+      const blob = new Blob([arrayBuffer], {
+        type: file.type || "image/jpeg",
+      });
 
       const { error: uploadError } = await supabase.storage
         .from("posts")
-        .upload(filePath, file, {
-          contentType: file.type,
+        .upload(filePath, blob, {
+          contentType: blob.type,
           upsert: false,
         });
 
@@ -76,20 +86,13 @@ export default function NewPost() {
 
       if (insertError) throw insertError;
 
-      // Update goal progress if a goal was selected
-      if (selectedGoalId) {
-        try {
-          await incrementGoalProgressDb(selectedGoalId);
-        } catch (err) {
-          console.error("Error updating goal progress:", err);
-          // Don't throw - the post was already created successfully
-        }
-      }
-
       toast({ title: "Post publicado!" });
-      input.value = "";
+
+      setFile(null);
       setCaption("");
+
       navigate("/", { replace: true });
+
     } catch (err: any) {
       toast({
         title: "Erro ao publicar",
@@ -99,6 +102,7 @@ export default function NewPost() {
       setBusy(false);
     }
   }
+
 
 
 
