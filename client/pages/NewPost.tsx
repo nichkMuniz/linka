@@ -87,7 +87,7 @@ export default function NewPost() {
       }
 
       toast({ title: "Post publicado!" });
-      input.value = "";
+      Input.value = "";
       setCaption("");
       navigate("/", { replace: true });
     } catch (err: any) {
