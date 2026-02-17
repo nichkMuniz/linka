@@ -3331,3 +3331,52 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     return [];
   }
 }
+
+// Complaint Functions
+export async function reportUserDb(followerId: string, reason: string): Promise<boolean> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const viewer = await getViewer();
+    if (!viewer) throw new Error("Usuário não autenticado");
+
+    const { error } = await supabase
+      .from("user_complaint")
+      .insert({
+        user_id: viewer.id,
+        follower_id: followerId,
+        reason: reason,
+        created_at: new Date().toISOString(),
+      });
+
+    if (error) throw error;
+    return true;
+  } catch (err: any) {
+    console.error("Error reporting user:", err);
+    throw err;
+  }
+}
+
+export async function reportPostDb(postId: string, reason: string): Promise<boolean> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const viewer = await getViewer();
+    if (!viewer) throw new Error("Usuário não autenticado");
+
+    const { error } = await supabase
+      .from("post_complaint")
+      .insert({
+        user_id: viewer.id,
+        post_id: postId,
+        reason: reason,
+        created_at: new Date().toISOString(),
+      });
+
+    if (error) throw error;
+    return true;
+  } catch (err: any) {
+    console.error("Error reporting post:", err);
+    throw err;
+  }
+}
