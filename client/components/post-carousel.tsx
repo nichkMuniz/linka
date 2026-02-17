@@ -63,21 +63,21 @@ export function PostCarousel({ photos, alt }: PostCarouselProps) {
         <ChevronRight className="h-5 w-5 text-white" />
       </button>
 
-      {/* Centered Photo Indicator */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2 pointer-events-none">
+      {/* Bottom Center Photo Indicator */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none">
         <div className="flex gap-1">
           {photos.map((_, index) => (
             <div
               key={index}
-              className={`h-2 rounded-full transition-all ${
+              className={`h-1.5 rounded-full transition-all ${
                 currentIndex === index
-                  ? "w-6 bg-white"
-                  : "w-2 bg-white/50"
+                  ? "w-4 bg-white"
+                  : "w-1.5 bg-white/50"
               }`}
             />
           ))}
         </div>
-        <p className="text-white text-xs font-medium bg-black/40 px-2 py-1 rounded-full">
+        <p className="text-white text-xs font-medium bg-black/40 px-2 py-0.5 rounded-full">
           {currentIndex + 1}/{photos.length}
         </p>
       </div>
