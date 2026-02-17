@@ -17,15 +17,17 @@ import {
   getUserGoalsDb,
   createPostDb,
   type UserGoal,
+  incrementGoalProgressDb,
 } from "@/lib/ritmofit-db";
-import { ImagePlus, Loader2 } from "lucide-react";
+import { ImagePlus, Loader2, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 export default function NewPost() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
 
-  const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
+  const [selectedFiles, setSelectedFiles] = React.useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = React.useState<string[]>([]);
+  const [currentPreviewIndex, setCurrentPreviewIndex] = React.useState(0);
   const [description, setDescription] = React.useState("");
   const [selectedGoalId, setSelectedGoalId] = React.useState<string>("");
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
@@ -52,45 +54,76 @@ export default function NewPost() {
 
   // Handle file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    // Validate file type
-    if (!file.type.startsWith("image/")) {
-      toast({
-        title: "Tipo inválido",
-        description: "Selecione apenas arquivos de imagem.",
-        variant: "destructive",
-      });
-      return;
+    const newFiles: File[] = [];
+    const newPreviews: string[] = [];
+
+    files.forEach((file) => {
+      // Validate file type
+      if (!file.type.startsWith("image/")) {
+        toast({
+          title: "Tipo inválido",
+          description: `${file.name} não é uma imagem válida.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "Arquivo muito grande",
+          description: `${file.name} deve ter no máximo 5MB.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      newFiles.push(file);
+
+      // Create preview URL
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        newPreviews.push(reader.result as string);
+        if (newPreviews.length === newFiles.length) {
+          setSelectedFiles((prev) => [...prev, ...newFiles]);
+          setPreviewUrls((prev) => [...prev, ...newPreviews]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removePhoto = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+    setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
+
+    // Adjust currentPreviewIndex if necessary
+    if (currentPreviewIndex >= previewUrls.length - 1 && currentPreviewIndex > 0) {
+      setCurrentPreviewIndex(currentPreviewIndex - 1);
+    }
+  };
+
+  const navigatePreview = (direction: "next" | "prev") => {
+    let newIndex = currentPreviewIndex;
+
+    if (direction === "next") {
+      newIndex = (currentPreviewIndex + 1) % previewUrls.length;
+    } else {
+      newIndex = (currentPreviewIndex - 1 + previewUrls.length) % previewUrls.length;
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: "Arquivo muito grande",
-        description: "A imagem deve ter no máximo 5MB.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setSelectedFile(file);
-
-    // Create preview URL
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPreviewUrl(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    setCurrentPreviewIndex(newIndex);
   };
 
   // Handle post submission
   const handleSubmit = React.useCallback(async () => {
-    if (!user || !selectedFile) {
+    if (!user || selectedFiles.length === 0) {
       toast({
         title: "Erro",
-        description: "Selecione uma imagem para postar.",
+        description: "Selecione pelo menos uma imagem para postar.",
         variant: "destructive",
       });
       return;
@@ -108,32 +141,37 @@ export default function NewPost() {
     setIsSubmitting(true);
 
     try {
-      // Upload image to storage
-      const timestamp = Date.now();
-      const extension = selectedFile.name.split(".").pop() || "jpg";
-      const filePath = `${user.id}/${timestamp}.${extension}`;
+      const uploadedUrls: string[] = [];
 
-      const { error: uploadError } = await supabase.storage
-        .from("posts")
-        .upload(filePath, selectedFile, {
-          contentType: selectedFile.type,
-          upsert: false,
-        });
+      // Upload all images
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const timestamp = Date.now();
+        const extension = file.name.split(".").pop() || "jpg";
+        const filePath = `${user.id}/${timestamp}-${i}.${extension}`;
 
-      if (uploadError) {
-        throw new Error(`Erro ao fazer upload: ${uploadError.message}`);
+        const { error: uploadError } = await supabase.storage
+          .from("posts")
+          .upload(filePath, file, {
+            contentType: file.type,
+            upsert: false,
+          });
+
+        if (uploadError) {
+          throw new Error(`Erro ao fazer upload de ${file.name}: ${uploadError.message}`);
+        }
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from("posts")
+          .getPublicUrl(filePath);
+
+        uploadedUrls.push(urlData.publicUrl);
       }
 
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from("posts")
-        .getPublicUrl(filePath);
-
-      const publicUrl = urlData.publicUrl;
-
-      // Create post in database
+      // Create post in database with all photo URLs
       const postId = await createPostDb(
-        publicUrl,
+        uploadedUrls,
         description,
         selectedGoalId || null,
       );
@@ -154,8 +192,9 @@ export default function NewPost() {
       });
 
       // Reset form
-      setSelectedFile(null);
-      setPreviewUrl(null);
+      setSelectedFiles([]);
+      setPreviewUrls([]);
+      setCurrentPreviewIndex(0);
       setDescription("");
       setSelectedGoalId("");
 
@@ -173,7 +212,7 @@ export default function NewPost() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [user, selectedFile, description, selectedGoalId, navigate]);
+  }, [user, selectedFiles, description, selectedGoalId, navigate]);
 
   if (authLoading) {
     return (
@@ -212,57 +251,115 @@ export default function NewPost() {
         <CardContent className="space-y-6">
           {/* Image Selection */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Imagem</label>
+            <label className="text-sm font-medium">
+              Imagens ({selectedFiles.length})
+            </label>
 
-            {previewUrl ? (
-              <div className="relative group">
-                <img
-                  src={previewUrl}
-                  alt="Preview"
-                  className="w-full h-96 object-cover rounded-lg border border-border/60"
-                />
-                <button
-                  onClick={() => {
-                    setSelectedFile(null);
-                    setPreviewUrl(null);
-                  }}
-                  className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center"
-                >
-                  <span className="text-white text-sm font-medium">
-                    Clique para mudar
-                  </span>
-                </button>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="absolute inset-0 opacity-0 cursor-pointer rounded-lg"
-                />
+            {previewUrls.length > 0 ? (
+              <div className="space-y-3">
+                {/* Carousel Display */}
+                <div className="relative group">
+                  <img
+                    src={previewUrls[currentPreviewIndex]}
+                    alt={`Preview ${currentPreviewIndex + 1}`}
+                    className="w-full h-96 object-cover rounded-lg border border-border/60"
+                  />
+
+                  {/* Navigation Buttons */}
+                  {previewUrls.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => navigatePreview("prev")}
+                        className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 p-2 rounded-full transition-colors"
+                      >
+                        <ChevronLeft className="h-5 w-5 text-white" />
+                      </button>
+                      <button
+                        onClick={() => navigatePreview("next")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 p-2 rounded-full transition-colors"
+                      >
+                        <ChevronRight className="h-5 w-5 text-white" />
+                      </button>
+
+                      {/* Photo Counter */}
+                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/50 px-3 py-1 rounded-full text-xs text-white">
+                        {currentPreviewIndex + 1}/{previewUrls.length}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Change Photos Overlay */}
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                    <span className="text-white text-sm font-medium">
+                      Clique para adicionar mais
+                    </span>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleFileChange}
+                    className="absolute inset-0 opacity-0 cursor-pointer rounded-lg"
+                  />
+                </div>
+
+                {/* Photo Thumbnails Strip */}
+                {previewUrls.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {previewUrls.map((url, index) => (
+                      <div
+                        key={index}
+                        className={`relative flex-shrink-0 cursor-pointer rounded-lg overflow-hidden border-2 transition-colors ${
+                          currentPreviewIndex === index
+                            ? "border-primary"
+                            : "border-border/40 hover:border-border"
+                        }`}
+                      >
+                        <img
+                          src={url}
+                          alt={`Thumbnail ${index + 1}`}
+                          className="h-16 w-16 object-cover"
+                          onClick={() => setCurrentPreviewIndex(index)}
+                        />
+                        <button
+                          onClick={() => removePhoto(index)}
+                          className="absolute top-0 right-0 bg-red-500/80 hover:bg-red-600 p-1 rounded-bl-lg transition-colors"
+                        >
+                          <X className="h-3 w-3 text-white" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Selected Files Info */}
+                <div className="text-xs text-muted-foreground space-y-1">
+                  {selectedFiles.map((file, index) => (
+                    <p key={index}>
+                      {file.name} ({Math.round(file.size / 1024)} KB)
+                    </p>
+                  ))}
+                </div>
               </div>
             ) : (
               <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border/60 rounded-lg bg-muted/20 cursor-pointer hover:bg-muted/40 transition-colors">
                 <div className="flex flex-col items-center justify-center pt-5 pb-6">
                   <ImagePlus className="h-8 w-8 text-muted-foreground mb-2" />
                   <p className="text-sm font-medium text-foreground">
-                    Clique ou arraste uma imagem
+                    Clique ou arraste imagens
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    PNG, JPG, WebP ou GIF (máx. 5MB)
+                    PNG, JPG, WebP ou GIF (máx. 5MB cada)
                   </p>
                 </div>
                 <input
                   type="file"
                   accept="image/*"
+                  multiple
                   onChange={handleFileChange}
                   className="hidden"
                 />
               </label>
-            )}
-
-            {selectedFile && (
-              <p className="text-xs text-muted-foreground">
-                {selectedFile.name} ({Math.round(selectedFile.size / 1024)} KB)
-              </p>
             )}
           </div>
 
@@ -331,7 +428,7 @@ export default function NewPost() {
             <Button
               className="flex-1"
               onClick={handleSubmit}
-              disabled={!selectedFile || isSubmitting}
+              disabled={selectedFiles.length === 0 || isSubmitting}
             >
               {isSubmitting ? (
                 <>

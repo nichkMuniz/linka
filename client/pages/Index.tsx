@@ -44,6 +44,7 @@ import type { PostWithStats } from "../services/post.service";
 import { StoriesCarousel } from "@/components/stories-carousel";
 import { StoryCreationDialog } from "@/components/story-creation-dialog";
 import { StoryViewerModal } from "@/components/story-viewer-modal";
+import { PostCarousel } from "@/components/post-carousel";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 
@@ -507,12 +508,16 @@ export default function Index() {
                 <CardContent className="space-y-3 p-0">
                   {/* Image Container with User Info Overlay */}
                   <div className="relative">
-                    <ImageWithFallback
-                      src={post.photo}
-                      alt="Post"
-                      fallback="/placeholder.svg"
-                      className="w-full object-cover"
-                    />
+                    {post.photos && post.photos.length > 0 ? (
+                      <PostCarousel photos={post.photos} alt="Post" />
+                    ) : (
+                      <ImageWithFallback
+                        src={post.photo}
+                        alt="Post"
+                        fallback="/placeholder.svg"
+                        className="w-full object-cover rounded-lg"
+                      />
+                    )}
 
                     {/* User Info Overlay - Bottom Left */}
                     <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">

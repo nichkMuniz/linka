@@ -106,6 +106,7 @@ export type PostWithLikes = {
   id: string;
   description: string;
   photo: string;
+  photos?: string[] | null;
   created_at: string;
   user_id: string;
   user_goal_id?: string | null;
@@ -517,10 +518,10 @@ export async function incrementGoalProgressDb(
   const viewer = await getViewer();
   if (!viewer) return null;
 
-  // Get current perc value and duration
+  // Increment days_completed by 1
   const { data: currentData, error: fetchError } = await supabase
     .from("user_goals")
-    .select("perc, duration")
+    .select("days_completed, duration")
     .eq("id", userGoalId)
     .maybeSingle();
 
@@ -531,18 +532,16 @@ export async function incrementGoalProgressDb(
     return null;
   }
 
-  const currentPerc = Number(currentData.perc ?? 0);
+  const currentDaysCompleted = Number(currentData.days_completed ?? 0);
   const duration = Number(currentData.duration ?? 1);
-  // Calculate increment based on duration: 100% / duration days
-  const increment = duration > 0 ? 100 / duration : 1;
-  const newPerc = Math.min(currentPerc + increment, 100); // Cap at 100
+  const newDaysCompleted = Math.min(currentDaysCompleted + 1, duration); // Cap at duration
 
   const { data, error } = await supabase
     .from("user_goals")
-    .update({ perc: newPerc })
+    .update({ days_completed: newDaysCompleted })
     .eq("id", userGoalId)
     .eq("user_id", viewer.id)
-    .select("id, goal_id, duration, quantity, type_goal, perc")
+    .select("id, goal_id, duration, quantity, type_goal, days_completed")
     .maybeSingle();
 
   if (error) {
@@ -557,6 +556,9 @@ export async function incrementGoalProgressDb(
   // Award 1 point for updating a goal
   await addPointsDb(1);
 
+  // Calculate percentage for perc field
+  const perc = duration > 0 ? (newDaysCompleted / duration) * 100 : 0;
+
   return {
     id: String(data.id),
     goal_id: String(data.goal_id ?? ""),
@@ -564,7 +566,7 @@ export async function incrementGoalProgressDb(
     duration: Number(data.duration ?? 0),
     quantity: Number(data.quantity ?? 0),
     type_goal: Number(data.type_goal ?? 0),
-    perc: Number(data.perc ?? 0),
+    perc: Math.round(perc),
   };
 }
 
@@ -3178,151 +3180,81 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
   if (!viewer) return [];
 
   try {
-    const notifications: NotificationItem[] = [];
-
-    // Get likes on user's posts
-    const { data: likesData, error: likesError } = await supabase
-      .from("likes")
-      .select("id, user_id, post_id, type, created_at")
-      .in("post_id",
-        (await supabase
-          .from("posts")
-          .select("id")
-          .eq("user_id", viewer.id)
-          .then(result => (result.data ?? []).map((p: any) => p.id)))
+    // Read directly from notifications table
+    const { data: notificationsData, error } = await supabase
+      .from("notifications")
+      .select(
+        `
+        id,
+        follower_id,
+        type,
+        post_id,
+        created_at
+      `
       )
+      .eq("user_id", viewer.id)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
 
-    if (!likesError && likesData) {
-      // Get user profiles and post photos for likes
-      const userIds = [...new Set(likesData.map((l: any) => l.user_id))];
-      const postIds = [...new Set(likesData.map((l: any) => l.post_id))];
-
-      const [{ data: profiles }, { data: posts }] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("user_id, nickname, photo")
-          .in("user_id", userIds),
-        supabase
-          .from("posts")
-          .select("id, photo")
-          .in("id", postIds),
-      ]);
-
-      const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
-      const postMap = new Map((posts ?? []).map((p: any) => [p.id, p]));
-
-      likesData.forEach((like: any) => {
-        const profile = profileMap.get(like.user_id);
-        const post = postMap.get(like.post_id);
-        if (profile && post) {
-          notifications.push({
-            id: `like-${like.id}`,
-            type: "like",
-            userId: like.user_id,
-            userNickname: profile.nickname,
-            userPhoto: profile.photo,
-            postId: like.post_id,
-            postPhoto: post.photo,
-            createdAt: like.created_at,
-          });
-        }
-      });
+    if (error) {
+      console.error("Error fetching notifications:", error);
+      return [];
     }
 
-    // Get comments on user's posts
-    const { data: commentsData, error: commentsError } = await supabase
-      .from("comments")
-      .select("id, user_id, post_id, text, created_at")
-      .in("post_id",
-        (await supabase
-          .from("posts")
-          .select("id")
-          .eq("user_id", viewer.id)
-          .then(result => (result.data ?? []).map((p: any) => p.id)))
-      )
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    if (!commentsError && commentsData) {
-      const userIds = [...new Set(commentsData.map((c: any) => c.user_id))];
-      const postIds = [...new Set(commentsData.map((c: any) => c.post_id))];
-
-      const [{ data: profiles }, { data: posts }] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("user_id, nickname, photo")
-          .in("user_id", userIds),
-        supabase
-          .from("posts")
-          .select("id, photo")
-          .in("id", postIds),
-      ]);
-
-      const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
-      const postMap = new Map((posts ?? []).map((p: any) => [p.id, p]));
-
-      commentsData.forEach((comment: any) => {
-        const profile = profileMap.get(comment.user_id);
-        const post = postMap.get(comment.post_id);
-        if (profile && post) {
-          notifications.push({
-            id: `comment-${comment.id}`,
-            type: "comment",
-            userId: comment.user_id,
-            userNickname: profile.nickname,
-            userPhoto: profile.photo,
-            postId: comment.post_id,
-            postPhoto: post.photo,
-            text: comment.text,
-            createdAt: comment.created_at,
-          });
-        }
-      });
+    if (!notificationsData || notificationsData.length === 0) {
+      return [];
     }
 
-    // Get new posts from followed users
-    const followingIds = await getFollowingIdsDb();
-    if (followingIds.length > 0) {
-      const { data: postsData } = await supabase
-        .from("posts")
-        .select("id, user_id, photo, created_at")
-        .in("user_id", followingIds)
-        .order("created_at", { ascending: false })
-        .limit(50);
+    // Get all follower IDs and post IDs to fetch related data
+    const followerIds = [...new Set(notificationsData.map((n: any) => n.follower_id))];
+    const postIds = [...new Set(notificationsData.map((n: any) => n.post_id).filter(Boolean))];
 
-      if (postsData) {
-        const userIds = [...new Set(postsData.map((p: any) => p.user_id))];
-        const { data: profiles } = await supabase
-          .from("profiles")
-          .select("user_id, nickname, photo")
-          .in("user_id", userIds);
+    // Fetch follower profiles and post photos in parallel
+    const [{ data: profiles }, { data: posts }] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .in("user_id", followerIds),
+      postIds.length > 0
+        ? supabase
+            .from("posts")
+            .select("id, photo")
+            .in("id", postIds)
+        : Promise.resolve({ data: [] }),
+    ]);
 
-        const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
+    const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
+    const postMap = new Map((posts ?? []).map((p: any) => [p.id, p]));
 
-        postsData.forEach((post: any) => {
-          const profile = profileMap.get(post.user_id);
-          if (profile) {
-            notifications.push({
-              id: `post-${post.id}`,
-              type: "post",
-              userId: post.user_id,
-              userNickname: profile.nickname,
-              userPhoto: profile.photo,
-              postId: post.id,
-              postPhoto: post.photo,
-              createdAt: post.created_at,
-            });
+    // Transform notifications table records to NotificationItem format
+    const notifications: NotificationItem[] = notificationsData
+      .map((notif: any) => {
+        const profile = profileMap.get(notif.follower_id);
+        if (!profile) return null;
+
+        const notification: NotificationItem = {
+          id: notif.id,
+          type: notif.type,
+          userId: notif.follower_id,
+          userNickname: profile.nickname,
+          userPhoto: profile.photo,
+          createdAt: notif.created_at,
+        };
+
+        // Add post-related fields if available
+        if (notif.post_id) {
+          notification.postId = notif.post_id;
+          const post = postMap.get(notif.post_id);
+          if (post) {
+            notification.postPhoto = post.photo;
           }
-        });
-      }
-    }
+        }
 
-    // Sort all notifications by date and return top 100
-    return notifications
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 100);
+        return notification;
+      })
+      .filter((n: NotificationItem | null) => n !== null) as NotificationItem[];
+
+    return notifications;
   } catch (err: any) {
     console.error("Error getting notifications:", err);
     return [];
@@ -3331,7 +3263,7 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
 
 // Post Creation Function
 export async function createPostDb(
-  photoUrl: string,
+  photoUrl: string | string[],
   description: string,
   userGoalId?: string | null,
 ): Promise<string> {
@@ -3341,11 +3273,19 @@ export async function createPostDb(
     const viewer = await getViewer();
     if (!viewer) throw new Error("Usuário não autenticado");
 
+    // Handle both single string and array of strings
+    const photos = Array.isArray(photoUrl) ? photoUrl : [photoUrl];
+    // For backward compatibility, store single photo in 'photo' column
+    // and all photos in 'photos' JSON column
+    const firstPhoto = photos[0];
+    const photosJson = photos.length > 1 ? photos : null;
+
     const { data, error } = await supabase
       .from("posts")
       .insert({
         user_id: viewer.id,
-        photo: photoUrl,
+        photo: firstPhoto,
+        photos: photosJson,
         description: description.trim(),
         user_goal_id: userGoalId ? Number(userGoalId) : null,
         created_at: new Date().toISOString(),
