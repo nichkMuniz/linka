@@ -3163,13 +3163,12 @@ export async function saveWorkoutSeriesDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: "like" | "comment" | "post";
+  type: 1 | 2 | 3; // 1 = new follower, 2 = incentive, 3 = comment
   userId: string;
   userNickname: string;
   userPhoto: string | null;
   postId?: string;
   postPhoto?: string;
-  text?: string; // For comments
   createdAt: string;
 };
 

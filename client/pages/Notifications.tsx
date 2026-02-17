@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, MessageCircle, Plus } from "lucide-react";
+import { Heart, MessageCircle, UserPlus, Zap } from "lucide-react";
 import { getNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -30,29 +30,40 @@ export default function Notifications() {
     }
   }, [user]);
 
-  const getNotificationText = (notification: NotificationItem) => {
+  const getNotificationContent = (notification: NotificationItem) => {
     switch (notification.type) {
-      case "like":
-        return `${notification.userNickname} deu um incentivo na sua postagem`;
-      case "comment":
-        return `${notification.userNickname} comentou: "${notification.text}"`;
-      case "post":
-        return `${notification.userNickname} postou algo novo`;
+      case 1:
+        return {
+          icon: <UserPlus className="h-5 w-5 text-blue-500" />,
+          title: "Novo seguidor",
+          description: `${notification.userNickname} começou a te seguir`,
+          bgColor: "bg-blue-500/10",
+          borderColor: "border-blue-200/50",
+        };
+      case 2:
+        return {
+          icon: <Heart className="h-5 w-5 text-red-500 fill-red-500" />,
+          title: "Incentivo recebido",
+          description: `${notification.userNickname} deu um incentivo na sua postagem`,
+          bgColor: "bg-red-500/10",
+          borderColor: "border-red-200/50",
+        };
+      case 3:
+        return {
+          icon: <MessageCircle className="h-5 w-5 text-purple-500" />,
+          title: "Novo comentário",
+          description: `${notification.userNickname} comentou na sua postagem`,
+          bgColor: "bg-purple-500/10",
+          borderColor: "border-purple-200/50",
+        };
       default:
-        return "";
-    }
-  };
-
-  const getNotificationIcon = (notification: NotificationItem) => {
-    switch (notification.type) {
-      case "like":
-        return <Heart className="h-5 w-5 text-red-500 fill-red-500" />;
-      case "comment":
-        return <MessageCircle className="h-5 w-5 text-blue-500" />;
-      case "post":
-        return <Plus className="h-5 w-5 text-green-500" />;
-      default:
-        return null;
+        return {
+          icon: <Zap className="h-5 w-5 text-gray-500" />,
+          title: "Notificação",
+          description: "Nova atividade",
+          bgColor: "bg-gray-500/10",
+          borderColor: "border-gray-200/50",
+        };
     }
   };
 
@@ -76,7 +87,12 @@ export default function Notifications() {
   };
 
   const handleNotificationClick = (notification: NotificationItem) => {
-    if (notification.postId) {
+    // Type 1 (new follower) - navigate to user profile
+    if (notification.type === 1) {
+      navigate(`/usuario/${notification.userId}`);
+    }
+    // Type 2 and 3 (incentive and comment) - navigate to post
+    else if (notification.postId) {
       navigate(`/post/${notification.postId}`);
     } else {
       navigate(`/usuario/${notification.userId}`);
@@ -86,71 +102,90 @@ export default function Notifications() {
   return (
     <div className="w-full max-w-2xl mx-auto">
       <div className="space-y-4 pb-4">
-        <h1 className="text-2xl font-bold tracking-tight">Notificações</h1>
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold tracking-tight">Notificações</h1>
+          <p className="text-xs text-muted-foreground mt-1">
+            Fique por dentro das atividades dos usuários que segue
+          </p>
+        </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-8">
+          <div className="flex items-center justify-center py-12">
             <p className="text-sm text-muted-foreground">Carregando notificações...</p>
           </div>
         ) : notifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 rounded-lg border border-border/60 bg-muted/30">
-            <p className="text-sm text-muted-foreground">
+          <div className="flex flex-col items-center justify-center py-16 rounded-lg border border-border/60 bg-muted/30">
+            <Zap className="h-10 w-10 text-muted-foreground/40 mb-3" />
+            <p className="text-sm font-medium text-muted-foreground">
               Nenhuma notificação ainda
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Suas atividades aparecerão aqui
+              Quando alguém te seguir ou interagir com seus posts,
+              <br />
+              você verá as notificações aqui
             </p>
           </div>
         ) : (
           <div className="space-y-2">
-            {notifications.map((notification) => (
-              <button
-                key={notification.id}
-                onClick={() => handleNotificationClick(notification)}
-                className="w-full text-left transition-colors hover:bg-muted/50 rounded-lg p-3 border border-border/40"
-              >
-                <div className="flex items-start gap-3">
-                  {/* User Avatar */}
-                  {notification.userPhoto ? (
-                    <img
-                      src={notification.userPhoto}
-                      alt={notification.userNickname}
-                      className="h-12 w-12 rounded-full object-cover flex-shrink-0"
-                    />
-                  ) : (
-                    <div className="h-12 w-12 rounded-full bg-muted flex-shrink-0" />
-                  )}
+            {notifications.map((notification) => {
+              const content = getNotificationContent(notification);
 
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-start gap-2 flex-1 min-w-0">
-                        <div className="flex-shrink-0 mt-1">
-                          {getNotificationIcon(notification)}
-                        </div>
-                        <p className="text-sm text-foreground break-words">
-                          {getNotificationText(notification)}
-                        </p>
-                      </div>
-                      <p className="text-xs text-muted-foreground flex-shrink-0">
-                        {formatTimeAgo(notification.createdAt)}
-                      </p>
+              return (
+                <button
+                  key={notification.id}
+                  onClick={() => handleNotificationClick(notification)}
+                  className={`w-full text-left transition-all hover:shadow-md rounded-lg p-4 border ${content.borderColor} ${content.bgColor}`}
+                >
+                  <div className="flex items-start gap-3">
+                    {/* User Avatar */}
+                    <div className="flex-shrink-0">
+                      {notification.userPhoto ? (
+                        <img
+                          src={notification.userPhoto}
+                          alt={notification.userNickname}
+                          className="h-12 w-12 rounded-full object-cover border border-border/40"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-full bg-muted border border-border/40" />
+                      )}
                     </div>
 
-                    {/* Post Thumbnail */}
-                    {notification.postPhoto && (
-                      <div className="mt-2">
-                        <img
-                          src={notification.postPhoto}
-                          alt="Post"
-                          className="h-20 w-20 rounded-md object-cover"
-                        />
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <div className="flex items-start gap-2 flex-1 min-w-0">
+                          <div className="flex-shrink-0 mt-0.5">
+                            {content.icon}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-foreground/70">
+                              {content.title}
+                            </p>
+                            <p className="text-sm text-foreground font-medium mt-0.5">
+                              {content.description}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground flex-shrink-0 whitespace-nowrap ml-2">
+                          {formatTimeAgo(notification.createdAt)}
+                        </p>
                       </div>
-                    )}
+
+                      {/* Post Thumbnail - only for incentive and comment notifications */}
+                      {notification.postPhoto && (notification.type === 2 || notification.type === 3) && (
+                        <div className="mt-3 ml-7">
+                          <img
+                            src={notification.postPhoto}
+                            alt="Post"
+                            className="h-16 w-16 rounded-md object-cover border border-border/40"
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
