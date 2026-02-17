@@ -534,7 +534,7 @@ export async function incrementGoalProgressDb(
 
   const currentDaysCompleted = Number(currentData.days_completed ?? 0);
   const duration = Number(currentData.duration ?? 1);
-  const newDaysCompleted = Math.min(currentDaysCompleted + 1, duration); // Cap at duration
+  const newDaysCompleted = Math.min(currentDaysCompleted, duration); // Cap at duration
 
   // Calculate percentage for perc field
   const perc = duration > 0 ? (newDaysCompleted / duration) * 100 : 0;
