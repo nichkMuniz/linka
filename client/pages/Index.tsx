@@ -27,10 +27,11 @@ import {
   deleteOldStoriesDb,
   createUserGoalDb,
   getUserGoalsDb,
+  deletePostDb,
   type PostIncentiveType,
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
-import { Check, ChevronDown, MoreVertical, Flag } from "lucide-react";
+import { Check, ChevronDown, MoreVertical, Flag, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -391,6 +392,46 @@ export default function Index() {
     setReportDialogOpen(true);
   }, []);
 
+  const handleDeletePost = React.useCallback(
+    async (post: PostWithStats) => {
+      if (!user) {
+        toast({
+          title: "Erro",
+          description: "Você precisa estar logado para deletar um post.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Confirm deletion
+      const confirmed = window.confirm(
+        "Tem certeza que deseja deletar este post? Esta ação não pode ser desfeita.",
+      );
+      if (!confirmed) return;
+
+      try {
+        await deletePostDb(post.id);
+
+        // Remove post from local state
+        setPosts((prev) => prev.filter((p) => p.id !== post.id));
+
+        toast({
+          title: "Sucesso",
+          description: "Post deletado com sucesso.",
+        });
+      } catch (err: any) {
+        console.error("Error deleting post:", err);
+        toast({
+          title: "Erro ao deletar post",
+          description:
+            err?.message || "Não foi possível deletar o post. Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    },
+    [user],
+  );
+
   const submitReport = React.useCallback(async () => {
     if (!reportType || !reportedPost || !reportReason.trim()) {
       toast({
@@ -515,6 +556,18 @@ export default function Index() {
                             <Flag className="h-4 w-4 mr-2" />
                             Denunciar post
                           </DropdownMenuItem>
+                          {user?.id === post.user_id && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => handleDeletePost(post)}
+                                className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Excluir post
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>

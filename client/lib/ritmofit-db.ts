@@ -3365,6 +3365,82 @@ export async function createPostDb(
   }
 }
 
+// Delete Post Function
+export async function deletePostDb(postId: string): Promise<boolean> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const viewer = await getViewer();
+    if (!viewer) throw new Error("Usuário não autenticado");
+
+    // Get the post first to verify ownership and get photo URL
+    const { data: postData, error: fetchError } = await supabase
+      .from("posts")
+      .select("user_id, photo")
+      .eq("id", postId)
+      .single();
+
+    if (fetchError) throw fetchError;
+    if (!postData) throw new Error("Post não encontrado");
+
+    // Verify ownership
+    if (postData.user_id !== viewer.id) {
+      throw new Error("Você não tem permissão para deletar este post");
+    }
+
+    // Delete comments associated with the post
+    const { error: commentsError } = await supabase
+      .from("comments")
+      .delete()
+      .eq("post_id", postId);
+
+    if (commentsError) {
+      console.error("Error deleting comments:", commentsError);
+      // Continue anyway, don't fail the entire operation
+    }
+
+    // Delete likes/incentives associated with the post
+    const { error: likesError } = await supabase
+      .from("post_incentives")
+      .delete()
+      .eq("post_id", postId);
+
+    if (likesError) {
+      console.error("Error deleting likes:", likesError);
+      // Continue anyway, don't fail the entire operation
+    }
+
+    // Delete the post itself
+    const { error: postDeleteError } = await supabase
+      .from("posts")
+      .delete()
+      .eq("id", postId);
+
+    if (postDeleteError) throw postDeleteError;
+
+    // Delete image from storage if it exists
+    if (postData.photo) {
+      try {
+        // Extract the file path from the public URL
+        // URL format: https://xxxxx.supabase.co/storage/v1/object/public/posts/user_id/timestamp.jpg
+        const pathMatch = postData.photo.match(/\/posts\/(.+)$/);
+        if (pathMatch && pathMatch[1]) {
+          const filePath = pathMatch[1];
+          await supabase.storage.from("posts").remove([filePath]);
+        }
+      } catch (err) {
+        console.error("Error deleting image from storage:", err);
+        // Don't fail the operation if image deletion fails
+      }
+    }
+
+    return true;
+  } catch (err: any) {
+    console.error("Error deleting post:", err);
+    throw err;
+  }
+}
+
 // Complaint Functions
 export async function reportUserDb(followerId: string, reason: string): Promise<boolean> {
   if (!supabase) throw new Error("Supabase não configurado");
