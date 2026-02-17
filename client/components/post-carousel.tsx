@@ -63,34 +63,24 @@ export function PostCarousel({ photos, alt }: PostCarouselProps) {
         <ChevronRight className="h-5 w-5 text-white" />
       </button>
 
-      {/* Photo Counter */}
-      <div className="absolute bottom-2 right-2 bg-black/50 px-3 py-1 rounded-full text-xs text-white">
-        {currentIndex + 1}/{photos.length}
-      </div>
-
-      {/* Thumbnail Strip */}
-      {photos.length > 1 && (
-        <div className="mt-2 flex gap-2 overflow-x-auto pb-2">
-          {photos.map((photo, index) => (
-            <button
+      {/* Centered Photo Indicator */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2 pointer-events-none">
+        <div className="flex gap-1">
+          {photos.map((_, index) => (
+            <div
               key={index}
-              onClick={() => setCurrentIndex(index)}
-              className={`flex-shrink-0 h-12 w-12 rounded-md overflow-hidden border-2 transition-colors ${
+              className={`h-2 rounded-full transition-all ${
                 currentIndex === index
-                  ? "border-primary"
-                  : "border-border/40 hover:border-border"
+                  ? "w-6 bg-white"
+                  : "w-2 bg-white/50"
               }`}
-              aria-label={`View photo ${index + 1}`}
-            >
-              <img
-                src={photo}
-                alt={`Thumbnail ${index + 1}`}
-                className="h-full w-full object-cover"
-              />
-            </button>
+            />
           ))}
         </div>
-      )}
+        <p className="text-white text-xs font-medium bg-black/40 px-2 py-1 rounded-full">
+          {currentIndex + 1}/{photos.length}
+        </p>
+      </div>
     </div>
   );
 }

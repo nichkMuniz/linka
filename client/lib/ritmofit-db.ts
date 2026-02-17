@@ -536,12 +536,15 @@ export async function incrementGoalProgressDb(
   const duration = Number(currentData.duration ?? 1);
   const newDaysCompleted = Math.min(currentDaysCompleted + 1, duration); // Cap at duration
 
+  // Calculate percentage for perc field
+  const perc = duration > 0 ? (newDaysCompleted / duration) * 100 : 0;
+
   const { data, error } = await supabase
     .from("user_goals")
-    .update({ days_completed: newDaysCompleted })
+    .update({ days_completed: newDaysCompleted, perc: Math.round(perc) })
     .eq("id", userGoalId)
     .eq("user_id", viewer.id)
-    .select("id, goal_id, duration, quantity, type_goal, days_completed")
+    .select("id, goal_id, duration, quantity, type_goal, days_completed, perc")
     .maybeSingle();
 
   if (error) {
@@ -556,9 +559,6 @@ export async function incrementGoalProgressDb(
   // Award 1 point for updating a goal
   await addPointsDb(1);
 
-  // Calculate percentage for perc field
-  const perc = duration > 0 ? (newDaysCompleted / duration) * 100 : 0;
-
   return {
     id: String(data.id),
     goal_id: String(data.goal_id ?? ""),
@@ -566,7 +566,7 @@ export async function incrementGoalProgressDb(
     duration: Number(data.duration ?? 0),
     quantity: Number(data.quantity ?? 0),
     type_goal: Number(data.type_goal ?? 0),
-    perc: Math.round(perc),
+    perc: Number(data.perc ?? Math.round(perc)),
   };
 }
 

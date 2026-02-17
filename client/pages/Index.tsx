@@ -256,19 +256,19 @@ export default function Index() {
 
     setIsUpdatingGoal(true);
     try {
-      await incrementGoalProgressDb(selectedGoalPost.userGoal.id);
+      const updatedGoal = await incrementGoalProgressDb(selectedGoalPost.userGoal.id);
 
-      // Update the post in the list
+      // Update the post in the list with the correct percentage from the database
       setPosts((prev) =>
         prev.map((post) => {
           if (post.id !== selectedGoalPost.id) return post;
-          if (!post.userGoal) return post;
+          if (!post.userGoal || !updatedGoal) return post;
 
           return {
             ...post,
             userGoal: {
               ...post.userGoal,
-              perc: Math.min(post.userGoal.perc + 1, 100),
+              perc: Math.min(updatedGoal.perc, 100),
             },
           };
         }),
