@@ -3411,12 +3411,23 @@ export async function deletePostDb(postId: string): Promise<boolean> {
     }
 
     // Delete the post itself
-    const { error: postDeleteError } = await supabase
+    console.log("Deletando post com ID:", postId);
+    const deleteResponse = await supabase
       .from("posts")
       .delete()
-      .eq("id", postId);
+      .eq("id", postId)
+      .select();
 
-    if (postDeleteError) throw postDeleteError;
+    console.log("Resposta do delete do post:", deleteResponse);
+
+    const { error: postDeleteError, data: deletedData } = deleteResponse;
+
+    if (postDeleteError) {
+      console.error("Erro ao deletar post:", postDeleteError);
+      throw postDeleteError;
+    }
+
+    console.log("Post deletado com sucesso:", deletedData);
 
     // Delete image from storage if it exists
     if (postData.photo) {

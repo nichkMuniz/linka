@@ -410,7 +410,9 @@ export default function Index() {
       if (!confirmed) return;
 
       try {
-        await deletePostDb(post.id);
+        console.log("Iniciando deleção do post:", post.id);
+        const result = await deletePostDb(post.id);
+        console.log("Resultado da deleção:", result);
 
         // Remove post from local state
         setPosts((prev) => prev.filter((p) => p.id !== post.id));
@@ -421,6 +423,7 @@ export default function Index() {
         });
       } catch (err: any) {
         console.error("Error deleting post:", err);
+        console.error("Erro completo:", JSON.stringify(err, null, 2));
         toast({
           title: "Erro ao deletar post",
           description:
