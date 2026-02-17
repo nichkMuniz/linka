@@ -537,7 +537,7 @@ export async function incrementGoalProgressDb(
   const newDaysCompleted = Math.min(currentDaysCompleted, duration); // Cap at duration
 
   // Calculate percentage for perc field
-  const perc = duration > 0 ? (newDaysCompleted / duration) * 100 : 0;
+  const perc = duration > 0 ? (currentDaysCompleted / duration) * 100 : 0;
 
   const { data, error } = await supabase
     .from("user_goals")
