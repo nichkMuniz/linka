@@ -149,7 +149,16 @@ export default function NewPost() {
               id="post-file"
               type="file"
               accept="image/*"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              onChange={(e) => {
+                const selectedFile = e.target.files?.[0];
+                if (!selectedFile) return;
+
+                console.log("TYPE:", selectedFile.type);
+                console.log("NAME:", selectedFile.name);
+
+                setFile(selectedFile);
+              }}
+
             />
             <div className="text-xs text-muted-foreground">
               {file
