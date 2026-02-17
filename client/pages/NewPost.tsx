@@ -52,22 +52,37 @@ export default function NewPost() {
     setBusy(true);
 
     try {
-      // FORÇA o tipo correto
-      const fileExt = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const fileName = `${Date.now()}.${fileExt}`;
+      // detectar extensão real
+      const originalExt = file.name.split(".").pop()?.toLowerCase();
+
+      let contentType = "image/jpeg";
+      let extension = "jpg";
+
+      if (originalExt === "png") {
+        contentType = "image/png";
+        extension = "png";
+      }
+
+      if (originalExt === "webp") {
+        contentType = "image/webp";
+        extension = "webp";
+      }
+
+      // nome seguro
+      const fileName = `${Date.now()}.${extension}`;
       const filePath = `${user.id}/${fileName}`;
 
-      // Converte explicitamente para Blob real
+      // converter explicitamente ignorando o type original
       const arrayBuffer = await file.arrayBuffer();
 
       const blob = new Blob([arrayBuffer], {
-        type: file.type || "image/jpeg",
+        type: contentType,
       });
 
       const { error: uploadError } = await supabase.storage
         .from("posts")
         .upload(filePath, blob, {
-          contentType: blob.type,
+          contentType: contentType,
           upsert: false,
         });
 
@@ -102,9 +117,6 @@ export default function NewPost() {
       setBusy(false);
     }
   }
-
-
-
 
   return (
     <div className="mx-auto grid w-full max-w-md gap-6">
