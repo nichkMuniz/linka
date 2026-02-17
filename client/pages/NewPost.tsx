@@ -52,37 +52,30 @@ export default function NewPost() {
     setBusy(true);
 
     try {
-      // detectar extensão real
-      const originalExt = file.name.split(".").pop()?.toLowerCase();
-
-      let contentType = "image/jpeg";
-      let extension = "jpg";
-
-      if (originalExt === "png") {
-        contentType = "image/png";
-        extension = "png";
-      }
-
-      if (originalExt === "webp") {
-        contentType = "image/webp";
-        extension = "webp";
-      }
-
-      // nome seguro
-      const fileName = `${Date.now()}.${extension}`;
+      // força extensão correta
+      const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const fileName = `${Date.now()}.${ext}`;
       const filePath = `${user.id}/${fileName}`;
 
-      // converter explicitamente ignorando o type original
-      const arrayBuffer = await file.arrayBuffer();
+      // lê bytes reais do arquivo
+      const buffer = await file.arrayBuffer();
 
-      const blob = new Blob([arrayBuffer], {
-        type: contentType,
-      });
+      // recria como File REAL com MIME correto
+      const realFile = new File(
+        [buffer],
+        fileName,
+        {
+          type: file.type || "image/jpeg",
+          lastModified: Date.now(),
+        }
+      );
+
+      console.log("UPLOAD TYPE:", realFile.type);
 
       const { error: uploadError } = await supabase.storage
         .from("posts")
-        .upload(filePath, blob, {
-          contentType: contentType,
+        .upload(filePath, realFile, {
+          contentType: realFile.type,
           upsert: false,
         });
 
@@ -92,12 +85,14 @@ export default function NewPost() {
         .from("posts")
         .getPublicUrl(filePath).data.publicUrl;
 
-      const { error: insertError } = await supabase.from("posts").insert({
-        user_id: user.id,
-        description: caption.trim(),
-        photo: publicUrl,
-        user_goal_id: selectedGoalId ? Number(selectedGoalId) : null,
-      });
+      const { error: insertError } = await supabase
+        .from("posts")
+        .insert({
+          user_id: user.id,
+          description: caption.trim(),
+          photo: publicUrl,
+          user_goal_id: selectedGoalId ? Number(selectedGoalId) : null,
+        });
 
       if (insertError) throw insertError;
 
@@ -117,6 +112,7 @@ export default function NewPost() {
       setBusy(false);
     }
   }
+
 
   return (
     <div className="mx-auto grid w-full max-w-md gap-6">
