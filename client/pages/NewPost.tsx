@@ -71,11 +71,11 @@ export default function NewPost() {
         return;
       }
 
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
         toast({
           title: "Arquivo muito grande",
-          description: `${file.name} deve ter no máximo 5MB.`,
+          description: `${file.name} deve ter no máximo 10MB.`,
           variant: "destructive",
         });
         return;
@@ -363,7 +363,7 @@ export default function NewPost() {
                     Clique ou arraste imagens
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    PNG, JPG, WebP ou GIF (máx. 5MB cada)
+                    PNG, JPG, WebP ou GIF (máx. 10MB cada)
                   </p>
                 </div>
                 <input
