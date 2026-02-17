@@ -52,32 +52,35 @@ export default function NewPost() {
 
   async function handlePost() {
     if (!hasSupabaseConfig || !supabase) return;
-    if (!user || !file || loading) return;
+    if (loading || !user) return;
+
+    if (!file) {
+      toast({ title: "Selecione uma imagem" });
+      return;
+    }
 
     setBusy(true);
 
     try {
-      // Garantir tipo correto
-      const mimeType =
-        file.type && file.type.startsWith("image/")
-          ? file.type
-          : "image/jpeg";
+      // GARANTIR QUE É UM FILE REAL
+      let uploadFile: File;
 
-      // Converter para blob correto
-      const arrayBuffer = await file.arrayBuffer();
+      if (file instanceof File) {
+        uploadFile = file;
+      } else {
+        // Caso venha como blob/base64/json, converter
+        const blob = new Blob([file], { type: "image/jpeg" });
+        uploadFile = new File([blob], `photo.jpg`, { type: "image/jpeg" });
+      }
 
-      const blob = new Blob([arrayBuffer], {
-        type: mimeType,
-      });
-
-      const extension = mimeType.split("/")[1] || "jpg";
+      const extension = uploadFile.type.split("/")[1] || "jpg";
 
       const filePath = `${user.id}/${Date.now()}.${extension}`;
 
       const { error: uploadError } = await supabase.storage
         .from("posts")
-        .upload(filePath, blob, {
-          contentType: mimeType,
+        .upload(filePath, uploadFile, {
+          contentType: uploadFile.type,
           upsert: false,
         });
 
@@ -96,35 +99,23 @@ export default function NewPost() {
 
       if (insertError) throw insertError;
 
-      // Atualizar meta
-      if (selectedGoalId) {
-        incrementGoalProgressDb(selectedGoalId).catch(console.error);
-      }
+      toast({ title: "Post publicado!" });
 
-      toast({
-        title: "Post publicado com sucesso!",
-      });
-
-      // Reset correto
       setFile(null);
       setCaption("");
 
-      if (fileInputRef.current)
-        fileInputRef.current.value = "";
-
       navigate("/", { replace: true });
-    } catch (err: any) {
-      console.error(err);
 
+    } catch (err: any) {
       toast({
         title: "Erro ao publicar",
-        description: err.message,
-        variant: "destructive",
+        description: err.message || "Erro inesperado",
       });
     } finally {
       setBusy(false);
     }
   }
+
 
   return (
     <div className="mx-auto grid w-full max-w-md gap-6">
@@ -139,13 +130,20 @@ export default function NewPost() {
 
           {/* FILE INPUT */}
           <Input
-            ref={fileInputRef}
             type="file"
             accept="image/jpeg,image/png,image/webp"
-            onChange={(e) =>
-              setFile(e.target.files?.[0] || null)
-            }
+            onChange={(e) => {
+              const selectedFile = e.target.files?.[0];
+
+              if (!selectedFile) return;
+
+              console.log("Tipo real:", selectedFile.type);
+              console.log("Instanceof File:", selectedFile instanceof File);
+
+              setFile(selectedFile);
+            }}
           />
+
 
           {/* CAPTION */}
           <Textarea
