@@ -161,7 +161,7 @@ export default function Messages() {
 
   if (viewMode === "conversation" && selectedConversation) {
     return (
-      <div className="w-full h-[calc(100dvh-120px)] flex flex-col overflow-hidden">
+      <div className="w-full h-[calc(100dvh-140px)] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3">
           <button
@@ -275,19 +275,23 @@ export default function Messages() {
   );
 
   return (
-    <div className="w-full h-[calc(100dvh-120px)] flex flex-col overflow-hidden">
-      <div className="space-y-4 flex-shrink-0 px-4 pt-4">
+    <div className="w-full h-[calc(100dvh-140px)] flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex-shrink-0 px-4 pt-4">
         <h1 className="text-2xl font-bold tracking-tight">Mensagens</h1>
+      </div>
 
-        {/* Search Bar */}
+      {/* Search Bar - Separated */}
+      <div className="flex-shrink-0 border-b border-border/60 px-4 py-3">
         <Input
           placeholder="Pesquisar pessoas..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="rounded-full mt-4 mb-2.5"
+          className="rounded-full"
         />
       </div>
 
+      {/* Conversations List */}
       <div className="flex-1 overflow-y-auto px-4 pb-4">
         {filteredConversations.length > 0 ? (
           <div className="space-y-2">
