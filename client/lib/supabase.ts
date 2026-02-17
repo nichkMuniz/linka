@@ -11,18 +11,14 @@ export const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
 
 export const supabase: SupabaseClient | null = hasSupabaseConfig
   ? createClient(supabaseUrl as string, supabaseAnonKey as string, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: false, // Disable auto-refresh to avoid initial network calls
-        detectSessionInUrl: true,
-      },
-      global: {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      },
-    })
+    auth: {
+      persistSession: true,
+      autoRefreshToken: false,
+      detectSessionInUrl: true,
+    },
+  })
   : null;
+
 
 function isInvalidRefreshTokenError(err: unknown) {
   const message =
