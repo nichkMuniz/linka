@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Imput } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -27,6 +27,7 @@ export default function NewPost() {
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [goalsLoading, setGoalsLoading] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
     if (!user) return;
@@ -43,9 +44,6 @@ export default function NewPost() {
   async function handlePost() {
     if (!hasSupabaseConfig || !supabase) return;
     if (loading || !user) return;
-
-    const input = document.getElementById("post-file") as HTMLInputElement;
-    const file = input?.files?.[0];
 
     if (!file) {
       toast({ title: "Selecione uma imagem" });
@@ -90,8 +88,12 @@ export default function NewPost() {
       }
 
       toast({ title: "Post publicado!" });
-      input.value = "";
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      setFile(null);
       setCaption("");
+      setSelectedGoalId("");
       navigate("/", { replace: true });
     } catch (err: any) {
       toast({
@@ -132,7 +134,9 @@ export default function NewPost() {
 
           <div className="grid gap-2">
             <div className="text-sm font-medium">Foto</div>
-            <Input
+            <Imput
+              ref={fileInputRef}
+              id="post-file"
               type="file"
               accept="image/*"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
