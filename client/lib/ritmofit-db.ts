@@ -3329,6 +3329,42 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
   }
 }
 
+// Post Creation Function
+export async function createPostDb(
+  photoUrl: string,
+  description: string,
+  userGoalId?: string | null,
+): Promise<string> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const viewer = await getViewer();
+    if (!viewer) throw new Error("Usuário não autenticado");
+
+    const { data, error } = await supabase
+      .from("posts")
+      .insert({
+        user_id: viewer.id,
+        photo: photoUrl,
+        description: description.trim(),
+        user_goal_id: userGoalId ? Number(userGoalId) : null,
+        created_at: new Date().toISOString(),
+      })
+      .select("id");
+
+    if (error) throw error;
+    if (!data || data.length === 0) throw new Error("Failed to create post");
+
+    // Award points for creating a post
+    await addPointsDb(5);
+
+    return data[0].id;
+  } catch (err: any) {
+    console.error("Error creating post:", err);
+    throw err;
+  }
+}
+
 // Complaint Functions
 export async function reportUserDb(followerId: string, reason: string): Promise<boolean> {
   if (!supabase) throw new Error("Supabase não configurado");
