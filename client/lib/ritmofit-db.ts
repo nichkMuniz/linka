@@ -3401,7 +3401,7 @@ export async function deletePostDb(postId: string): Promise<boolean> {
 
     // Delete likes/incentives associated with the post
     const { error: likesError } = await supabase
-      .from("post_incentives")
+      .from("likes")
       .delete()
       .eq("post_id", postId);
 
