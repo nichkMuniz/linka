@@ -302,7 +302,6 @@ export default function NewPost() {
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhuma meta</SelectItem>
                   {userGoals.map((goal) => (
                     <SelectItem key={goal.id} value={goal.id}>
                       <div className="flex flex-col">
