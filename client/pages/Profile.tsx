@@ -1610,8 +1610,6 @@ export default function Profile() {
                             {getRoutineTypeName(typeCode)}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {routinesOfType.length} rotina
-                            {routinesOfType.length > 1 ? "s" : ""} ·{" "}
                             {itemsOfType.length}{" "}
                             {typeCode === 1
                               ? "exercício"

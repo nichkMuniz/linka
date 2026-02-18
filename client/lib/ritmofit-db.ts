@@ -2007,6 +2007,32 @@ export async function deleteOldStoriesDb(): Promise<boolean> {
   }
 }
 
+export async function deleteStoryDb(storyId: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const viewer = await getViewer();
+  if (!viewer) return false;
+
+  try {
+    // Only allow deleting own stories
+    const { error } = await supabase
+      .from("storys")
+      .delete()
+      .eq("id", storyId)
+      .eq("user_id", viewer.id);
+
+    if (error) {
+      console.error("Error deleting story:", error);
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    console.error("Error deleting story:", err);
+    return false;
+  }
+}
+
 // Story likes (incentives)
 export async function toggleStoryLikeDb(
   storyId: string,

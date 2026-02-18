@@ -12,6 +12,7 @@ import {
   getStoryCommentsDb,
   addStoryCommentDb,
   deleteStoryCommentDb,
+  deleteStoryDb,
   type StoryWithUser,
   type PostIncentiveType,
   type StoryComment,
@@ -46,6 +47,12 @@ export function StoryViewerModal({
   const [newComment, setNewComment] = React.useState("");
   const [isAddingComment, setIsAddingComment] = React.useState(false);
   const [togglingLikeId, setTogglingLikeId] = React.useState<string | null>(null);
+  const [timerProgress, setTimerProgress] = React.useState(100);
+  const [isTyping, setIsTyping] = React.useState(false);
+  const [isDeletingStory, setIsDeletingStory] = React.useState(false);
+  const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  const autoCloseTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
   React.useEffect(() => {
     if (!open || !story) return;
 
@@ -67,13 +74,38 @@ export function StoryViewerModal({
 
     loadStoryData();
 
-    // Auto-close after 8 seconds
-    const timer = setTimeout(() => {
-      onOpenChange(false);
-    }, 8000);
+    // Reset timer when story changes
+    setTimerProgress(100);
+    setIsTyping(false);
 
-    return () => clearTimeout(timer);
-  }, [open, onOpenChange, story]);
+    // Clear existing timers
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    if (autoCloseTimeoutRef.current) clearTimeout(autoCloseTimeoutRef.current);
+
+    // Auto-close after 8 seconds (unless typing)
+    const STORY_DURATION = 8000;
+    const TIMER_INTERVAL = 50;
+    let elapsedTime = 0;
+
+    const updateTimer = () => {
+      elapsedTime += TIMER_INTERVAL;
+      const progress = Math.max(0, 100 - (elapsedTime / STORY_DURATION) * 100);
+      setTimerProgress(progress);
+
+      // Only auto-close if not typing
+      if (!isTyping && elapsedTime >= STORY_DURATION) {
+        onOpenChange(false);
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      }
+    };
+
+    timerIntervalRef.current = setInterval(updateTimer, TIMER_INTERVAL);
+
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (autoCloseTimeoutRef.current) clearTimeout(autoCloseTimeoutRef.current);
+    };
+  }, [open, onOpenChange, story, isTyping]);
 
   const handleToggleLike = React.useCallback(
     async (incentiveType: PostIncentiveType) => {
@@ -167,6 +199,39 @@ export function StoryViewerModal({
     [],
   );
 
+  const handleDeleteStory = React.useCallback(async () => {
+    if (!story) return;
+
+    if (!confirm("Tem certeza que deseja deletar este story?")) return;
+
+    setIsDeletingStory(true);
+    try {
+      const success = await deleteStoryDb(story.id);
+      if (success) {
+        onOpenChange(false);
+        toast({
+          title: "Story deletado",
+          description: "Seu story foi removido.",
+        });
+      } else {
+        toast({
+          title: "Erro ao deletar",
+          description: "Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      console.error("Error deleting story:", err);
+      toast({
+        title: "Erro ao deletar story",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingStory(false);
+    }
+  }, [story, onOpenChange]);
+
   if (!story) return null;
 
   const isVideo =
@@ -185,37 +250,62 @@ export function StoryViewerModal({
       <DialogContent className="w-screen h-screen max-w-none max-h-none p-0 border-0 bg-black">
         <DialogTitle className="sr-only">Story viewer</DialogTitle>
         <div className="relative w-full h-full flex flex-col">
-          {/* Header with user info and close button */}
-          <div className="flex items-center justify-between p-4 border-b border-white/10 z-10">
-            <button
-              onClick={() => {
-                onOpenChange(false);
-                navigate(`/usuario/${story.user_id}`);
-              }}
-              className="flex items-center gap-3 hover:opacity-80 transition-opacity flex-1"
-            >
-              {story.userPhoto && (
-                <img
-                  src={story.userPhoto}
-                  alt={story.userNickname}
-                  className="h-10 w-10 rounded-full object-cover"
-                />
-              )}
-              <div>
-                <p className="text-sm font-semibold text-white">
-                  {story.userNickname}
-                </p>
-                <p className="text-xs text-gray-400">
-                  {formatTimeAgo(story.created_at)}
-                </p>
+          {/* Header with user info, delete button and close button */}
+          <div className="space-y-2 z-10">
+            {/* Progress Bar */}
+            <div className="h-1 bg-white/10">
+              <div
+                className="h-full bg-white transition-all ease-linear"
+                style={{ width: `${timerProgress}%` }}
+              />
+            </div>
+
+            {/* Header Content */}
+            <div className="flex items-center justify-between p-4 border-b border-white/10">
+              <button
+                onClick={() => {
+                  onOpenChange(false);
+                  navigate(`/usuario/${story.user_id}`);
+                }}
+                className="flex items-center gap-3 hover:opacity-80 transition-opacity flex-1"
+              >
+                {story.userPhoto && (
+                  <img
+                    src={story.userPhoto}
+                    alt={story.userNickname}
+                    className="h-10 w-10 rounded-full object-cover"
+                  />
+                )}
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    {story.userNickname}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {formatTimeAgo(story.created_at)}
+                  </p>
+                </div>
+              </button>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {user?.id === story.user_id && (
+                  <button
+                    onClick={handleDeleteStory}
+                    disabled={isDeletingStory}
+                    className="text-white hover:text-red-400 transition-colors disabled:opacity-50"
+                    title="Deletar story"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </button>
+                )}
+                <button
+                  onClick={() => onOpenChange(false)}
+                  className="text-white hover:text-gray-300 transition-colors"
+                  title="Fechar"
+                >
+                  <X className="h-6 w-6" />
+                </button>
               </div>
-            </button>
-            <button
-              onClick={() => onOpenChange(false)}
-              className="text-white hover:text-gray-300 shrink-0"
-            >
-              <X className="h-6 w-6" />
-            </button>
+            </div>
           </div>
 
           {/* Media - Full Screen */}
@@ -300,6 +390,8 @@ export function StoryViewerModal({
                   placeholder="Comentário..."
                   value={newComment}
                   onChange={(e) => setNewComment(e.target.value)}
+                  onFocus={() => setIsTyping(true)}
+                  onBlur={() => setIsTyping(false)}
                   onKeyPress={(e) => {
                     if (e.key === "Enter" && newComment.trim()) {
                       handleAddComment();
