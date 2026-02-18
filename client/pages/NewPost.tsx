@@ -681,42 +681,6 @@ export default function NewPost() {
                 </p>
               </div>
 
-              {/* Goal Selection */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Meta Vinculada (Opcional)</label>
-                {isLoadingGoals ? (
-                  <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
-                    Carregando metas...
-                  </div>
-                ) : userGoals.length > 0 ? (
-                  <Select value={videoSelectedGoalId} onValueChange={setVideoSelectedGoalId}>
-                    <SelectTrigger className="rounded-lg">
-                      <SelectValue
-                        placeholder={
-                          videoSelectedGoalId
-                            ? userGoals.find((g) => g.id === videoSelectedGoalId)
-                                ?.description
-                            : "Selecione uma meta"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {userGoals.map((goal) => (
-                        <SelectItem key={goal.id} value={goal.id}>
-                          <div className="flex flex-col">
-                            <span>{goal.description}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="flex h-10 items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
-                    Nenhuma meta criada. Crie uma meta em Metas.
-                  </div>
-                )}
-              </div>
-
               {/* Action Buttons */}
               <div className="flex gap-3 pt-4">
                 <Button
