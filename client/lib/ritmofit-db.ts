@@ -3647,6 +3647,157 @@ export async function deletePostDb(postId: string): Promise<boolean> {
   }
 }
 
+export async function updatePostDb(
+  postId: string,
+  description: string,
+  userGoalId: string | null,
+): Promise<boolean> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const viewer = await getViewer();
+    if (!viewer) throw new Error("Usuário não autenticado");
+
+    // Verify ownership
+    const { data: postData, error: fetchError } = await supabase
+      .from("posts")
+      .select("user_id")
+      .eq("id", postId)
+      .single();
+
+    if (fetchError) throw fetchError;
+    if (!postData) throw new Error("Post não encontrado");
+
+    if (postData.user_id !== viewer.id) {
+      throw new Error("Você não tem permissão para editar este post");
+    }
+
+    // Update the post
+    const { error } = await supabase
+      .from("posts")
+      .update({
+        description: description.trim(),
+        user_goal_id: userGoalId,
+      })
+      .eq("id", postId);
+
+    if (error) throw error;
+    return true;
+  } catch (err: any) {
+    console.error("Error updating post:", err);
+    throw err;
+  }
+}
+
+export async function getUserReelsDb(userId: string): Promise<ReelWithUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  try {
+    const { data: reelsData, error: reelsError } = await supabase
+      .from("reels")
+      .select("id, user_id, video_url, description, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (reelsError) {
+      console.error("Error fetching user reels:", reelsError);
+      return [];
+    }
+
+    if (!reelsData || reelsData.length === 0) {
+      return [];
+    }
+
+    // Get user profile
+    const { data: profileData, error: profileError } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, photo")
+      .eq("user_id", userId)
+      .single();
+
+    if (profileError) {
+      console.error("Error fetching user profile:", profileError);
+      return [];
+    }
+
+    // Get all likes for these reels
+    const reelIds = (reelsData ?? []).map((r: any) => String(r.id));
+    let allLikes: any[] = [];
+    if (reelIds.length > 0) {
+      const { data: likesData, error: likesError } = await supabase
+        .from("reel_likes")
+        .select("reel_id, type, user_id")
+        .in("reel_id", reelIds);
+
+      if (likesError) {
+        // Try legacy format
+        const { data: legacyLikes } = await supabase
+          .from("likes")
+          .select("post_id, type, user_id")
+          .in("post_id", reelIds);
+        allLikes = legacyLikes ?? [];
+      } else {
+        allLikes = likesData ?? [];
+      }
+    }
+
+    // Get comment counts
+    const { data: commentsData, error: commentsError } = await supabase
+      .from("reel_comments")
+      .select("reel_id")
+      .in("reel_id", reelIds);
+
+    const commentMap = new Map<string, number>();
+    if (!commentsError && commentsData) {
+      commentsData.forEach((c: any) => {
+        commentMap.set(c.reel_id, (commentMap.get(c.reel_id) ?? 0) + 1);
+      });
+    }
+
+    // Transform to ReelWithUser format
+    const reelsWithUserData: ReelWithUser[] = (reelsData ?? []).map((reel: any) => {
+      const likes = {
+        apoio: 0,
+        continua: 0,
+        ganhador: 0,
+        consegueMais: 0,
+        limiteMaior: 0,
+        maisAlgum: 0,
+      };
+
+      allLikes.forEach((like: any) => {
+        const reelIdStr = String(like.reel_id || like.post_id);
+        if (reelIdStr === String(reel.id)) {
+          const typeMap: Record<number, keyof typeof likes> = {
+            1: "apoio",
+            2: "continua",
+            3: "ganhador",
+            4: "consegueMais",
+            5: "limiteMaior",
+            6: "maisAlgum",
+          };
+          const key = typeMap[like.type];
+          if (key) likes[key]++;
+        }
+      });
+
+      return {
+        ...reel,
+        userNickname: profileData?.nickname || "Usuário",
+        userPhoto: profileData?.photo || null,
+        likes,
+        userLikes: [],
+        commentCount: commentMap.get(reel.id) ?? 0,
+      };
+    });
+
+    return reelsWithUserData;
+  } catch (err: any) {
+    console.error("Error getting user reels:", err);
+    return [];
+  }
+}
+
 // Complaint Functions
 export async function reportUserDb(followerId: string, reason: string): Promise<boolean> {
   if (!supabase) throw new Error("Supabase não configurado");

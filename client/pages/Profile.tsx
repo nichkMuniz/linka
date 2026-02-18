@@ -22,6 +22,11 @@ import {
   getUserGoalsDb,
   getFollowersDb,
   getFollowingDb,
+  getUserReelsDb,
+  deletePostDb,
+  updatePostDb,
+  getPostLikeUsersDb,
+  getPostCommentsDb,
   type UserProfile,
   type PostWithUser,
   type UserStats,
@@ -33,6 +38,7 @@ import {
   type UserDietWithDetails,
   type UserHabitWithDetails,
   type UserGoal,
+  type ReelWithUser,
 } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,6 +60,13 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -68,6 +81,7 @@ import {
   LogOut,
   Moon,
   Sun,
+  Trash2,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
@@ -87,7 +101,17 @@ export default function Profile() {
 
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [posts, setPosts] = React.useState<PostWithUser[]>([]);
+  const [reels, setReels] = React.useState<ReelWithUser[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
+  const [selectedPost, setSelectedPost] = React.useState<PostWithUser | null>(null);
+  const [isPostViewerOpen, setIsPostViewerOpen] = React.useState(false);
+  const [isEditingPost, setIsEditingPost] = React.useState(false);
+  const [editPostDescription, setEditPostDescription] = React.useState("");
+  const [editPostGoalId, setEditPostGoalId] = React.useState<string>("");
+  const [isUpdatingPost, setIsUpdatingPost] = React.useState(false);
+  const [postLikes, setPostLikes] = React.useState<any[]>([]);
+  const [postComments, setPostComments] = React.useState<any[]>([]);
+  const [isLoadingPostData, setIsLoadingPostData] = React.useState(false);
   const [stats, setStats] = React.useState<UserStats>({
     postsCount: 0,
     followersCount: 0,
@@ -164,6 +188,7 @@ export default function Profile() {
         userDietsData,
         userHabitsData,
         userGoalsData,
+        reelsData,
       ] = await Promise.all([
         getUserProfileDb(profileUserId),
         getUserPostsDb(profileUserId),
@@ -173,6 +198,7 @@ export default function Profile() {
         getUserDietsDb(profileUserId),
         getUserHabitsDb(profileUserId),
         getUserGoalsDb(),
+        getUserReelsDb(profileUserId),
       ]);
 
       setProfile(profileData);
@@ -183,6 +209,7 @@ export default function Profile() {
       setUserDiets(userDietsData);
       setUserHabits(userHabitsData);
       setUserGoals(userGoalsData);
+      setReels(reelsData);
     } catch (err: any) {
       console.error("Error loading profile:", err);
       toast({
@@ -194,6 +221,92 @@ export default function Profile() {
       setLoading(false);
     }
   }, [profileUserId]);
+
+  const handleViewPost = React.useCallback(async (post: PostWithUser) => {
+    setSelectedPost(post);
+    setEditPostDescription(post.description);
+    setEditPostGoalId(post.user_goal_id || "");
+    setIsPostViewerOpen(true);
+    setIsEditingPost(false);
+    setIsLoadingPostData(true);
+
+    try {
+      const [likes, comments] = await Promise.all([
+        getPostLikeUsersDb(post.id),
+        getPostCommentsDb(post.id),
+      ]);
+      setPostLikes(likes);
+      setPostComments(comments);
+    } catch (err) {
+      console.error("Error loading post data:", err);
+    } finally {
+      setIsLoadingPostData(false);
+    }
+  }, []);
+
+  const handleUpdatePost = React.useCallback(async () => {
+    if (!selectedPost) return;
+
+    setIsUpdatingPost(true);
+    try {
+      await updatePostDb(selectedPost.id, editPostDescription, editPostGoalId || null);
+
+      // Update local posts list
+      setPosts((prevPosts) =>
+        prevPosts.map((p) =>
+          p.id === selectedPost.id
+            ? { ...p, description: editPostDescription, user_goal_id: editPostGoalId || null }
+            : p,
+        ),
+      );
+
+      setIsEditingPost(false);
+      toast({
+        title: "Sucesso!",
+        description: "Post atualizado com sucesso.",
+      });
+    } catch (err: any) {
+      console.error("Error updating post:", err);
+      toast({
+        title: "Erro ao atualizar",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingPost(false);
+    }
+  }, [selectedPost, editPostDescription, editPostGoalId]);
+
+  const handleDeletePost = React.useCallback(async () => {
+    if (!selectedPost) return;
+
+    if (!confirm("Tem certeza que deseja deletar este post?")) return;
+
+    setIsUpdatingPost(true);
+    try {
+      await deletePostDb(selectedPost.id);
+
+      // Update local posts list
+      setPosts((prevPosts) => prevPosts.filter((p) => p.id !== selectedPost.id));
+
+      setIsPostViewerOpen(false);
+      setSelectedPost(null);
+
+      toast({
+        title: "Sucesso!",
+        description: "Post deletado com sucesso.",
+      });
+    } catch (err: any) {
+      console.error("Error deleting post:", err);
+      toast({
+        title: "Erro ao deletar",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingPost(false);
+    }
+  }, [selectedPost]);
 
   // Define callback functions first
   const loadFollowersData = React.useCallback(async () => {
@@ -879,10 +992,11 @@ export default function Profile() {
         </CardContent>
       </Card>
 
-      {/* Posts and Routines Tabs */}
+      {/* Posts, Reels and Routines Tabs */}
       <Tabs defaultValue="posts" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="posts">Posts ({stats.postsCount})</TabsTrigger>
+          <TabsTrigger value="reels">Reels ({reels.length})</TabsTrigger>
           <TabsTrigger value="routines">Rotinas</TabsTrigger>
         </TabsList>
 
@@ -893,7 +1007,7 @@ export default function Profile() {
               {posts.map((post) => (
                 <button
                   key={post.id}
-                  onClick={() => navigate(`/post/${post.id}`)}
+                  onClick={() => handleViewPost(post)}
                   className="group relative aspect-square overflow-hidden rounded-lg bg-muted border border-border/60 hover:border-border/80 transition-all cursor-pointer"
                 >
                   <img
@@ -909,6 +1023,33 @@ export default function Profile() {
             <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
               <p className="text-sm text-muted-foreground">
                 Nenhum post ainda.
+              </p>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Reels Tab */}
+        <TabsContent value="reels" className="space-y-4">
+          {reels.length > 0 ? (
+            <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+              {reels.map((reel) => (
+                <button
+                  key={reel.id}
+                  onClick={() => navigate(`/reels`)}
+                  className="group relative aspect-square overflow-hidden rounded-lg bg-black border border-border/60 hover:border-border/80 transition-all cursor-pointer"
+                >
+                  <video
+                    src={reel.video_url}
+                    className="h-full w-full object-cover group-hover:scale-110 transition-transform"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
+              <p className="text-sm text-muted-foreground">
+                Nenhum reel ainda.
               </p>
             </div>
           )}
@@ -1665,6 +1806,188 @@ export default function Profile() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Post Viewer Drawer */}
+      <Drawer open={isPostViewerOpen} onOpenChange={setIsPostViewerOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>
+              {isEditingPost ? "Editar Post" : "Visualizar Post"}
+            </DrawerTitle>
+          </DrawerHeader>
+
+          {selectedPost && (
+            <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
+              {/* Post Image */}
+              <div className="relative aspect-square overflow-hidden rounded-lg bg-muted border border-border/60">
+                {selectedPost.photos && selectedPost.photos.length > 0 ? (
+                  <img
+                    src={selectedPost.photos[0]}
+                    alt={selectedPost.description}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <img
+                    src={selectedPost.photo}
+                    alt={selectedPost.description}
+                    className="w-full h-full object-cover"
+                  />
+                )}
+              </div>
+
+              {/* Description */}
+              {isEditingPost ? (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Descrição</label>
+                  <Textarea
+                    value={editPostDescription}
+                    onChange={(e) => setEditPostDescription(e.target.value)}
+                    className="resize-none"
+                    rows={4}
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Descrição
+                  </label>
+                  <p className="text-sm mt-1">{selectedPost.description}</p>
+                </div>
+              )}
+
+              {/* Goal Selection */}
+              {isEditingPost ? (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Meta Vinculada</label>
+                  {userGoals.length > 0 ? (
+                    <Select value={editPostGoalId} onValueChange={setEditPostGoalId}>
+                      <SelectTrigger className="rounded-lg">
+                        <SelectValue placeholder="Selecione uma meta" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Nenhuma meta</SelectItem>
+                        {userGoals.map((goal) => (
+                          <SelectItem key={goal.id} value={goal.id}>
+                            {goal.description}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Nenhuma meta criada
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Meta Vinculada
+                  </label>
+                  <p className="text-sm mt-1">
+                    {selectedPost.user_goal_id
+                      ? userGoals.find((g) => g.id === selectedPost.user_goal_id)
+                          ?.description || "Meta removida"
+                      : "Nenhuma meta"}
+                  </p>
+                </div>
+              )}
+
+              {/* Incentives */}
+              {isLoadingPostData ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Carregando dados...
+                </p>
+              ) : (
+                <>
+                  {postLikes.length > 0 && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Incentivos ({postLikes.length})
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {postLikes.map((like) => (
+                          <div
+                            key={like.userId}
+                            className="text-xs bg-muted px-2 py-1 rounded-full"
+                          >
+                            {like.userNickname}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Comments */}
+                  {postComments.length > 0 && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        Comentários ({postComments.length})
+                      </label>
+                      <div className="space-y-2 max-h-32 overflow-y-auto">
+                        {postComments.map((comment) => (
+                          <div
+                            key={comment.id}
+                            className="text-xs bg-muted p-2 rounded-lg"
+                          >
+                            <p className="font-medium">{comment.userName}</p>
+                            <p className="text-muted-foreground">{comment.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Action Buttons */}
+              {!isViewingOtherProfile && (
+                <div className="flex gap-2 pt-4">
+                  {!isEditingPost ? (
+                    <>
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => setIsEditingPost(true)}
+                      >
+                        <Edit2 className="h-4 w-4 mr-2" />
+                        Editar
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        className="flex-1"
+                        onClick={handleDeletePost}
+                        disabled={isUpdatingPost}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Deletar
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => setIsEditingPost(false)}
+                        disabled={isUpdatingPost}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        className="flex-1"
+                        onClick={handleUpdatePost}
+                        disabled={isUpdatingPost}
+                      >
+                        {isUpdatingPost ? "Salvando..." : "Salvar"}
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </DrawerContent>
+      </Drawer>
 
       {/* Followers Drawer */}
       <Drawer open={showFollowersModal} onOpenChange={setShowFollowersModal}>

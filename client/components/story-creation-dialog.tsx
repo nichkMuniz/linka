@@ -9,14 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import { Upload, X, Camera, Image, Music } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Upload, X, Camera, Image } from "lucide-react";
 
 interface StoryCreationDialogProps {
   open: boolean;
@@ -35,22 +28,10 @@ export function StoryCreationDialog({
   const [description, setDescription] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [useCamera, setUseCamera] = React.useState(false);
-  const [selectedMusic, setSelectedMusic] = React.useState<string>("");
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [cameraStream, setCameraStream] = React.useState<MediaStream | null>(null);
-
-  // Music options (similar to Instagram)
-  const musicOptions = [
-    { id: "none", name: "Sem música" },
-    { id: "trending1", name: "Som Trending 1" },
-    { id: "trending2", name: "Som Trending 2" },
-    { id: "trending3", name: "Som Trending 3" },
-    { id: "chill1", name: "Chill Vibes" },
-    { id: "energetic1", name: "Energético" },
-    { id: "motivational1", name: "Motivacional" },
-  ];
 
   const startCamera = React.useCallback(async () => {
     try {
@@ -182,7 +163,6 @@ export function StoryCreationDialog({
       // Reset state when closing
       setMediaPreview(null);
       setDescription("");
-      setSelectedMusic("");
       setUseCamera(false);
       stopCamera();
       if (fileInputRef.current) {
@@ -315,26 +295,6 @@ export function StoryCreationDialog({
             <p className="text-xs text-muted-foreground mt-1">
               {description.length}/200 caracteres
             </p>
-          </div>
-
-          {/* Music Selection */}
-          <div>
-            <label className="text-sm font-medium mb-2 flex items-center gap-2 block">
-              <Music className="h-4 w-4" />
-              Música (opcional)
-            </label>
-            <Select value={selectedMusic} onValueChange={setSelectedMusic}>
-              <SelectTrigger className="rounded-lg">
-                <SelectValue placeholder="Selecione uma música..." />
-              </SelectTrigger>
-              <SelectContent>
-                {musicOptions.map((music) => (
-                  <SelectItem key={music.id} value={music.id}>
-                    {music.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
             {/* Submit Button */}
