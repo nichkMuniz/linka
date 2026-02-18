@@ -2746,6 +2746,61 @@ export async function createReelDb(
   }
 }
 
+export async function updateReelDb(
+  reelId: string,
+  description: string,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const viewer = await getViewer();
+  if (!viewer) return false;
+
+  try {
+    const { error } = await supabase
+      .from("reels")
+      .update({
+        description: description.trim(),
+      })
+      .eq("id", reelId)
+      .eq("user_id", viewer.id);
+
+    if (error) {
+      console.error("Error updating reel:", error);
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    console.error("Error updating reel:", err);
+    return false;
+  }
+}
+
+export async function deleteReelDb(reelId: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const viewer = await getViewer();
+  if (!viewer) return false;
+
+  try {
+    const { error } = await supabase
+      .from("reels")
+      .delete()
+      .eq("id", reelId)
+      .eq("user_id", viewer.id);
+
+    if (error) {
+      console.error("Error deleting reel:", error);
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    console.error("Error deleting reel:", err);
+    return false;
+  }
+}
+
 export async function toggleReelIncentiveDb(
   reelId: string,
   incentiveType: PostIncentiveType,

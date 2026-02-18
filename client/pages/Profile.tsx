@@ -25,6 +25,8 @@ import {
   getUserReelsDb,
   deletePostDb,
   updatePostDb,
+  deleteReelDb,
+  updateReelDb,
   getPostLikeUsersDb,
   getPostCommentsDb,
   type UserProfile,
@@ -45,6 +47,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ImageWithFallback } from "@/components/image-with-fallback";
+import { PostLikesModal } from "@/components/post-likes-modal";
+import { PostCommentsDialog } from "@/components/post-comments-dialog";
 import {
   Dialog,
   DialogContent,
@@ -82,6 +86,8 @@ import {
   Moon,
   Sun,
   Trash2,
+  Heart,
+  MessageCircle,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
@@ -112,6 +118,12 @@ export default function Profile() {
   const [postLikes, setPostLikes] = React.useState<any[]>([]);
   const [postComments, setPostComments] = React.useState<any[]>([]);
   const [isLoadingPostData, setIsLoadingPostData] = React.useState(false);
+  const [isLikesModalOpen, setIsLikesModalOpen] = React.useState(false);
+  const [selectedReel, setSelectedReel] = React.useState<ReelWithUser | null>(null);
+  const [isReelEditorOpen, setIsReelEditorOpen] = React.useState(false);
+  const [isEditingReel, setIsEditingReel] = React.useState(false);
+  const [editReelDescription, setEditReelDescription] = React.useState("");
+  const [isUpdatingReel, setIsUpdatingReel] = React.useState(false);
   const [stats, setStats] = React.useState<UserStats>({
     postsCount: 0,
     followersCount: 0,
@@ -307,6 +319,80 @@ export default function Profile() {
       setIsUpdatingPost(false);
     }
   }, [selectedPost]);
+
+  const handleUpdateReel = React.useCallback(async () => {
+    if (!selectedReel) return;
+
+    setIsUpdatingReel(true);
+    try {
+      const success = await updateReelDb(selectedReel.id, editReelDescription);
+
+      if (success) {
+        // Update local reels list
+        setReels((prevReels) =>
+          prevReels.map((r) =>
+            r.id === selectedReel.id
+              ? { ...r, description: editReelDescription }
+              : r
+          )
+        );
+
+        setIsReelEditorOpen(false);
+        setSelectedReel(null);
+
+        toast({
+          title: "Sucesso!",
+          description: "Reel atualizado com sucesso.",
+        });
+      } else {
+        toast({
+          title: "Erro ao atualizar",
+          description: "Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      console.error("Error updating reel:", err);
+      toast({
+        title: "Erro ao atualizar",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingReel(false);
+    }
+  }, [selectedReel, editReelDescription]);
+
+  const handleDeleteReel = React.useCallback(async () => {
+    if (!selectedReel) return;
+
+    if (!confirm("Tem certeza que deseja deletar este reel?")) return;
+
+    setIsUpdatingReel(true);
+    try {
+      await deleteReelDb(selectedReel.id);
+
+      // Update local reels list
+      setReels((prevReels) => prevReels.filter((r) => r.id !== selectedReel.id));
+
+      setIsReelEditorOpen(false);
+      setSelectedReel(null);
+
+      toast({
+        title: "Sucesso!",
+        description: "Reel deletado com sucesso.",
+      });
+    } catch (err: any) {
+      console.error("Error deleting reel:", err);
+      toast({
+        title: "Erro ao deletar",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingReel(false);
+    }
+  }, [selectedReel]);
 
   // Define callback functions first
   const loadFollowersData = React.useCallback(async () => {
@@ -1033,17 +1119,35 @@ export default function Profile() {
           {reels.length > 0 ? (
             <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {reels.map((reel) => (
-                <button
+                <div
                   key={reel.id}
-                  onClick={() => navigate(`/reels`)}
-                  className="group relative aspect-square overflow-hidden rounded-lg bg-black border border-border/60 hover:border-border/80 transition-all cursor-pointer"
+                  className="group relative aspect-square overflow-hidden rounded-lg bg-black border border-border/60 hover:border-border/80 transition-all"
                 >
-                  <video
-                    src={reel.video_url}
-                    className="h-full w-full object-cover group-hover:scale-110 transition-transform"
-                  />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                </button>
+                  <button
+                    onClick={() => navigate(`/reels`)}
+                    className="w-full h-full cursor-pointer"
+                  >
+                    <video
+                      src={reel.video_url}
+                      className="h-full w-full object-cover group-hover:scale-110 transition-transform"
+                    />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                  </button>
+
+                  {!isViewingOtherProfile && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedReel(reel);
+                        setEditReelDescription(reel.description);
+                        setIsReelEditorOpen(true);
+                      }}
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg bg-black/50 hover:bg-black/70"
+                    >
+                      <Settings className="h-4 w-4 text-white" />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           ) : (
@@ -1904,51 +2008,26 @@ export default function Profile() {
                 </div>
               )}
 
-              {/* Incentives */}
-              {isLoadingPostData ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Carregando dados...
-                </p>
-              ) : (
-                <>
+              {/* Incentives and Comments */}
+              {!isLoadingPostData && (
+                <div className="flex gap-4 pt-2">
                   {postLikes.length > 0 && (
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-muted-foreground">
-                        Incentivos ({postLikes.length})
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        {postLikes.map((like) => (
-                          <div
-                            key={`${like.userId}-${like.type}`}
-                            className="text-xs bg-muted px-2 py-1 rounded-full"
-                          >
-                            {like.userNickname}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    <button
+                      onClick={() => setIsLikesModalOpen(true)}
+                      className="flex items-center gap-2 text-sm hover:opacity-70 transition-opacity"
+                    >
+                      <Heart className="h-5 w-5 text-red-500 fill-red-500" />
+                      <span className="font-medium">{postLikes.length} incentivos</span>
+                    </button>
                   )}
-
-                  {/* Comments */}
-                  {postComments.length > 0 && (
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-muted-foreground">
-                        Comentários ({postComments.length})
-                      </label>
-                      <div className="space-y-2 max-h-32 overflow-y-auto">
-                        {postComments.map((comment) => (
-                          <div
-                            key={comment.id}
-                            className="text-xs bg-muted p-2 rounded-lg"
-                          >
-                            <p className="font-medium">{comment.userName}</p>
-                            <p className="text-muted-foreground">{comment.text}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                  {selectedPost && (
+                    <PostCommentsDialog
+                      postId={selectedPost.id}
+                      commentCount={postComments.length}
+                      isPostOwner={!isViewingOtherProfile}
+                    />
                   )}
-                </>
+                </div>
               )}
 
               {/* Action Buttons */}
@@ -1999,6 +2078,13 @@ export default function Profile() {
           )}
         </DrawerContent>
       </Drawer>
+
+      {/* Post Likes Modal */}
+      <PostLikesModal
+        open={isLikesModalOpen}
+        onOpenChange={setIsLikesModalOpen}
+        likes={postLikes}
+      />
 
       {/* Followers Drawer */}
       <Drawer open={showFollowersModal} onOpenChange={setShowFollowersModal}>
@@ -2095,6 +2181,96 @@ export default function Profile() {
               </div>
             )}
           </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Reel Editor Drawer */}
+      <Drawer open={isReelEditorOpen} onOpenChange={setIsReelEditorOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>
+              {isEditingReel ? "Editar Reel" : "Opções do Reel"}
+            </DrawerTitle>
+          </DrawerHeader>
+
+          {selectedReel && (
+            <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
+              {/* Reel Video Preview */}
+              <div className="relative aspect-square overflow-hidden rounded-lg bg-black border border-border/60">
+                <video
+                  src={selectedReel.video_url}
+                  className="w-full h-full object-cover"
+                  controls
+                />
+              </div>
+
+              {/* Description */}
+              {isEditingReel ? (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Descrição</label>
+                  <Textarea
+                    value={editReelDescription}
+                    onChange={(e) => setEditReelDescription(e.target.value)}
+                    className="resize-none"
+                    rows={4}
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Descrição
+                  </label>
+                  <p className="text-sm mt-1">{selectedReel.description}</p>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 pt-4">
+                {!isEditingReel ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => setIsEditingReel(true)}
+                    >
+                      <Edit2 className="h-4 w-4 mr-2" />
+                      Editar
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      className="flex-1"
+                      onClick={handleDeleteReel}
+                      disabled={isUpdatingReel}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Deletar
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => {
+                        setIsEditingReel(false);
+                        setEditReelDescription(selectedReel.description);
+                      }}
+                      disabled={isUpdatingReel}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      className="flex-1"
+                      onClick={handleUpdateReel}
+                      disabled={isUpdatingReel}
+                    >
+                      {isUpdatingReel ? "Salvando..." : "Salvar"}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </DrawerContent>
       </Drawer>
     </div>
