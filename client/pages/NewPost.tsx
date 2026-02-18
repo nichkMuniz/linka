@@ -10,29 +10,41 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import {
   getUserGoalsDb,
   createPostDb,
+  createReelDb,
   type UserGoal,
   incrementGoalProgressDb,
 } from "@/lib/ritmofit-db";
-import { ImagePlus, Loader2, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ImagePlus, Loader2, ChevronLeft, ChevronRight, X, Video } from "lucide-react";
 
 export default function NewPost() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
 
+  // Image/Post state
   const [selectedFiles, setSelectedFiles] = React.useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = React.useState<string[]>([]);
   const [currentPreviewIndex, setCurrentPreviewIndex] = React.useState(0);
   const [description, setDescription] = React.useState("");
   const [selectedGoalId, setSelectedGoalId] = React.useState<string>("");
+
+  // Video/Reel state
+  const [selectedVideoFile, setSelectedVideoFile] = React.useState<File | null>(null);
+  const [videoPreview, setVideoPreview] = React.useState<string | null>(null);
+  const [videoDescription, setVideoDescription] = React.useState("");
+  const [videoSelectedGoalId, setVideoSelectedGoalId] = React.useState<string>("");
+
+  // Shared state
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [isLoadingGoals, setIsLoadingGoals] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [activeTab, setActiveTab] = React.useState("images");
 
   // Load user goals
   React.useEffect(() => {
@@ -52,7 +64,7 @@ export default function NewPost() {
       .finally(() => setIsLoadingGoals(false));
   }, [user, authLoading]);
 
-  // Handle file selection
+  // Handle image file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -96,6 +108,41 @@ export default function NewPost() {
     });
   };
 
+  // Handle video file selection
+  const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("video/")) {
+      toast({
+        title: "Tipo inválido",
+        description: "Selecione um arquivo de vídeo válido (MP4, WebM, etc).",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate file size (max 100MB for videos)
+    if (file.size > 100 * 1024 * 1024) {
+      toast({
+        title: "Arquivo muito grande",
+        description: "O vídeo deve ter no máximo 100MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSelectedVideoFile(file);
+
+    // Create preview URL
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setVideoPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const removePhoto = (index: number) => {
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
     setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
@@ -118,8 +165,8 @@ export default function NewPost() {
     setCurrentPreviewIndex(newIndex);
   };
 
-  // Handle post submission
-  const handleSubmit = React.useCallback(async () => {
+  // Handle image post submission
+  const handleImageSubmit = React.useCallback(async () => {
     if (!user || selectedFiles.length === 0) {
       toast({
         title: "Erro",
@@ -188,7 +235,7 @@ export default function NewPost() {
 
       toast({
         title: "Sucesso!",
-        description: "Sua postagem foi publicada com sucesso.",
+        description: "Sua postagem foi publicada no feed.",
       });
 
       // Reset form
@@ -213,6 +260,94 @@ export default function NewPost() {
       setIsSubmitting(false);
     }
   }, [user, selectedFiles, description, selectedGoalId, navigate]);
+
+  // Handle video reel submission
+  const handleVideoSubmit = React.useCallback(async () => {
+    if (!user || !selectedVideoFile) {
+      toast({
+        title: "Erro",
+        description: "Selecione um vídeo para publicar.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!hasSupabaseConfig || !supabase) {
+      toast({
+        title: "Erro",
+        description: "Supabase não configurado.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Upload video
+      const timestamp = Date.now();
+      const extension = selectedVideoFile.name.split(".").pop() || "mp4";
+      const filePath = `${user.id}/reels/${timestamp}.${extension}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("posts")
+        .upload(filePath, selectedVideoFile, {
+          contentType: selectedVideoFile.type,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        throw new Error(`Erro ao fazer upload do vídeo: ${uploadError.message}`);
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from("posts")
+        .getPublicUrl(filePath);
+
+      // Create reel in database
+      const reel = await createReelDb(
+        urlData.publicUrl,
+        videoDescription,
+        videoSelectedGoalId || null,
+      );
+
+      // If a goal was linked, increment its progress
+      if (videoSelectedGoalId) {
+        try {
+          await incrementGoalProgressDb(videoSelectedGoalId);
+        } catch (err) {
+          console.error("Error incrementing goal progress:", err);
+          // Don't fail the entire reel creation if goal update fails
+        }
+      }
+
+      toast({
+        title: "Sucesso!",
+        description: "Seu vídeo foi publicado nos reels.",
+      });
+
+      // Reset form
+      setSelectedVideoFile(null);
+      setVideoPreview(null);
+      setVideoDescription("");
+      setVideoSelectedGoalId("");
+
+      // Redirect to reels after a short delay
+      setTimeout(() => {
+        navigate("/reels");
+      }, 1500);
+    } catch (err: any) {
+      console.error("Error creating reel:", err);
+      toast({
+        title: "Erro ao publicar vídeo",
+        description: err?.message || "Tente novamente mais tarde.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [user, selectedVideoFile, videoDescription, videoSelectedGoalId, navigate]);
 
   if (authLoading) {
     return (
@@ -246,214 +381,369 @@ export default function NewPost() {
     <div className="mx-auto w-full max-w-2xl px-4 py-6">
       <Card>
         <CardHeader>
-          <CardTitle>Nova Postagem</CardTitle>
+          <CardTitle>Criar Conteúdo</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Image Selection */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              Imagens ({selectedFiles.length})
-            </label>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="images" className="flex items-center gap-2">
+                <ImagePlus className="h-4 w-4" />
+                Postagem
+              </TabsTrigger>
+              <TabsTrigger value="video" className="flex items-center gap-2">
+                <Video className="h-4 w-4" />
+                Reel
+              </TabsTrigger>
+            </TabsList>
 
-            {previewUrls.length > 0 ? (
-              <div className="space-y-3">
-                {/* Carousel Display */}
-                <div className="relative group">
-                  <img
-                    src={previewUrls[currentPreviewIndex]}
-                    alt={`Preview ${currentPreviewIndex + 1}`}
-                    className="w-full h-96 object-cover rounded-lg border border-border/60"
-                  />
+            {/* IMAGES TAB */}
+            <TabsContent value="images" className="space-y-6 mt-6">
+              {/* Image Selection */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Imagens ({selectedFiles.length})
+                </label>
 
-                  {/* Navigation Buttons */}
-                  {previewUrls.length > 1 && (
-                    <>
-                      <button
-                        onClick={() => navigatePreview("prev")}
-                        className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 p-2 rounded-full transition-colors"
-                      >
-                        <ChevronLeft className="h-5 w-5 text-white" />
-                      </button>
-                      <button
-                        onClick={() => navigatePreview("next")}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 p-2 rounded-full transition-colors"
-                      >
-                        <ChevronRight className="h-5 w-5 text-white" />
-                      </button>
+                {previewUrls.length > 0 ? (
+                  <div className="space-y-3">
+                    {/* Carousel Display */}
+                    <div className="relative group">
+                      <img
+                        src={previewUrls[currentPreviewIndex]}
+                        alt={`Preview ${currentPreviewIndex + 1}`}
+                        className="w-full h-96 object-cover rounded-lg border border-border/60"
+                      />
 
-                      {/* Photo Counter */}
-                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none">
-                        <div className="flex gap-1">
-                          {previewUrls.map((_, index) => (
-                            <div
-                              key={index}
-                              className={`h-1.5 rounded-full transition-all ${
-                                currentPreviewIndex === index
-                                  ? "w-4 bg-white"
-                                  : "w-1.5 bg-white/50"
-                              }`}
+                      {/* Navigation Buttons */}
+                      {previewUrls.length > 1 && (
+                        <>
+                          <button
+                            onClick={() => navigatePreview("prev")}
+                            className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 p-2 rounded-full transition-colors"
+                          >
+                            <ChevronLeft className="h-5 w-5 text-white" />
+                          </button>
+                          <button
+                            onClick={() => navigatePreview("next")}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 p-2 rounded-full transition-colors"
+                          >
+                            <ChevronRight className="h-5 w-5 text-white" />
+                          </button>
+
+                          {/* Photo Counter */}
+                          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none">
+                            <div className="flex gap-1">
+                              {previewUrls.map((_, index) => (
+                                <div
+                                  key={index}
+                                  className={`h-1.5 rounded-full transition-all ${
+                                    currentPreviewIndex === index
+                                      ? "w-4 bg-white"
+                                      : "w-1.5 bg-white/50"
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                            <p className="text-white text-xs font-medium bg-black/40 px-2 py-0.5 rounded-full">
+                              {currentPreviewIndex + 1}/{previewUrls.length}
+                            </p>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Change Photos Overlay */}
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                        <span className="text-white text-sm font-medium">
+                          Clique para adicionar mais
+                        </span>
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleFileChange}
+                        className="absolute inset-0 opacity-0 cursor-pointer rounded-lg"
+                      />
+                    </div>
+
+                    {/* Photo Thumbnails Strip */}
+                    {previewUrls.length > 1 && (
+                      <div className="flex gap-2 overflow-x-auto pb-2">
+                        {previewUrls.map((url, index) => (
+                          <div
+                            key={index}
+                            className={`relative flex-shrink-0 cursor-pointer rounded-lg overflow-hidden border-2 transition-colors ${
+                              currentPreviewIndex === index
+                                ? "border-primary"
+                                : "border-border/40 hover:border-border"
+                            }`}
+                          >
+                            <img
+                              src={url}
+                              alt={`Thumbnail ${index + 1}`}
+                              className="h-16 w-16 object-cover"
+                              onClick={() => setCurrentPreviewIndex(index)}
                             />
-                          ))}
-                        </div>
-                        <p className="text-white text-xs font-medium bg-black/40 px-2 py-0.5 rounded-full">
-                          {currentPreviewIndex + 1}/{previewUrls.length}
+                            <button
+                              onClick={() => removePhoto(index)}
+                              className="absolute top-0 right-0 bg-red-500/80 hover:bg-red-600 p-1 rounded-bl-lg transition-colors"
+                            >
+                              <X className="h-3 w-3 text-white" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Selected Files Info */}
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      {selectedFiles.map((file, index) => (
+                        <p key={index}>
+                          {file.name} ({Math.round(file.size / 1024)} KB)
                         </p>
-                      </div>
-                    </>
-                  )}
-
-                  {/* Change Photos Overlay */}
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                    <span className="text-white text-sm font-medium">
-                      Clique para adicionar mais
-                    </span>
+                      ))}
+                    </div>
                   </div>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleFileChange}
-                    className="absolute inset-0 opacity-0 cursor-pointer rounded-lg"
-                  />
-                </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border/60 rounded-lg bg-muted/20 cursor-pointer hover:bg-muted/40 transition-colors">
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <ImagePlus className="h-8 w-8 text-muted-foreground mb-2" />
+                      <p className="text-sm font-medium text-foreground">
+                        Clique ou arraste imagens
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        PNG, JPG, WebP ou GIF (máx. 10MB cada)
+                      </p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
 
-                {/* Photo Thumbnails Strip */}
-                {previewUrls.length > 1 && (
-                  <div className="flex gap-2 overflow-x-auto pb-2">
-                    {previewUrls.map((url, index) => (
-                      <div
-                        key={index}
-                        className={`relative flex-shrink-0 cursor-pointer rounded-lg overflow-hidden border-2 transition-colors ${
-                          currentPreviewIndex === index
-                            ? "border-primary"
-                            : "border-border/40 hover:border-border"
-                        }`}
-                      >
-                        <img
-                          src={url}
-                          alt={`Thumbnail ${index + 1}`}
-                          className="h-16 w-16 object-cover"
-                          onClick={() => setCurrentPreviewIndex(index)}
-                        />
-                        <button
-                          onClick={() => removePhoto(index)}
-                          className="absolute top-0 right-0 bg-red-500/80 hover:bg-red-600 p-1 rounded-bl-lg transition-colors"
-                        >
-                          <X className="h-3 w-3 text-white" />
-                        </button>
-                      </div>
-                    ))}
+              {/* Description */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Legenda</label>
+                <Textarea
+                  placeholder="Conte uma história sobre sua jornada de fitness..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  maxLength={500}
+                  className="resize-none rounded-lg"
+                  rows={4}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {description.length}/500 caracteres
+                </p>
+              </div>
+
+              {/* Goal Selection */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Meta Vinculada (Opcional)</label>
+                {isLoadingGoals ? (
+                  <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
+                    Carregando metas...
+                  </div>
+                ) : userGoals.length > 0 ? (
+                  <Select value={selectedGoalId} onValueChange={setSelectedGoalId}>
+                    <SelectTrigger className="rounded-lg">
+                      <SelectValue
+                        placeholder={
+                          selectedGoalId
+                            ? userGoals.find((g) => g.id === selectedGoalId)
+                                ?.description
+                            : "Selecione uma meta"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {userGoals.map((goal) => (
+                        <SelectItem key={goal.id} value={goal.id}>
+                          <div className="flex flex-col">
+                            <span>{goal.description}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex h-10 items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
+                    Nenhuma meta criada. Crie uma meta em Metas.
                   </div>
                 )}
-
-                {/* Selected Files Info */}
-                <div className="text-xs text-muted-foreground space-y-1">
-                  {selectedFiles.map((file, index) => (
-                    <p key={index}>
-                      {file.name} ({Math.round(file.size / 1024)} KB)
-                    </p>
-                  ))}
-                </div>
               </div>
-            ) : (
-              <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border/60 rounded-lg bg-muted/20 cursor-pointer hover:bg-muted/40 transition-colors">
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  <ImagePlus className="h-8 w-8 text-muted-foreground mb-2" />
-                  <p className="text-sm font-medium text-foreground">
-                    Clique ou arraste imagens
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    PNG, JPG, WebP ou GIF (máx. 10MB cada)
-                  </p>
-                </div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-              </label>
-            )}
-          </div>
 
-          {/* Description */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Legenda</label>
-            <Textarea
-              placeholder="Conte uma história sobre sua jornada de fitness..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={500}
-              className="resize-none rounded-lg"
-              rows={4}
-            />
-            <p className="text-xs text-muted-foreground">
-              {description.length}/500 caracteres
-            </p>
-          </div>
-
-          {/* Goal Selection */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Meta Vinculada (Opcional)</label>
-            {isLoadingGoals ? (
-              <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
-                Carregando metas...
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => navigate("/")}
+                  disabled={isSubmitting}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={handleImageSubmit}
+                  disabled={selectedFiles.length === 0 || isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Postando...
+                    </>
+                  ) : (
+                    "Postar"
+                  )}
+                </Button>
               </div>
-            ) : userGoals.length > 0 ? (
-              <Select value={selectedGoalId} onValueChange={setSelectedGoalId}>
-                <SelectTrigger className="rounded-lg">
-                  <SelectValue
-                    placeholder={
-                      selectedGoalId
-                        ? userGoals.find((g) => g.id === selectedGoalId)
-                            ?.description
-                        : "Selecione uma meta"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {userGoals.map((goal) => (
-                    <SelectItem key={goal.id} value={goal.id}>
-                      <div className="flex flex-col">
-                        <span>{goal.description}</span>
+            </TabsContent>
+
+            {/* VIDEO TAB */}
+            <TabsContent value="video" className="space-y-6 mt-6">
+              {/* Video Selection */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Vídeo</label>
+
+                {videoPreview ? (
+                  <div className="space-y-3">
+                    {/* Video Preview */}
+                    <div className="relative group">
+                      <video
+                        src={videoPreview}
+                        controls
+                        className="w-full h-96 object-cover rounded-lg border border-border/60 bg-black"
+                      />
+                      <button
+                        onClick={() => {
+                          setVideoPreview(null);
+                          setSelectedVideoFile(null);
+                        }}
+                        className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-2 transition-colors"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+
+                    {/* Video File Info */}
+                    {selectedVideoFile && (
+                      <div className="text-xs text-muted-foreground space-y-1 p-3 bg-muted rounded-lg">
+                        <p>
+                          <strong>Arquivo:</strong> {selectedVideoFile.name}
+                        </p>
+                        <p>
+                          <strong>Tamanho:</strong>{" "}
+                          {Math.round(selectedVideoFile.size / (1024 * 1024))} MB
+                        </p>
                       </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <div className="flex h-10 items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
-                Nenhuma meta criada. Crie uma meta em Metas.
+                    )}
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border/60 rounded-lg bg-muted/20 cursor-pointer hover:bg-muted/40 transition-colors">
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <Video className="h-8 w-8 text-muted-foreground mb-2" />
+                      <p className="text-sm font-medium text-foreground">
+                        Clique para selecionar vídeo
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        MP4, WebM ou MOV (máx. 100MB)
+                      </p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      onChange={handleVideoFileChange}
+                      className="hidden"
+                    />
+                  </label>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Action Buttons */}
-          <div className="flex gap-3 pt-4">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => navigate("/")}
-              disabled={isSubmitting}
-            >
-              Cancelar
-            </Button>
-            <Button
-              className="flex-1"
-              onClick={handleSubmit}
-              disabled={selectedFiles.length === 0 || isSubmitting}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Postando...
-                </>
-              ) : (
-                "Postar"
-              )}
-            </Button>
-          </div>
+              {/* Description */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Descrição</label>
+                <Textarea
+                  placeholder="Descreva seu vídeo..."
+                  value={videoDescription}
+                  onChange={(e) => setVideoDescription(e.target.value)}
+                  maxLength={500}
+                  className="resize-none rounded-lg"
+                  rows={4}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {videoDescription.length}/500 caracteres
+                </p>
+              </div>
+
+              {/* Goal Selection */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Meta Vinculada (Opcional)</label>
+                {isLoadingGoals ? (
+                  <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
+                    Carregando metas...
+                  </div>
+                ) : userGoals.length > 0 ? (
+                  <Select value={videoSelectedGoalId} onValueChange={setVideoSelectedGoalId}>
+                    <SelectTrigger className="rounded-lg">
+                      <SelectValue
+                        placeholder={
+                          videoSelectedGoalId
+                            ? userGoals.find((g) => g.id === videoSelectedGoalId)
+                                ?.description
+                            : "Selecione uma meta"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {userGoals.map((goal) => (
+                        <SelectItem key={goal.id} value={goal.id}>
+                          <div className="flex flex-col">
+                            <span>{goal.description}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex h-10 items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
+                    Nenhuma meta criada. Crie uma meta em Metas.
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => navigate("/")}
+                  disabled={isSubmitting}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={handleVideoSubmit}
+                  disabled={!selectedVideoFile || isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Publicando...
+                    </>
+                  ) : (
+                    "Publicar Reel"
+                  )}
+                </Button>
+              </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>

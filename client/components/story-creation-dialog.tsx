@@ -1,15 +1,22 @@
 import * as React from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import { Upload, X, Camera, Image } from "lucide-react";
+import { Upload, X, Camera, Image, Music } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface StoryCreationDialogProps {
   open: boolean;
@@ -28,10 +35,22 @@ export function StoryCreationDialog({
   const [description, setDescription] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [useCamera, setUseCamera] = React.useState(false);
+  const [selectedMusic, setSelectedMusic] = React.useState<string>("");
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [cameraStream, setCameraStream] = React.useState<MediaStream | null>(null);
+
+  // Music options (similar to Instagram)
+  const musicOptions = [
+    { id: "none", name: "Sem música" },
+    { id: "trending1", name: "Som Trending 1" },
+    { id: "trending2", name: "Som Trending 2" },
+    { id: "trending3", name: "Som Trending 3" },
+    { id: "chill1", name: "Chill Vibes" },
+    { id: "energetic1", name: "Energético" },
+    { id: "motivational1", name: "Motivacional" },
+  ];
 
   const startCamera = React.useCallback(async () => {
     try {
@@ -163,29 +182,31 @@ export function StoryCreationDialog({
       // Reset state when closing
       setMediaPreview(null);
       setDescription("");
+      setSelectedMusic("");
       setUseCamera(false);
       stopCamera();
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     } else {
-      // Auto-start camera when opening dialog
+      // Auto-start camera when opening drawer
       startCamera();
     }
     onOpenChange(newOpen);
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Criar nova story</DialogTitle>
-          <DialogDescription>
+    <Drawer open={open} onOpenChange={handleOpenChange}>
+      <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerHeader className="text-center">
+          <DrawerTitle>Criar nova story</DrawerTitle>
+          <DrawerDescription>
             Compartilhe um momento com seus seguidores
-          </DialogDescription>
-        </DialogHeader>
+          </DrawerDescription>
+        </DrawerHeader>
 
-        <div className="space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 pb-6">
+          <div className="space-y-4">
           {/* Media Preview or Camera Feed */}
           {mediaPreview ? (
             <div className="relative">
@@ -296,16 +317,37 @@ export function StoryCreationDialog({
             </p>
           </div>
 
-          {/* Submit Button */}
-          <Button
-            onClick={handleSubmit}
-            disabled={!mediaPreview || isSubmitting || isLoading}
-            className="w-full rounded-full"
-          >
-            {isSubmitting || isLoading ? "Enviando..." : "Compartilhar story"}
-          </Button>
+          {/* Music Selection */}
+          <div>
+            <label className="text-sm font-medium mb-2 flex items-center gap-2 block">
+              <Music className="h-4 w-4" />
+              Música (opcional)
+            </label>
+            <Select value={selectedMusic} onValueChange={setSelectedMusic}>
+              <SelectTrigger className="rounded-lg">
+                <SelectValue placeholder="Selecione uma música..." />
+              </SelectTrigger>
+              <SelectContent>
+                {musicOptions.map((music) => (
+                  <SelectItem key={music.id} value={music.id}>
+                    {music.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+            {/* Submit Button */}
+            <Button
+              onClick={handleSubmit}
+              disabled={!mediaPreview || isSubmitting || isLoading}
+              className="w-full rounded-full"
+            >
+              {isSubmitting || isLoading ? "Enviando..." : "Compartilhar story"}
+            </Button>
+          </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </DrawerContent>
+    </Drawer>
   );
 }

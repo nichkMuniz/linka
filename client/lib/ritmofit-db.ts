@@ -2706,6 +2706,47 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
   }
 }
 
+export async function createReelDb(
+  videoUrl: string,
+  description: string,
+  userGoalId: string | null = null,
+): Promise<Reel | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("reels")
+      .insert({
+        user_id: viewer.id,
+        video_url: videoUrl,
+        description: description.trim(),
+        user_goal_id: userGoalId,
+      })
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      const errorMsg = error?.message || String(error);
+      const errorCode = error?.code || "UNKNOWN";
+      console.error(`Error creating reel [${errorCode}]:`, errorMsg);
+      return null;
+    }
+
+    if (data) {
+      // Award 5 points for creating a reel
+      await addPointsDb(5);
+    }
+
+    return data || null;
+  } catch (err: any) {
+    console.error("Error creating reel:", err);
+    return null;
+  }
+}
+
 export async function toggleReelIncentiveDb(
   reelId: string,
   incentiveType: PostIncentiveType,
@@ -3222,6 +3263,7 @@ export type NotificationItem = {
   postPhoto?: string;
   incentiveType?: number; // For type 2 (incentive): 1=apoio, 2=continua, 3=ganhador, 4=consegueMais, 5=limiteMaior, 6=maisAlgum
   createdAt: string;
+  read?: boolean; // Whether the notification has been read
 };
 
 export async function getNotificationsDb(): Promise<NotificationItem[]> {
@@ -3240,7 +3282,8 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
         follower_id,
         type,
         post_id,
-        created_at
+        created_at,
+        read
       `
       )
       .eq("user_id", viewer.id)
@@ -3317,6 +3360,7 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           userNickname: profile.nickname,
           userPhoto: profile.photo,
           createdAt: notif.created_at,
+          read: notif.read ?? false,
         };
 
         // Add incentive type for type 2 notifications

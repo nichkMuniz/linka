@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, MessageCircle, UserPlus, Zap } from "lucide-react";
+import { Heart, MessageCircle, UserPlus, Zap, HeartHandshake, Flame, Trophy, Rocket, Target } from "lucide-react";
 import { getNotificationsDb, markNotificationsAsReadDb, type NotificationItem } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -43,6 +43,18 @@ export default function Notifications() {
       6: "Mais Algum",
     };
     return incentiveNames[type] || "Incentivo";
+  };
+
+  const getIncentiveIcon = (type: number) => {
+    const incentiveIcons: { [key: number]: { Icon: React.ComponentType<React.SVGProps<SVGSVGElement>>, color: string } } = {
+      1: { Icon: HeartHandshake, color: "text-rose-500" },
+      2: { Icon: Flame, color: "text-orange-500" },
+      3: { Icon: Trophy, color: "text-emerald-500" },
+      4: { Icon: Rocket, color: "text-blue-500" },
+      5: { Icon: Target, color: "text-purple-500" },
+      6: { Icon: Zap, color: "text-yellow-500" },
+    };
+    return incentiveIcons[type];
   };
 
   const getNotificationContent = (notification: NotificationItem) => {
@@ -147,12 +159,20 @@ export default function Notifications() {
           <div className="space-y-2">
             {notifications.map((notification) => {
               const content = getNotificationContent(notification);
+              const isRead = notification.read === true;
+              const incentiveIcon = notification.type === 2 && notification.incentiveType
+                ? getIncentiveIcon(notification.incentiveType)
+                : null;
 
               return (
                 <button
                   key={notification.id}
                   onClick={() => handleNotificationClick(notification)}
-                  className={`w-full text-left transition-all hover:shadow-md rounded-lg p-4 border ${content.borderColor} ${content.bgColor}`}
+                  className={`w-full text-left transition-all hover:shadow-md rounded-lg p-4 border ${
+                    isRead
+                      ? "border-transparent bg-transparent hover:bg-muted/30"
+                      : `border ${content.borderColor} ${content.bgColor}`
+                  }`}
                 >
                   <div className="flex items-start gap-3">
                     {/* User Avatar */}
@@ -161,10 +181,14 @@ export default function Notifications() {
                         <img
                           src={notification.userPhoto}
                           alt={notification.userNickname}
-                          className="h-12 w-12 rounded-full object-cover border border-border/40"
+                          className={`h-12 w-12 rounded-full object-cover border ${
+                            isRead
+                              ? "border-border/20 opacity-60"
+                              : "border-border/40"
+                          }`}
                         />
                       ) : (
-                        <div className="h-12 w-12 rounded-full bg-muted border border-border/40" />
+                        <div className={`h-12 w-12 rounded-full bg-muted ${isRead ? "opacity-40" : ""} border ${isRead ? "border-border/20" : "border-border/40"}`} />
                       )}
                     </div>
 
@@ -176,15 +200,21 @@ export default function Notifications() {
                             {content.icon}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-foreground/70">
+                            <p className={`text-xs font-semibold ${isRead ? "text-foreground/50" : "text-foreground/70"}`}>
                               {content.title}
                             </p>
-                            <p className="text-sm text-foreground font-medium mt-0.5">
+                            <p className={`text-sm font-medium mt-0.5 flex items-center gap-1.5 ${isRead ? "text-foreground/60" : "text-foreground"}`}>
                               {content.description}
+                              {incentiveIcon && (
+                                <>
+                                  <incentiveIcon.Icon className={`h-4 w-4 ${incentiveIcon.color}`} />
+                                  <span className="text-xs">{getIncentiveTypeName(notification.incentiveType!)}</span>
+                                </>
+                              )}
                             </p>
                           </div>
                         </div>
-                        <p className="text-xs text-muted-foreground flex-shrink-0 whitespace-nowrap ml-2">
+                        <p className={`text-xs flex-shrink-0 whitespace-nowrap ml-2 ${isRead ? "text-muted-foreground/50" : "text-muted-foreground"}`}>
                           {formatTimeAgo(notification.createdAt)}
                         </p>
                       </div>
@@ -195,7 +225,11 @@ export default function Notifications() {
                           <img
                             src={notification.postPhoto}
                             alt="Post"
-                            className="h-16 w-16 rounded-md object-cover border border-border/40"
+                            className={`h-16 w-16 rounded-md object-cover border ${
+                              isRead
+                                ? "border-border/20 opacity-50"
+                                : "border-border/40"
+                            }`}
                           />
                         </div>
                       )}
