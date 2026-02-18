@@ -1908,7 +1908,7 @@ export default function Profile() {
                       <div className="flex flex-wrap gap-2">
                         {postLikes.map((like) => (
                           <div
-                            key={like.userId}
+                            key={`${like.userId}-${like.type}`}
                             className="text-xs bg-muted px-2 py-1 rounded-full"
                           >
                             {like.userNickname}
