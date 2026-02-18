@@ -2722,8 +2722,7 @@ export async function createReelDb(
       .insert({
         user_id: viewer.id,
         video_url: videoUrl,
-        description: description.trim(),
-        user_goal_id: userGoalId,
+        description: description.trim()
       })
       .select()
       .maybeSingle();
