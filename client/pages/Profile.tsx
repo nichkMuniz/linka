@@ -1860,19 +1860,30 @@ export default function Profile() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Meta Vinculada</label>
                   {userGoals.length > 0 ? (
-                    <Select value={editPostGoalId} onValueChange={setEditPostGoalId}>
-                      <SelectTrigger className="rounded-lg">
-                        <SelectValue placeholder="Selecione uma meta" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">Nenhuma meta</SelectItem>
-                        {userGoals.map((goal) => (
-                          <SelectItem key={goal.id} value={goal.id}>
-                            {goal.description}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="space-y-2">
+                      <Select value={editPostGoalId} onValueChange={setEditPostGoalId}>
+                        <SelectTrigger className="rounded-lg">
+                          <SelectValue placeholder="Selecione uma meta ou deixe em branco" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {userGoals.map((goal) => (
+                            <SelectItem key={goal.id} value={goal.id}>
+                              {goal.description}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {editPostGoalId && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditPostGoalId("")}
+                          className="h-8 text-xs"
+                        >
+                          Remover meta
+                        </Button>
+                      )}
+                    </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
                       Nenhuma meta criada

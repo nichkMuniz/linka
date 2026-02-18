@@ -49,6 +49,7 @@ import { StoryViewerModal } from "@/components/story-viewer-modal";
 import { PostCarousel } from "@/components/post-carousel";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
+import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 
 export default function Index() {
   const { user } = useAuth();
