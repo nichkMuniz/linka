@@ -18,9 +18,11 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
 import { UserPlus, UserCheck } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export default function Search() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = React.useState("people");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [allUsers, setAllUsers] = React.useState<SearchUser[]>([]);
@@ -197,7 +199,12 @@ export default function Search() {
                       <div className="h-12 w-12 rounded-full bg-muted flex-shrink-0" />
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm">{u.nickname}</p>
+                      <button
+                        onClick={() => navigate(`/usuario/${u.id}`)}
+                        className="font-medium text-sm hover:text-brand transition-colors text-left"
+                      >
+                        {u.nickname}
+                      </button>
                       {u.bio && (
                         <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
                           {u.bio}

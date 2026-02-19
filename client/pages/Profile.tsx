@@ -1024,7 +1024,7 @@ export default function Profile() {
 
                 {/* Message Button */}
                 <Button
-                  onClick={() => navigate(`/mensagens?user=${profileUserId}`)}
+                  onClick={() => navigate(`/comunidade?user=${profileUserId}`)}
                   variant="outline"
                   size="sm"
                   className="rounded-full gap-2"

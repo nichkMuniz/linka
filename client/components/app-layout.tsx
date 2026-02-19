@@ -3,7 +3,7 @@ import {
   PlusSquare,
   Dumbbell,
   Search,
-  MessageCircle,
+  Users2,
   Bell,
   Video,
   ShoppingBag,
@@ -214,15 +214,15 @@ export function AppLayout() {
               </Button>
             </Link>
 
-            <Link to="/mensagens">
+            <Link to="/comunidade">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 className="h-11 w-11 rounded-full relative"
-                aria-label="Mensagens"
+                aria-label="Comunidade"
               >
-                <MessageCircle className="h-5 w-5" />
+                <Users2 className="h-5 w-5" />
                 {unreadCount > 0 && (
                   <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-xs font-semibold">
                     {unreadCount > 9 ? "9+" : unreadCount}

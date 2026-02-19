@@ -28,7 +28,7 @@ import Goals from "@/pages/Goals";
 import Profile from "@/pages/Profile";
 import PostDetail from "@/pages/PostDetail";
 import Search from "@/pages/Search";
-import Messages from "@/pages/Messages";
+import Community from "@/pages/Community";
 import Notifications from "@/pages/Notifications";
 import Store from "@/pages/Store";
 import NotFound from "@/pages/NotFound";
@@ -128,7 +128,8 @@ const App = () => {
                   <Route path="/usuario/:userId" element={<Profile />} />
                   <Route path="/post/:postId" element={<PostDetail />} />
                   <Route path="/buscar" element={<Search />} />
-                  <Route path="/mensagens" element={<Messages />} />
+                  <Route path="/comunidade" element={<Community />} />
+                  <Route path="/mensagens" element={<Navigate to="/comunidade" replace />} />
                   <Route path="/notificacoes" element={<Notifications />} />
 
                   {/* compatibility */}

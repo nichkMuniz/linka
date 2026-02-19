@@ -5,7 +5,6 @@ import {
   createUserGoalDb,
   updateUserGoalDb,
   getUserSelectedGoalIdsDb,
-  getRankingDb,
   getWorkoutsDb,
   getDietsDb,
   getHabitsDb,
@@ -19,7 +18,6 @@ import {
   updateWorkoutSeriesDb,
   getUserGoalsDb,
   type ProgrammedGoal,
-  type RankingUser,
   type Workout,
   type Diet,
   type Habit,
@@ -42,8 +40,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  Trophy,
-  TrendingUp,
   ChevronDown,
   Play,
   CheckCircle2,
@@ -155,9 +151,6 @@ export default function Goals() {
 
   const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
-  // Ranking tab state
-  const [ranking, setRanking] = React.useState<RankingUser[]>([]);
-
   // General state
   const [loading, setLoading] = React.useState(true);
   const [selectingGoalId, setSelectingGoalId] = React.useState<string | null>(
@@ -187,21 +180,18 @@ export default function Goals() {
         const [
           goalsData,
           selectedIds,
-          rankingData,
           workoutsBaseData,
           dietsBaseData,
           habitsBaseData,
         ] = await Promise.all([
           getProgrammedGoalsDb(),
           getUserSelectedGoalIdsDb(),
-          getRankingDb(),
           getWorkoutsDb(),
           getDietsDb(),
           getHabitsDb(),
         ]);
         setGoals(goalsData);
         setSelectedGoalIds(selectedIds);
-        setRanking(rankingData);
         setWorkouts(workoutsBaseData);
         setDiets(dietsBaseData);
         setHabits(habitsBaseData);
@@ -776,18 +766,17 @@ export default function Goals() {
     <div className="mx-auto grid w-full max-w-3xl gap-6">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">
-          Metas e Ranking
+          Metas e Rotinas
         </h1>
         <p className="text-sm text-muted-foreground">
-          Gerencie suas metas, rotinas e acompanhe seu ranking.
+          Gerencie suas metas e rotinas.
         </p>
       </div>
 
       <Tabs defaultValue="metas" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="metas">Metas</TabsTrigger>
           <TabsTrigger value="rotinas">Rotinas</TabsTrigger>
-          <TabsTrigger value="ranking">Ranking</TabsTrigger>
         </TabsList>
 
         {/* Metas Tab */}
@@ -1141,83 +1130,6 @@ export default function Goals() {
                   Adicionar
                 </Button>
               </div>
-            </div>
-          )}
-        </TabsContent>
-
-        {/* Ranking Tab */}
-        <TabsContent value="ranking" className="space-y-4">
-          {ranking.length > 0 ? (
-            <div className="space-y-2">
-              {ranking.map((user, index) => {
-                const medalEmoji =
-                  index === 0
-                    ? "🥇"
-                    : index === 1
-                      ? "🥈"
-                      : index === 2
-                        ? "🥉"
-                        : "";
-
-                return (
-                  <Card key={user.userId} className="border-border/60">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-4">
-                        <div className="flex-shrink-0 w-12 text-center">
-                          {medalEmoji ? (
-                            <span className="text-2xl">{medalEmoji}</span>
-                          ) : (
-                            <span className="text-lg font-bold text-muted-foreground">
-                              #{index + 1}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-3 flex-1">
-                          {user.userPhoto ? (
-                            <img
-                              src={user.userPhoto}
-                              alt={user.userNickname}
-                              className="h-12 w-12 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="h-12 w-12 rounded-full bg-muted" />
-                          )}
-
-                          <div className="flex-1">
-                            <p className="font-semibold text-sm">
-                              {user.userNickname}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Nível {user.level}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex-shrink-0 text-right">
-                          <div className="flex items-center gap-1">
-                            <TrendingUp className="h-4 w-4 text-brand" />
-                            <span className="font-bold text-brand">
-                              {user.points}
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            pontos
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
-              <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">
-                Nenhum ranking disponível no momento. Comece a ganhar pontos
-                interagindo no app!
-              </p>
             </div>
           )}
         </TabsContent>
