@@ -15,13 +15,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 import { ArrowLeft, Send, Check, CheckCheck } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 type ViewMode = "conversations" | "conversation";
 
 export default function Messages() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [viewMode, setViewMode] = React.useState<ViewMode>("conversations");
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
@@ -59,6 +60,18 @@ export default function Messages() {
 
     loadData();
   }, []);
+
+  // Auto-select conversation from URL parameter
+  React.useEffect(() => {
+    const userIdParam = searchParams.get("user");
+    if (userIdParam && conversations.length > 0) {
+      const conversation = conversations.find((c) => c.userId === userIdParam);
+      if (conversation) {
+        setSelectedConversation(conversation);
+        setViewMode("conversation");
+      }
+    }
+  }, [searchParams, conversations]);
 
   // Load conversation messages when selected
   React.useEffect(() => {

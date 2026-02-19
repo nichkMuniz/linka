@@ -29,6 +29,9 @@ import {
   updateReelDb,
   getPostLikeUsersDb,
   getPostCommentsDb,
+  followUserDb,
+  unfollowUserDb,
+  isFollowingDb,
   type UserProfile,
   type PostWithUser,
   type UserStats,
@@ -88,6 +91,8 @@ import {
   Trash2,
   Heart,
   MessageCircle,
+  UserPlus,
+  MessageSquare,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
@@ -124,6 +129,8 @@ export default function Profile() {
   const [isEditingReel, setIsEditingReel] = React.useState(false);
   const [editReelDescription, setEditReelDescription] = React.useState("");
   const [isUpdatingReel, setIsUpdatingReel] = React.useState(false);
+  const [isFollowing, setIsFollowing] = React.useState(false);
+  const [isFollowingLoading, setIsFollowingLoading] = React.useState(false);
   const [stats, setStats] = React.useState<UserStats>({
     postsCount: 0,
     followersCount: 0,
@@ -426,6 +433,62 @@ export default function Profile() {
       setIsLoadingFollowers(false);
     }
   }, [profileUserId]);
+
+  const checkFollowingStatus = React.useCallback(async () => {
+    if (isViewingOtherProfile && profileUserId) {
+      try {
+        const following = await isFollowingDb(profileUserId);
+        setIsFollowing(following);
+      } catch (err: any) {
+        console.error("Error checking follow status:", err);
+      }
+    }
+  }, [isViewingOtherProfile, profileUserId]);
+
+  const handleFollowUnfollow = React.useCallback(async () => {
+    if (!profileUserId) return;
+
+    if (isFollowing) {
+      // Unfollow
+      if (!confirm("Tem certeza que deseja parar de seguir este usuário?")) return;
+    }
+
+    setIsFollowingLoading(true);
+    try {
+      const success = isFollowing
+        ? await unfollowUserDb(profileUserId)
+        : await followUserDb(profileUserId);
+
+      if (success) {
+        setIsFollowing(!isFollowing);
+        toast({
+          title: "Sucesso!",
+          description: isFollowing
+            ? "Você deixou de seguir este usuário."
+            : "Você está seguindo este usuário.",
+        });
+      } else {
+        toast({
+          title: "Erro",
+          description: "Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      console.error("Error toggling follow:", err);
+      toast({
+        title: "Erro",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsFollowingLoading(false);
+    }
+  }, [profileUserId, isFollowing]);
+
+  React.useEffect(() => {
+    checkFollowingStatus();
+  }, [profileUserId, checkFollowingStatus]);
 
   React.useEffect(() => {
     loadProfile();
@@ -934,6 +997,43 @@ export default function Profile() {
                 </div>
               </div>
             </div>
+
+            {/* Action Buttons */}
+            {isViewingOtherProfile && (
+              <div className="flex gap-2 shrink-0">
+                {/* Follow/Unfollow Button */}
+                <Button
+                  onClick={handleFollowUnfollow}
+                  disabled={isFollowingLoading}
+                  variant={isFollowing ? "outline" : "default"}
+                  size="sm"
+                  className="rounded-full gap-2"
+                >
+                  {isFollowing ? (
+                    <>
+                      <Check className="h-4 w-4" />
+                      Seguindo
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="h-4 w-4" />
+                      Seguir
+                    </>
+                  )}
+                </Button>
+
+                {/* Message Button */}
+                <Button
+                  onClick={() => navigate(`/mensagens?user=${profileUserId}`)}
+                  variant="outline"
+                  size="sm"
+                  className="rounded-full gap-2"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Mensagem
+                </Button>
+              </div>
+            )}
 
             {/* Settings Button - Only show for own profile */}
             {!isViewingOtherProfile && (
