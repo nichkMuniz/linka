@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/image-with-fallback";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
+import { useLayoutMode } from "@/hooks/useLayoutMode";
+import { FloatingActionMenu } from "@/components/floating-action-menu";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -39,6 +41,7 @@ function isActivePath(currentPath: string, to: string) {
 export function AppLayout() {
   const location = useLocation();
   const { user } = useAuth();
+  const { layoutMode } = useLayoutMode();
 
   const desktopNavItems = React.useMemo(() => navItems, []);
 
@@ -256,45 +259,52 @@ export function AppLayout() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-4 pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)] pt-6 lg:pb-10">
+      <main className={cn(
+        "mx-auto w-full max-w-6xl px-4 pt-6 lg:pb-10",
+        layoutMode === "default" ? "pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)]" : "pb-6"
+      )}>
         <Outlet />
       </main>
 
-      <nav className="fixed bottom-[env(safe-area-inset-bottom)] left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden">
-        <div className="mx-auto grid w-full max-w-6xl grid-cols-5 px-1">
-          {navItems.map((item) => {
-            const active = isActivePath(location.pathname, item.to);
-            const Icon = item.icon;
+      {layoutMode === "default" && (
+        <nav className="fixed bottom-[env(safe-area-inset-bottom)] left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:hidden">
+          <div className="mx-auto grid w-full max-w-6xl grid-cols-5 px-1">
+            {navItems.map((item) => {
+              const active = isActivePath(location.pathname, item.to);
+              const Icon = item.icon;
 
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-1 py-2 text-[11px] transition-colors",
-                  active
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <span
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
                   className={cn(
-                    "grid h-11 w-11 place-items-center rounded-2xl ring-1 transition",
+                    "flex flex-col items-center justify-center gap-1 py-2 text-[11px] transition-colors",
                     active
-                      ? "bg-brand text-white ring-brand/30"
-                      : "bg-transparent ring-transparent",
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  <span className="relative">
-                    <Icon className="h-6 w-6" />
+                  <span
+                    className={cn(
+                      "grid h-11 w-11 place-items-center rounded-2xl ring-1 transition",
+                      active
+                        ? "bg-brand text-white ring-brand/30"
+                        : "bg-transparent ring-transparent",
+                    )}
+                  >
+                    <span className="relative">
+                      <Icon className="h-6 w-6" />
+                    </span>
                   </span>
-                </span>
-                <span className="hidden md:block">{item.label}</span>
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
+                  <span className="hidden md:block">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      )}
+
+      {layoutMode === "novo" && <FloatingActionMenu />}
     </div>
   );
 }

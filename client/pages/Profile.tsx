@@ -80,6 +80,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useLayoutMode } from "@/hooks/useLayoutMode";
 import {
   Users,
   Edit2,
@@ -108,6 +109,7 @@ export default function Profile() {
   const { userId } = useParams<{ userId?: string }>();
   const { theme, setTheme, resolvedTheme } = useTheme();
   const isDark = (resolvedTheme ?? theme) === "dark";
+  const { layoutMode, toggleLayoutMode } = useLayoutMode();
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
 
   // Determine if we're viewing another user's profile
@@ -1363,12 +1365,15 @@ export default function Profile() {
                     </Drawer>
 
                     <Button
+                      onClick={() => {
+                        toggleLayoutMode();
+                        window.location.reload();
+                      }}
                       variant="outline"
                       className="w-full rounded-full gap-2"
-                      disabled
                     >
                       <span>🎨</span>
-                      Novo Layout
+                      {layoutMode === "novo" ? "Layout Antigo" : "Novo Layout"}
                     </Button>
 
                     <Button
