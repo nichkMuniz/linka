@@ -425,6 +425,20 @@ export async function updateUserGoalDb(
   }
 }
 
+export async function deleteUserGoalDb(userGoalId: string) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const { error } = await supabase
+    .from("user_goals")
+    .delete()
+    .eq("id", userGoalId);
+
+  if (error) {
+    console.error("Error deleting user goal:", error);
+    throw error;
+  }
+}
+
 export type UserGoal = {
   id: string;
   goal_id: string;

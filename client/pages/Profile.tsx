@@ -1363,6 +1363,15 @@ export default function Profile() {
                     </Drawer>
 
                     <Button
+                      variant="outline"
+                      className="w-full rounded-full gap-2"
+                      disabled
+                    >
+                      <span>🎨</span>
+                      Novo Layout
+                    </Button>
+
+                    <Button
                       onClick={() => setTheme(isDark ? "light" : "dark")}
                       variant="outline"
                       className="w-full rounded-full gap-2"

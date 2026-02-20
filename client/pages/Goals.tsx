@@ -4,6 +4,7 @@ import {
   getProgrammedGoalsDb,
   createUserGoalDb,
   updateUserGoalDb,
+  deleteUserGoalDb,
   getUserSelectedGoalIdsDb,
   getWorkoutsDb,
   getDietsDb,
@@ -79,6 +80,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 export default function Goals() {
   const navigate = useNavigate();
@@ -160,6 +167,9 @@ export default function Goals() {
   const [isProcessingCheckIn, setIsProcessingCheckIn] = React.useState(false);
   const [weekCheckIns, setWeekCheckIns] = React.useState<Set<number>>(new Set()); // 0=dom, 1=seg, etc
   const [badgesModalOpen, setBadgesModalOpen] = React.useState(false);
+
+  // Available goals accordion state
+  const [availableGoalsOpen, setAvailableGoalsOpen] = React.useState(false);
 
   const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
@@ -976,74 +986,80 @@ export default function Goals() {
                 </div>
               )}
 
-              {/* Available Goals Section */}
+              {/* Available Goals Section - Accordion */}
               {goals.filter((g) => !selectedGoalIds.includes(g.id)).length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Metas Disponíveis</h3>
-                    <span className="text-xs text-muted-foreground">
-                      {goals.filter((g) => !selectedGoalIds.includes(g.id)).length} meta{
-                        goals.filter((g) => !selectedGoalIds.includes(g.id)).length > 1 ? "s" : ""
-                      }
-                    </span>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                    {goals
-                      .filter((g) => !selectedGoalIds.includes(g.id))
-                      .map((goal) => {
-                        const goalTypeLabel =
-                          goal.type === 1
-                            ? "Fitness"
-                            : goal.type === 2
-                              ? "Saúde"
-                              : "Hábitos";
-                        const goalTypeColor =
-                          goal.type === 1
-                            ? "bg-blue-500/10 text-blue-600"
-                            : goal.type === 2
-                              ? "bg-emerald-500/10 text-emerald-600"
-                              : "bg-orange-500/10 text-orange-600";
+                <Accordion type="single" collapsible defaultValue="">
+                  <AccordionItem value="available-goals" className="border-border/60">
+                    <AccordionTrigger className="hover:no-underline">
+                      <div className="flex items-center justify-between w-full pr-4">
+                        <h3 className="text-sm font-semibold">Metas Disponíveis</h3>
+                        <span className="text-xs text-muted-foreground">
+                          {goals.filter((g) => !selectedGoalIds.includes(g.id)).length} meta{
+                            goals.filter((g) => !selectedGoalIds.includes(g.id)).length > 1 ? "s" : ""
+                          }
+                        </span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 pt-4">
+                        {goals
+                          .filter((g) => !selectedGoalIds.includes(g.id))
+                          .map((goal) => {
+                            const goalTypeLabel =
+                              goal.type === 1
+                                ? "Fitness"
+                                : goal.type === 2
+                                  ? "Saúde"
+                                  : "Hábitos";
+                            const goalTypeColor =
+                              goal.type === 1
+                                ? "bg-blue-500/10 text-blue-600"
+                                : goal.type === 2
+                                  ? "bg-emerald-500/10 text-emerald-600"
+                                  : "bg-orange-500/10 text-orange-600";
 
-                        return (
-                          <Card
-                            key={goal.id}
-                            className="border-border/60 hover:border-border/80 transition-all cursor-pointer flex flex-col overflow-hidden"
-                          >
-                            <div className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold`}>
-                              {goalTypeLabel}
-                            </div>
-                            <CardHeader className="pb-2 pt-2">
-                              <CardTitle className="text-sm line-clamp-2">
-                                {goal.description}
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-2 flex-1 flex flex-col">
-                              <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
-                                <div className="bg-muted rounded p-1.5">
-                                  <p className="text-muted-foreground">Duração</p>
-                                  <p className="font-bold">{goal.duration}d</p>
-                                </div>
-                                <div className="bg-muted rounded p-1.5">
-                                  <p className="text-muted-foreground">Qtd</p>
-                                  <p className="font-bold">{goal.quantity}</p>
-                                </div>
-                              </div>
-
-                              <Button
-                                type="button"
-                                size="sm"
-                                className="w-full rounded-full mt-auto text-xs h-8"
-                                disabled={selectingGoalId === goal.id}
-                                onClick={() => handleSelectGoal(goal)}
+                            return (
+                              <Card
+                                key={goal.id}
+                                className="border-border/60 hover:border-border/80 transition-all cursor-pointer flex flex-col overflow-hidden"
                               >
-                                {selectingGoalId === goal.id ? "Salvando..." : "Selecionar"}
-                              </Button>
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                  </div>
-                </div>
+                                <div className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold`}>
+                                  {goalTypeLabel}
+                                </div>
+                                <CardHeader className="pb-2 pt-2">
+                                  <CardTitle className="text-sm line-clamp-2">
+                                    {goal.description}
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-2 flex-1 flex flex-col">
+                                  <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
+                                    <div className="bg-muted rounded p-1.5">
+                                      <p className="text-muted-foreground">Duração</p>
+                                      <p className="font-bold">{goal.duration}d</p>
+                                    </div>
+                                    <div className="bg-muted rounded p-1.5">
+                                      <p className="text-muted-foreground">Qtd</p>
+                                      <p className="font-bold">{goal.quantity}</p>
+                                    </div>
+                                  </div>
+
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    className="w-full rounded-full mt-auto text-xs h-8"
+                                    disabled={selectingGoalId === goal.id}
+                                    onClick={() => handleSelectGoal(goal)}
+                                  >
+                                    {selectingGoalId === goal.id ? "Salvando..." : "Selecionar"}
+                                  </Button>
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
               )}
             </>
           ) : (
@@ -1812,49 +1828,94 @@ export default function Goals() {
                   />
                 </div>
 
-                <Button
-                  onClick={async () => {
-                    if (!user || !editingGoal) return;
-                    setIsUpdatingGoal(true);
-                    try {
-                      await updateUserGoalDb(
-                        editingGoal.id,
-                        editGoalDuration,
-                        editGoalQuantity,
-                      );
+                <div className="space-y-2">
+                  <Button
+                    onClick={async () => {
+                      if (!user || !editingGoal) return;
+                      setIsUpdatingGoal(true);
+                      try {
+                        await updateUserGoalDb(
+                          editingGoal.id,
+                          editGoalDuration,
+                          editGoalQuantity,
+                        );
 
-                      // Update local user goals state
-                      const updatedUserGoals = userGoals.map((goal) =>
-                        goal.id === editingGoal.id
-                          ? {
-                              ...goal,
-                              duration: editGoalDuration,
-                              quantity: editGoalQuantity,
-                            }
-                          : goal,
-                      );
-                      setUserGoals(updatedUserGoals);
+                        // Update local user goals state
+                        const updatedUserGoals = userGoals.map((goal) =>
+                          goal.id === editingGoal.id
+                            ? {
+                                ...goal,
+                                duration: editGoalDuration,
+                                quantity: editGoalQuantity,
+                              }
+                            : goal,
+                        );
+                        setUserGoals(updatedUserGoals);
 
-                      toast({
-                        title: "Meta atualizada!",
-                        description: "Suas alterações foram salvas.",
-                      });
-                      setEditGoalModalOpen(false);
-                    } catch (err: any) {
-                      toast({
-                        title: "Erro ao atualizar meta",
-                        description: err?.message || "Tente novamente.",
-                        variant: "destructive",
-                      });
-                    } finally {
-                      setIsUpdatingGoal(false);
-                    }
-                  }}
-                  disabled={isUpdatingGoal || editGoalDuration === 0 || editGoalQuantity === 0}
-                  className="w-full rounded-full"
-                >
-                  {isUpdatingGoal ? "Atualizando..." : "Salvar Alterações"}
-                </Button>
+                        toast({
+                          title: "Meta atualizada!",
+                          description: "Suas alterações foram salvas.",
+                        });
+                        setEditGoalModalOpen(false);
+                      } catch (err: any) {
+                        toast({
+                          title: "Erro ao atualizar meta",
+                          description: err?.message || "Tente novamente.",
+                          variant: "destructive",
+                        });
+                      } finally {
+                        setIsUpdatingGoal(false);
+                      }
+                    }}
+                    disabled={isUpdatingGoal || editGoalDuration === 0 || editGoalQuantity === 0}
+                    className="w-full rounded-full"
+                  >
+                    {isUpdatingGoal ? "Atualizando..." : "Salvar Alterações"}
+                  </Button>
+
+                  <Button
+                    onClick={async () => {
+                      if (!editingGoal) return;
+                      if (!confirm("Tem certeza que deseja desistir desta meta? Esta ação não pode ser desfeita.")) {
+                        return;
+                      }
+                      setIsUpdatingGoal(true);
+                      try {
+                        await deleteUserGoalDb(editingGoal.id);
+
+                        // Remove from local user goals state
+                        setUserGoals(userGoals.filter((goal) => goal.id !== editingGoal.id));
+
+                        // Remove from selected goals
+                        setSelectedGoalIds(
+                          selectedGoalIds.filter((id) => {
+                            const goal = userGoals.find((g) => g.id === id);
+                            return goal?.goal_id !== editingGoal.goal_id;
+                          })
+                        );
+
+                        toast({
+                          title: "Meta removida!",
+                          description: "Você desistiu da meta.",
+                        });
+                        setEditGoalModalOpen(false);
+                      } catch (err: any) {
+                        toast({
+                          title: "Erro ao remover meta",
+                          description: err?.message || "Tente novamente.",
+                          variant: "destructive",
+                        });
+                      } finally {
+                        setIsUpdatingGoal(false);
+                      }
+                    }}
+                    disabled={isUpdatingGoal}
+                    variant="destructive"
+                    className="w-full rounded-full"
+                  >
+                    {isUpdatingGoal ? "Removendo..." : "Desistir da Meta"}
+                  </Button>
+                </div>
               </div>
             </div>
           )}
