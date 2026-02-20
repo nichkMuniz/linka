@@ -9,6 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -32,9 +33,55 @@ function isActivePath(currentPath: string, to: string) {
 
 export function FloatingActionMenu() {
   const location = useLocation();
+  const { fabPosition, setFabPosition } = useLayoutMode();
   const [isOpen, setIsOpen] = React.useState(false);
+  const [isDragging, setIsDragging] = React.useState(false);
+  const [dragStart, setDragStart] = React.useState({ x: 0, y: 0 });
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
   const handleClose = () => setIsOpen(false);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (isOpen) return; // Don't drag while menu is open
+    setIsDragging(true);
+    setDragStart({
+      x: e.clientX - fabPosition.x,
+      y: e.clientY - fabPosition.y,
+    });
+  };
+
+  React.useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+
+      let newX = e.clientX - dragStart.x;
+      let newY = e.clientY - dragStart.y;
+
+      // Keep button within viewport
+      const buttonWidth = 64;
+      const buttonHeight = 64;
+      const padding = 16;
+
+      newX = Math.max(padding, Math.min(newX, window.innerWidth - buttonWidth - padding));
+      newY = Math.max(padding, Math.min(newY, window.innerHeight - buttonHeight - padding));
+
+      setFabPosition({ x: newX, y: newY });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging, dragStart, setFabPosition]);
 
   return (
     <>
@@ -48,7 +95,15 @@ export function FloatingActionMenu() {
       )}
 
       {/* Floating Action Menu */}
-      <div className="fixed bottom-6 right-6 z-50 lg:hidden">
+      <div
+        ref={containerRef}
+        className="fixed z-50 lg:hidden"
+        style={{
+          left: `${fabPosition.x}px`,
+          top: `${fabPosition.y}px`,
+          transition: isDragging ? "none" : "all 0.2s ease-out",
+        }}
+      >
         {/* Expanded Menu Items */}
         {isOpen && (
           <div className="absolute bottom-20 right-0 flex flex-col gap-3 mb-2">
@@ -82,9 +137,11 @@ export function FloatingActionMenu() {
 
         {/* Main FAB Button */}
         <button
-          onClick={() => setIsOpen(!isOpen)}
+          onMouseDown={handleMouseDown}
+          onClick={() => !isDragging && setIsOpen(!isOpen)}
           className={cn(
-            "relative h-16 w-16 rounded-full shadow-lg transition-all duration-200 flex items-center justify-center",
+            "relative h-16 w-16 rounded-full shadow-lg transition-all duration-200 flex items-center justify-center cursor-grab active:cursor-grabbing",
+            isDragging && "cursor-grabbing",
             isOpen
               ? "bg-destructive text-white hover:bg-destructive/90"
               : "bg-brand text-white hover:bg-brand/90",

@@ -16,7 +16,6 @@ import { ImageWithFallback } from "@/components/image-with-fallback";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
-import { FloatingActionMenu } from "@/components/floating-action-menu";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -303,8 +302,6 @@ export function AppLayout() {
           </div>
         </nav>
       )}
-
-      {layoutMode === "novo" && <FloatingActionMenu />}
     </div>
   );
 }

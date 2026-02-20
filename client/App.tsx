@@ -18,8 +18,10 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { FloatingActionMenu } from "@/components/floating-action-menu";
 
 import { useAuth } from "@/hooks/useAuth";
+import { useLayoutMode } from "@/hooks/useLayoutMode";
 
 import Index from "@/pages/Index";
 import Login from "@/pages/Login";
@@ -64,6 +66,18 @@ function RequireAuth() {
   }
 
   return <Outlet />;
+}
+
+function GlobalFABContainer() {
+  const { layoutMode } = useLayoutMode();
+  const { user } = useAuth();
+
+  // Only show FAB when layoutMode is "novo" and user is authenticated
+  if (layoutMode !== "novo" || !user) {
+    return null;
+  }
+
+  return <FloatingActionMenu />;
 }
 
 const App = () => {
@@ -112,6 +126,7 @@ const App = () => {
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <GlobalFABContainer />
             <Routes>
               <Route path="/login" element={<Login />} />
 
