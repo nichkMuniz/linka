@@ -55,6 +55,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ImageWithFallback } from "@/components/image-with-fallback";
 import { PostLikesModal } from "@/components/post-likes-modal";
 import { PostCommentsDialog } from "@/components/post-comments-dialog";
+import { UserInsignias } from "@/components/user-insignias";
 import {
   Dialog,
   DialogContent,
@@ -209,6 +210,11 @@ export default function Profile() {
     business_website: "",
   });
   const [isSavingCommercial, setIsSavingCommercial] = React.useState(false);
+
+  // Delete account state
+  const [isDeleteAccountOpen, setIsDeleteAccountOpen] = React.useState(false);
+  const [isDeleting, setIsDeleting] = React.useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = React.useState("");
 
   const loadProfile = React.useCallback(async () => {
     if (!profileUserId) return;
@@ -982,6 +988,75 @@ export default function Profile() {
     }
   };
 
+  // Phone formatting function for Brazilian format (XX) XXXXX-XXXX
+  const formatPhoneNumber = (value: string): string => {
+    // Remove all non-digits
+    const cleaned = value.replace(/\D/g, "");
+
+    // Limit to 11 digits (DDD + 9 digit number)
+    const limited = cleaned.slice(0, 11);
+
+    // Format: (XX) XXXXX-XXXX
+    if (limited.length <= 2) {
+      return limited.length > 0 ? `(${limited}` : "";
+    } else if (limited.length <= 7) {
+      return `(${limited.slice(0, 2)}) ${limited.slice(2)}`;
+    } else {
+      return `(${limited.slice(0, 2)}) ${limited.slice(2, 7)}-${limited.slice(7)}`;
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    if (deleteConfirmText !== "DELETAR CONTA") {
+      toast({
+        title: "Confirmação incorreta",
+        description: "Digite 'DELETAR CONTA' para confirmar a exclusão.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      // Delete user profile which should cascade delete related data via RLS
+      if (supabase) {
+        const { error: deleteError } = await supabase
+          .from("profiles")
+          .delete()
+          .eq("user_id", user.id);
+
+        if (deleteError) throw deleteError;
+
+        // Sign out the user
+        await resetSupabaseAuth();
+      }
+
+      setIsDeleteAccountOpen(false);
+      setIsSettingsOpen(false);
+      setDeleteConfirmText("");
+
+      toast({
+        title: "Conta deletada",
+        description: "Sua conta foi permanentemente removida.",
+      });
+
+      // Redirect to login after a short delay
+      setTimeout(() => {
+        navigate("/");
+      }, 1500);
+    } catch (err: any) {
+      console.error("Error deleting account:", err);
+      toast({
+        title: "Erro ao deletar conta",
+        description: err?.message || "Tente novamente mais tarde.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
@@ -1023,9 +1098,12 @@ export default function Profile() {
               {/* Info */}
               <div className="space-y-3 flex-1 min-w-0">
                 <div>
-                  <h1 className="text-xl font-semibold tracking-tight truncate">
-                    {profile.nickname}
-                  </h1>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h1 className="text-xl font-semibold tracking-tight truncate">
+                      {profile.nickname}
+                    </h1>
+                    <UserInsignias userId={profileUserId || ""} />
+                  </div>
                   {profile.bio && (
                     <p className="text-sm text-muted-foreground line-clamp-2">
                       {profile.bio}
@@ -1053,30 +1131,26 @@ export default function Profile() {
                   </DrawerHeader>
 
                   <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4">
-                    <Dialog
+                    <Drawer
                       open={isEditDialogOpen}
                       onOpenChange={setIsEditDialogOpen}
                     >
-                      <DialogTrigger asChild>
-                        <Button
-                          onClick={openEditDialog}
-                          variant="outline"
-                          className="w-full rounded-full gap-2"
-                        >
-                          <Edit2 className="h-4 w-4" />
-                          Editar Perfil
-                        </Button>
-                      </DialogTrigger>
+                      <Button
+                        onClick={openEditDialog}
+                        variant="outline"
+                        className="w-full rounded-full gap-2"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                        Editar Perfil
+                      </Button>
 
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Editar Perfil</DialogTitle>
-                          <DialogDescription>
-                            Atualize suas informações de perfil
-                          </DialogDescription>
-                        </DialogHeader>
+                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                        <DrawerHeader className="shrink-0">
+                          <DrawerTitle>Editar Perfil</DrawerTitle>
+                        </DrawerHeader>
 
-                        <div className="space-y-4">
+                        <div className="flex-1 overflow-y-auto px-4 pb-4">
+                          <div className="space-y-4">
                           {/* Photo Preview and Upload */}
                           <div className="space-y-2">
                             <label className="text-sm font-medium">
@@ -1145,15 +1219,15 @@ export default function Profile() {
                           >
                             {isSaving ? "Salvando..." : "Salvar Alterações"}
                           </Button>
+                          </div>
                         </div>
-                      </DialogContent>
-                    </Dialog>
+                      </DrawerContent>
+                    </Drawer>
 
-                    <Dialog
+                    <Drawer
                       open={isCommercialProfileOpen}
                       onOpenChange={setIsCommercialProfileOpen}
                     >
-                      <DialogTrigger asChild>
                         <Button
                           onClick={handleOpenCommercialProfile}
                           variant="outline"
@@ -1162,17 +1236,14 @@ export default function Profile() {
                           <span className="text-lg">🏪</span>
                           Perfil Comercial
                         </Button>
-                      </DialogTrigger>
 
-                      <DialogContent className="max-h-[90dvh] overflow-y-auto">
-                        <DialogHeader>
-                          <DialogTitle>Configurar Perfil Comercial</DialogTitle>
-                          <DialogDescription>
-                            Configure sua loja ou negócio na plataforma
-                          </DialogDescription>
-                        </DialogHeader>
+                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                        <DrawerHeader className="shrink-0">
+                          <DrawerTitle>Configurar Perfil Comercial</DrawerTitle>
+                        </DrawerHeader>
 
-                        <div className="space-y-4">
+                        <div className="flex-1 overflow-y-auto px-4 pb-4">
+                          <div className="space-y-4">
                           {/* Business Segment */}
                           <div className="space-y-2">
                             <label className="text-sm font-medium">Segmento *</label>
@@ -1238,10 +1309,11 @@ export default function Profile() {
                               onChange={(e) =>
                                 setCommercialFormData({
                                   ...commercialFormData,
-                                  business_phone: e.target.value,
+                                  business_phone: formatPhoneNumber(e.target.value),
                                 })
                               }
                               placeholder="(11) 99999-9999"
+                              maxLength={14}
                             />
                           </div>
 
@@ -1285,9 +1357,10 @@ export default function Profile() {
                           >
                             {isSavingCommercial ? "Salvando..." : "Salvar Perfil Comercial"}
                           </Button>
+                          </div>
                         </div>
-                      </DialogContent>
-                    </Dialog>
+                      </DrawerContent>
+                    </Drawer>
 
                     <Button
                       onClick={() => setTheme(isDark ? "light" : "dark")}
@@ -1310,6 +1383,60 @@ export default function Profile() {
                       <LogOut className="h-4 w-4" />
                       Desconectar
                     </Button>
+
+                    <Dialog
+                      open={isDeleteAccountOpen}
+                      onOpenChange={setIsDeleteAccountOpen}
+                    >
+                      <DialogTrigger asChild>
+                        <Button
+                          variant="destructive"
+                          className="w-full rounded-full gap-2"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Encerrar Conta
+                        </Button>
+                      </DialogTrigger>
+
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle className="text-red-600">Encerrar Conta</DialogTitle>
+                          <DialogDescription>
+                            Esta ação não pode ser desfeita. Todos os seus dados serão permanentemente deletados.
+                          </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-4 py-4">
+                          <p className="text-sm text-muted-foreground">
+                            Para confirmar a exclusão da sua conta, digite "DELETAR CONTA" no campo abaixo:
+                          </p>
+                          <Input
+                            value={deleteConfirmText}
+                            onChange={(e) => setDeleteConfirmText(e.target.value)}
+                            placeholder="DELETAR CONTA"
+                            className="uppercase"
+                          />
+                        </div>
+
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => setIsDeleteAccountOpen(false)}
+                            variant="outline"
+                            className="w-full rounded-full"
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            onClick={handleDeleteAccount}
+                            disabled={isDeleting || deleteConfirmText !== "DELETAR CONTA"}
+                            variant="destructive"
+                            className="w-full rounded-full"
+                          >
+                            {isDeleting ? "Deletando..." : "Confirmar Exclusão"}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
                   </div>
                 </DrawerContent>
               </Drawer>

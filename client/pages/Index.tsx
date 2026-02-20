@@ -47,6 +47,7 @@ import { StoriesCarousel } from "@/components/stories-carousel";
 import { StoryCreationDialog } from "@/components/story-creation-dialog";
 import { StoryViewerModal } from "@/components/story-viewer-modal";
 import { PostCarousel } from "@/components/post-carousel";
+import { UserInsignias } from "@/components/user-insignias";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
@@ -562,9 +563,12 @@ export default function Index() {
                         ) : (
                           <div className="h-8 w-8 rounded-full bg-white/30" />
                         )}
-                        <span className="text-xs font-medium text-white drop-shadow-sm">
-                          {post.userNickname}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs font-medium text-white drop-shadow-sm">
+                            {post.userNickname}
+                          </span>
+                          <UserInsignias userId={post.user_id} maxBadges={2} />
+                        </div>
                       </button>
                       {/* Menu Button */}
                       <DropdownMenu>
