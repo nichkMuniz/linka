@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useLayoutMode } from "@/hooks/useLayoutMode";
+import { useLayoutMode, getDefaultFABPosition } from "@/hooks/useLayoutMode";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -38,6 +38,14 @@ export function FloatingActionMenu() {
   const [isDragging, setIsDragging] = React.useState(false);
   const [dragStart, setDragStart] = React.useState({ x: 0, y: 0 });
   const containerRef = React.useRef<HTMLDivElement>(null);
+
+  // Initialize FAB position to bottom-right on mount if not set
+  React.useEffect(() => {
+    if (fabPosition.x === -1 || fabPosition.y === -1) {
+      const defaultPos = getDefaultFABPosition();
+      setFabPosition(defaultPos);
+    }
+  }, []);
 
   const handleClose = () => setIsOpen(false);
 
