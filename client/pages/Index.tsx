@@ -640,18 +640,16 @@ export default function Index() {
                   {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 && (
                     <button
                       onClick={() => handleOpenLikesModal(post)}
-                      className="px-4 py-2 text-left text-sm text-foreground/70 hover:text-foreground transition-colors"
+                      className="px-4 py-1 text-left text-sm text-foreground/70 hover:text-foreground transition-colors"
                     >
                       <span className="font-medium">
-                        {post.likes.apoio === 1 && post.likes.continua === 0 && post.likes.ganhador === 0 && post.likes.consegueMais === 0 && post.likes.limiteMaior === 0 && post.likes.maisAlgum === 0
-                          ? "1 pessoa te incentivou"
-                          : `${Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} pessoas te incentivaram`}
+                        {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} Incentivos
                       </span>
                     </button>
                   )}
 
                   {/* Post Content */}
-                  <div className="p-4 space-y-3">
+                  <div className="px-4 pt-1 pb-4 space-y-3">
                     {post.description && (
                       <p className="text-sm leading-relaxed">
                         {post.description}
