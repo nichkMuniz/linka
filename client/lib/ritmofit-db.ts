@@ -1015,6 +1015,30 @@ export async function updateRoutineGoalDb(
   };
 }
 
+export async function deleteRoutinesOfTypeDb(
+  userId: string,
+  type: RoutineTypeCode,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  try {
+    // Delete routines of the specified type for the user
+    const { error } = await supabase
+      .from("routines")
+      .delete()
+      .eq("user_id", userId)
+      .eq("type", type);
+
+    if (error) throw error;
+    return true;
+  } catch (err: any) {
+    const errorMsg = err?.message || String(err);
+    const errorCode = err?.code || "UNKNOWN";
+    console.error(`Error deleting routines of type [${errorCode}]:`, errorMsg);
+    throw new Error(`Erro ao deletar rotina: ${errorMsg}`);
+  }
+}
+
 export async function getRoutinesByGoalIdDb(
   goalId: string,
 ): Promise<Routine[]> {

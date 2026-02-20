@@ -935,6 +935,7 @@ export default function Profile() {
       {/* Profile Header Card */}
       <Card className="border-border/60">
         <CardContent className="pt-6">
+          {/* Top row: Avatar and Info with Settings button for own profile */}
           <div className="flex items-start justify-between gap-4">
             <div className="flex gap-4 flex-1 min-w-0">
               {/* Avatar */}
@@ -963,77 +964,8 @@ export default function Profile() {
                     </p>
                   )}
                 </div>
-
-                {/* Stats Inline - Centered */}
-                <div className="flex gap-3 sm:gap-6 justify-center">
-                  <div className="flex flex-col items-center space-y-0.5">
-                    <div className="text-base sm:text-lg font-semibold">
-                      {stats.postsCount}
-                    </div>
-                    <div className="text-xs text-muted-foreground whitespace-nowrap">Posts</div>
-                  </div>
-                  <button
-                    onClick={() => setShowFollowersModal(true)}
-                    className="flex flex-col items-center space-y-0.5 hover:opacity-80 transition-opacity"
-                  >
-                    <div className="text-base sm:text-lg font-semibold">
-                      {stats.followersCount}
-                    </div>
-                    <div className="text-xs text-muted-foreground whitespace-nowrap">
-                      Seguidores
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => setShowFollowingModal(true)}
-                    className="flex flex-col items-center space-y-0.5 hover:opacity-80 transition-opacity"
-                  >
-                    <div className="text-base sm:text-lg font-semibold">
-                      {stats.followingCount}
-                    </div>
-                    <div className="text-xs text-muted-foreground whitespace-nowrap">
-                      Seguindo
-                    </div>
-                  </button>
-                </div>
               </div>
             </div>
-
-            {/* Action Buttons */}
-            {isViewingOtherProfile && (
-              <div className="flex gap-2 shrink-0">
-                {/* Follow/Unfollow Button */}
-                <Button
-                  onClick={handleFollowUnfollow}
-                  disabled={isFollowingLoading}
-                  variant={isFollowing ? "outline" : "default"}
-                  size="sm"
-                  className="rounded-full gap-2"
-                >
-                  {isFollowing ? (
-                    <>
-                      <Check className="h-4 w-4" />
-                      Seguindo
-                    </>
-                  ) : (
-                    <>
-                      <UserPlus className="h-4 w-4" />
-                      Seguir
-                    </>
-                  )}
-                </Button>
-
-                {/* Message Button */}
-                <Button
-                  onClick={() => navigate(`/comunidade?user=${profileUserId}`)}
-                  variant="outline"
-                  size="sm"
-                  className="rounded-full gap-2"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  Mensagem
-                </Button>
-              </div>
-            )}
 
             {/* Settings Button - Only show for own profile */}
             {!isViewingOtherProfile && (
@@ -1175,6 +1107,75 @@ export default function Profile() {
               </Drawer>
             )}
           </div>
+
+          {/* Stats Row - Centered */}
+          <div className="flex gap-3 sm:gap-6 justify-center">
+            <div className="flex flex-col items-center space-y-0.5">
+              <div className="text-base sm:text-lg font-semibold">
+                {stats.postsCount}
+              </div>
+              <div className="text-xs text-muted-foreground whitespace-nowrap">Posts</div>
+            </div>
+            <button
+              onClick={() => setShowFollowersModal(true)}
+              className="flex flex-col items-center space-y-0.5 hover:opacity-80 transition-opacity"
+            >
+              <div className="text-base sm:text-lg font-semibold">
+                {stats.followersCount}
+              </div>
+              <div className="text-xs text-muted-foreground whitespace-nowrap">
+                Seguidores
+              </div>
+            </button>
+            <button
+              onClick={() => setShowFollowingModal(true)}
+              className="flex flex-col items-center space-y-0.5 hover:opacity-80 transition-opacity"
+            >
+              <div className="text-base sm:text-lg font-semibold">
+                {stats.followingCount}
+              </div>
+              <div className="text-xs text-muted-foreground whitespace-nowrap">
+                Seguindo
+              </div>
+            </button>
+          </div>
+
+          {/* Action Buttons - Below stats, centered */}
+          {isViewingOtherProfile && (
+            <div className="flex gap-2 justify-center">
+              {/* Follow/Unfollow Button */}
+              <Button
+                onClick={handleFollowUnfollow}
+                disabled={isFollowingLoading}
+                variant={isFollowing ? "outline" : "default"}
+                size="sm"
+                className="rounded-full gap-2"
+              >
+                {isFollowing ? (
+                  <>
+                    <Check className="h-4 w-4" />
+                    Seguindo
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="h-4 w-4" />
+                    Seguir
+                  </>
+                )}
+              </Button>
+
+              {/* Message Button */}
+              <Button
+                onClick={() => navigate(`/comunidade?user=${profileUserId}`)}
+                variant="outline"
+                size="sm"
+                className="rounded-full gap-2"
+              >
+                <MessageSquare className="h-4 w-4" />
+                Mensagem
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 

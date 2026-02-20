@@ -17,6 +17,7 @@ import {
   getUserHabitsDb,
   updateWorkoutSeriesDb,
   getUserGoalsDb,
+  deleteRoutinesOfTypeDb,
   type ProgrammedGoal,
   type Workout,
   type Diet,
@@ -26,6 +27,7 @@ import {
   type UserDietWithDetails,
   type UserHabitWithDetails,
   type UserGoal,
+  type RoutineTypeCode,
 } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import {
@@ -53,10 +55,12 @@ import {
   MoreVertical,
   Trash2,
   Edit2,
+  Check,
 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -149,6 +153,10 @@ export default function Goals() {
   const [editGoalQuantity, setEditGoalQuantity] = React.useState(0);
   const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
 
+  // Check-in system state
+  const [todayCheckins, setTodayCheckins] = React.useState<Set<string>>(new Set());
+  const [badgesModalOpen, setBadgesModalOpen] = React.useState(false);
+
   const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
   // General state
@@ -234,6 +242,16 @@ export default function Goals() {
         setLoading(false);
       }
     })();
+  }, [user]);
+
+  // Load today's check-ins from localStorage
+  React.useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const storageKey = `checkins_${user?.id}_${today}`;
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      setTodayCheckins(new Set(JSON.parse(stored)));
+    }
   }, [user]);
 
   // Initialize workoutSeries with one series for each exercise when modal opens
@@ -357,22 +375,31 @@ export default function Goals() {
     try {
       if (!user) return;
 
+      // Delete routines of this type from the routines table
+      await deleteRoutinesOfTypeDb(user.id, typeCode as RoutineTypeCode);
+
+      // Also delete from the corresponding user_* table
       let table = "";
       if (typeCode === 1) table = "user_workouts";
       else if (typeCode === 2) table = "user_diets";
       else if (typeCode === 3) table = "user_habits";
 
-      const { error } = await supabase
-        .from(table)
-        .delete()
-        .eq("user_id", user.id);
+      if (table) {
+        const { error } = await supabase
+          .from(table)
+          .delete()
+          .eq("user_id", user.id);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
 
       // Update local state
       if (typeCode === 1) setUserWorkouts([]);
       else if (typeCode === 2) setUserDiets([]);
       else if (typeCode === 3) setUserHabits([]);
+
+      // Update routines list
+      setRoutines((prev) => prev.filter((r) => r.type !== typeCode));
 
       toast({
         title: "Rotina removida",
@@ -386,6 +413,21 @@ export default function Goals() {
         variant: "destructive",
       });
     }
+  };
+
+  const handleCheckInRoutine = (routineType: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    const storageKey = `checkins_${user?.id}_${today}`;
+    const newCheckins = new Set(todayCheckins);
+
+    if (newCheckins.has(routineType)) {
+      newCheckins.delete(routineType);
+    } else {
+      newCheckins.add(routineType);
+    }
+
+    setTodayCheckins(newCheckins);
+    localStorage.setItem(storageKey, JSON.stringify(Array.from(newCheckins)));
   };
 
   // Get unique muscle groups from workouts
@@ -950,6 +992,34 @@ export default function Goals() {
 
         {/* Rotinas Tab */}
         <TabsContent value="rotinas" className="space-y-4">
+          {/* Daily Check-in Summary Card */}
+          <div className="flex items-center justify-between gap-4">
+            <Card className="border-brand/30 bg-brand/5 flex-1">
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Rotinas de Hoje</p>
+                    <p className="text-2xl font-bold text-brand">
+                      {todayCheckins.size}/{routines.length}
+                    </p>
+                  </div>
+                  <Check className="h-8 w-8 text-brand" />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Badges Button */}
+            <Button
+              onClick={() => setBadgesModalOpen(true)}
+              variant="outline"
+              size="icon"
+              className="rounded-full h-12 w-12 flex-shrink-0"
+              title="Ver selos conquistados"
+            >
+              <span className="text-lg">🏆</span>
+            </Button>
+          </div>
+
           {routines.length > 0 ? (
             <div className="space-y-4">
               {/* Show one card per type that has routines */}
@@ -1003,6 +1073,19 @@ export default function Goals() {
                         ) : (
                           <ChevronDown className="h-5 w-5 text-muted-foreground" />
                         )}
+                      </button>
+
+                      {/* Check-in button for daily routine */}
+                      <button
+                        onClick={() => handleCheckInRoutine(`type-${typeCode}`)}
+                        className={`ml-2 p-2 rounded transition-colors flex-shrink-0 ${
+                          todayCheckins.has(`type-${typeCode}`)
+                            ? "bg-brand/20 text-brand"
+                            : "hover:bg-muted/50 text-muted-foreground"
+                        }`}
+                        title={todayCheckins.has(`type-${typeCode}`) ? "Desmarcado" : "Marcar como feito"}
+                      >
+                        <Check className="h-5 w-5" />
                       </button>
 
                       {/* Dropdown menu for routine actions */}
@@ -1134,6 +1217,76 @@ export default function Goals() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Badges Modal */}
+      <Dialog open={badgesModalOpen} onOpenChange={setBadgesModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="text-2xl">🏆</span>
+              Selos Conquistados
+            </DialogTitle>
+            <DialogDescription>
+              Conquiste selos completando suas rotinas diárias
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-2 gap-4 py-4">
+            {/* Badge 1: 1 day streak */}
+            <div className={`p-4 rounded-lg border-2 text-center transition-all ${
+              todayCheckins.size >= 1
+                ? "border-yellow-500 bg-yellow-500/10"
+                : "border-gray-300 bg-gray-100/50 opacity-50"
+            }`}>
+              <div className="text-3xl mb-2">⭐</div>
+              <p className="text-xs font-medium">Início</p>
+              <p className="text-xs text-muted-foreground">1 rotina</p>
+            </div>
+
+            {/* Badge 2: 3 day streak */}
+            <div className={`p-4 rounded-lg border-2 text-center transition-all ${
+              todayCheckins.size >= 3
+                ? "border-blue-500 bg-blue-500/10"
+                : "border-gray-300 bg-gray-100/50 opacity-50"
+            }`}>
+              <div className="text-3xl mb-2">🔥</div>
+              <p className="text-xs font-medium">Sequência</p>
+              <p className="text-xs text-muted-foreground">3 rotinas</p>
+            </div>
+
+            {/* Badge 3: All routines */}
+            <div className={`p-4 rounded-lg border-2 text-center transition-all ${
+              todayCheckins.size === routines.length && routines.length > 0
+                ? "border-green-500 bg-green-500/10"
+                : "border-gray-300 bg-gray-100/50 opacity-50"
+            }`}>
+              <div className="text-3xl mb-2">💪</div>
+              <p className="text-xs font-medium">Campeão</p>
+              <p className="text-xs text-muted-foreground">Todas</p>
+            </div>
+
+            {/* Badge 4: Master */}
+            <div className={`p-4 rounded-lg border-2 text-center transition-all ${
+              todayCheckins.size === routines.length && routines.length > 3
+                ? "border-purple-500 bg-purple-500/10"
+                : "border-gray-300 bg-gray-100/50 opacity-50"
+            }`}>
+              <div className="text-3xl mb-2">👑</div>
+              <p className="text-xs font-medium">Master</p>
+              <p className="text-xs text-muted-foreground">Rotina +4</p>
+            </div>
+          </div>
+
+          <div className="text-center py-4 border-t border-border/60">
+            <p className="text-sm font-medium">
+              Progresso de hoje: {todayCheckins.size}/{routines.length}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Complete suas rotinas para ganhar selos!
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Add Routine Drawer Modal */}
       <Drawer open={addRoutineModalOpen} onOpenChange={setAddRoutineModalOpen}>

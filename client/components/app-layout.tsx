@@ -178,8 +178,8 @@ export function AppLayout() {
             className="flex items-center justify-center rounded-2xl px-3 py-1 transition hover:bg-muted/50 cursor-pointer"
           >
             <span className="text-lg font-bold tracking-tight text-foreground">
-              Ritmo
-              <span className="text-brand">Fit</span>
+              Lin
+              <span className="text-brand">Ka</span>
             </span>
           </button>
 
