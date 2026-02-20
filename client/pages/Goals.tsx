@@ -60,7 +60,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -154,8 +153,8 @@ export default function Goals() {
   const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
 
   // Check-in system state
-  const [todayCheckins, setTodayCheckins] = React.useState<Set<string>>(new Set());
-  const [badgesModalOpen, setBadgesModalOpen] = React.useState(false);
+  const [dailyCheckInDone, setDailyCheckInDone] = React.useState(false);
+  const [isProcessingCheckIn, setIsProcessingCheckIn] = React.useState(false);
 
   const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
@@ -244,14 +243,12 @@ export default function Goals() {
     })();
   }, [user]);
 
-  // Load today's check-ins from localStorage
+  // Load today's check-in status from localStorage
   React.useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
-    const storageKey = `checkins_${user?.id}_${today}`;
+    const storageKey = `daily_checkin_${user?.id}_${today}`;
     const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      setTodayCheckins(new Set(JSON.parse(stored)));
-    }
+    setDailyCheckInDone(stored === 'true');
   }, [user]);
 
   // Initialize workoutSeries with one series for each exercise when modal opens
@@ -415,19 +412,41 @@ export default function Goals() {
     }
   };
 
-  const handleCheckInRoutine = (routineType: string) => {
-    const today = new Date().toISOString().split('T')[0];
-    const storageKey = `checkins_${user?.id}_${today}`;
-    const newCheckins = new Set(todayCheckins);
+  const handleDailyCheckIn = async () => {
+    // Check if user has completed any routine item
+    const hasCompletedRoutines = userWorkouts.length > 0 || userDiets.length > 0 || userHabits.length > 0;
 
-    if (newCheckins.has(routineType)) {
-      newCheckins.delete(routineType);
-    } else {
-      newCheckins.add(routineType);
+    if (!hasCompletedRoutines) {
+      toast({
+        title: "Nenhuma rotina completada",
+        description: "Você precisa completar pelo menos uma rotina para fazer o check-in.",
+        variant: "destructive",
+      });
+      return;
     }
 
-    setTodayCheckins(newCheckins);
-    localStorage.setItem(storageKey, JSON.stringify(Array.from(newCheckins)));
+    // Mark check-in as done for today
+    setIsProcessingCheckIn(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const storageKey = `daily_checkin_${user?.id}_${today}`;
+      localStorage.setItem(storageKey, 'true');
+      setDailyCheckInDone(true);
+
+      toast({
+        title: "Check-in realizado!",
+        description: "Parabéns! Você completou seu check-in de hoje.",
+      });
+    } catch (err: any) {
+      console.error("Error during check-in:", err);
+      toast({
+        title: "Erro ao fazer check-in",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessingCheckIn(false);
+    }
   };
 
   // Get unique muscle groups from workouts
@@ -992,33 +1011,44 @@ export default function Goals() {
 
         {/* Rotinas Tab */}
         <TabsContent value="rotinas" className="space-y-4">
-          {/* Daily Check-in Summary Card */}
-          <div className="flex items-center justify-between gap-4">
-            <Card className="border-brand/30 bg-brand/5 flex-1">
-              <CardContent className="pt-4 pb-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Rotinas de Hoje</p>
-                    <p className="text-2xl font-bold text-brand">
-                      {todayCheckins.size}/{routines.length}
-                    </p>
-                  </div>
-                  <Check className="h-8 w-8 text-brand" />
+          {/* Daily Check-in Block */}
+          <Card className={`border-2 ${
+            dailyCheckInDone
+              ? "border-green-500/50 bg-green-500/5"
+              : "border-brand/30 bg-brand/5"
+          }`}>
+            <CardContent className="pt-6 pb-6">
+              <div className="text-center space-y-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">
+                    {dailyCheckInDone ? "Check-in realizado hoje! ✓" : "Check-in Diário"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {dailyCheckInDone
+                      ? "Volte amanhã para fazer novo check-in"
+                      : "Conclua uma rotina e faça seu check-in"}
+                  </p>
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* Badges Button */}
-            <Button
-              onClick={() => setBadgesModalOpen(true)}
-              variant="outline"
-              size="icon"
-              className="rounded-full h-12 w-12 flex-shrink-0"
-              title="Ver selos conquistados"
-            >
-              <span className="text-lg">🏆</span>
-            </Button>
-          </div>
+                <Button
+                  onClick={handleDailyCheckIn}
+                  disabled={dailyCheckInDone || isProcessingCheckIn}
+                  className="w-full rounded-full"
+                  variant={dailyCheckInDone ? "outline" : "default"}
+                >
+                  {isProcessingCheckIn ? (
+                    "Processando..."
+                  ) : dailyCheckInDone ? (
+                    <>
+                      <Check className="h-4 w-4 mr-2" />
+                      Check-in Feito
+                    </>
+                  ) : (
+                    "Fazer Check In"
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
           {routines.length > 0 ? (
             <div className="space-y-4">
@@ -1073,19 +1103,6 @@ export default function Goals() {
                         ) : (
                           <ChevronDown className="h-5 w-5 text-muted-foreground" />
                         )}
-                      </button>
-
-                      {/* Check-in button for daily routine */}
-                      <button
-                        onClick={() => handleCheckInRoutine(`type-${typeCode}`)}
-                        className={`ml-2 p-2 rounded transition-colors flex-shrink-0 ${
-                          todayCheckins.has(`type-${typeCode}`)
-                            ? "bg-brand/20 text-brand"
-                            : "hover:bg-muted/50 text-muted-foreground"
-                        }`}
-                        title={todayCheckins.has(`type-${typeCode}`) ? "Desmarcado" : "Marcar como feito"}
-                      >
-                        <Check className="h-5 w-5" />
                       </button>
 
                       {/* Dropdown menu for routine actions */}
@@ -1217,76 +1234,6 @@ export default function Goals() {
           )}
         </TabsContent>
       </Tabs>
-
-      {/* Badges Modal */}
-      <Dialog open={badgesModalOpen} onOpenChange={setBadgesModalOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <span className="text-2xl">🏆</span>
-              Selos Conquistados
-            </DialogTitle>
-            <DialogDescription>
-              Conquiste selos completando suas rotinas diárias
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid grid-cols-2 gap-4 py-4">
-            {/* Badge 1: 1 day streak */}
-            <div className={`p-4 rounded-lg border-2 text-center transition-all ${
-              todayCheckins.size >= 1
-                ? "border-yellow-500 bg-yellow-500/10"
-                : "border-gray-300 bg-gray-100/50 opacity-50"
-            }`}>
-              <div className="text-3xl mb-2">⭐</div>
-              <p className="text-xs font-medium">Início</p>
-              <p className="text-xs text-muted-foreground">1 rotina</p>
-            </div>
-
-            {/* Badge 2: 3 day streak */}
-            <div className={`p-4 rounded-lg border-2 text-center transition-all ${
-              todayCheckins.size >= 3
-                ? "border-blue-500 bg-blue-500/10"
-                : "border-gray-300 bg-gray-100/50 opacity-50"
-            }`}>
-              <div className="text-3xl mb-2">🔥</div>
-              <p className="text-xs font-medium">Sequência</p>
-              <p className="text-xs text-muted-foreground">3 rotinas</p>
-            </div>
-
-            {/* Badge 3: All routines */}
-            <div className={`p-4 rounded-lg border-2 text-center transition-all ${
-              todayCheckins.size === routines.length && routines.length > 0
-                ? "border-green-500 bg-green-500/10"
-                : "border-gray-300 bg-gray-100/50 opacity-50"
-            }`}>
-              <div className="text-3xl mb-2">💪</div>
-              <p className="text-xs font-medium">Campeão</p>
-              <p className="text-xs text-muted-foreground">Todas</p>
-            </div>
-
-            {/* Badge 4: Master */}
-            <div className={`p-4 rounded-lg border-2 text-center transition-all ${
-              todayCheckins.size === routines.length && routines.length > 3
-                ? "border-purple-500 bg-purple-500/10"
-                : "border-gray-300 bg-gray-100/50 opacity-50"
-            }`}>
-              <div className="text-3xl mb-2">👑</div>
-              <p className="text-xs font-medium">Master</p>
-              <p className="text-xs text-muted-foreground">Rotina +4</p>
-            </div>
-          </div>
-
-          <div className="text-center py-4 border-t border-border/60">
-            <p className="text-sm font-medium">
-              Progresso de hoje: {todayCheckins.size}/{routines.length}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Complete suas rotinas para ganhar selos!
-            </p>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Add Routine Drawer Modal */}
       <Drawer open={addRoutineModalOpen} onOpenChange={setAddRoutineModalOpen}>
