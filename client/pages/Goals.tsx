@@ -155,6 +155,8 @@ export default function Goals() {
   // Check-in system state
   const [dailyCheckInDone, setDailyCheckInDone] = React.useState(false);
   const [isProcessingCheckIn, setIsProcessingCheckIn] = React.useState(false);
+  const [weekCheckIns, setWeekCheckIns] = React.useState<Set<number>>(new Set()); // 0=dom, 1=seg, etc
+  const [badgesModalOpen, setBadgesModalOpen] = React.useState(false);
 
   const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
@@ -243,12 +245,25 @@ export default function Goals() {
     })();
   }, [user]);
 
-  // Load today's check-in status from localStorage
+  // Load today's check-in status and week check-ins from localStorage
   React.useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
     const storageKey = `daily_checkin_${user?.id}_${today}`;
     const stored = localStorage.getItem(storageKey);
     setDailyCheckInDone(stored === 'true');
+
+    // Load week check-ins
+    const weekKey = `week_checkins_${user?.id}`;
+    const weekData = localStorage.getItem(weekKey);
+    if (weekData) {
+      try {
+        setWeekCheckIns(new Set(JSON.parse(weekData)));
+      } catch (e) {
+        setWeekCheckIns(new Set());
+      }
+    } else {
+      setWeekCheckIns(new Set());
+    }
   }, [user]);
 
   // Initialize workoutSeries with one series for each exercise when modal opens
@@ -432,6 +447,16 @@ export default function Goals() {
       const storageKey = `daily_checkin_${user?.id}_${today}`;
       localStorage.setItem(storageKey, 'true');
       setDailyCheckInDone(true);
+
+      // Add today's day of week to week check-ins
+      const dayOfWeek = new Date().getDay();
+      const newWeekCheckIns = new Set(weekCheckIns);
+      newWeekCheckIns.add(dayOfWeek);
+      setWeekCheckIns(newWeekCheckIns);
+
+      // Save week check-ins to localStorage
+      const weekKey = `week_checkins_${user?.id}`;
+      localStorage.setItem(weekKey, JSON.stringify(Array.from(newWeekCheckIns)));
 
       toast({
         title: "Check-in realizado!",
@@ -834,7 +859,20 @@ export default function Goals() {
         </p>
       </div>
 
-      <Tabs defaultValue="metas" className="w-full">
+      {/* Badges Icon */}
+      <div className="flex justify-end">
+        <Button
+          onClick={() => setBadgesModalOpen(true)}
+          variant="outline"
+          size="icon"
+          className="rounded-full"
+          title="Ver insignias"
+        >
+          <span className="text-lg">🏆</span>
+        </Button>
+      </div>
+
+      <Tabs defaultValue="rotinas" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="metas">Metas</TabsTrigger>
           <TabsTrigger value="rotinas">Rotinas</TabsTrigger>
@@ -1018,8 +1056,9 @@ export default function Goals() {
               : "border-brand/30 bg-brand/5"
           }`}>
             <CardContent className="pt-6 pb-6">
-              <div className="text-center space-y-4">
-                <div>
+              <div className="space-y-4">
+                {/* Title and Description */}
+                <div className="text-center">
                   <p className="text-sm font-medium text-muted-foreground mb-2">
                     {dailyCheckInDone ? "Check-in realizado hoje! ✓" : "Check-in Diário"}
                   </p>
@@ -1029,6 +1068,24 @@ export default function Goals() {
                       : "Conclua uma rotina e faça seu check-in"}
                   </p>
                 </div>
+
+                {/* Days of Week */}
+                <div className="flex justify-center gap-2">
+                  {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"].map((day, index) => (
+                    <div
+                      key={index}
+                      className={`flex flex-col items-center justify-center w-10 h-10 rounded-lg transition-all ${
+                        weekCheckIns.has(index)
+                          ? "bg-brand text-white font-bold"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      <span className="text-xs font-medium">{day}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Check-in Button */}
                 <Button
                   onClick={handleDailyCheckIn}
                   disabled={dailyCheckInDone || isProcessingCheckIn}
@@ -1821,6 +1878,91 @@ export default function Goals() {
                 Encerrar Treino
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Badges/Insignias Modal */}
+      <Dialog open={badgesModalOpen} onOpenChange={setBadgesModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="text-2xl">🏆</span>
+              Insignias
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* 1 Day */}
+            <div className={`p-4 rounded-lg border-2 transition-all ${
+              weekCheckIns.size >= 1
+                ? "border-yellow-500 bg-yellow-500/10"
+                : "border-gray-300 bg-gray-100/50 opacity-50"
+            }`}>
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">⭐</span>
+                <div className="flex-1">
+                  <p className="font-medium text-sm">Iniciante</p>
+                  <p className="text-xs text-muted-foreground">Complete check-in 1 dia</p>
+                </div>
+                {weekCheckIns.size >= 1 && <Check className="h-5 w-5 text-yellow-600" />}
+              </div>
+            </div>
+
+            {/* 3 Days */}
+            <div className={`p-4 rounded-lg border-2 transition-all ${
+              weekCheckIns.size >= 3
+                ? "border-blue-500 bg-blue-500/10"
+                : "border-gray-300 bg-gray-100/50 opacity-50"
+            }`}>
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🔥</span>
+                <div className="flex-1">
+                  <p className="font-medium text-sm">Sequência</p>
+                  <p className="text-xs text-muted-foreground">Complete check-in 3 dias</p>
+                </div>
+                {weekCheckIns.size >= 3 && <Check className="h-5 w-5 text-blue-600" />}
+              </div>
+            </div>
+
+            {/* 5 Days */}
+            <div className={`p-4 rounded-lg border-2 transition-all ${
+              weekCheckIns.size >= 5
+                ? "border-green-500 bg-green-500/10"
+                : "border-gray-300 bg-gray-100/50 opacity-50"
+            }`}>
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">💪</span>
+                <div className="flex-1">
+                  <p className="font-medium text-sm">Campeão</p>
+                  <p className="text-xs text-muted-foreground">Complete check-in 5 dias</p>
+                </div>
+                {weekCheckIns.size >= 5 && <Check className="h-5 w-5 text-green-600" />}
+              </div>
+            </div>
+
+            {/* 7 Days */}
+            <div className={`p-4 rounded-lg border-2 transition-all ${
+              weekCheckIns.size === 7
+                ? "border-purple-500 bg-purple-500/10"
+                : "border-gray-300 bg-gray-100/50 opacity-50"
+            }`}>
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">👑</span>
+                <div className="flex-1">
+                  <p className="font-medium text-sm">Lendário</p>
+                  <p className="text-xs text-muted-foreground">Complete check-in 7 dias (semana completa)</p>
+                </div>
+                {weekCheckIns.size === 7 && <Check className="h-5 w-5 text-purple-600" />}
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-border/60 pt-4 text-center">
+            <p className="text-sm font-medium">Progresso: {weekCheckIns.size}/7 dias</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Complete check-ins para ganhar insignias!
+            </p>
           </div>
         </DialogContent>
       </Dialog>
