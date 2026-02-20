@@ -582,28 +582,28 @@ export default function Index() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
-                          <DropdownMenuItem
-                            onClick={() => handleReportUser(post)}
-                          >
-                            <Flag className="h-4 w-4 mr-2" />
-                            Denunciar usuário
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => handleReportPost(post)}
-                          >
-                            <Flag className="h-4 w-4 mr-2" />
-                            Denunciar post
-                          </DropdownMenuItem>
-                          {user?.id === post.user_id && (
+                          {user?.id === post.user_id ? (
+                            <DropdownMenuItem
+                              onClick={() => handleDeletePost(post)}
+                              className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Excluir post
+                            </DropdownMenuItem>
+                          ) : (
                             <>
+                              <DropdownMenuItem
+                                onClick={() => handleReportUser(post)}
+                              >
+                                <Flag className="h-4 w-4 mr-2" />
+                                Denunciar usuário
+                              </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
-                                onClick={() => handleDeletePost(post)}
-                                className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                                onClick={() => handleReportPost(post)}
                               >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Excluir post
+                                <Flag className="h-4 w-4 mr-2" />
+                                Denunciar post
                               </DropdownMenuItem>
                             </>
                           )}
@@ -643,9 +643,9 @@ export default function Index() {
                       className="px-4 py-2 text-left text-sm text-foreground/70 hover:text-foreground transition-colors"
                     >
                       <span className="font-medium">
-                        {post.likes.apoio + post.likes.continua + post.likes.ganhador + post.likes.consegueMais + post.likes.limiteMaior + post.likes.maisAlgum === 1
+                        {post.likes.apoio === 1 && post.likes.continua === 0 && post.likes.ganhador === 0 && post.likes.consegueMais === 0 && post.likes.limiteMaior === 0 && post.likes.maisAlgum === 0
                           ? "1 pessoa te incentivou"
-                          : `${post.likes.apoio + post.likes.continua + post.likes.ganhador + post.likes.consegueMais + post.likes.limiteMaior + post.likes.maisAlgum} pessoas te incentivaram`}
+                          : `${Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} pessoas te incentivaram`}
                       </span>
                     </button>
                   )}

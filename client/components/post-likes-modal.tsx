@@ -9,6 +9,15 @@ import { ImageWithFallback } from "@/components/image-with-fallback";
 import { useNavigate } from "react-router-dom";
 import { Heart } from "lucide-react";
 
+const INCENTIVE_ICONS: Record<number, string> = {
+  1: "👏",
+  2: "🔥",
+  3: "🏆",
+  4: "🚀",
+  5: "🎯",
+  6: "⚡",
+};
+
 export interface PostLike {
   userId: string;
   userNickname: string;
@@ -42,7 +51,10 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
     onOpenChange(false);
   };
 
-  const totalIncentives = likes.length;
+  // Count distinct users (not total incentives)
+  const distinctUsers = new Set(likes.map((like) => like.userId)).size;
+
+  // Count incentives by type
   const incentiveTypeCounts = likes.reduce(
     (acc, like) => {
       const typeName = getIncentiveTypeName(like.type);
@@ -54,7 +66,7 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent>
+      <DrawerContent className="max-h-[80vh]">
         <DrawerHeader className="shrink-0 border-b border-border/60">
           <div className="space-y-3">
             <DrawerTitle className="flex items-center gap-2">
@@ -62,25 +74,50 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
               Incentivos
             </DrawerTitle>
 
-            {/* Total Counter */}
+            {/* Distinct Users Counter */}
             <div className="bg-muted/50 rounded-lg p-3">
               <p className="text-sm font-medium text-foreground">
-                Total de incentivos: <span className="text-lg font-bold text-brand">{totalIncentives}</span>
+                {distinctUsers} {distinctUsers === 1 ? "pessoa te incentivou" : "pessoas te incentivaram"}
               </p>
             </div>
 
-            {/* Incentive Type Breakdown */}
+            {/* Incentive Type Breakdown with Icons */}
             {Object.keys(incentiveTypeCounts).length > 0 && (
               <div className="grid grid-cols-2 gap-2">
-                {Object.entries(incentiveTypeCounts).map(([typeName, count]) => (
-                  <div
-                    key={typeName}
-                    className="bg-muted/30 rounded-md p-2 text-center"
-                  >
-                    <p className="text-xs text-muted-foreground">{typeName}</p>
-                    <p className="text-sm font-semibold text-foreground">{count}</p>
-                  </div>
-                ))}
+                {Object.entries(incentiveTypeCounts).map(([typeName, count]) => {
+                  // Find the type number to get the icon
+                  const typeNum = parseInt(
+                    Object.keys({
+                      1: "Apoio",
+                      2: "Continua",
+                      3: "Ganhador",
+                      4: "Consegue Mais",
+                      5: "Limite Maior",
+                      6: "Mais Algum",
+                    }).find(
+                      (k) =>
+                        ({
+                          1: "Apoio",
+                          2: "Continua",
+                          3: "Ganhador",
+                          4: "Consegue Mais",
+                          5: "Limite Maior",
+                          6: "Mais Algum",
+                        }[parseInt(k)] === typeName)
+                    ) || "1"
+                  );
+
+                  return (
+                    <div
+                      key={typeName}
+                      className="bg-muted/30 rounded-md p-2 text-center flex flex-col items-center gap-1"
+                    >
+                      <span className="text-lg">{INCENTIVE_ICONS[typeNum] || "👍"}</span>
+                      <p className="text-xs text-muted-foreground">{typeName}</p>
+                      <p className="text-sm font-semibold text-foreground">{count}</p>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -116,9 +153,14 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
                       {like.userNickname}
                     </p>
                   </div>
-                  <span className="text-xs font-semibold bg-red-500/20 text-red-600 px-2 py-1 rounded-full flex-shrink-0">
-                    {getIncentiveTypeName(like.type)}
-                  </span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-lg">
+                      {INCENTIVE_ICONS[like.type] || "👍"}
+                    </span>
+                    <span className="text-xs font-semibold bg-red-500/20 text-red-600 px-2 py-1 rounded-full">
+                      {getIncentiveTypeName(like.type)}
+                    </span>
+                  </div>
                 </button>
               ))}
             </div>

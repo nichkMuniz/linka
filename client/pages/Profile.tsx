@@ -1538,6 +1538,13 @@ export default function Profile() {
                     className="h-full w-full object-cover group-hover:scale-110 transition-transform"
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                  {/* Multi-photo indicator */}
+                  {post.photos && post.photos.length > 1 && (
+                    <div className="absolute top-2 right-2 bg-white/90 rounded-md px-1.5 py-0.5 flex items-center gap-0.5">
+                      <span className="text-xs font-semibold text-black">📷</span>
+                      <span className="text-xs font-semibold text-black">{post.photos.length}</span>
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
@@ -2356,22 +2363,18 @@ export default function Profile() {
 
           {selectedPost && (
             <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
-              {/* Post Image */}
-              <div className="relative aspect-square overflow-hidden rounded-lg bg-muted border border-border/60">
-                {selectedPost.photos && selectedPost.photos.length > 0 ? (
-                  <img
-                    src={selectedPost.photos[0]}
-                    alt={selectedPost.description}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
+              {/* Post Images Carousel */}
+              {selectedPost.photos && selectedPost.photos.length > 0 ? (
+                <PostCarousel photos={selectedPost.photos} alt={selectedPost.description} />
+              ) : (
+                <div className="relative aspect-square overflow-hidden rounded-lg bg-muted border border-border/60">
                   <img
                     src={selectedPost.photo}
                     alt={selectedPost.description}
                     className="w-full h-full object-cover"
                   />
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Description */}
               {isEditingPost ? (
