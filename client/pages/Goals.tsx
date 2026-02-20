@@ -850,17 +850,17 @@ export default function Goals() {
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Metas e Rotinas
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Gerencie suas metas e rotinas.
-        </p>
-      </div>
+      <div className="flex items-start justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Metas e Rotinas
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Gerencie suas metas e rotinas.
+          </p>
+        </div>
 
-      {/* Badges Icon */}
-      <div className="flex justify-end">
+        {/* Badges Icon */}
         <Button
           onClick={() => setBadgesModalOpen(true)}
           variant="outline"
@@ -1882,90 +1882,92 @@ export default function Goals() {
         </DialogContent>
       </Dialog>
 
-      {/* Badges/Insignias Modal */}
-      <Dialog open={badgesModalOpen} onOpenChange={setBadgesModalOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+      {/* Badges/Insignias Drawer Modal */}
+      <Drawer open={badgesModalOpen} onOpenChange={setBadgesModalOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle className="flex items-center gap-2">
               <span className="text-2xl">🏆</span>
               Insignias
-            </DialogTitle>
-          </DialogHeader>
+            </DrawerTitle>
+          </DrawerHeader>
 
-          <div className="space-y-4 py-4">
-            {/* 1 Day */}
-            <div className={`p-4 rounded-lg border-2 transition-all ${
-              weekCheckIns.size >= 1
-                ? "border-yellow-500 bg-yellow-500/10"
-                : "border-gray-300 bg-gray-100/50 opacity-50"
-            }`}>
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">⭐</span>
-                <div className="flex-1">
-                  <p className="font-medium text-sm">Iniciante</p>
-                  <p className="text-xs text-muted-foreground">Complete check-in 1 dia</p>
+          <div className="flex-1 overflow-y-auto px-4">
+            <div className="space-y-4 pb-8">
+              {/* 1 Day */}
+              <div className={`p-4 rounded-lg border-2 transition-all ${
+                weekCheckIns.size >= 1
+                  ? "border-yellow-500 bg-yellow-500/10"
+                  : "border-gray-300 bg-gray-100/50 opacity-50"
+              }`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">⭐</span>
+                  <div className="flex-1">
+                    <p className="font-medium text-sm">Iniciante</p>
+                    <p className="text-xs text-muted-foreground">Complete check-in 1 dia</p>
+                  </div>
+                  {weekCheckIns.size >= 1 && <Check className="h-5 w-5 text-yellow-600" />}
                 </div>
-                {weekCheckIns.size >= 1 && <Check className="h-5 w-5 text-yellow-600" />}
+              </div>
+
+              {/* 3 Days */}
+              <div className={`p-4 rounded-lg border-2 transition-all ${
+                weekCheckIns.size >= 3
+                  ? "border-blue-500 bg-blue-500/10"
+                  : "border-gray-300 bg-gray-100/50 opacity-50"
+              }`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">🔥</span>
+                  <div className="flex-1">
+                    <p className="font-medium text-sm">Sequência</p>
+                    <p className="text-xs text-muted-foreground">Complete check-in 3 dias</p>
+                  </div>
+                  {weekCheckIns.size >= 3 && <Check className="h-5 w-5 text-blue-600" />}
+                </div>
+              </div>
+
+              {/* 5 Days */}
+              <div className={`p-4 rounded-lg border-2 transition-all ${
+                weekCheckIns.size >= 5
+                  ? "border-green-500 bg-green-500/10"
+                  : "border-gray-300 bg-gray-100/50 opacity-50"
+              }`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">💪</span>
+                  <div className="flex-1">
+                    <p className="font-medium text-sm">Campeão</p>
+                    <p className="text-xs text-muted-foreground">Complete check-in 5 dias</p>
+                  </div>
+                  {weekCheckIns.size >= 5 && <Check className="h-5 w-5 text-green-600" />}
+                </div>
+              </div>
+
+              {/* 7 Days */}
+              <div className={`p-4 rounded-lg border-2 transition-all ${
+                weekCheckIns.size === 7
+                  ? "border-purple-500 bg-purple-500/10"
+                  : "border-gray-300 bg-gray-100/50 opacity-50"
+              }`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">👑</span>
+                  <div className="flex-1">
+                    <p className="font-medium text-sm">Lendário</p>
+                    <p className="text-xs text-muted-foreground">Complete check-in 7 dias (semana completa)</p>
+                  </div>
+                  {weekCheckIns.size === 7 && <Check className="h-5 w-5 text-purple-600" />}
+                </div>
               </div>
             </div>
 
-            {/* 3 Days */}
-            <div className={`p-4 rounded-lg border-2 transition-all ${
-              weekCheckIns.size >= 3
-                ? "border-blue-500 bg-blue-500/10"
-                : "border-gray-300 bg-gray-100/50 opacity-50"
-            }`}>
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">🔥</span>
-                <div className="flex-1">
-                  <p className="font-medium text-sm">Sequência</p>
-                  <p className="text-xs text-muted-foreground">Complete check-in 3 dias</p>
-                </div>
-                {weekCheckIns.size >= 3 && <Check className="h-5 w-5 text-blue-600" />}
-              </div>
-            </div>
-
-            {/* 5 Days */}
-            <div className={`p-4 rounded-lg border-2 transition-all ${
-              weekCheckIns.size >= 5
-                ? "border-green-500 bg-green-500/10"
-                : "border-gray-300 bg-gray-100/50 opacity-50"
-            }`}>
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">💪</span>
-                <div className="flex-1">
-                  <p className="font-medium text-sm">Campeão</p>
-                  <p className="text-xs text-muted-foreground">Complete check-in 5 dias</p>
-                </div>
-                {weekCheckIns.size >= 5 && <Check className="h-5 w-5 text-green-600" />}
-              </div>
-            </div>
-
-            {/* 7 Days */}
-            <div className={`p-4 rounded-lg border-2 transition-all ${
-              weekCheckIns.size === 7
-                ? "border-purple-500 bg-purple-500/10"
-                : "border-gray-300 bg-gray-100/50 opacity-50"
-            }`}>
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">👑</span>
-                <div className="flex-1">
-                  <p className="font-medium text-sm">Lendário</p>
-                  <p className="text-xs text-muted-foreground">Complete check-in 7 dias (semana completa)</p>
-                </div>
-                {weekCheckIns.size === 7 && <Check className="h-5 w-5 text-purple-600" />}
-              </div>
+            <div className="border-t border-border/60 pt-4 pb-4 text-center sticky bottom-0 bg-background">
+              <p className="text-sm font-medium">Progresso: {weekCheckIns.size}/7 dias</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Complete check-ins para ganhar insignias!
+              </p>
             </div>
           </div>
-
-          <div className="border-t border-border/60 pt-4 text-center">
-            <p className="text-sm font-medium">Progresso: {weekCheckIns.size}/7 dias</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Complete check-ins para ganhar insignias!
-            </p>
-          </div>
-        </DialogContent>
-      </Dialog>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }
