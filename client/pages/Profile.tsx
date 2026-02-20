@@ -32,6 +32,8 @@ import {
   followUserDb,
   unfollowUserDb,
   isFollowingDb,
+  getCommercialProfileDb,
+  createOrUpdateCommercialProfileDb,
   type UserProfile,
   type PostWithUser,
   type UserStats,
@@ -44,6 +46,7 @@ import {
   type UserHabitWithDetails,
   type UserGoal,
   type ReelWithUser,
+  type CommercialProfile,
 } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -193,6 +196,19 @@ export default function Profile() {
   const [editPhotoPreview, setEditPhotoPreview] = React.useState<string | null>(
     null,
   );
+
+  // Commercial profile state
+  const [isCommercialProfileOpen, setIsCommercialProfileOpen] = React.useState(false);
+  const [commercialProfile, setCommercialProfile] = React.useState<CommercialProfile | null>(null);
+  const [commercialFormData, setCommercialFormData] = React.useState({
+    business_segment: "",
+    business_name: "",
+    business_description: "",
+    business_phone: "",
+    business_email: "",
+    business_website: "",
+  });
+  const [isSavingCommercial, setIsSavingCommercial] = React.useState(false);
 
   const loadProfile = React.useCallback(async () => {
     if (!profileUserId) return;
@@ -485,6 +501,58 @@ export default function Profile() {
       setIsFollowingLoading(false);
     }
   }, [profileUserId, isFollowing]);
+
+  const loadCommercialProfile = React.useCallback(async () => {
+    if (!user) return;
+
+    try {
+      const profile = await getCommercialProfileDb(user.id);
+      if (profile) {
+        setCommercialProfile(profile);
+        setCommercialFormData({
+          business_segment: profile.business_segment || "",
+          business_name: profile.business_name || "",
+          business_description: profile.business_description || "",
+          business_phone: profile.business_phone || "",
+          business_email: profile.business_email || "",
+          business_website: profile.business_website || "",
+        });
+      }
+    } catch (err: any) {
+      console.error("Error loading commercial profile:", err);
+    }
+  }, [user]);
+
+  const handleOpenCommercialProfile = React.useCallback(() => {
+    setIsCommercialProfileOpen(true);
+    loadCommercialProfile();
+  }, [loadCommercialProfile]);
+
+  const handleSaveCommercialProfile = React.useCallback(async () => {
+    if (!user) return;
+
+    setIsSavingCommercial(true);
+    try {
+      const updated = await createOrUpdateCommercialProfileDb(user.id, commercialFormData);
+      setCommercialProfile(updated);
+
+      toast({
+        title: "Sucesso!",
+        description: "Perfil comercial atualizado com sucesso.",
+      });
+
+      setIsCommercialProfileOpen(false);
+    } catch (err: any) {
+      console.error("Error saving commercial profile:", err);
+      toast({
+        title: "Erro ao salvar",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingCommercial(false);
+    }
+  }, [user, commercialFormData]);
 
   React.useEffect(() => {
     checkFollowingStatus();
@@ -1076,6 +1144,146 @@ export default function Profile() {
                             className="w-full rounded-full"
                           >
                             {isSaving ? "Salvando..." : "Salvar Alterações"}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+
+                    <Dialog
+                      open={isCommercialProfileOpen}
+                      onOpenChange={setIsCommercialProfileOpen}
+                    >
+                      <DialogTrigger asChild>
+                        <Button
+                          onClick={handleOpenCommercialProfile}
+                          variant="outline"
+                          className="w-full rounded-full gap-2"
+                        >
+                          <span className="text-lg">🏪</span>
+                          Perfil Comercial
+                        </Button>
+                      </DialogTrigger>
+
+                      <DialogContent className="max-h-[90dvh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>Configurar Perfil Comercial</DialogTitle>
+                          <DialogDescription>
+                            Configure sua loja ou negócio na plataforma
+                          </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-4">
+                          {/* Business Segment */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Segmento *</label>
+                            <Select
+                              value={commercialFormData.business_segment}
+                              onValueChange={(value) =>
+                                setCommercialFormData({
+                                  ...commercialFormData,
+                                  business_segment: value,
+                                })
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selecione um segmento" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="academia">Academia / Fitness</SelectItem>
+                                <SelectItem value="personal_trainer">Personal Trainer</SelectItem>
+                                <SelectItem value="nutricao">Nutrição / Nutricionista</SelectItem>
+                                <SelectItem value="psicologia">Psicologia / Coaching</SelectItem>
+                                <SelectItem value="outros">Outros</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Business Name */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Nome da Loja / Negócio *</label>
+                            <Input
+                              value={commercialFormData.business_name}
+                              onChange={(e) =>
+                                setCommercialFormData({
+                                  ...commercialFormData,
+                                  business_name: e.target.value,
+                                })
+                              }
+                              placeholder="Ex: Academia Força Total"
+                            />
+                          </div>
+
+                          {/* Business Description */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Descrição</label>
+                            <Textarea
+                              value={commercialFormData.business_description}
+                              onChange={(e) =>
+                                setCommercialFormData({
+                                  ...commercialFormData,
+                                  business_description: e.target.value,
+                                })
+                              }
+                              placeholder="Descreva seu negócio..."
+                              className="min-h-24"
+                            />
+                          </div>
+
+                          {/* Business Phone */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Telefone</label>
+                            <Input
+                              type="tel"
+                              value={commercialFormData.business_phone}
+                              onChange={(e) =>
+                                setCommercialFormData({
+                                  ...commercialFormData,
+                                  business_phone: e.target.value,
+                                })
+                              }
+                              placeholder="(11) 99999-9999"
+                            />
+                          </div>
+
+                          {/* Business Email */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Email</label>
+                            <Input
+                              type="email"
+                              value={commercialFormData.business_email}
+                              onChange={(e) =>
+                                setCommercialFormData({
+                                  ...commercialFormData,
+                                  business_email: e.target.value,
+                                })
+                              }
+                              placeholder="contato@negocio.com"
+                            />
+                          </div>
+
+                          {/* Business Website */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Site / Portfolio</label>
+                            <Input
+                              type="url"
+                              value={commercialFormData.business_website}
+                              onChange={(e) =>
+                                setCommercialFormData({
+                                  ...commercialFormData,
+                                  business_website: e.target.value,
+                                })
+                              }
+                              placeholder="https://seu-site.com"
+                            />
+                          </div>
+
+                          {/* Save Button */}
+                          <Button
+                            onClick={handleSaveCommercialProfile}
+                            disabled={isSavingCommercial || !commercialFormData.business_name}
+                            className="w-full rounded-full"
+                          >
+                            {isSavingCommercial ? "Salvando..." : "Salvar Perfil Comercial"}
                           </Button>
                         </div>
                       </DialogContent>

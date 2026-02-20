@@ -3951,3 +3951,218 @@ export async function reportPostDb(postId: string, reason: string): Promise<bool
     throw err;
   }
 }
+
+// Check-in Functions
+export type CheckIn = {
+  id: string;
+  user_id: string;
+  check_in_date: string;
+  day_of_week: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function createCheckInDb(userId: string): Promise<CheckIn> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const today = new Date();
+    const checkInDate = today.toISOString().split('T')[0];
+    const dayOfWeek = today.getDay();
+
+    const { data, error } = await supabase
+      .from("check_ins")
+      .insert({
+        user_id: userId,
+        check_in_date: checkInDate,
+        day_of_week: dayOfWeek,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      // If unique constraint error, it means check-in already exists for today
+      if (error.code === '23505') {
+        throw new Error("Você já fez check-in hoje");
+      }
+      throw error;
+    }
+
+    return data as CheckIn;
+  } catch (err: any) {
+    console.error("Error creating check-in:", err);
+    throw err;
+  }
+}
+
+export async function getTodayCheckInDb(userId: string): Promise<CheckIn | null> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+      .from("check_ins")
+      .select()
+      .eq("user_id", userId)
+      .eq("check_in_date", today)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data as CheckIn | null;
+  } catch (err: any) {
+    console.error("Error getting today's check-in:", err);
+    return null;
+  }
+}
+
+export async function getWeekCheckInsDb(userId: string): Promise<number[]> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    // Get the first day of the current week (Sunday)
+    const today = new Date();
+    const firstDay = new Date(today);
+    firstDay.setDate(today.getDate() - today.getDay());
+    firstDay.setHours(0, 0, 0, 0);
+
+    const weekStart = firstDay.toISOString().split('T')[0];
+    const weekEnd = new Date(firstDay);
+    weekEnd.setDate(firstDay.getDate() + 6);
+    const weekEndStr = weekEnd.toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+      .from("check_ins")
+      .select("day_of_week")
+      .eq("user_id", userId)
+      .gte("check_in_date", weekStart)
+      .lte("check_in_date", weekEndStr);
+
+    if (error) throw error;
+
+    // Extract unique day_of_week values
+    const daysSet = new Set((data ?? []).map((row: any) => row.day_of_week));
+    return Array.from(daysSet).sort((a, b) => a - b);
+  } catch (err: any) {
+    console.error("Error getting week check-ins:", err);
+    return [];
+  }
+}
+
+export async function getCheckInHistoryDb(userId: string, days: number = 30): Promise<CheckIn[]> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const sinceDate = new Date();
+    sinceDate.setDate(sinceDate.getDate() - days);
+    const sinceDateStr = sinceDate.toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+      .from("check_ins")
+      .select()
+      .eq("user_id", userId)
+      .gte("check_in_date", sinceDateStr)
+      .order("check_in_date", { ascending: false });
+
+    if (error) throw error;
+    return (data ?? []) as CheckIn[];
+  } catch (err: any) {
+    console.error("Error getting check-in history:", err);
+    return [];
+  }
+}
+
+// Commercial Profile Functions
+export type CommercialProfile = {
+  id: string;
+  user_id: string;
+  business_segment?: string;
+  business_name?: string;
+  business_description?: string;
+  business_phone?: string;
+  business_email?: string;
+  business_website?: string;
+  business_logo_url?: string;
+  business_banner_url?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function getCommercialProfileDb(userId: string): Promise<CommercialProfile | null> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const { data, error } = await supabase
+      .from("commercial_profiles")
+      .select()
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data as CommercialProfile | null;
+  } catch (err: any) {
+    console.error("Error getting commercial profile:", err);
+    return null;
+  }
+}
+
+export async function createOrUpdateCommercialProfileDb(
+  userId: string,
+  profile: Partial<CommercialProfile>,
+): Promise<CommercialProfile> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const existingProfile = await getCommercialProfileDb(userId);
+
+    if (existingProfile) {
+      // Update existing profile
+      const { data, error } = await supabase
+        .from("commercial_profiles")
+        .update({
+          ...profile,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data as CommercialProfile;
+    } else {
+      // Create new profile
+      const { data, error } = await supabase
+        .from("commercial_profiles")
+        .insert({
+          user_id: userId,
+          ...profile,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data as CommercialProfile;
+    }
+  } catch (err: any) {
+    console.error("Error creating/updating commercial profile:", err);
+    throw err;
+  }
+}
+
+export async function deleteCommercialProfileDb(userId: string): Promise<boolean> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const { error } = await supabase
+      .from("commercial_profiles")
+      .delete()
+      .eq("user_id", userId);
+
+    if (error) throw error;
+    return true;
+  } catch (err: any) {
+    console.error("Error deleting commercial profile:", err);
+    throw err;
+  }
+}

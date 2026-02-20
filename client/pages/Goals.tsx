@@ -18,6 +18,9 @@ import {
   updateWorkoutSeriesDb,
   getUserGoalsDb,
   deleteRoutinesOfTypeDb,
+  createCheckInDb,
+  getTodayCheckInDb,
+  getWeekCheckInsDb,
   type ProgrammedGoal,
   type Workout,
   type Diet,
@@ -245,25 +248,26 @@ export default function Goals() {
     })();
   }, [user]);
 
-  // Load today's check-in status and week check-ins from localStorage
+  // Load today's check-in status and week check-ins from database
   React.useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
-    const storageKey = `daily_checkin_${user?.id}_${today}`;
-    const stored = localStorage.getItem(storageKey);
-    setDailyCheckInDone(stored === 'true');
+    if (!user) return;
 
-    // Load week check-ins
-    const weekKey = `week_checkins_${user?.id}`;
-    const weekData = localStorage.getItem(weekKey);
-    if (weekData) {
+    (async () => {
       try {
-        setWeekCheckIns(new Set(JSON.parse(weekData)));
-      } catch (e) {
+        // Check if user has already done check-in today
+        const todayCheckIn = await getTodayCheckInDb(user.id);
+        setDailyCheckInDone(todayCheckIn !== null);
+
+        // Load week check-ins
+        const weekCheckInDays = await getWeekCheckInsDb(user.id);
+        setWeekCheckIns(new Set(weekCheckInDays));
+      } catch (err) {
+        console.error("Error loading check-in data:", err);
+        // Gracefully fallback to empty state
+        setDailyCheckInDone(false);
         setWeekCheckIns(new Set());
       }
-    } else {
-      setWeekCheckIns(new Set());
-    }
+    })();
   }, [user]);
 
   // Initialize workoutSeries with one series for each exercise when modal opens
@@ -428,6 +432,15 @@ export default function Goals() {
   };
 
   const handleDailyCheckIn = async () => {
+    if (!user) {
+      toast({
+        title: "Erro",
+        description: "Usuário não autenticado.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Check if user has completed any routine item
     const hasCompletedRoutines = userWorkouts.length > 0 || userDiets.length > 0 || userHabits.length > 0;
 
@@ -443,20 +456,15 @@ export default function Goals() {
     // Mark check-in as done for today
     setIsProcessingCheckIn(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const storageKey = `daily_checkin_${user?.id}_${today}`;
-      localStorage.setItem(storageKey, 'true');
+      // Create check-in in database
+      const checkIn = await createCheckInDb(user.id);
       setDailyCheckInDone(true);
 
-      // Add today's day of week to week check-ins
+      // Update week check-ins
       const dayOfWeek = new Date().getDay();
       const newWeekCheckIns = new Set(weekCheckIns);
       newWeekCheckIns.add(dayOfWeek);
       setWeekCheckIns(newWeekCheckIns);
-
-      // Save week check-ins to localStorage
-      const weekKey = `week_checkins_${user?.id}`;
-      localStorage.setItem(weekKey, JSON.stringify(Array.from(newWeekCheckIns)));
 
       toast({
         title: "Check-in realizado!",
