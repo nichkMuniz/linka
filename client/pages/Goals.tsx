@@ -671,66 +671,16 @@ export default function Goals() {
     if (!user) return;
 
     try {
-      const recordsToUpdate: Array<{
-        id: string;
-        volume?: number;
-        reps?: number;
-        time_rest?: number;
-        duration?: number;
-      }> = [];
-
-      // Build update records from filled series
-      for (const [workoutId, series] of Object.entries(workoutSeries)) {
-        if (series.length > 0) {
-          // Find the corresponding userWorkout record(s) for this exercise
-          const workoutRecords = userWorkouts.filter(
-            (w) => w.workout_id === workoutId,
-          );
-
-          // Update existing records with series data
-          for (let i = 0; i < series.length && i < workoutRecords.length; i++) {
-            const serie = series[i];
-            recordsToUpdate.push({
-              id: workoutRecords[i].id,
-              volume: serie.kg || null,
-              reps: serie.reps || null,
-              time_rest: workoutExerciseRestTimes[workoutId] || 0,
-              duration: workoutDuration,
-            });
-          }
-
-          // If there are more series than existing records, create new ones
-          if (series.length > workoutRecords.length) {
-            const newSeriesRecords = series.slice(workoutRecords.length);
-            const newRecordsToInsert: Array<{
-              user_id: string;
-              workout_id: string;
-              volume?: number;
-              reps?: number;
-              time_rest?: number;
-              duration?: number;
-            }> = newSeriesRecords.map((s) => ({
-              user_id: user.id,
-              workout_id: workoutId,
-              volume: s.kg || null,
-              reps: s.reps || null,
-              time_rest: workoutExerciseRestTimes[workoutId] || 0,
-              duration: workoutDuration,
-            }));
-
-            // Insert new records only if there are any to insert
-            if (newRecordsToInsert.length > 0) {
-              const { error } = await supabase
-                .from("user_workouts")
-                .insert(newRecordsToInsert);
-
-              if (error) throw error;
-            }
-          }
+      // Check if at least one series is completed
+      let hasCompletedSeries = false;
+      for (const series of Object.values(workoutSeries)) {
+        if (series.some((s) => s.completed)) {
+          hasCompletedSeries = true;
+          break;
         }
       }
 
-      if (recordsToUpdate.length === 0) {
+      if (!hasCompletedSeries) {
         toast({
           title: "Nenhuma série registrada",
           description:
@@ -740,23 +690,16 @@ export default function Goals() {
         return;
       }
 
-      // Update existing records
-      await updateWorkoutSeriesDb(recordsToUpdate);
-
       // Save workout history for each exercise with completed series
       for (const [workoutId, series] of Object.entries(workoutSeries)) {
         const completedSeries = series.filter((s) => s.completed);
         if (completedSeries.length > 0) {
-          const workoutRecords = userWorkouts.filter(
-            (w) => w.workout_id === workoutId,
-          );
-
-          for (let i = 0; i < completedSeries.length && i < workoutRecords.length; i++) {
+          for (let i = 0; i < completedSeries.length; i++) {
             const serie = completedSeries[i];
             try {
               await saveWorkoutHistoryDb(
                 user.id,
-                workoutRecords[i].id,
+                null,
                 workoutId,
                 serie.kg || null,
                 serie.reps ? `${serie.reps} reps` : null,
@@ -1285,46 +1228,67 @@ export default function Goals() {
                           itemsForType.map((item: any) => (
                             <div
                               key={item.id}
-                              className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50"
+                              className="flex items-start gap-3 rounded-lg"
                             >
-                              {/* Image for exercises - only show if exists */}
-                              {typeCode === 1 && item.workoutPhoto && (
-                                <img
-                                  src={item.workoutPhoto}
-                                  alt={item.workoutName}
-                                  className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
-                                />
-                              )}
+                              {/* Clickable item - only for exercises (typeCode === 1) */}
+                              <button
+                                onClick={() => {
+                                  if (typeCode === 1) {
+                                    handleOpenWorkoutHistory({
+                                      id: item.workout_id,
+                                      name: item.workoutName,
+                                      description: item.workoutDescription || undefined,
+                                      photo: item.workoutPhoto || undefined,
+                                    } as any);
+                                  }
+                                }}
+                                className={`flex-1 flex items-start gap-3 p-2 rounded-lg transition-colors ${
+                                  typeCode === 1 ? "hover:bg-muted/50 cursor-pointer" : ""
+                                }`}
+                                disabled={typeCode !== 1}
+                              >
+                                {/* Image for exercises - only show if exists */}
+                                {typeCode === 1 && item.workoutPhoto && (
+                                  <img
+                                    src={item.workoutPhoto}
+                                    alt={item.workoutName}
+                                    className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
+                                  />
+                                )}
 
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate">
-                                  {typeCode === 1
-                                    ? item.workoutName
-                                    : typeCode === 2
-                                      ? item.dietName
-                                      : item.habitName}
-                                </p>
-                                {(item.workoutDescription ||
-                                  item.dietDescription ||
-                                  item.habitDescription) && (
-                                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                                      {typeCode === 1
-                                        ? item.workoutDescription
-                                        : typeCode === 2
-                                          ? item.dietDescription
-                                          : item.habitDescription}
+                                <div className="flex-1 min-w-0 text-left">
+                                  <p className="text-sm font-medium truncate">
+                                    {typeCode === 1
+                                      ? item.workoutName
+                                      : typeCode === 2
+                                        ? item.dietName
+                                        : item.habitName}
+                                  </p>
+                                  {(item.workoutDescription ||
+                                    item.dietDescription ||
+                                    item.habitDescription) && (
+                                      <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                        {typeCode === 1
+                                          ? item.workoutDescription
+                                          : typeCode === 2
+                                            ? item.dietDescription
+                                            : item.habitDescription}
+                                      </p>
+                                    )}
+                                  {typeCode === 2 && item.dietCalories && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      {item.dietCalories} cal
                                     </p>
                                   )}
-                                {typeCode === 2 && item.dietCalories && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    {item.dietCalories} cal
-                                  </p>
-                                )}
-                              </div>
+                                </div>
+                              </button>
 
                               {/* Delete button */}
                               <button
-                                onClick={() => handleDeleteExercise(item.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteExercise(item.id);
+                                }}
                                 className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
                                 title="Remover exercício"
                               >
@@ -1989,34 +1953,37 @@ export default function Goals() {
         </DrawerContent>
       </Drawer>
 
-      {/* Finish Workout Confirmation Dialog */}
-      <Dialog open={finishWorkoutConfirmOpen} onOpenChange={setFinishWorkoutConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirmar Encerramento do Treino</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Tem certeza que deseja encerrar o treino? Todos os dados registrados serão salvos.
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1 rounded-full"
-                onClick={() => setFinishWorkoutConfirmOpen(false)}
-              >
-                Cancelar
-              </Button>
-              <Button
-                className="flex-1 rounded-full bg-destructive hover:bg-destructive/90"
-                onClick={handleConfirmFinishWorkout}
-              >
-                Encerrar Treino
-              </Button>
+      {/* Finish Workout Confirmation Drawer */}
+      <Drawer open={finishWorkoutConfirmOpen} onOpenChange={setFinishWorkoutConfirmOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Confirmar Encerramento do Treino</DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Tem certeza que deseja encerrar o treino? Todos os dados registrados serão salvos.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 rounded-full"
+                  onClick={() => setFinishWorkoutConfirmOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  className="flex-1 rounded-full bg-destructive hover:bg-destructive/90"
+                  onClick={handleConfirmFinishWorkout}
+                >
+                  Encerrar Treino
+                </Button>
+              </div>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </DrawerContent>
+      </Drawer>
 
       {/* Badges/Insignias Drawer Modal */}
       <Drawer open={badgesModalOpen} onOpenChange={setBadgesModalOpen}>

@@ -4215,7 +4215,7 @@ export type WorkoutHistoryRecord = {
 
 export async function saveWorkoutHistoryDb(
   userId: string,
-  userWorkoutId: number,
+  userWorkoutId: number | null,
   workoutId: string,
   kilos: number | null = null,
   volume: string | null = null,
