@@ -56,6 +56,7 @@ import { ImageWithFallback } from "@/components/image-with-fallback";
 import { PostLikesModal } from "@/components/post-likes-modal";
 import { PostCommentsDialog } from "@/components/post-comments-dialog";
 import { UserInsignias } from "@/components/user-insignias";
+import { PostCarousel } from "@/components/post-carousel";
 import {
   Dialog,
   DialogContent,
