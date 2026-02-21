@@ -22,6 +22,8 @@ import {
   createCheckInDb,
   getTodayCheckInDb,
   getWeekCheckInsDb,
+  saveWorkoutHistoryDb,
+  getWorkoutHistoryDb,
   type ProgrammedGoal,
   type Workout,
   type Diet,
@@ -32,6 +34,7 @@ import {
   type UserHabitWithDetails,
   type UserGoal,
   type RoutineTypeCode,
+  type WorkoutHistoryRecord,
 } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import {
@@ -170,6 +173,12 @@ export default function Goals() {
 
   // Available goals accordion state
   const [availableGoalsOpen, setAvailableGoalsOpen] = React.useState(false);
+
+  // Workout history modal state
+  const [workoutHistoryModalOpen, setWorkoutHistoryModalOpen] = React.useState(false);
+  const [selectedWorkoutForHistory, setSelectedWorkoutForHistory] = React.useState<Workout | null>(null);
+  const [workoutHistory, setWorkoutHistory] = React.useState<WorkoutHistoryRecord[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = React.useState(false);
 
   const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
@@ -734,6 +743,33 @@ export default function Goals() {
       // Update existing records
       await updateWorkoutSeriesDb(recordsToUpdate);
 
+      // Save workout history for each exercise with completed series
+      for (const [workoutId, series] of Object.entries(workoutSeries)) {
+        const completedSeries = series.filter((s) => s.completed);
+        if (completedSeries.length > 0) {
+          const workoutRecords = userWorkouts.filter(
+            (w) => w.workout_id === workoutId,
+          );
+
+          for (let i = 0; i < completedSeries.length && i < workoutRecords.length; i++) {
+            const serie = completedSeries[i];
+            try {
+              await saveWorkoutHistoryDb(
+                user.id,
+                workoutRecords[i].id,
+                workoutId,
+                serie.kg || null,
+                serie.reps ? `${serie.reps} reps` : null,
+                null // calories not tracked in this form
+              );
+            } catch (historyErr) {
+              console.error("Error saving workout history:", historyErr);
+              // Continue even if history save fails
+            }
+          }
+        }
+      }
+
       const minutes = Math.floor(workoutDuration / 60);
       const seconds = workoutDuration % 60;
       const durationText =
@@ -782,6 +818,29 @@ export default function Goals() {
       return `${hours}h ${minutes}m ${secs}s`;
     }
     return `${minutes}m ${secs}s`;
+  };
+
+  const handleOpenWorkoutHistory = async (workout: Workout) => {
+    if (!user) return;
+
+    setSelectedWorkoutForHistory(workout);
+    setWorkoutHistoryModalOpen(true);
+    setIsLoadingHistory(true);
+
+    try {
+      const history = await getWorkoutHistoryDb(user.id, workout.id);
+      setWorkoutHistory(history);
+    } catch (err: any) {
+      console.error("Error loading workout history:", err);
+      toast({
+        title: "Erro ao carregar histórico",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+      setWorkoutHistory([]);
+    } finally {
+      setIsLoadingHistory(false);
+    }
   };
 
   const handleSaveRoutines = async () => {
@@ -1595,9 +1654,17 @@ export default function Goals() {
                       />
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold truncate">
+                      <button
+                        onClick={() => handleOpenWorkoutHistory({
+                          id: workout.workout_id,
+                          name: workout.workoutName,
+                          description: workout.workoutDescription || undefined,
+                          photo: workout.workoutPhoto || undefined,
+                        })}
+                        className="text-sm font-bold truncate hover:text-brand hover:underline text-left transition-colors"
+                      >
                         {workout.workoutName}
-                      </p>
+                      </button>
                       {workout.workoutDescription && (
                         <p className="text-xs text-muted-foreground truncate mt-0.5">
                           {workout.workoutDescription}
@@ -2034,6 +2101,66 @@ export default function Goals() {
                 Complete check-ins para ganhar insignias!
               </p>
             </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Workout History Drawer */}
+      <Drawer open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>
+              Histórico de {selectedWorkoutForHistory?.name || "Exercício"}
+            </DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 space-y-3 pb-6">
+            {isLoadingHistory ? (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                Carregando histórico...
+              </div>
+            ) : workoutHistory.length > 0 ? (
+              workoutHistory.map((record, index) => (
+                <div
+                  key={record.id}
+                  className="p-4 border border-border/60 rounded-lg bg-muted/30 space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-sm">
+                      #{workoutHistory.length - index}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(record.dateCompleted).toLocaleString("pt-BR")}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    {record.kilos && (
+                      <div className="p-2 bg-background/50 rounded text-center">
+                        <p className="text-xs text-muted-foreground">Peso</p>
+                        <p className="text-sm font-bold">{record.kilos} kg</p>
+                      </div>
+                    )}
+                    {record.volume && (
+                      <div className="p-2 bg-background/50 rounded text-center">
+                        <p className="text-xs text-muted-foreground">Volume</p>
+                        <p className="text-sm font-bold">{record.volume}</p>
+                      </div>
+                    )}
+                    {record.calories && (
+                      <div className="p-2 bg-background/50 rounded text-center">
+                        <p className="text-xs text-muted-foreground">Calorias</p>
+                        <p className="text-sm font-bold">{record.calories} kcal</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                Nenhum registro de treino encontrado
+              </div>
+            )}
           </div>
         </DrawerContent>
       </Drawer>
