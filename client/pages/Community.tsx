@@ -300,8 +300,9 @@ export default function Community() {
       {/* Tabs */}
       <div className="flex-shrink-0 border-b border-border/60 px-4 pt-4">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 rounded-lg">
+          <TabsList className="grid w-full grid-cols-3 rounded-lg">
             <TabsTrigger value="messages">Mensagens</TabsTrigger>
+            <TabsTrigger value="duels">Duelos</TabsTrigger>
             <TabsTrigger value="ranking">Ranking</TabsTrigger>
           </TabsList>
         </Tabs>
@@ -440,6 +441,255 @@ export default function Community() {
                 </a>
               </div>
             )}
+          </div>
+        </>
+      )}
+
+      {/* Duels Tab */}
+      {activeTab === "duels" && (
+        <>
+          {/* Header */}
+          <div className="flex-shrink-0 px-4 pt-4 pb-0">
+            <h1 className="text-2xl font-bold tracking-tight">Duelos</h1>
+          </div>
+
+          {/* Duels List */}
+          <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 space-y-4">
+            {/* Duel Group 1 */}
+            <Card className="border-border/60 overflow-hidden">
+              <CardContent className="p-4 space-y-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">⚔️</span>
+                      <p className="font-semibold text-sm">Supino Attack</p>
+                    </div>
+                    <span className="text-xs bg-brand/20 text-brand px-2 py-1 rounded-full font-medium">
+                      Ativo
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Maior volume de supino na semana
+                  </p>
+                </div>
+
+                {/* Participants */}
+                <div className="space-y-2">
+                  {[
+                    { name: "João Silva", points: 2850, place: 1 },
+                    { name: "Você", points: 2420, place: 2 },
+                    { name: "Maria Costa", points: 1980, place: 3 },
+                    { name: "Pedro Santos", points: 1650, place: 4 },
+                  ].map((participant) => (
+                    <div
+                      key={participant.name}
+                      className={`flex items-center justify-between p-3 rounded-lg ${
+                        participant.name === "Você"
+                          ? "bg-brand/10 border border-brand/30"
+                          : "bg-muted/40"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-bold text-muted-foreground w-6 text-center">
+                          #{participant.place}
+                        </span>
+                        <p className="text-sm font-medium">{participant.name}</p>
+                      </div>
+                      <p className="text-sm font-bold text-brand">
+                        {participant.points}kg
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground mb-1">
+                      Término em:
+                    </p>
+                    <p className="text-sm font-semibold">4 dias</p>
+                  </div>
+                  <Button className="flex-1 rounded-full">Ver Detalhes</Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Duel Group 2 */}
+            <Card className="border-border/60 overflow-hidden">
+              <CardContent className="p-4 space-y-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">🏃</span>
+                      <p className="font-semibold text-sm">Cardio Masters</p>
+                    </div>
+                    <span className="text-xs bg-green-500/20 text-green-700 dark:text-green-400 px-2 py-1 rounded-full font-medium">
+                      Ativo
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Maior tempo em cardio durante a semana
+                  </p>
+                </div>
+
+                {/* Participants */}
+                <div className="space-y-2">
+                  {[
+                    { name: "Ana Paula", points: "3h 45min", place: 1 },
+                    { name: "Carlos Mendes", points: "3h 20min", place: 2 },
+                    { name: "Você", points: "2h 55min", place: 3 },
+                    { name: "Beatriz Lima", points: "2h 30min", place: 4 },
+                  ].map((participant) => (
+                    <div
+                      key={participant.name}
+                      className={`flex items-center justify-between p-3 rounded-lg ${
+                        participant.name === "Você"
+                          ? "bg-brand/10 border border-brand/30"
+                          : "bg-muted/40"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-bold text-muted-foreground w-6 text-center">
+                          #{participant.place}
+                        </span>
+                        <p className="text-sm font-medium">{participant.name}</p>
+                      </div>
+                      <p className="text-sm font-bold text-brand">
+                        {participant.points}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground mb-1">
+                      Término em:
+                    </p>
+                    <p className="text-sm font-semibold">3 dias</p>
+                  </div>
+                  <Button className="flex-1 rounded-full">Ver Detalhes</Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Duel Group 3 */}
+            <Card className="border-border/60 overflow-hidden">
+              <CardContent className="p-4 space-y-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">💪</span>
+                      <p className="font-semibold text-sm">Leg Day Warriors</p>
+                    </div>
+                    <span className="text-xs bg-purple-500/20 text-purple-700 dark:text-purple-400 px-2 py-1 rounded-full font-medium">
+                      Ativo
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Maior volume total em exercícios de perna
+                  </p>
+                </div>
+
+                {/* Participants */}
+                <div className="space-y-2">
+                  {[
+                    { name: "Você", points: 4120, place: 1 },
+                    { name: "Rafael Oliveira", points: 3890, place: 2 },
+                    { name: "Fernanda Silva", points: 3450, place: 3 },
+                    { name: "Lucas Martins", points: 3100, place: 4 },
+                  ].map((participant) => (
+                    <div
+                      key={participant.name}
+                      className={`flex items-center justify-between p-3 rounded-lg ${
+                        participant.name === "Você"
+                          ? "bg-brand/10 border border-brand/30"
+                          : "bg-muted/40"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-bold text-muted-foreground w-6 text-center">
+                          #{participant.place}
+                        </span>
+                        <p className="text-sm font-medium">{participant.name}</p>
+                      </div>
+                      <p className="text-sm font-bold text-brand">
+                        {participant.points}kg
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground mb-1">
+                      Término em:
+                    </p>
+                    <p className="text-sm font-semibold">6 dias</p>
+                  </div>
+                  <Button className="flex-1 rounded-full">Ver Detalhes</Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Duel Group 4 */}
+            <Card className="border-border/60 overflow-hidden">
+              <CardContent className="p-4 space-y-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">🔥</span>
+                      <p className="font-semibold text-sm">Calorie Burners</p>
+                    </div>
+                    <span className="text-xs bg-orange-500/20 text-orange-700 dark:text-orange-400 px-2 py-1 rounded-full font-medium">
+                      Ativo
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Maior gasto calórico na semana
+                  </p>
+                </div>
+
+                {/* Participants */}
+                <div className="space-y-2">
+                  {[
+                    { name: "Thiago Gomes", points: 5620, place: 1 },
+                    { name: "Você", points: 5340, place: 2 },
+                    { name: "Juliana Costa", points: 4890, place: 3 },
+                    { name: "Felipe Rocha", points: 4210, place: 4 },
+                  ].map((participant) => (
+                    <div
+                      key={participant.name}
+                      className={`flex items-center justify-between p-3 rounded-lg ${
+                        participant.name === "Você"
+                          ? "bg-brand/10 border border-brand/30"
+                          : "bg-muted/40"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-bold text-muted-foreground w-6 text-center">
+                          #{participant.place}
+                        </span>
+                        <p className="text-sm font-medium">{participant.name}</p>
+                      </div>
+                      <p className="text-sm font-bold text-brand">
+                        {participant.points} cal
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground mb-1">
+                      Término em:
+                    </p>
+                    <p className="text-sm font-semibold">2 dias</p>
+                  </div>
+                  <Button className="flex-1 rounded-full">Ver Detalhes</Button>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </>
       )}

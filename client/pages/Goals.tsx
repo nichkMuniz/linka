@@ -1987,87 +1987,181 @@ export default function Goals() {
 
       {/* Badges/Insignias Drawer Modal */}
       <Drawer open={badgesModalOpen} onOpenChange={setBadgesModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
-          <DrawerHeader className="shrink-0">
+        <DrawerContent className="max-h-[90dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30">
+          <DrawerHeader className="shrink-0 border-b border-border/60">
             <DrawerTitle className="flex items-center gap-2">
               <span className="text-2xl">🏆</span>
               Insignias
             </DrawerTitle>
           </DrawerHeader>
 
-          <div className="flex-1 overflow-y-auto px-4">
-            <div className="space-y-4 pb-8">
-              {/* 1 Day */}
-              <div className={`p-4 rounded-lg border-2 transition-all ${
-                weekCheckIns.size >= 1
-                  ? "border-yellow-500 bg-yellow-500/10"
-                  : "border-gray-300 bg-gray-100/50 opacity-50"
-              }`}>
-                <div className="flex items-center gap-3">
-                  <span className="text-3xl">⭐</span>
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">Iniciante</p>
-                    <p className="text-xs text-muted-foreground">Complete check-in 1 dia</p>
-                  </div>
-                  {weekCheckIns.size >= 1 && <Check className="h-5 w-5 text-yellow-600" />}
-                </div>
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+            {/* Progress Overview */}
+            <div className="mb-6 p-4 rounded-lg bg-brand/10 border border-brand/20">
+              <div className="flex items-center justify-between mb-2">
+                <p className="font-medium text-sm">Progresso Semanal</p>
+                <p className="font-bold text-lg">{weekCheckIns.size}/7</p>
               </div>
-
-              {/* 3 Days */}
-              <div className={`p-4 rounded-lg border-2 transition-all ${
-                weekCheckIns.size >= 3
-                  ? "border-blue-500 bg-blue-500/10"
-                  : "border-gray-300 bg-gray-100/50 opacity-50"
-              }`}>
-                <div className="flex items-center gap-3">
-                  <span className="text-3xl">🔥</span>
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">Sequência</p>
-                    <p className="text-xs text-muted-foreground">Complete check-in 3 dias</p>
-                  </div>
-                  {weekCheckIns.size >= 3 && <Check className="h-5 w-5 text-blue-600" />}
-                </div>
+              <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-brand transition-all duration-300 h-full rounded-full"
+                  style={{ width: `${(weekCheckIns.size / 7) * 100}%` }}
+                />
               </div>
-
-              {/* 5 Days */}
-              <div className={`p-4 rounded-lg border-2 transition-all ${
-                weekCheckIns.size >= 5
-                  ? "border-green-500 bg-green-500/10"
-                  : "border-gray-300 bg-gray-100/50 opacity-50"
-              }`}>
-                <div className="flex items-center gap-3">
-                  <span className="text-3xl">💪</span>
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">Campeão</p>
-                    <p className="text-xs text-muted-foreground">Complete check-in 5 dias</p>
-                  </div>
-                  {weekCheckIns.size >= 5 && <Check className="h-5 w-5 text-green-600" />}
-                </div>
-              </div>
-
-              {/* 7 Days */}
-              <div className={`p-4 rounded-lg border-2 transition-all ${
-                weekCheckIns.size === 7
-                  ? "border-purple-500 bg-purple-500/10"
-                  : "border-gray-300 bg-gray-100/50 opacity-50"
-              }`}>
-                <div className="flex items-center gap-3">
-                  <span className="text-3xl">👑</span>
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">Lendário</p>
-                    <p className="text-xs text-muted-foreground">Complete check-in 7 dias (semana completa)</p>
-                  </div>
-                  {weekCheckIns.size === 7 && <Check className="h-5 w-5 text-purple-600" />}
-                </div>
-              </div>
-            </div>
-
-            <div className="border-t border-border/60 pt-4 pb-4 text-center sticky bottom-0 bg-background">
-              <p className="text-sm font-medium">Progresso: {weekCheckIns.size}/7 dias</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Complete check-ins para ganhar insignias!
+              <p className="text-xs text-muted-foreground mt-2">
+                {7 - weekCheckIns.size === 0
+                  ? "Parabéns! Você completou a semana!"
+                  : `Faltam ${7 - weekCheckIns.size} dia(s) para completar a semana`}
               </p>
             </div>
+
+            <div className="space-y-3 pb-8">
+              {/* 1 Day - Iniciante */}
+              <div
+                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${
+                  weekCheckIns.size >= 1
+                    ? "bg-gradient-to-r from-yellow-500/20 to-yellow-500/5 border border-yellow-500/40 shadow-lg shadow-yellow-500/10"
+                    : "bg-muted/40 border border-border/40 opacity-60"
+                }`}
+              >
+                <div className="p-4 flex items-start gap-4">
+                  <div className={`text-4xl transition-transform ${weekCheckIns.size >= 1 ? "scale-110" : ""}`}>
+                    ⭐
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold text-sm">Iniciante</p>
+                      {weekCheckIns.size >= 1 && (
+                        <Check className="h-5 w-5 text-yellow-600 flex-shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Complete check-in 1 dia</p>
+                    {weekCheckIns.size < 1 && (
+                      <div className="mt-2">
+                        <p className="text-xs text-muted-foreground mb-1">{weekCheckIns.size}/1 dias</p>
+                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="bg-yellow-500 h-full transition-all"
+                            style={{ width: `${(weekCheckIns.size / 1) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 3 Days - Sequência */}
+              <div
+                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${
+                  weekCheckIns.size >= 3
+                    ? "bg-gradient-to-r from-blue-500/20 to-blue-500/5 border border-blue-500/40 shadow-lg shadow-blue-500/10"
+                    : "bg-muted/40 border border-border/40 opacity-60"
+                }`}
+              >
+                <div className="p-4 flex items-start gap-4">
+                  <div className={`text-4xl transition-transform ${weekCheckIns.size >= 3 ? "scale-110" : ""}`}>
+                    🔥
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold text-sm">Sequência</p>
+                      {weekCheckIns.size >= 3 && (
+                        <Check className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Complete check-in 3 dias</p>
+                    {weekCheckIns.size < 3 && (
+                      <div className="mt-2">
+                        <p className="text-xs text-muted-foreground mb-1">{Math.min(weekCheckIns.size, 3)}/3 dias</p>
+                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="bg-blue-500 h-full transition-all"
+                            style={{ width: `${(Math.min(weekCheckIns.size, 3) / 3) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 5 Days - Campeão */}
+              <div
+                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${
+                  weekCheckIns.size >= 5
+                    ? "bg-gradient-to-r from-green-500/20 to-green-500/5 border border-green-500/40 shadow-lg shadow-green-500/10"
+                    : "bg-muted/40 border border-border/40 opacity-60"
+                }`}
+              >
+                <div className="p-4 flex items-start gap-4">
+                  <div className={`text-4xl transition-transform ${weekCheckIns.size >= 5 ? "scale-110" : ""}`}>
+                    💪
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold text-sm">Campeão</p>
+                      {weekCheckIns.size >= 5 && (
+                        <Check className="h-5 w-5 text-green-600 flex-shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Complete check-in 5 dias</p>
+                    {weekCheckIns.size < 5 && (
+                      <div className="mt-2">
+                        <p className="text-xs text-muted-foreground mb-1">{Math.min(weekCheckIns.size, 5)}/5 dias</p>
+                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="bg-green-500 h-full transition-all"
+                            style={{ width: `${(Math.min(weekCheckIns.size, 5) / 5) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 7 Days - Lendário */}
+              <div
+                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${
+                  weekCheckIns.size === 7
+                    ? "bg-gradient-to-r from-purple-500/20 to-purple-500/5 border border-purple-500/40 shadow-lg shadow-purple-500/10"
+                    : "bg-muted/40 border border-border/40 opacity-60"
+                }`}
+              >
+                <div className="p-4 flex items-start gap-4">
+                  <div className={`text-4xl transition-transform ${weekCheckIns.size === 7 ? "scale-110 animate-pulse" : ""}`}>
+                    👑
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold text-sm">Lendário</p>
+                      {weekCheckIns.size === 7 && (
+                        <Check className="h-5 w-5 text-purple-600 flex-shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Complete check-in 7 dias (semana completa)</p>
+                    {weekCheckIns.size < 7 && (
+                      <div className="mt-2">
+                        <p className="text-xs text-muted-foreground mb-1">{weekCheckIns.size}/7 dias</p>
+                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="bg-purple-500 h-full transition-all"
+                            style={{ width: `${(weekCheckIns.size / 7) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-border/60 p-4 bg-background/95 sticky bottom-0">
+            <p className="text-xs text-muted-foreground text-center">
+              Complete check-ins diários para ganhar insignias e desbloquear novos níveis!
+            </p>
           </div>
         </DrawerContent>
       </Drawer>
@@ -2081,48 +2175,102 @@ export default function Goals() {
             </DrawerTitle>
           </DrawerHeader>
 
-          <div className="flex-1 overflow-y-auto px-4 space-y-3 pb-6">
+          <div className="flex-1 overflow-y-auto px-4 pb-6">
             {isLoadingHistory ? (
               <div className="text-center py-6 text-sm text-muted-foreground">
                 Carregando histórico...
               </div>
             ) : workoutHistory.length > 0 ? (
-              workoutHistory.map((record, index) => (
-                <div
-                  key={record.id}
-                  className="p-4 border border-border/60 rounded-lg bg-muted/30 space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium text-sm">
-                      #{workoutHistory.length - index}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(record.dateCompleted).toLocaleString("pt-BR")}
-                    </p>
-                  </div>
+              (() => {
+                // Group records by day
+                const groupedByDay: Record<string, typeof workoutHistory> = {};
+                workoutHistory.forEach((record) => {
+                  const date = new Date(record.dateCompleted);
+                  const dateKey = date.toLocaleDateString("pt-BR");
+                  if (!groupedByDay[dateKey]) {
+                    groupedByDay[dateKey] = [];
+                  }
+                  groupedByDay[dateKey].push(record);
+                });
 
-                  <div className="grid grid-cols-3 gap-3">
-                    {record.kilos && (
-                      <div className="p-2 bg-background/50 rounded text-center">
-                        <p className="text-xs text-muted-foreground">Peso</p>
-                        <p className="text-sm font-bold">{record.kilos} kg</p>
+                // Sort days in descending order (newest first)
+                const sortedDates = Object.keys(groupedByDay).sort((a, b) => {
+                  const dateA = new Date(a.split("/").reverse().join("-"));
+                  const dateB = new Date(b.split("/").reverse().join("-"));
+                  return dateB.getTime() - dateA.getTime();
+                });
+
+                return sortedDates.map((dateKey) => {
+                  const dayRecords = groupedByDay[dateKey];
+                  const totalKilos = dayRecords
+                    .reduce((sum, r) => sum + (r.kilos || 0), 0);
+                  const totalReps = dayRecords.length;
+
+                  return (
+                    <div key={dateKey} className="mb-6">
+                      {/* Date Header */}
+                      <div className="sticky top-0 bg-background/95 py-2 mb-2">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase">
+                          {dateKey}
+                        </p>
+                        <div className="flex gap-4 mt-1">
+                          <div>
+                            <p className="text-xs text-muted-foreground">
+                              {totalReps} série(s)
+                            </p>
+                          </div>
+                          {totalKilos > 0 && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">
+                                {totalKilos} kg total
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
-                    {record.volume && (
-                      <div className="p-2 bg-background/50 rounded text-center">
-                        <p className="text-xs text-muted-foreground">Volume</p>
-                        <p className="text-sm font-bold">{record.volume}</p>
+
+                      {/* Records for this day */}
+                      <div className="space-y-1">
+                        {dayRecords.map((record) => {
+                          const time = new Date(record.dateCompleted).toLocaleTimeString(
+                            "pt-BR",
+                            { hour: "2-digit", minute: "2-digit" }
+                          );
+                          return (
+                            <div
+                              key={record.id}
+                              className="flex items-center justify-between p-2 rounded hover:bg-muted/40 transition-colors"
+                            >
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <p className="text-xs text-muted-foreground w-10">
+                                  {time}
+                                </p>
+                                <div className="flex gap-2 flex-1 min-w-0 overflow-x-auto">
+                                  {record.kilos && (
+                                    <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
+                                      {record.kilos} kg
+                                    </span>
+                                  )}
+                                  {record.volume && (
+                                    <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
+                                      {record.volume}
+                                    </span>
+                                  )}
+                                  {record.calories && (
+                                    <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
+                                      {record.calories} cal
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
-                    {record.calories && (
-                      <div className="p-2 bg-background/50 rounded text-center">
-                        <p className="text-xs text-muted-foreground">Calorias</p>
-                        <p className="text-sm font-bold">{record.calories} kcal</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))
+                    </div>
+                  );
+                });
+              })()
             ) : (
               <div className="text-center py-6 text-sm text-muted-foreground">
                 Nenhum registro de treino encontrado
