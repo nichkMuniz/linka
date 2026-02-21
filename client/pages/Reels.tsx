@@ -223,9 +223,15 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
   }, [commentText, selectedReel]);
 
   const handleDeleteComment = React.useCallback(async (commentId: string) => {
+    if (!confirm("Tem certeza que deseja deletar este comentário?")) return;
+
     try {
       await deleteReelCommentDb(commentId);
       setComments((prev) => prev.filter((c) => c.id !== commentId));
+      toast({
+        title: "Sucesso",
+        description: "Comentário deletado com sucesso.",
+      });
     } catch (err: any) {
       console.error("Error deleting comment:", err);
       toast({
@@ -478,7 +484,10 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
           </div>
           <button
             onClick={() => setShowSwipeHint(false)}
-            className="absolute bottom-8 left-1/2 transform -translate-x-1/2 px-6 py-2 bg-white/20 hover:bg-white/30 text-white rounded-full text-sm font-medium transition-colors pointer-events-auto"
+            style={{
+              bottom: `calc(${footerHeight}px + 24px)`,
+            }}
+            className="absolute left-1/2 transform -translate-x-1/2 px-6 py-2 bg-white/20 hover:bg-white/30 text-white rounded-full text-sm font-medium transition-colors pointer-events-auto"
           >
             Entendi
           </button>

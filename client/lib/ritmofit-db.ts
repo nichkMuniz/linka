@@ -723,6 +723,7 @@ export type PostWithUser = {
   id: string;
   description: string;
   photo: string;
+  photos?: string[] | null;
   created_at: string;
   user_id: string;
   userNickname: string;
@@ -734,7 +735,7 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
 
   const { data, error } = await supabase
     .from("posts")
-    .select("id, description, photo, created_at, user_id")
+    .select("id, description, photo, photos, created_at, user_id")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -754,6 +755,7 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     id: String(row.id ?? ""),
     description: String(row.description ?? ""),
     photo: String(row.photo ?? ""),
+    photos: Array.isArray(row.photos) ? row.photos : null,
     created_at: String(row.created_at ?? ""),
     user_id: String(row.user_id ?? ""),
     userNickname,
@@ -3038,18 +3040,34 @@ export async function getReelCommentsDb(
       );
     }
 
-    return (data ?? []).map(
-      (row: any) =>
-        ({
+    // Fetch comments and enrich with user profiles
+    const enrichedComments = await Promise.all(
+      (data ?? []).map(async (row: any) => {
+        let userName = String(row.user_name ?? "Usuário");
+
+        // Try to fetch the actual nickname from profiles table
+        try {
+          const userProfile = await getUserProfileDb(row.user_id);
+          if (userProfile?.nickname) {
+            userName = userProfile.nickname;
+          }
+        } catch (err) {
+          console.error(`Error fetching profile for user ${row.user_id}:`, err);
+        }
+
+        return {
           id: String(row.id),
           reelId: String(row.reel_id),
           userId: String(row.user_id),
-          userName: String(row.user_name ?? "Usuário"),
+          userName,
           userHandle: String(row.user_handle ?? "@user"),
           text: String(row.text ?? ""),
           createdAt: String(row.created_at ?? new Date().toISOString()),
-        }) satisfies ReelComment,
+        } satisfies ReelComment;
+      })
     );
+
+    return enrichedComments;
   } catch (err: any) {
     console.error(
       "Error getting reel comments:",
@@ -4178,5 +4196,96 @@ export async function deleteCommercialProfileDb(userId: string): Promise<boolean
   } catch (err: any) {
     console.error("Error deleting commercial profile:", err);
     throw err;
+  }
+}
+
+// Workout History Functions
+export type WorkoutHistoryRecord = {
+  id: string;
+  userId: string;
+  userWorkoutId: number | null;
+  workoutId: string;
+  workoutName: string;
+  kilos: number | null;
+  volume: string | null;
+  calories: number | null;
+  dateCompleted: string;
+  createdAt: string;
+};
+
+export async function saveWorkoutHistoryDb(
+  userId: string,
+  userWorkoutId: number,
+  workoutId: string,
+  kilos: number | null = null,
+  volume: string | null = null,
+  calories: number | null = null
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  try {
+    const { error } = await supabase
+      .from("user_workouts_hist")
+      .insert([
+        {
+          user_id: userId,
+          user_workout_id: userWorkoutId,
+          workout_id: workoutId,
+          kilos,
+          volume,
+          calories,
+          date_completed: new Date().toISOString(),
+        },
+      ]);
+
+    if (error) throw error;
+  } catch (err: any) {
+    console.error("Error saving workout history:", err);
+    throw err;
+  }
+}
+
+export async function getWorkoutHistoryDb(
+  userId: string,
+  workoutId: string
+): Promise<WorkoutHistoryRecord[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("user_workouts_hist")
+      .select(`
+        id,
+        user_id,
+        user_workout_id,
+        workout_id,
+        kilos,
+        volume,
+        calories,
+        date_completed,
+        created_at,
+        workouts (name)
+      `)
+      .eq("user_id", userId)
+      .eq("workout_id", workoutId)
+      .order("date_completed", { ascending: false });
+
+    if (error) throw error;
+
+    return (data ?? []).map((row: any) => ({
+      id: String(row.id),
+      userId: String(row.user_id),
+      userWorkoutId: row.user_workout_id,
+      workoutId: String(row.workout_id),
+      workoutName: row.workouts?.name || "Exercício",
+      kilos: row.kilos,
+      volume: row.volume,
+      calories: row.calories,
+      dateCompleted: String(row.date_completed),
+      createdAt: String(row.created_at),
+    }));
+  } catch (err: any) {
+    console.error("Error fetching workout history:", err);
+    return [];
   }
 }

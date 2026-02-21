@@ -2638,11 +2638,6 @@ export default function Profile() {
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{follower.nickname}</p>
-                      {follower.bio && (
-                        <p className="text-xs text-muted-foreground truncate">
-                          {follower.bio}
-                        </p>
-                      )}
                     </div>
                   </button>
                   <Button
@@ -2709,11 +2704,6 @@ export default function Profile() {
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{user.nickname}</p>
-                      {user.bio && (
-                        <p className="text-xs text-muted-foreground truncate">
-                          {user.bio}
-                        </p>
-                      )}
                     </div>
                   </button>
                   <Button
