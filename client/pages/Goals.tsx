@@ -1196,7 +1196,15 @@ export default function Goals() {
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
-                          <DropdownMenuItem onClick={() => handleAddRoutineClick()}>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setAddRoutineModalOpen(true);
+                              setSelectedRoutineType(1); // 1 = Exercises
+                              setSelectedItems(new Set());
+                              setSearchQuery("");
+                              setSelectedMuscleGroups(new Set());
+                            }}
+                          >
                             <Plus className="h-4 w-4 mr-2" />
                             Adicionar exercícios
                           </DropdownMenuItem>
@@ -1444,54 +1452,71 @@ export default function Goals() {
                   {/* Items List */}
                   <div className="space-y-2">
                     {selectedRoutineType === 1 &&
-                      filteredWorkouts.map((workout) => (
-                        <button
-                          key={workout.id}
-                          onClick={() => handleSelectItem(workout.id)}
-                          className={`w-full p-3 rounded-lg border transition-all text-left flex gap-3 ${selectedItems.has(workout.id)
-                              ? "border-brand bg-brand/10"
-                              : "border-border/60 hover:border-border/80"
-                            }`}
-                        >
-                          {/* Exercise Image */}
-                          {workout.photo ? (
-                            <img
-                              src={workout.photo}
-                              alt={workout.name}
-                              className="h-20 w-20 rounded-lg object-cover flex-shrink-0"
-                            />
-                          ) : (
-                            <div className="h-20 w-20 rounded-lg bg-muted flex-shrink-0" />
-                          )}
+                      filteredWorkouts.map((workout) => {
+                        const isAlreadySelected = userWorkouts.some(
+                          (uw) => uw.workout_id === workout.id
+                        );
+                        const isNewSelection = selectedItems.has(workout.id);
 
-                          {/* Exercise Info */}
-                          <div className="flex-1 flex flex-col justify-between">
-                            <div>
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm font-medium">
-                                  {workout.name}
-                                </span>
-                                <input
-                                  type="checkbox"
-                                  checked={selectedItems.has(workout.id)}
-                                  onChange={() => { }}
-                                  className="h-4 w-4 flex-shrink-0"
-                                />
+                        return (
+                          <button
+                            key={workout.id}
+                            onClick={() => handleSelectItem(workout.id)}
+                            className={`w-full p-3 rounded-lg border transition-all text-left flex gap-3 ${
+                              isNewSelection
+                                ? "border-brand bg-brand/10"
+                                : isAlreadySelected
+                                  ? "border-green-500/40 bg-green-500/5"
+                                  : "border-border/60 hover:border-border/80"
+                            }`}
+                          >
+                            {/* Exercise Image */}
+                            {workout.photo ? (
+                              <img
+                                src={workout.photo}
+                                alt={workout.name}
+                                className="h-20 w-20 rounded-lg object-cover flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="h-20 w-20 rounded-lg bg-muted flex-shrink-0" />
+                            )}
+
+                            {/* Exercise Info */}
+                            <div className="flex-1 flex flex-col justify-between">
+                              <div>
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex-1">
+                                    <span className="text-sm font-medium">
+                                      {workout.name}
+                                    </span>
+                                    {isAlreadySelected && !isNewSelection && (
+                                      <p className="text-xs text-green-600 dark:text-green-400 mt-1 font-medium">
+                                        ✓ Já adicionado
+                                      </p>
+                                    )}
+                                  </div>
+                                  <input
+                                    type="checkbox"
+                                    checked={isNewSelection}
+                                    onChange={() => { }}
+                                    className="h-4 w-4 flex-shrink-0"
+                                  />
+                                </div>
+                                {workout.description && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {workout.description}
+                                  </p>
+                                )}
+                                {workout.muscle_group && (
+                                  <p className="text-xs text-brand mt-1 font-medium">
+                                    {workout.muscle_group}
+                                  </p>
+                                )}
                               </div>
-                              {workout.description && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {workout.description}
-                                </p>
-                              )}
-                              {workout.muscle_group && (
-                                <p className="text-xs text-brand mt-1 font-medium">
-                                  {workout.muscle_group}
-                                </p>
-                              )}
                             </div>
-                          </div>
-                        </button>
-                      ))}
+                          </button>
+                        );
+                      })}
 
                     {selectedRoutineType === 2 &&
                       diets.map((diet) => (
