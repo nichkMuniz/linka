@@ -191,6 +191,8 @@ export default function Profile() {
   const [followers, setFollowers] = React.useState<any[]>([]);
   const [following, setFollowing] = React.useState<any[]>([]);
   const [isLoadingFollowers, setIsLoadingFollowers] = React.useState(false);
+  const [followerFollowStatus, setFollowerFollowStatus] = React.useState<Record<string, boolean>>({});
+  const [isTogglingFollow, setIsTogglingFollow] = React.useState<Record<string, boolean>>({});
 
   // Edit form state
   const [editNickname, setEditNickname] = React.useState("");
@@ -431,6 +433,19 @@ export default function Profile() {
     try {
       const data = await getFollowersDb();
       setFollowers(data);
+
+      // Load follow status for each follower
+      const statusMap: Record<string, boolean> = {};
+      for (const follower of data) {
+        try {
+          const isFollowingThisUser = await isFollowingDb(follower.id);
+          statusMap[follower.id] = isFollowingThisUser;
+        } catch (err) {
+          console.error(`Error checking follow status for ${follower.id}:`, err);
+          statusMap[follower.id] = false;
+        }
+      }
+      setFollowerFollowStatus(statusMap);
     } catch (err: any) {
       console.error("Error loading followers:", err);
       toast({
@@ -509,6 +524,51 @@ export default function Profile() {
       setIsFollowingLoading(false);
     }
   }, [profileUserId, isFollowing]);
+
+  const handleToggleFollowInModal = React.useCallback(async (userId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    const isCurrentlyFollowing = followerFollowStatus[userId] || false;
+
+    if (isCurrentlyFollowing) {
+      if (!confirm("Tem certeza que deseja parar de seguir este usuário?")) return;
+    }
+
+    setIsTogglingFollow((prev) => ({ ...prev, [userId]: true }));
+    try {
+      const success = isCurrentlyFollowing
+        ? await unfollowUserDb(userId)
+        : await followUserDb(userId);
+
+      if (success) {
+        setFollowerFollowStatus((prev) => ({
+          ...prev,
+          [userId]: !isCurrentlyFollowing,
+        }));
+        toast({
+          title: "Sucesso!",
+          description: isCurrentlyFollowing
+            ? "Você deixou de seguir este usuário."
+            : "Você está seguindo este usuário.",
+        });
+      } else {
+        toast({
+          title: "Erro",
+          description: "Tente novamente.",
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      console.error("Error toggling follow:", err);
+      toast({
+        title: "Erro",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsTogglingFollow((prev) => ({ ...prev, [userId]: false }));
+    }
+  }, [followerFollowStatus]);
 
   const loadCommercialProfile = React.useCallback(async () => {
     if (!user) return;
@@ -1466,7 +1526,10 @@ export default function Profile() {
               <div className="text-xs text-muted-foreground whitespace-nowrap">Posts</div>
             </div>
             <button
-              onClick={() => setShowFollowersModal(true)}
+              onClick={() => {
+                setShowFollowersModal(true);
+                loadFollowersData();
+              }}
               className="flex flex-col items-center space-y-0.5 hover:opacity-80 transition-opacity"
             >
               <div className="text-base sm:text-lg font-semibold">
@@ -1477,7 +1540,10 @@ export default function Profile() {
               </div>
             </button>
             <button
-              onClick={() => setShowFollowingModal(true)}
+              onClick={() => {
+                setShowFollowingModal(true);
+                loadFollowingData();
+              }}
               className="flex flex-col items-center space-y-0.5 hover:opacity-80 transition-opacity"
             >
               <div className="text-base sm:text-lg font-semibold">
@@ -2550,32 +2616,54 @@ export default function Profile() {
               </div>
             ) : followers.length > 0 ? (
               followers.map((follower) => (
-                <button
+                <div
                   key={follower.id}
-                  onClick={() => {
-                    setShowFollowersModal(false);
-                    navigate(`/usuario/${follower.id}`);
-                  }}
-                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition-colors w-full text-left"
+                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition-colors"
                 >
-                  {follower.photo ? (
-                    <img
-                      src={follower.photo}
-                      alt={follower.nickname}
-                      className="h-10 w-10 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded-full bg-muted" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{follower.nickname}</p>
-                    {follower.bio && (
-                      <p className="text-xs text-muted-foreground truncate">
-                        {follower.bio}
-                      </p>
+                  <button
+                    onClick={() => {
+                      setShowFollowersModal(false);
+                      navigate(`/usuario/${follower.id}`);
+                    }}
+                    className="flex items-center gap-3 flex-1 text-left hover:opacity-80 transition-opacity"
+                  >
+                    {follower.photo ? (
+                      <img
+                        src={follower.photo}
+                        alt={follower.nickname}
+                        className="h-10 w-10 rounded-full object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-full bg-muted flex-shrink-0" />
                     )}
-                  </div>
-                </button>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{follower.nickname}</p>
+                      {follower.bio && (
+                        <p className="text-xs text-muted-foreground truncate">
+                          {follower.bio}
+                        </p>
+                      )}
+                    </div>
+                  </button>
+                  <Button
+                    onClick={(e) => handleToggleFollowInModal(follower.id, e)}
+                    disabled={isTogglingFollow[follower.id] || false}
+                    variant={followerFollowStatus[follower.id] ? "outline" : "default"}
+                    size="sm"
+                    className="flex-shrink-0"
+                  >
+                    {isTogglingFollow[follower.id] ? (
+                      "..."
+                    ) : followerFollowStatus[follower.id] ? (
+                      <>
+                        <Check className="h-4 w-4 mr-1" />
+                        Seguindo
+                      </>
+                    ) : (
+                      "Seguir"
+                    )}
+                  </Button>
+                </div>
               ))
             ) : (
               <div className="text-center py-6 text-sm text-muted-foreground">
@@ -2599,32 +2687,52 @@ export default function Profile() {
               </div>
             ) : following.length > 0 ? (
               following.map((user) => (
-                <button
+                <div
                   key={user.id}
-                  onClick={() => {
-                    setShowFollowingModal(false);
-                    navigate(`/usuario/${user.id}`);
-                  }}
-                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition-colors w-full text-left"
+                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition-colors"
                 >
-                  {user.photo ? (
-                    <img
-                      src={user.photo}
-                      alt={user.nickname}
-                      className="h-10 w-10 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded-full bg-muted" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{user.nickname}</p>
-                    {user.bio && (
-                      <p className="text-xs text-muted-foreground truncate">
-                        {user.bio}
-                      </p>
+                  <button
+                    onClick={() => {
+                      setShowFollowingModal(false);
+                      navigate(`/usuario/${user.id}`);
+                    }}
+                    className="flex items-center gap-3 flex-1 text-left hover:opacity-80 transition-opacity"
+                  >
+                    {user.photo ? (
+                      <img
+                        src={user.photo}
+                        alt={user.nickname}
+                        className="h-10 w-10 rounded-full object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-full bg-muted flex-shrink-0" />
                     )}
-                  </div>
-                </button>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{user.nickname}</p>
+                      {user.bio && (
+                        <p className="text-xs text-muted-foreground truncate">
+                          {user.bio}
+                        </p>
+                      )}
+                    </div>
+                  </button>
+                  <Button
+                    onClick={(e) => handleToggleFollowInModal(user.id, e)}
+                    disabled={isTogglingFollow[user.id] || false}
+                    variant="outline"
+                    size="sm"
+                    className="flex-shrink-0"
+                  >
+                    {isTogglingFollow[user.id] ? (
+                      "..."
+                    ) : (
+                      <>
+                        <Check className="h-4 w-4 mr-1" />
+                        Seguindo
+                      </>
+                    )}
+                  </Button>
+                </div>
               ))
             ) : (
               <div className="text-center py-6 text-sm text-muted-foreground">
