@@ -218,12 +218,12 @@ export default function Login() {
         setShowBiometricSetup(true);
         toast({
           title: "Conta criada",
-          description: "Bem-vindo ao RitmoFit!",
+          description: "Bem-vindo ao Linka!",
         });
       } else {
         toast({
           title: "Conta criada",
-          description: "Bem-vindo ao RitmoFit!",
+          description: "Bem-vindo ao Linka!",
         });
         // User will be redirected to feed by useEffect above
       }
