@@ -24,8 +24,8 @@ import {
   getWeekCheckInsDb,
   saveWorkoutHistoryDb,
   getWorkoutHistoryDb,
-  updateUserDietCompletionDb,
-  updateUserHabitCompletionDb,
+  toggleUserDietCompletionDb,
+  toggleUserHabitCompletionDb,
   type ProgrammedGoal,
   type Workout,
   type Diet,
@@ -2588,7 +2588,7 @@ export default function Goals() {
                           }
                           setCompletedDietIds(newCompletedIds);
                           try {
-                            await updateUserDietCompletionDb(diet.id, isCompleting);
+                            await toggleUserDietCompletionDb(diet.id, isCompleting);
                             toast({
                               title: isCompleting ? "Dieta concluída!" : "Dieta desmarcada",
                             });
@@ -2655,7 +2655,7 @@ export default function Goals() {
                           }
                           setCompletedHabitIds(newCompletedIds);
                           try {
-                            await updateUserHabitCompletionDb(habit.id, isCompleting);
+                            await toggleUserHabitCompletionDb(habit.id, isCompleting);
                             toast({
                               title: isCompleting ? "Hábito concluído!" : "Hábito desmarcado",
                             });
