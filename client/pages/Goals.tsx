@@ -472,32 +472,141 @@ export default function Goals() {
       return;
     }
 
-    // Mark check-in as done for today
-    setIsProcessingCheckIn(true);
-    try {
-      // Create check-in in database
-      const checkIn = await createCheckInDb(user.id);
-      setDailyCheckInDone(true);
+    // If user has multiple goals, show confirmation dialog
+    if (userGoals.length > 1) {
+      const goalOptions = userGoals
+        .filter((g) => g.perc < 100) // Only show incomplete goals
+        .map((g) => g.nameGoal)
+        .join("\n");
 
-      // Update week check-ins
-      const dayOfWeek = new Date().getDay();
-      const newWeekCheckIns = new Set(weekCheckIns);
-      newWeekCheckIns.add(dayOfWeek);
-      setWeekCheckIns(newWeekCheckIns);
+      const selectedGoal = window.prompt(
+        `Qual meta você quer atualizar com este check-in?\n\n${goalOptions}`,
+        userGoals[0]?.nameGoal || ""
+      );
 
-      toast({
-        title: "Check-in realizado!",
-        description: "Parabéns! Você completou seu check-in de hoje.",
-      });
-    } catch (err: any) {
-      console.error("Error during check-in:", err);
-      toast({
-        title: "Erro ao fazer check-in",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessingCheckIn(false);
+      if (!selectedGoal) return; // User cancelled
+
+      const goal = userGoals.find((g) => g.nameGoal === selectedGoal);
+      if (!goal) {
+        toast({
+          title: "Meta não encontrada",
+          description: "Selecione uma meta válida.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Mark check-in as done for today
+      setIsProcessingCheckIn(true);
+      try {
+        // Create check-in in database
+        await createCheckInDb(user.id);
+        setDailyCheckInDone(true);
+
+        // Update week check-ins
+        const dayOfWeek = new Date().getDay();
+        const newWeekCheckIns = new Set(weekCheckIns);
+        newWeekCheckIns.add(dayOfWeek);
+        setWeekCheckIns(newWeekCheckIns);
+
+        // Update goal progress - increment by 1 and recalculate percentage
+        const newProgress = goal.actual_progress + 1;
+        const newPercentage = Math.min(100, (newProgress / goal.quantity) * 100);
+
+        await updateUserGoalDb(goal.id, {
+          actual_progress: newProgress,
+          perc: newPercentage,
+        });
+
+        // Refresh user goals
+        const updatedGoals = await getUserGoalsDb(user.id);
+        setUserGoals(updatedGoals);
+
+        toast({
+          title: "Check-in realizado!",
+          description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${selectedGoal}".`,
+        });
+      } catch (err: any) {
+        console.error("Error during check-in:", err);
+        toast({
+          title: "Erro ao fazer check-in",
+          description: err?.message || "Tente novamente.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsProcessingCheckIn(false);
+      }
+    } else if (userGoals.length === 1) {
+      // Single goal - update it directly
+      const goal = userGoals[0];
+
+      setIsProcessingCheckIn(true);
+      try {
+        // Create check-in in database
+        await createCheckInDb(user.id);
+        setDailyCheckInDone(true);
+
+        // Update week check-ins
+        const dayOfWeek = new Date().getDay();
+        const newWeekCheckIns = new Set(weekCheckIns);
+        newWeekCheckIns.add(dayOfWeek);
+        setWeekCheckIns(newWeekCheckIns);
+
+        // Update goal progress - increment by 1 and recalculate percentage
+        const newProgress = goal.actual_progress + 1;
+        const newPercentage = Math.min(100, (newProgress / goal.quantity) * 100);
+
+        await updateUserGoalDb(goal.id, {
+          actual_progress: newProgress,
+          perc: newPercentage,
+        });
+
+        // Refresh user goals
+        const updatedGoals = await getUserGoalsDb(user.id);
+        setUserGoals(updatedGoals);
+
+        toast({
+          title: "Check-in realizado!",
+          description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${goal.nameGoal}".`,
+        });
+      } catch (err: any) {
+        console.error("Error during check-in:", err);
+        toast({
+          title: "Erro ao fazer check-in",
+          description: err?.message || "Tente novamente.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsProcessingCheckIn(false);
+      }
+    } else {
+      // No goals - just do check-in without goal update
+      setIsProcessingCheckIn(true);
+      try {
+        // Create check-in in database
+        const checkIn = await createCheckInDb(user.id);
+        setDailyCheckInDone(true);
+
+        // Update week check-ins
+        const dayOfWeek = new Date().getDay();
+        const newWeekCheckIns = new Set(weekCheckIns);
+        newWeekCheckIns.add(dayOfWeek);
+        setWeekCheckIns(newWeekCheckIns);
+
+        toast({
+          title: "Check-in realizado!",
+          description: "Parabéns! Você completou seu check-in de hoje.",
+        });
+      } catch (err: any) {
+        console.error("Error during check-in:", err);
+        toast({
+          title: "Erro ao fazer check-in",
+          description: err?.message || "Tente novamente.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsProcessingCheckIn(false);
+      }
     }
   };
 
@@ -984,6 +1093,36 @@ export default function Goals() {
                           </Card>
                         );
                       })}
+                  </div>
+                </div>
+              )}
+
+              {/* Link Routines to Goals Section */}
+              {selectedGoalIds.length > 0 && (
+                <div className="border border-border/60 rounded-lg p-4 bg-muted/20">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold">Vincular Rotinas às Metas</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Conecte seus exercícios, dietas e hábitos com suas metas
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="rounded-full"
+                      onClick={() => {
+                        setExpandedRoutineId(selectedGoalIds.length > 0 ? `type-1` : null);
+                        // Scroll to rotinas section
+                        setTimeout(() => {
+                          const rotinasTab = document.querySelector('[value="rotinas"]');
+                          if (rotinasTab) {
+                            rotinasTab.scrollIntoView({ behavior: "smooth" });
+                          }
+                        }, 100);
+                      }}
+                    >
+                      Vincular
+                    </Button>
                   </div>
                 </div>
               )}

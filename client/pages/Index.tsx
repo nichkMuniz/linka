@@ -784,8 +784,62 @@ export default function Index() {
                   </div>
                 </div>
 
-                {/* Linked Routines Dropdown */}
-                {linkedRoutines.length > 0 && (
+                {/* Linked Routines Dropdown or Link Option */}
+                {selectedGoalPost.user_id === user?.id && (
+                  <>
+                    {linkedRoutines.length > 0 ? (
+                      <div className="border border-border/60 rounded-lg overflow-hidden">
+                        <button
+                          onClick={() => setExpandedRoutines(!expandedRoutines)}
+                          className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+                        >
+                          <h3 className="text-sm font-medium">
+                            Rotinas Vinculadas ({linkedRoutines.length})
+                          </h3>
+                          <ChevronDown
+                            className={`h-5 w-5 transform transition-transform ${
+                              expandedRoutines ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+
+                        {expandedRoutines && (
+                          <div className="border-t border-border/60 bg-muted/20 p-4 space-y-3">
+                            {linkedRoutines.map((routine) => (
+                              <div
+                                key={routine.id}
+                                className="p-3 border border-border/60 rounded-lg bg-background"
+                              >
+                                <p className="font-medium text-sm">
+                                  {routine.type === 1
+                                    ? "🏋️ Exercicios"
+                                    : routine.type === 2
+                                      ? "🍽️ Dietas"
+                                      : "✅ Habitos"}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="border border-border/60 rounded-lg p-4 bg-muted/20 text-center space-y-3">
+                        <p className="text-sm text-muted-foreground">
+                          Nenhuma rotina vinculada a esta meta
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full rounded-full"
+                          onClick={() => navigate("/metas")}
+                        >
+                          Vincular Rotinas
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+                {selectedGoalPost.user_id !== user?.id && linkedRoutines.length > 0 && (
                   <div className="border border-border/60 rounded-lg overflow-hidden">
                     <button
                       onClick={() => setExpandedRoutines(!expandedRoutines)}
@@ -824,24 +878,6 @@ export default function Index() {
 
                 {/* Buttons */}
                 <div className="flex gap-2">
-                  {/* Check Button - Only show for own goals */}
-                  {selectedGoalPost.user_id === user?.id && (
-                    <Button
-                      onClick={handleIncrementGoalProgress}
-                      disabled={
-                        isUpdatingGoal || selectedGoalPost.userGoal.perc >= 100
-                      }
-                      className="flex-1 rounded-full gap-2 shrink-0"
-                    >
-                      <Check className="h-4 w-4" />
-                      {isUpdatingGoal
-                        ? "Atualizando..."
-                        : selectedGoalPost.userGoal.perc >= 100
-                          ? "Meta Completa!"
-                          : "Atualizar Progresso"}
-                    </Button>
-                  )}
-
                   {/* Copy Goal Button - Only show for other users' goals */}
                   {selectedGoalPost.user_id !== user?.id && (
                     <Button

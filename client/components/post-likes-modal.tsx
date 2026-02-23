@@ -81,9 +81,9 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
               </p>
             </div>
 
-            {/* Incentive Type Breakdown with Icons */}
+            {/* Incentive Type Breakdown with Icons - Horizontal Layout */}
             {Object.keys(incentiveTypeCounts).length > 0 && (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
                 {Object.entries(incentiveTypeCounts).map(([typeName, count]) => {
                   // Find the type number to get the icon
                   const typeNum = parseInt(
@@ -110,11 +110,15 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
                   return (
                     <div
                       key={typeName}
-                      className="bg-muted/30 rounded-md p-2 text-center flex flex-col items-center gap-1"
+                      className="flex items-center justify-between rounded-md p-2 text-sm"
                     >
-                      <span className="text-lg">{INCENTIVE_ICONS[typeNum] || "👍"}</span>
-                      <p className="text-xs text-muted-foreground">{typeName}</p>
-                      <p className="text-sm font-semibold text-foreground">{count}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-muted-foreground">{typeName}</p>
+                        <span className="font-semibold text-foreground">{count}</span>
+                      </div>
+                      <span className="text-lg">
+                        {INCENTIVE_ICONS[typeNum] || "👍"}
+                      </span>
                     </div>
                   );
                 })}

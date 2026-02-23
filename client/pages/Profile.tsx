@@ -19,10 +19,10 @@ import {
   getRoutineTypeName,
   getGoalByIdDb,
   updateRoutineGoalDb,
-  getUserGoalsDb,
   getFollowersDb,
   getFollowingDb,
   getUserReelsDb,
+  getUserGoalsByUserIdDb,
   deletePostDb,
   updatePostDb,
   deleteReelDb,
@@ -243,7 +243,7 @@ export default function Profile() {
         getUserWorkoutsDb(profileUserId),
         getUserDietsDb(profileUserId),
         getUserHabitsDb(profileUserId),
-        getUserGoalsDb(),
+        getUserGoalsByUserIdDb(profileUserId),
         getUserReelsDb(profileUserId),
       ]);
 
