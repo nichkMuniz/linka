@@ -180,6 +180,15 @@ export default function Goals() {
   const [workoutHistory, setWorkoutHistory] = React.useState<WorkoutHistoryRecord[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = React.useState(false);
 
+  // Goal selection for check-in state
+  const [checkInGoalSelectionOpen, setCheckInGoalSelectionOpen] = React.useState(false);
+  const [selectedCheckInGoal, setSelectedCheckInGoal] = React.useState<UserGoal | null>(null);
+
+  // Routine selection for goal card state
+  const [goalRoutineModalOpen, setGoalRoutineModalOpen] = React.useState(false);
+  const [selectedGoalForRoutines, setSelectedGoalForRoutines] = React.useState<any>(null);
+  const [goalRoutineSelection, setGoalRoutineSelection] = React.useState<Set<string>>(new Set());
+
   const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
   // General state
@@ -472,71 +481,23 @@ export default function Goals() {
       return;
     }
 
-    // If user has multiple goals, show confirmation dialog
+    // If user has multiple goals, show modal for selection
     if (userGoals.length > 1) {
-      const goalOptions = userGoals
-        .filter((g) => g.perc < 100) // Only show incomplete goals
-        .map((g) => g.nameGoal)
-        .join("\n");
-
-      const selectedGoal = window.prompt(
-        `Qual meta você quer atualizar com este check-in?\n\n${goalOptions}`,
-        userGoals[0]?.nameGoal || ""
-      );
-
-      if (!selectedGoal) return; // User cancelled
-
-      const goal = userGoals.find((g) => g.nameGoal === selectedGoal);
-      if (!goal) {
+      const incompleteGoals = userGoals.filter((g) => g.perc < 100);
+      if (incompleteGoals.length === 0) {
         toast({
-          title: "Meta não encontrada",
-          description: "Selecione uma meta válida.",
-          variant: "destructive",
+          title: "Todas as metas completadas!",
+          description: "Parabéns! Você completou todas as suas metas.",
         });
         return;
       }
+      // Open goal selection modal
+      setCheckInGoalSelectionOpen(true);
+      return;
+    }
 
-      // Mark check-in as done for today
-      setIsProcessingCheckIn(true);
-      try {
-        // Create check-in in database
-        await createCheckInDb(user.id);
-        setDailyCheckInDone(true);
-
-        // Update week check-ins
-        const dayOfWeek = new Date().getDay();
-        const newWeekCheckIns = new Set(weekCheckIns);
-        newWeekCheckIns.add(dayOfWeek);
-        setWeekCheckIns(newWeekCheckIns);
-
-        // Update goal progress - increment by 1 and recalculate percentage
-        const newProgress = goal.actual_progress + 1;
-        const newPercentage = Math.min(100, (newProgress / goal.quantity) * 100);
-
-        await updateUserGoalDb(goal.id, {
-          actual_progress: newProgress,
-          perc: newPercentage,
-        });
-
-        // Refresh user goals
-        const updatedGoals = await getUserGoalsDb(user.id);
-        setUserGoals(updatedGoals);
-
-        toast({
-          title: "Check-in realizado!",
-          description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${selectedGoal}".`,
-        });
-      } catch (err: any) {
-        console.error("Error during check-in:", err);
-        toast({
-          title: "Erro ao fazer check-in",
-          description: err?.message || "Tente novamente.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsProcessingCheckIn(false);
-      }
-    } else if (userGoals.length === 1) {
+    // Single goal - update it directly
+    if (userGoals.length === 1) {
       // Single goal - update it directly
       const goal = userGoals[0];
 
@@ -607,6 +568,52 @@ export default function Goals() {
       } finally {
         setIsProcessingCheckIn(false);
       }
+    }
+  };
+
+  const handleConfirmCheckInGoal = async () => {
+    if (!selectedCheckInGoal || !user) return;
+
+    setCheckInGoalSelectionOpen(false);
+    setIsProcessingCheckIn(true);
+
+    try {
+      // Create check-in in database
+      await createCheckInDb(user.id);
+      setDailyCheckInDone(true);
+
+      // Update week check-ins
+      const dayOfWeek = new Date().getDay();
+      const newWeekCheckIns = new Set(weekCheckIns);
+      newWeekCheckIns.add(dayOfWeek);
+      setWeekCheckIns(newWeekCheckIns);
+
+      // Update goal progress - increment by 1 and recalculate percentage
+      const newProgress = selectedCheckInGoal.actual_progress + 1;
+      const newPercentage = Math.min(100, (newProgress / selectedCheckInGoal.quantity) * 100);
+
+      await updateUserGoalDb(selectedCheckInGoal.id, {
+        actual_progress: newProgress,
+        perc: newPercentage,
+      });
+
+      // Refresh user goals
+      const updatedGoals = await getUserGoalsDb(user.id);
+      setUserGoals(updatedGoals);
+
+      toast({
+        title: "Check-in realizado!",
+        description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${selectedCheckInGoal.nameGoal}".`,
+      });
+    } catch (err: any) {
+      console.error("Error during check-in:", err);
+      toast({
+        title: "Erro ao fazer check-in",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessingCheckIn(false);
     }
   };
 
@@ -1067,62 +1074,47 @@ export default function Goals() {
                                 </div>
                               </div>
 
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="w-full rounded-full mt-auto text-xs h-8"
-                                onClick={() => {
-                                  setEditingGoal({
-                                    id: userGoal?.id || goal.id,
-                                    goal_id: goal.id,
-                                    user_id: user?.id || "",
-                                    description: goal.description,
-                                    duration: duration,
-                                    quantity: quantity,
-                                    type: goal.type,
-                                  });
-                                  setEditGoalDuration(duration);
-                                  setEditGoalQuantity(quantity);
-                                  setEditGoalModalOpen(true);
-                                }}
-                              >
-                                Editar
-                              </Button>
+                              <div className="flex gap-2 mt-auto">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="flex-1 rounded-full text-xs h-8"
+                                  onClick={() => {
+                                    setGoalRoutineModalOpen(true);
+                                    setSelectedGoalForRoutines(goal);
+                                    setGoalRoutineSelection(new Set());
+                                  }}
+                                >
+                                  Vincular Rotina
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="flex-1 rounded-full text-xs h-8"
+                                  onClick={() => {
+                                    setEditingGoal({
+                                      id: userGoal?.id || goal.id,
+                                      goal_id: goal.id,
+                                      user_id: user?.id || "",
+                                      description: goal.description,
+                                      duration: duration,
+                                      quantity: quantity,
+                                      type: goal.type,
+                                    });
+                                    setEditGoalDuration(duration);
+                                    setEditGoalQuantity(quantity);
+                                    setEditGoalModalOpen(true);
+                                  }}
+                                >
+                                  Editar
+                                </Button>
+                              </div>
                             </CardContent>
                           </Card>
                         );
                       })}
-                  </div>
-                </div>
-              )}
-
-              {/* Link Routines to Goals Section */}
-              {selectedGoalIds.length > 0 && (
-                <div className="border border-border/60 rounded-lg p-4 bg-muted/20">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold">Vincular Rotinas às Metas</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Conecte seus exercícios, dietas e hábitos com suas metas
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      className="rounded-full"
-                      onClick={() => {
-                        setExpandedRoutineId(selectedGoalIds.length > 0 ? `type-1` : null);
-                        // Scroll to rotinas section
-                        setTimeout(() => {
-                          const rotinasTab = document.querySelector('[value="rotinas"]');
-                          if (rotinasTab) {
-                            rotinasTab.scrollIntoView({ behavior: "smooth" });
-                          }
-                        }, 100);
-                      }}
-                    >
-                      Vincular
-                    </Button>
                   </div>
                 </div>
               )}
@@ -2439,6 +2431,205 @@ export default function Goals() {
               <div className="text-center py-6 text-sm text-muted-foreground">
                 Nenhum registro de treino encontrado
               </div>
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Goal Selection Modal for Check-in */}
+      <Drawer open={checkInGoalSelectionOpen} onOpenChange={setCheckInGoalSelectionOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Selecione uma Meta para o Check-in</DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-3">
+            {userGoals
+              .filter((g) => g.perc < 100)
+              .map((goal) => (
+                <button
+                  key={goal.id}
+                  onClick={() => {
+                    setSelectedCheckInGoal(goal);
+                    handleConfirmCheckInGoal();
+                  }}
+                  className={`w-full p-4 rounded-lg border-2 transition-all text-left ${
+                    selectedCheckInGoal?.id === goal.id
+                      ? "border-brand bg-brand/10"
+                      : "border-border/60 hover:border-border/80 hover:bg-muted/30"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <p className="font-semibold text-sm">{goal.nameGoal}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Progresso: {goal.actual_progress}/{goal.quantity}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-brand">
+                        {Math.round(goal.perc)}%
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+
+            {userGoals.filter((g) => g.perc < 100).length === 0 && (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                Todas as metas foram completadas!
+              </div>
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Routine Selection Modal for Goal Cards */}
+      <Drawer open={goalRoutineModalOpen} onOpenChange={setGoalRoutineModalOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>
+              Vincular Rotinas a "{selectedGoalForRoutines?.description}"
+            </DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
+            {/* Exercises Section */}
+            {userWorkouts.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold">Exercícios ({userWorkouts.length})</p>
+                <div className="space-y-2">
+                  {userWorkouts.map((workout) => (
+                    <button
+                      key={workout.id}
+                      onClick={() => {
+                        const newSelection = new Set(goalRoutineSelection);
+                        if (newSelection.has(workout.id)) {
+                          newSelection.delete(workout.id);
+                        } else {
+                          newSelection.add(workout.id);
+                        }
+                        setGoalRoutineSelection(newSelection);
+                      }}
+                      className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
+                        goalRoutineSelection.has(workout.id)
+                          ? "border-brand bg-brand/10"
+                          : "border-border/60 hover:border-border/80"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{workout.workoutName}</span>
+                        <input
+                          type="checkbox"
+                          checked={goalRoutineSelection.has(workout.id)}
+                          onChange={() => {}}
+                          className="h-4 w-4"
+                        />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Diets Section */}
+            {userDiets.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold">Dietas ({userDiets.length})</p>
+                <div className="space-y-2">
+                  {userDiets.map((diet) => (
+                    <button
+                      key={diet.id}
+                      onClick={() => {
+                        const newSelection = new Set(goalRoutineSelection);
+                        if (newSelection.has(diet.id)) {
+                          newSelection.delete(diet.id);
+                        } else {
+                          newSelection.add(diet.id);
+                        }
+                        setGoalRoutineSelection(newSelection);
+                      }}
+                      className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
+                        goalRoutineSelection.has(diet.id)
+                          ? "border-brand bg-brand/10"
+                          : "border-border/60 hover:border-border/80"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{diet.dietName}</span>
+                        <input
+                          type="checkbox"
+                          checked={goalRoutineSelection.has(diet.id)}
+                          onChange={() => {}}
+                          className="h-4 w-4"
+                        />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Habits Section */}
+            {userHabits.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold">Hábitos ({userHabits.length})</p>
+                <div className="space-y-2">
+                  {userHabits.map((habit) => (
+                    <button
+                      key={habit.id}
+                      onClick={() => {
+                        const newSelection = new Set(goalRoutineSelection);
+                        if (newSelection.has(habit.id)) {
+                          newSelection.delete(habit.id);
+                        } else {
+                          newSelection.add(habit.id);
+                        }
+                        setGoalRoutineSelection(newSelection);
+                      }}
+                      className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
+                        goalRoutineSelection.has(habit.id)
+                          ? "border-brand bg-brand/10"
+                          : "border-border/60 hover:border-border/80"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{habit.habitName}</span>
+                        <input
+                          type="checkbox"
+                          checked={goalRoutineSelection.has(habit.id)}
+                          onChange={() => {}}
+                          className="h-4 w-4"
+                        />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {userWorkouts.length === 0 && userDiets.length === 0 && userHabits.length === 0 && (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                Nenhuma rotina disponível para vincular
+              </div>
+            )}
+
+            {/* Confirm Button */}
+            {goalRoutineSelection.size > 0 && (
+              <Button
+                className="w-full rounded-full mt-4"
+                onClick={() => {
+                  toast({
+                    title: "Rotinas Vinculadas!",
+                    description: `${goalRoutineSelection.size} rotina(s) vinculada(s) com sucesso.`,
+                  });
+                  setGoalRoutineModalOpen(false);
+                  setGoalRoutineSelection(new Set());
+                  setSelectedGoalForRoutines(null);
+                }}
+              >
+                Confirmar Seleção
+              </Button>
             )}
           </div>
         </DrawerContent>

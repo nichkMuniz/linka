@@ -81,9 +81,9 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
               </p>
             </div>
 
-            {/* Incentive Type Breakdown with Icons - Horizontal Layout */}
+            {/* Incentive Type Breakdown with Icons - Single Line */}
             {Object.keys(incentiveTypeCounts).length > 0 && (
-              <div className="space-y-1">
+              <div className="flex flex-wrap gap-3">
                 {Object.entries(incentiveTypeCounts).map(([typeName, count]) => {
                   // Find the type number to get the icon
                   const typeNum = parseInt(
@@ -110,13 +110,11 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
                   return (
                     <div
                       key={typeName}
-                      className="flex items-center justify-between rounded-md p-2 text-sm"
+                      className="flex items-center gap-2 px-3 py-1.5 bg-muted/40 rounded-full text-sm"
                     >
-                      <div className="flex items-center gap-2">
-                        <p className="text-muted-foreground">{typeName}</p>
-                        <span className="font-semibold text-foreground">{count}</span>
-                      </div>
-                      <span className="text-lg">
+                      <span className="font-semibold text-foreground">{count}</span>
+                      <p className="text-muted-foreground">{typeName}</p>
+                      <span className="text-base ml-1">
                         {INCENTIVE_ICONS[typeNum] || "👍"}
                       </span>
                     </div>
@@ -158,11 +156,11 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-lg">
-                      {INCENTIVE_ICONS[like.type] || "👍"}
-                    </span>
-                    <span className="text-xs font-semibold bg-red-500/20 text-red-600 px-2 py-1 rounded-full">
+                    <span className="text-xs font-semibold bg-red-500/20 text-red-600 px-2 py-1 rounded-full flex items-center gap-1.5">
                       {getIncentiveTypeName(like.type)}
+                      <span className="text-sm">
+                        {INCENTIVE_ICONS[like.type] || "👍"}
+                      </span>
                     </span>
                   </div>
                 </button>
