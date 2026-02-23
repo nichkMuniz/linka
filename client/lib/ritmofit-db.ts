@@ -4289,3 +4289,61 @@ export async function getWorkoutHistoryDb(
     return [];
   }
 }
+
+// Save diet history record
+export async function saveDietHistoryDb(
+  userId: string,
+  dietId: number,
+  quantity: number | null = null,
+  calories: number | null = null
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  try {
+    const { error } = await supabase
+      .from("user_diets_hist")
+      .insert([
+        {
+          user_id: userId,
+          diet_id: dietId,
+          quantity,
+          calories,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+    if (error) throw error;
+  } catch (err: any) {
+    console.error("Error saving diet history:", err);
+    throw err;
+  }
+}
+
+// Save habit history record
+export async function saveHabitHistoryDb(
+  userId: string,
+  habitId: number,
+  quantity: number | null = null,
+  frequency: number | null = null
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  try {
+    const { error } = await supabase
+      .from("user_habits_hist")
+      .insert([
+        {
+          user_id: userId,
+          habit_id: habitId,
+          quantity,
+          frequency,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+    if (error) throw error;
+  } catch (err: any) {
+    console.error("Error saving habit history:", err);
+    throw err;
+  }
+}

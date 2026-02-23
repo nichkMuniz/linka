@@ -26,6 +26,9 @@ import {
   getWorkoutHistoryDb,
   toggleUserDietCompletionDb,
   toggleUserHabitCompletionDb,
+  saveDietHistoryDb,
+  saveHabitHistoryDb,
+  updateRoutineGoalDb,
   type ProgrammedGoal,
   type Workout,
   type Diet,
@@ -191,6 +194,7 @@ export default function Goals() {
   const [goalRoutineModalOpen, setGoalRoutineModalOpen] = React.useState(false);
   const [selectedGoalForRoutines, setSelectedGoalForRoutines] = React.useState<any>(null);
   const [goalRoutineSelection, setGoalRoutineSelection] = React.useState<Set<string>>(new Set());
+  const [routineSearchQuery, setRoutineSearchQuery] = React.useState("");
 
   // Completion tracking for Rotinas tab items
   const [completedDietIds, setCompletedDietIds] = React.useState<Set<string>>(new Set());
@@ -1082,19 +1086,28 @@ export default function Goals() {
                               </div>
 
                               <div className="flex gap-2 mt-auto">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="flex-1 rounded-full text-xs h-8"
-                                  onClick={() => {
-                                    setGoalRoutineModalOpen(true);
-                                    setSelectedGoalForRoutines(goal);
-                                    setGoalRoutineSelection(new Set());
-                                  }}
-                                >
-                                  Vincular Rotina
-                                </Button>
+                                {(() => {
+                                  const linkedRoutines = routines.filter(
+                                    (r) => r.goal_id && String(r.goal_id) === String(goal.id)
+                                  );
+                                  return (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="flex-1 rounded-full text-xs h-8"
+                                      onClick={() => {
+                                        setGoalRoutineModalOpen(true);
+                                        setSelectedGoalForRoutines(goal);
+                                        setGoalRoutineSelection(new Set());
+                                      }}
+                                    >
+                                      {linkedRoutines.length > 0
+                                        ? `Ver Rotinas (${linkedRoutines.length})`
+                                        : "Vincular Rotina"}
+                                    </Button>
+                                  );
+                                })()}
                                 <Button
                                   type="button"
                                   size="sm"
@@ -1377,6 +1390,91 @@ export default function Goals() {
                               className="space-y-2"
                             >
                               <div className="flex items-start gap-3 rounded-lg">
+                                {/* Mark as completed checkbox for diets (left side) */}
+                                {typeCode === 2 && (
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const isCompleting = !completedDietIds.has(item.id);
+                                      const newCompletedIds = new Set(completedDietIds);
+                                      if (isCompleting) {
+                                        newCompletedIds.add(item.id);
+                                      } else {
+                                        newCompletedIds.delete(item.id);
+                                      }
+                                      setCompletedDietIds(newCompletedIds);
+                                      try {
+                                        await toggleUserDietCompletionDb(item.id, isCompleting);
+                                        if (isCompleting && user) {
+                                          await saveDietHistoryDb(
+                                            user.id,
+                                            Number(item.diet_id),
+                                            item.quantity ?? null,
+                                            item.calories ?? null
+                                          );
+                                        }
+                                        toast({
+                                          title: isCompleting ? "Dieta concluída!" : "Dieta desmarcada",
+                                        });
+                                      } catch (err) {
+                                        toast({
+                                          title: "Erro ao atualizar status da dieta",
+                                          variant: "destructive",
+                                        });
+                                      }
+                                    }}
+                                    className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${
+                                      completedDietIds.has(item.id)
+                                        ? "bg-green-500/20 text-green-700"
+                                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                                    }`}
+                                  >
+                                    {completedDietIds.has(item.id) ? "✓" : "○"}
+                                  </button>
+                                )}
+
+                                {typeCode === 3 && (
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const isCompleting = !completedHabitIds.has(item.id);
+                                      const newCompletedIds = new Set(completedHabitIds);
+                                      if (isCompleting) {
+                                        newCompletedIds.add(item.id);
+                                      } else {
+                                        newCompletedIds.delete(item.id);
+                                      }
+                                      setCompletedHabitIds(newCompletedIds);
+                                      try {
+                                        await toggleUserHabitCompletionDb(item.id, isCompleting);
+                                        if (isCompleting && user) {
+                                          await saveHabitHistoryDb(
+                                            user.id,
+                                            Number(item.habit_id),
+                                            item.quantity ?? null,
+                                            item.frequency ?? null
+                                          );
+                                        }
+                                        toast({
+                                          title: isCompleting ? "Hábito concluído!" : "Hábito desmarcado",
+                                        });
+                                      } catch (err) {
+                                        toast({
+                                          title: "Erro ao atualizar status do hábito",
+                                          variant: "destructive",
+                                        });
+                                      }
+                                    }}
+                                    className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${
+                                      completedHabitIds.has(item.id)
+                                        ? "bg-green-500/20 text-green-700"
+                                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                                    }`}
+                                  >
+                                    {completedHabitIds.has(item.id) ? "✓" : "○"}
+                                  </button>
+                                )}
+
                                 {/* Clickable item - only for exercises (typeCode === 1) */}
                                 <button
                                   onClick={() => {
@@ -1429,75 +1527,6 @@ export default function Goals() {
                                     )}
                                   </div>
                                 </button>
-
-                                {/* Mark as completed button for diets and habits */}
-                                {typeCode === 2 && (
-                                  <button
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const isCompleting = !completedDietIds.has(item.id);
-                                      const newCompletedIds = new Set(completedDietIds);
-                                      if (isCompleting) {
-                                        newCompletedIds.add(item.id);
-                                      } else {
-                                        newCompletedIds.delete(item.id);
-                                      }
-                                      setCompletedDietIds(newCompletedIds);
-                                      try {
-                                        await toggleUserDietCompletionDb(item.id, isCompleting);
-                                        toast({
-                                          title: isCompleting ? "Dieta concluída!" : "Dieta desmarcada",
-                                        });
-                                      } catch (err) {
-                                        toast({
-                                          title: "Erro ao atualizar status da dieta",
-                                          variant: "destructive",
-                                        });
-                                      }
-                                    }}
-                                    className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${
-                                      completedDietIds.has(item.id)
-                                        ? "bg-green-500/20 text-green-700"
-                                        : "bg-muted text-muted-foreground hover:bg-muted/80"
-                                    }`}
-                                  >
-                                    {completedDietIds.has(item.id) ? "✓" : "○"}
-                                  </button>
-                                )}
-
-                                {typeCode === 3 && (
-                                  <button
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const isCompleting = !completedHabitIds.has(item.id);
-                                      const newCompletedIds = new Set(completedHabitIds);
-                                      if (isCompleting) {
-                                        newCompletedIds.add(item.id);
-                                      } else {
-                                        newCompletedIds.delete(item.id);
-                                      }
-                                      setCompletedHabitIds(newCompletedIds);
-                                      try {
-                                        await toggleUserHabitCompletionDb(item.id, isCompleting);
-                                        toast({
-                                          title: isCompleting ? "Hábito concluído!" : "Hábito desmarcado",
-                                        });
-                                      } catch (err) {
-                                        toast({
-                                          title: "Erro ao atualizar status do hábito",
-                                          variant: "destructive",
-                                        });
-                                      }
-                                    }}
-                                    className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${
-                                      completedHabitIds.has(item.id)
-                                        ? "bg-green-500/20 text-green-700"
-                                        : "bg-muted text-muted-foreground hover:bg-muted/80"
-                                    }`}
-                                  >
-                                    {completedHabitIds.has(item.id) ? "✓" : "○"}
-                                  </button>
-                                )}
 
                                 {/* Delete button */}
                                 <button
@@ -2580,41 +2609,57 @@ export default function Goals() {
             </DrawerTitle>
           </DrawerHeader>
 
+          {/* Search Input */}
+          <div className="px-4 py-3 border-b border-border/60">
+            <Input
+              placeholder="Buscar rotina..."
+              value={routineSearchQuery}
+              onChange={(e) => setRoutineSearchQuery(e.target.value)}
+              className="h-9 rounded-full text-sm"
+            />
+          </div>
+
           <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
             {/* Exercises Section */}
             {userWorkouts.length > 0 && (
               <div className="space-y-3">
                 <p className="text-sm font-semibold">Exercícios ({userWorkouts.length})</p>
                 <div className="space-y-2">
-                  {userWorkouts.map((workout) => (
-                    <button
-                      key={workout.id}
-                      onClick={() => {
-                        const newSelection = new Set(goalRoutineSelection);
-                        if (newSelection.has(workout.id)) {
-                          newSelection.delete(workout.id);
-                        } else {
-                          newSelection.add(workout.id);
-                        }
-                        setGoalRoutineSelection(newSelection);
-                      }}
-                      className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
-                        goalRoutineSelection.has(workout.id)
-                          ? "border-brand bg-brand/10"
-                          : "border-border/60 hover:border-border/80"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{workout.workoutName}</span>
-                        <input
-                          type="checkbox"
-                          checked={goalRoutineSelection.has(workout.id)}
-                          onChange={() => {}}
-                          className="h-4 w-4"
-                        />
-                      </div>
-                    </button>
-                  ))}
+                  {userWorkouts
+                    .filter((workout) =>
+                      workout.workoutName
+                        ?.toLowerCase()
+                        .includes(routineSearchQuery.toLowerCase())
+                    )
+                    .map((workout) => (
+                      <button
+                        key={workout.id}
+                        onClick={() => {
+                          const newSelection = new Set(goalRoutineSelection);
+                          if (newSelection.has(workout.id)) {
+                            newSelection.delete(workout.id);
+                          } else {
+                            newSelection.add(workout.id);
+                          }
+                          setGoalRoutineSelection(newSelection);
+                        }}
+                        className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
+                          goalRoutineSelection.has(workout.id)
+                            ? "border-brand bg-brand/10"
+                            : "border-border/60 hover:border-border/80"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">{workout.workoutName}</span>
+                          <input
+                            type="checkbox"
+                            checked={goalRoutineSelection.has(workout.id)}
+                            onChange={() => {}}
+                            className="h-4 w-4"
+                          />
+                        </div>
+                      </button>
+                    ))}
                 </div>
               </div>
             )}
@@ -2624,35 +2669,39 @@ export default function Goals() {
               <div className="space-y-3">
                 <p className="text-sm font-semibold">Dietas ({userDiets.length})</p>
                 <div className="space-y-2">
-                  {userDiets.map((diet) => (
-                    <button
-                      key={diet.id}
-                      onClick={() => {
-                        const newSelection = new Set(goalRoutineSelection);
-                        if (newSelection.has(diet.id)) {
-                          newSelection.delete(diet.id);
-                        } else {
-                          newSelection.add(diet.id);
-                        }
-                        setGoalRoutineSelection(newSelection);
-                      }}
-                      className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
-                        goalRoutineSelection.has(diet.id)
-                          ? "border-brand bg-brand/10"
-                          : "border-border/60 hover:border-border/80"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{diet.dietName}</span>
-                        <input
-                          type="checkbox"
-                          checked={goalRoutineSelection.has(diet.id)}
-                          onChange={() => {}}
-                          className="h-4 w-4"
-                        />
-                      </div>
-                    </button>
-                  ))}
+                  {userDiets
+                    .filter((diet) =>
+                      diet.dietName?.toLowerCase().includes(routineSearchQuery.toLowerCase())
+                    )
+                    .map((diet) => (
+                      <button
+                        key={diet.id}
+                        onClick={() => {
+                          const newSelection = new Set(goalRoutineSelection);
+                          if (newSelection.has(diet.id)) {
+                            newSelection.delete(diet.id);
+                          } else {
+                            newSelection.add(diet.id);
+                          }
+                          setGoalRoutineSelection(newSelection);
+                        }}
+                        className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
+                          goalRoutineSelection.has(diet.id)
+                            ? "border-brand bg-brand/10"
+                            : "border-border/60 hover:border-border/80"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">{diet.dietName}</span>
+                          <input
+                            type="checkbox"
+                            checked={goalRoutineSelection.has(diet.id)}
+                            onChange={() => {}}
+                            className="h-4 w-4"
+                          />
+                        </div>
+                      </button>
+                    ))}
                 </div>
               </div>
             )}
@@ -2662,35 +2711,39 @@ export default function Goals() {
               <div className="space-y-3">
                 <p className="text-sm font-semibold">Hábitos ({userHabits.length})</p>
                 <div className="space-y-2">
-                  {userHabits.map((habit) => (
-                    <button
-                      key={habit.id}
-                      onClick={() => {
-                        const newSelection = new Set(goalRoutineSelection);
-                        if (newSelection.has(habit.id)) {
-                          newSelection.delete(habit.id);
-                        } else {
-                          newSelection.add(habit.id);
-                        }
-                        setGoalRoutineSelection(newSelection);
-                      }}
-                      className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
-                        goalRoutineSelection.has(habit.id)
-                          ? "border-brand bg-brand/10"
-                          : "border-border/60 hover:border-border/80"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{habit.habitName}</span>
-                        <input
-                          type="checkbox"
-                          checked={goalRoutineSelection.has(habit.id)}
-                          onChange={() => {}}
-                          className="h-4 w-4"
-                        />
-                      </div>
-                    </button>
-                  ))}
+                  {userHabits
+                    .filter((habit) =>
+                      habit.habitName?.toLowerCase().includes(routineSearchQuery.toLowerCase())
+                    )
+                    .map((habit) => (
+                      <button
+                        key={habit.id}
+                        onClick={() => {
+                          const newSelection = new Set(goalRoutineSelection);
+                          if (newSelection.has(habit.id)) {
+                            newSelection.delete(habit.id);
+                          } else {
+                            newSelection.add(habit.id);
+                          }
+                          setGoalRoutineSelection(newSelection);
+                        }}
+                        className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
+                          goalRoutineSelection.has(habit.id)
+                            ? "border-brand bg-brand/10"
+                            : "border-border/60 hover:border-border/80"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">{habit.habitName}</span>
+                          <input
+                            type="checkbox"
+                            checked={goalRoutineSelection.has(habit.id)}
+                            onChange={() => {}}
+                            className="h-4 w-4"
+                          />
+                        </div>
+                      </button>
+                    ))}
                 </div>
               </div>
             )}
@@ -2705,14 +2758,27 @@ export default function Goals() {
             {goalRoutineSelection.size > 0 && (
               <Button
                 className="w-full rounded-full mt-4"
-                onClick={() => {
-                  toast({
-                    title: "Rotinas Vinculadas!",
-                    description: `${goalRoutineSelection.size} rotina(s) vinculada(s) com sucesso.`,
-                  });
-                  setGoalRoutineModalOpen(false);
-                  setGoalRoutineSelection(new Set());
-                  setSelectedGoalForRoutines(null);
+                onClick={async () => {
+                  try {
+                    if (selectedGoalForRoutines && user) {
+                      for (const routineId of Array.from(goalRoutineSelection)) {
+                        await updateRoutineGoalDb(routineId, String(selectedGoalForRoutines.id));
+                      }
+                    }
+                    toast({
+                      title: "Rotinas Vinculadas!",
+                      description: `${goalRoutineSelection.size} rotina(s) vinculada(s) com sucesso.`,
+                    });
+                    setGoalRoutineModalOpen(false);
+                    setGoalRoutineSelection(new Set());
+                    setSelectedGoalForRoutines(null);
+                    setRoutineSearchQuery("");
+                  } catch (err) {
+                    toast({
+                      title: "Erro ao vincular rotinas",
+                      variant: "destructive",
+                    });
+                  }
                 }}
               >
                 Confirmar Seleção
