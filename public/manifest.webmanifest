@@ -1,7 +1,7 @@
 {
-  "name": "RitmoFit",
-  "short_name": "RitmoFit",
-  "description": "RitmoFit — rede social fitness focada em consistência.",
+  "name": "Linka",
+  "short_name": "Linka",
+  "description": "Linka — rede social fitness focada em consistência.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
