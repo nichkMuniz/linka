@@ -42,7 +42,7 @@ function AuthLoadingScreen() {
   return (
     <div className="grid min-h-dvh place-items-center bg-background p-6">
       <div className="text-center">
-        <div className="text-lg font-semibold tracking-tight">RitmoFit</div>
+        <div className="text-lg font-semibold tracking-tight">Linka</div>
         <div className="mt-1 text-sm text-muted-foreground">Carregando…</div>
       </div>
     </div>
