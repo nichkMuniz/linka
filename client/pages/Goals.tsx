@@ -191,6 +191,8 @@ export default function Goals() {
   const [goalRoutineModalOpen, setGoalRoutineModalOpen] = React.useState(false);
   const [selectedGoalForRoutines, setSelectedGoalForRoutines] = React.useState<any>(null);
   const [goalRoutineSelection, setGoalRoutineSelection] = React.useState<Set<string>>(new Set());
+
+  // Completion tracking for Rotinas tab items
   const [completedDietIds, setCompletedDietIds] = React.useState<Set<string>>(new Set());
   const [completedHabitIds, setCompletedHabitIds] = React.useState<Set<string>>(new Set());
 
@@ -1372,72 +1374,143 @@ export default function Goals() {
                           itemsForType.map((item: any) => (
                             <div
                               key={item.id}
-                              className="flex items-start gap-3 rounded-lg"
+                              className="space-y-2"
                             >
-                              {/* Clickable item - only for exercises (typeCode === 1) */}
-                              <button
-                                onClick={() => {
-                                  if (typeCode === 1) {
-                                    handleOpenWorkoutHistory({
-                                      id: item.workout_id,
-                                      name: item.workoutName,
-                                      description: item.workoutDescription || undefined,
-                                      photo: item.workoutPhoto || undefined,
-                                    } as any);
-                                  }
-                                }}
-                                className={`flex-1 flex items-start gap-3 p-2 rounded-lg transition-colors ${
-                                  typeCode === 1 ? "hover:bg-muted/50 cursor-pointer" : ""
-                                }`}
-                                disabled={typeCode !== 1}
-                              >
-                                {/* Image for exercises - only show if exists */}
-                                {typeCode === 1 && item.workoutPhoto && (
-                                  <img
-                                    src={item.workoutPhoto}
-                                    alt={item.workoutName}
-                                    className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
-                                  />
-                                )}
+                              <div className="flex items-start gap-3 rounded-lg">
+                                {/* Clickable item - only for exercises (typeCode === 1) */}
+                                <button
+                                  onClick={() => {
+                                    if (typeCode === 1) {
+                                      handleOpenWorkoutHistory({
+                                        id: item.workout_id,
+                                        name: item.workoutName,
+                                        description: item.workoutDescription || undefined,
+                                        photo: item.workoutPhoto || undefined,
+                                      } as any);
+                                    }
+                                  }}
+                                  className={`flex-1 flex items-start gap-3 p-2 rounded-lg transition-colors ${
+                                    typeCode === 1 ? "hover:bg-muted/50 cursor-pointer" : ""
+                                  }`}
+                                  disabled={typeCode !== 1}
+                                >
+                                  {/* Image for exercises - only show if exists */}
+                                  {typeCode === 1 && item.workoutPhoto && (
+                                    <img
+                                      src={item.workoutPhoto}
+                                      alt={item.workoutName}
+                                      className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
+                                    />
+                                  )}
 
-                                <div className="flex-1 min-w-0 text-left">
-                                  <p className="text-sm font-medium truncate">
-                                    {typeCode === 1
-                                      ? item.workoutName
-                                      : typeCode === 2
-                                        ? item.dietName
-                                        : item.habitName}
-                                  </p>
-                                  {(item.workoutDescription ||
-                                    item.dietDescription ||
-                                    item.habitDescription) && (
-                                      <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                                        {typeCode === 1
-                                          ? item.workoutDescription
-                                          : typeCode === 2
-                                            ? item.dietDescription
-                                            : item.habitDescription}
+                                  <div className="flex-1 min-w-0 text-left">
+                                    <p className="text-sm font-medium truncate">
+                                      {typeCode === 1
+                                        ? item.workoutName
+                                        : typeCode === 2
+                                          ? item.dietName
+                                          : item.habitName}
+                                    </p>
+                                    {(item.workoutDescription ||
+                                      item.dietDescription ||
+                                      item.habitDescription) && (
+                                        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                          {typeCode === 1
+                                            ? item.workoutDescription
+                                            : typeCode === 2
+                                              ? item.dietDescription
+                                              : item.habitDescription}
+                                        </p>
+                                      )}
+                                    {typeCode === 2 && item.dietCalories && (
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        {item.dietCalories} cal
                                       </p>
                                     )}
-                                  {typeCode === 2 && item.dietCalories && (
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      {item.dietCalories} cal
-                                    </p>
-                                  )}
-                                </div>
-                              </button>
+                                  </div>
+                                </button>
 
-                              {/* Delete button */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteExercise(item.id);
-                                }}
-                                className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
-                                title="Remover exercício"
-                              >
-                                <Trash2 className="h-4 w-4 text-red-500" />
-                              </button>
+                                {/* Mark as completed button for diets and habits */}
+                                {typeCode === 2 && (
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const isCompleting = !completedDietIds.has(item.id);
+                                      const newCompletedIds = new Set(completedDietIds);
+                                      if (isCompleting) {
+                                        newCompletedIds.add(item.id);
+                                      } else {
+                                        newCompletedIds.delete(item.id);
+                                      }
+                                      setCompletedDietIds(newCompletedIds);
+                                      try {
+                                        await toggleUserDietCompletionDb(item.id, isCompleting);
+                                        toast({
+                                          title: isCompleting ? "Dieta concluída!" : "Dieta desmarcada",
+                                        });
+                                      } catch (err) {
+                                        toast({
+                                          title: "Erro ao atualizar status da dieta",
+                                          variant: "destructive",
+                                        });
+                                      }
+                                    }}
+                                    className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${
+                                      completedDietIds.has(item.id)
+                                        ? "bg-green-500/20 text-green-700"
+                                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                                    }`}
+                                  >
+                                    {completedDietIds.has(item.id) ? "✓" : "○"}
+                                  </button>
+                                )}
+
+                                {typeCode === 3 && (
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const isCompleting = !completedHabitIds.has(item.id);
+                                      const newCompletedIds = new Set(completedHabitIds);
+                                      if (isCompleting) {
+                                        newCompletedIds.add(item.id);
+                                      } else {
+                                        newCompletedIds.delete(item.id);
+                                      }
+                                      setCompletedHabitIds(newCompletedIds);
+                                      try {
+                                        await toggleUserHabitCompletionDb(item.id, isCompleting);
+                                        toast({
+                                          title: isCompleting ? "Hábito concluído!" : "Hábito desmarcado",
+                                        });
+                                      } catch (err) {
+                                        toast({
+                                          title: "Erro ao atualizar status do hábito",
+                                          variant: "destructive",
+                                        });
+                                      }
+                                    }}
+                                    className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${
+                                      completedHabitIds.has(item.id)
+                                        ? "bg-green-500/20 text-green-700"
+                                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                                    }`}
+                                  >
+                                    {completedHabitIds.has(item.id) ? "✓" : "○"}
+                                  </button>
+                                )}
+
+                                {/* Delete button */}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteExercise(item.id);
+                                  }}
+                                  className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
+                                  title="Remover exercício"
+                                >
+                                  <Trash2 className="h-4 w-4 text-red-500" />
+                                </button>
+                              </div>
                             </div>
                           ))
                         ) : (
@@ -2466,7 +2539,7 @@ export default function Goals() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
-                      <p className="font-semibold text-sm line-clamp-2">{goal.nameGoal}</p>
+                      <p className="font-semibold text-sm line-clamp-2">{goal.description}</p>
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className="text-lg font-bold text-brand">
@@ -2552,9 +2625,18 @@ export default function Goals() {
                 <p className="text-sm font-semibold">Dietas ({userDiets.length})</p>
                 <div className="space-y-2">
                   {userDiets.map((diet) => (
-                    <div
+                    <button
                       key={diet.id}
-                      className={`w-full p-3 rounded-lg border-2 transition-all text-left space-y-2 ${
+                      onClick={() => {
+                        const newSelection = new Set(goalRoutineSelection);
+                        if (newSelection.has(diet.id)) {
+                          newSelection.delete(diet.id);
+                        } else {
+                          newSelection.add(diet.id);
+                        }
+                        setGoalRoutineSelection(newSelection);
+                      }}
+                      className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
                         goalRoutineSelection.has(diet.id)
                           ? "border-brand bg-brand/10"
                           : "border-border/60 hover:border-border/80"
@@ -2565,49 +2647,11 @@ export default function Goals() {
                         <input
                           type="checkbox"
                           checked={goalRoutineSelection.has(diet.id)}
-                          onChange={() => {
-                            const newSelection = new Set(goalRoutineSelection);
-                            if (newSelection.has(diet.id)) {
-                              newSelection.delete(diet.id);
-                            } else {
-                              newSelection.add(diet.id);
-                            }
-                            setGoalRoutineSelection(newSelection);
-                          }}
-                          className="h-4 w-4 cursor-pointer"
+                          onChange={() => {}}
+                          className="h-4 w-4"
                         />
                       </div>
-                      <button
-                        onClick={async () => {
-                          const isCompleting = !completedDietIds.has(diet.id);
-                          const newCompletedIds = new Set(completedDietIds);
-                          if (isCompleting) {
-                            newCompletedIds.add(diet.id);
-                          } else {
-                            newCompletedIds.delete(diet.id);
-                          }
-                          setCompletedDietIds(newCompletedIds);
-                          try {
-                            await toggleUserDietCompletionDb(diet.id, isCompleting);
-                            toast({
-                              title: isCompleting ? "Dieta concluída!" : "Dieta desmarcada",
-                            });
-                          } catch (err) {
-                            toast({
-                              title: "Erro ao atualizar status da dieta",
-                              variant: "destructive",
-                            });
-                          }
-                        }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
-                          completedDietIds.has(diet.id)
-                            ? "bg-green-500/20 text-green-700 border border-green-300/50"
-                            : "bg-muted text-muted-foreground border border-border/60 hover:bg-muted/80"
-                        }`}
-                      >
-                        {completedDietIds.has(diet.id) ? "✓ Concluída" : "Marcar como Concluída"}
-                      </button>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -2619,9 +2663,18 @@ export default function Goals() {
                 <p className="text-sm font-semibold">Hábitos ({userHabits.length})</p>
                 <div className="space-y-2">
                   {userHabits.map((habit) => (
-                    <div
+                    <button
                       key={habit.id}
-                      className={`w-full p-3 rounded-lg border-2 transition-all text-left space-y-2 ${
+                      onClick={() => {
+                        const newSelection = new Set(goalRoutineSelection);
+                        if (newSelection.has(habit.id)) {
+                          newSelection.delete(habit.id);
+                        } else {
+                          newSelection.add(habit.id);
+                        }
+                        setGoalRoutineSelection(newSelection);
+                      }}
+                      className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
                         goalRoutineSelection.has(habit.id)
                           ? "border-brand bg-brand/10"
                           : "border-border/60 hover:border-border/80"
@@ -2632,49 +2685,11 @@ export default function Goals() {
                         <input
                           type="checkbox"
                           checked={goalRoutineSelection.has(habit.id)}
-                          onChange={() => {
-                            const newSelection = new Set(goalRoutineSelection);
-                            if (newSelection.has(habit.id)) {
-                              newSelection.delete(habit.id);
-                            } else {
-                              newSelection.add(habit.id);
-                            }
-                            setGoalRoutineSelection(newSelection);
-                          }}
-                          className="h-4 w-4 cursor-pointer"
+                          onChange={() => {}}
+                          className="h-4 w-4"
                         />
                       </div>
-                      <button
-                        onClick={async () => {
-                          const isCompleting = !completedHabitIds.has(habit.id);
-                          const newCompletedIds = new Set(completedHabitIds);
-                          if (isCompleting) {
-                            newCompletedIds.add(habit.id);
-                          } else {
-                            newCompletedIds.delete(habit.id);
-                          }
-                          setCompletedHabitIds(newCompletedIds);
-                          try {
-                            await toggleUserHabitCompletionDb(habit.id, isCompleting);
-                            toast({
-                              title: isCompleting ? "Hábito concluído!" : "Hábito desmarcado",
-                            });
-                          } catch (err) {
-                            toast({
-                              title: "Erro ao atualizar status do hábito",
-                              variant: "destructive",
-                            });
-                          }
-                        }}
-                        className={`w-full py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
-                          completedHabitIds.has(habit.id)
-                            ? "bg-green-500/20 text-green-700 border border-green-300/50"
-                            : "bg-muted text-muted-foreground border border-border/60 hover:bg-muted/80"
-                        }`}
-                      >
-                        {completedHabitIds.has(habit.id) ? "✓ Concluído" : "Marcar como Concluído"}
-                      </button>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -2698,8 +2713,6 @@ export default function Goals() {
                   setGoalRoutineModalOpen(false);
                   setGoalRoutineSelection(new Set());
                   setSelectedGoalForRoutines(null);
-                  setCompletedDietIds(new Set());
-                  setCompletedHabitIds(new Set());
                 }}
               >
                 Confirmar Seleção
