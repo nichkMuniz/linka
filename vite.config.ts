@@ -14,8 +14,8 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
-        name: "RitmoFit",
-        short_name: "RitmoFit",
+        name: "Linka",
+        short_name: "Linka",
         theme_color: "#111827",
         background_color: "#111827",
         display: "standalone",
