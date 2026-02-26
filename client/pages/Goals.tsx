@@ -542,10 +542,15 @@ export default function Goals() {
           description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${goal.nameGoal}".`,
         });
       } catch (err: any) {
-        console.error("Error during check-in:", err);
+        const errorMsg = err?.message || "Tente novamente.";
+        console.error("Error during check-in with goal:", {
+          message: errorMsg,
+          error: err,
+          goalId: goal?.id,
+        });
         toast({
           title: "Erro ao fazer check-in",
-          description: err?.message || "Tente novamente.",
+          description: errorMsg,
           variant: "destructive",
         });
       } finally {
@@ -570,10 +575,14 @@ export default function Goals() {
           description: "Parabéns! Você completou seu check-in de hoje.",
         });
       } catch (err: any) {
-        console.error("Error during check-in:", err);
+        const errorMsg = err?.message || "Tente novamente.";
+        console.error("Error during check-in (no goal):", {
+          message: errorMsg,
+          error: err,
+        });
         toast({
           title: "Erro ao fazer check-in",
-          description: err?.message || "Tente novamente.",
+          description: errorMsg,
           variant: "destructive",
         });
       } finally {
@@ -617,10 +626,15 @@ export default function Goals() {
         description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${selectedCheckInGoal.nameGoal}".`,
       });
     } catch (err: any) {
-      console.error("Error during check-in:", err);
+      const errorMsg = err?.message || "Tente novamente.";
+      console.error("Error during check-in (selected goal):", {
+        message: errorMsg,
+        error: err,
+        selectedGoalId: selectedCheckInGoal?.id,
+      });
       toast({
         title: "Erro ao fazer check-in",
-        description: err?.message || "Tente novamente.",
+        description: errorMsg,
         variant: "destructive",
       });
     } finally {
@@ -2128,11 +2142,10 @@ export default function Goals() {
                       if (!user || !editingGoal) return;
                       setIsUpdatingGoal(true);
                       try {
-                        await updateUserGoalDb(
-                          editingGoal.id,
-                          editGoalDuration,
-                          editGoalQuantity,
-                        );
+                        await updateUserGoalDb(editingGoal.id, {
+                          duration: editGoalDuration,
+                          quantity: editGoalQuantity,
+                        });
 
                         // Update local user goals state
                         const updatedUserGoals = userGoals.map((goal) =>
@@ -2152,9 +2165,15 @@ export default function Goals() {
                         });
                         setEditGoalModalOpen(false);
                       } catch (err: any) {
+                        const errorMsg = err?.message || "Tente novamente.";
+                        console.error("Error updating goal:", {
+                          message: errorMsg,
+                          error: err,
+                          goalId: editingGoal?.id,
+                        });
                         toast({
                           title: "Erro ao atualizar meta",
-                          description: err?.message || "Tente novamente.",
+                          description: errorMsg,
                           variant: "destructive",
                         });
                       } finally {

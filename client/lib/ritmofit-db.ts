@@ -406,22 +406,42 @@ export async function createUserGoalDb(
 
 export async function updateUserGoalDb(
   userGoalId: string,
-  duration: number,
-  quantity: number,
+  updates: {
+    duration?: number;
+    quantity?: number;
+    actual_progress?: number;
+    perc?: number;
+    days_completed?: number;
+  },
 ) {
   if (!hasSupabaseConfig || !supabase) return;
 
+  const updateData: any = {};
+
+  // Map actual_progress to days_completed for database consistency
+  if (updates.actual_progress !== undefined) {
+    updateData.days_completed = updates.actual_progress;
+  }
+
+  // Copy other fields as-is
+  if (updates.duration !== undefined) updateData.duration = updates.duration;
+  if (updates.quantity !== undefined) updateData.quantity = updates.quantity;
+  if (updates.perc !== undefined) updateData.perc = Math.round(updates.perc);
+  if (updates.days_completed !== undefined) updateData.days_completed = updates.days_completed;
+
   const { error } = await supabase
     .from("user_goals")
-    .update({
-      duration,
-      quantity,
-    })
+    .update(updateData)
     .eq("id", userGoalId);
 
   if (error) {
-    console.error("Error updating user goal:", error);
-    throw error;
+    console.error("Error updating user goal:", {
+      code: error.code,
+      message: error.message,
+      userGoalId,
+      updates: updateData,
+    });
+    throw new Error(`Failed to update goal: ${error.message}`);
   }
 }
 
