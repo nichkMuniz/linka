@@ -1490,20 +1490,11 @@ export default function Goals() {
                                       } as any);
                                     }
                                   }}
-                                  className={`flex-1 flex items-start gap-3 p-2 rounded-lg transition-colors ${
+                                  className={`flex-1 flex items-start p-2 rounded-lg transition-colors ${
                                     typeCode === 1 ? "hover:bg-muted/50 cursor-pointer" : ""
                                   }`}
                                   disabled={typeCode !== 1}
                                 >
-                                  {/* Image for exercises - only show if exists */}
-                                  {typeCode === 1 && item.workoutPhoto && (
-                                    <img
-                                      src={item.workoutPhoto}
-                                      alt={item.workoutName}
-                                      className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
-                                    />
-                                  )}
-
                                   <div className="flex-1 min-w-0 text-left">
                                     <p className="text-sm font-medium truncate">
                                       {typeCode === 1
@@ -1703,7 +1694,7 @@ export default function Goals() {
                           <button
                             key={workout.id}
                             onClick={() => handleSelectItem(workout.id)}
-                            className={`w-full p-3 rounded-lg border transition-all text-left flex gap-3 ${
+                            className={`w-full p-3 rounded-lg border transition-all text-left ${
                               isNewSelection
                                 ? "border-brand bg-brand/10"
                                 : isAlreadySelected
@@ -1711,19 +1702,8 @@ export default function Goals() {
                                   : "border-border/60 hover:border-border/80"
                             }`}
                           >
-                            {/* Exercise Image */}
-                            {workout.photo ? (
-                              <img
-                                src={workout.photo}
-                                alt={workout.name}
-                                className="h-20 w-20 rounded-lg object-cover flex-shrink-0"
-                              />
-                            ) : (
-                              <div className="h-20 w-20 rounded-lg bg-muted flex-shrink-0" />
-                            )}
-
                             {/* Exercise Info */}
-                            <div className="flex-1 flex flex-col justify-between">
+                            <div className="flex items-start justify-between">
                               <div>
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex-1">
@@ -1845,25 +1825,27 @@ export default function Goals() {
       {/* Workout Modal */}
       <Dialog open={workoutModalOpen} onOpenChange={setWorkoutModalOpen}>
         <DialogContent className="max-h-[90dvh] overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <DialogTitle>Registrar Treino</DialogTitle>
+          </div>
+
+          {/* Timer and Finish Button - Sticky at top */}
+          <div className="flex items-center gap-3 mt-4">
+            <div className="flex-1 p-3 rounded-lg border border-brand/30 bg-brand/5">
+              <p className="text-xs font-medium text-muted-foreground mb-1">
+                Duração
+              </p>
+              <p className="text-2xl font-bold text-brand">
+                {formatDuration(workoutDuration)}
+              </p>
+            </div>
             <button
               onClick={handleFinishWorkout}
-              className="rounded-full h-12 w-12 p-2 bg-destructive hover:bg-destructive/90 text-white flex items-center justify-center transition-colors flex-shrink-0"
+              className="rounded-lg h-14 px-4 bg-destructive hover:bg-destructive/90 text-white flex items-center justify-center transition-colors flex-shrink-0"
               title="Encerrar treino"
             >
               <Pause className="h-5 w-5" />
             </button>
-          </div>
-
-          {/* Timer - Sticky at top */}
-          <div className="mt-4 p-4 rounded-lg border border-brand/30 bg-brand/5">
-            <p className="text-xs font-medium text-muted-foreground text-center mb-2">
-              Duração
-            </p>
-            <p className="text-4xl font-bold text-brand text-center">
-              {formatDuration(workoutDuration)}
-            </p>
           </div>
 
           {/* Exercises List - Scrollable */}
@@ -1875,14 +1857,7 @@ export default function Goals() {
                   className="border border-border/60 rounded-lg overflow-hidden"
                 >
                   {/* Exercise Header */}
-                  <div className="flex items-start gap-3 p-3 bg-muted/30">
-                    {workout.workoutPhoto && (
-                      <img
-                        src={workout.workoutPhoto}
-                        alt={workout.workoutName}
-                        className="h-14 w-14 rounded-lg object-cover flex-shrink-0"
-                      />
-                    )}
+                  <div className="flex items-start p-3 bg-muted/30">
                     <div className="flex-1 min-w-0">
                       <button
                         onClick={() => handleOpenWorkoutHistory({
