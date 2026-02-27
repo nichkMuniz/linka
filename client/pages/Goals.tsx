@@ -1830,156 +1830,144 @@ export default function Goals() {
           </div>
 
           {/* Timer and Finish Button - Sticky at top */}
-          <div className="flex items-center gap-3 mt-4">
-            <div className="flex-1 p-3 rounded-lg border border-brand/30 bg-brand/5">
-              <p className="text-xs font-medium text-muted-foreground mb-1">
-                Duração
-              </p>
-              <p className="text-2xl font-bold text-brand">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 p-2 rounded-lg border border-brand/20 bg-brand/5">
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Duração</p>
+              <p className="text-lg font-bold text-brand">
                 {formatDuration(workoutDuration)}
               </p>
             </div>
             <button
               onClick={handleFinishWorkout}
-              className="rounded-lg h-14 px-4 bg-destructive hover:bg-destructive/90 text-white flex items-center justify-center transition-colors flex-shrink-0"
+              className="rounded-lg h-12 px-4 bg-destructive hover:bg-destructive/90 text-white flex items-center justify-center transition-colors flex-shrink-0 font-medium text-sm"
               title="Encerrar treino"
             >
-              <Pause className="h-5 w-5" />
+              <Pause className="h-4 w-4" />
             </button>
           </div>
 
           {/* Exercises List - Scrollable */}
-          <div className="flex-1 overflow-y-auto mt-4 space-y-4 pr-2">
+          <div className="flex-1 overflow-y-auto mt-2 space-y-3 pr-2">
             {userWorkouts.length > 0 ? (
               userWorkouts.map((workout) => (
                 <div
                   key={workout.id}
-                  className="border border-border/60 rounded-lg overflow-hidden"
+                  className="rounded-lg overflow-hidden border border-border/40"
                 >
-                  {/* Exercise Header */}
-                  <div className="flex items-start p-3 bg-muted/30">
-                    <div className="flex-1 min-w-0">
-                      <button
-                        onClick={() => handleOpenWorkoutHistory({
-                          id: workout.workout_id,
-                          name: workout.workoutName,
-                          description: workout.workoutDescription || undefined,
-                          photo: workout.workoutPhoto || undefined,
-                        })}
-                        className="text-sm font-bold truncate hover:text-brand hover:underline text-left transition-colors"
-                      >
-                        {workout.workoutName}
-                      </button>
-                      {workout.workoutDescription && (
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
-                          {workout.workoutDescription}
-                        </p>
-                      )}
-                    </div>
+                  {/* Exercise Header - Minimalist */}
+                  <div className="p-2.5 bg-muted/20 border-b border-border/40">
+                    <button
+                      onClick={() => handleOpenWorkoutHistory({
+                        id: workout.workout_id,
+                        name: workout.workoutName,
+                        description: workout.workoutDescription || undefined,
+                        photo: workout.workoutPhoto || undefined,
+                      })}
+                      className="text-sm font-semibold truncate hover:text-brand hover:underline text-left transition-colors"
+                    >
+                      {workout.workoutName}
+                    </button>
                   </div>
 
-                  {/* Exercise Content */}
-                  <div className="p-3 space-y-3">
-                    {/* Rest Time */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground block">
-                        Descanso entre séries
-                      </label>
+                  {/* Series List - Focus on inputs */}
+                  <div className="p-2.5 space-y-2">
+                    {(workoutSeries[workout.workout_id] || []).map((series, index) => (
+                      <div
+                        key={index}
+                        className={`flex items-center gap-2 transition-all ${
+                          series.completed ? "opacity-50" : ""
+                        }`}
+                      >
+                        {/* Series number - Compact */}
+                        <div className="w-7 h-7 flex items-center justify-center rounded-full bg-brand/10 text-brand font-bold text-xs flex-shrink-0 text-center">
+                          {series.series}
+                        </div>
+
+                        {/* Inputs - Large and prominent */}
+                        <div className="flex items-center gap-2 flex-1">
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={series.kg === 0 ? "" : series.kg}
+                            onChange={(e) =>
+                              handleUpdateSerie(
+                                workout.workout_id,
+                                index,
+                                "kg",
+                                e.target.value,
+                              )
+                            }
+                            placeholder="kg"
+                            className="w-16 h-9 px-2.5 border border-border/60 rounded text-sm font-medium bg-background placeholder:text-muted-foreground/50"
+                          />
+                          <span className="text-sm font-medium text-muted-foreground">×</span>
+                          <input
+                            type="number"
+                            value={series.reps === 0 ? "" : series.reps}
+                            onChange={(e) =>
+                              handleUpdateSerie(
+                                workout.workout_id,
+                                index,
+                                "reps",
+                                e.target.value,
+                              )
+                            }
+                            placeholder="reps"
+                            className="w-16 h-9 px-2.5 border border-border/60 rounded text-sm font-medium bg-background placeholder:text-muted-foreground/50"
+                          />
+                        </div>
+
+                        {/* Completed toggle */}
+                        <button
+                          onClick={() =>
+                            handleToggleSerieCompleted(
+                              workout.workout_id,
+                              index,
+                            )
+                          }
+                          className="p-1.5 hover:bg-muted/60 rounded transition-colors flex-shrink-0"
+                          title={series.completed ? "Marcar como pendente" : "Marcar como concluído"}
+                        >
+                          {series.completed ? (
+                            <CheckCircle2 className="h-5 w-5 text-brand" />
+                          ) : (
+                            <Circle className="h-5 w-5 text-muted-foreground" />
+                          )}
+                        </button>
+                      </div>
+                    ))}
+
+                    {/* Add Series Button - Subtle */}
+                    <button
+                      onClick={() => handleAddSerie(workout.workout_id)}
+                      className="w-full mt-2 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors border border-dashed border-border/40 rounded hover:border-border/60"
+                    >
+                      <Plus className="h-3 w-3 inline mr-1" />
+                      Nova série
+                    </button>
+                  </div>
+
+                  {/* Rest Time - Collapsed */}
+                  <div className="px-2.5 py-2 bg-muted/10 border-t border-border/40">
+                    <details className="group">
+                      <summary className="text-xs font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+                        Descanso entre séries: {workoutExerciseRestTimes[workout.workout_id] ? (workoutExerciseRestTimes[workout.workout_id] < 60 ? `${workoutExerciseRestTimes[workout.workout_id]}s` : `${Math.floor(workoutExerciseRestTimes[workout.workout_id] / 60)}m`) : "Padrão"}
+                      </summary>
                       <select
                         value={workoutExerciseRestTimes[workout.workout_id] || ""}
                         onChange={(e) =>
                           handleSetExerciseRestTime(workout.workout_id, parseInt(e.target.value))
                         }
-                        className="w-full px-2.5 py-1.5 border border-border/60 rounded text-sm bg-background"
+                        className="w-full mt-2 px-2.5 py-1.5 border border-border/60 rounded text-xs bg-background"
                       >
-                        <option value="">Selecione</option>
+                        <option value="">Padrão</option>
                         {REST_TIME_OPTIONS.map((time) => (
                           <option key={time} value={time}>
                             {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
                           </option>
                         ))}
                       </select>
-                    </div>
-
-                    {/* Series List */}
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground">Séries</p>
-                      {(workoutSeries[workout.workout_id] || []).map((series, index) => (
-                        <div
-                          key={index}
-                          className={`p-2.5 bg-muted/40 rounded-lg border border-border/40 flex items-center gap-2 transition-all ${
-                            series.completed ? "opacity-60" : ""
-                          }`}
-                        >
-                          {/* Series number */}
-                          <div className="w-8 h-8 flex items-center justify-center rounded-full bg-brand/20 text-brand font-bold text-xs flex-shrink-0">
-                            {series.series}
-                          </div>
-
-                          {/* Inputs */}
-                          <div className="flex items-center gap-1.5 flex-1">
-                            <input
-                              type="number"
-                              step="0.5"
-                              value={series.kg === 0 ? "" : series.kg}
-                              onChange={(e) =>
-                                handleUpdateSerie(
-                                  workout.workout_id,
-                                  index,
-                                  "kg",
-                                  e.target.value,
-                                )
-                              }
-                              placeholder="kg"
-                              className="w-14 h-7 px-1.5 border border-border/60 rounded text-xs bg-background"
-                            />
-                            <span className="text-xs text-muted-foreground">×</span>
-                            <input
-                              type="number"
-                              value={series.reps === 0 ? "" : series.reps}
-                              onChange={(e) =>
-                                handleUpdateSerie(
-                                  workout.workout_id,
-                                  index,
-                                  "reps",
-                                  e.target.value,
-                                )
-                              }
-                              placeholder="reps"
-                              className="w-14 h-7 px-1.5 border border-border/60 rounded text-xs bg-background"
-                            />
-                          </div>
-
-                          {/* Completed toggle */}
-                          <button
-                            onClick={() =>
-                              handleToggleSerieCompleted(
-                                workout.workout_id,
-                                index,
-                              )
-                            }
-                            className="p-1 hover:bg-muted/60 rounded transition-colors flex-shrink-0"
-                          >
-                            {series.completed ? (
-                              <CheckCircle2 className="h-5 w-5 text-brand" />
-                            ) : (
-                              <Circle className="h-5 w-5 text-muted-foreground" />
-                            )}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Add Series Button */}
-                    <Button
-                      onClick={() => handleAddSerie(workout.workout_id)}
-                      variant="outline"
-                      size="sm"
-                      className="w-full text-xs h-7"
-                    >
-                      <Plus className="h-3 w-3 mr-1" />
-                      Série
-                    </Button>
+                    </details>
                   </div>
                 </div>
               ))
@@ -1991,16 +1979,14 @@ export default function Goals() {
           </div>
 
           {/* Bottom Actions - Sticky */}
-          <div className="mt-4 space-y-2 border-t border-border/40 pt-3">
-            <Button
+          <div className="mt-2 border-t border-border/40 pt-2">
+            <button
               onClick={() => handleAddExerciseFromWorkout()}
-              variant="outline"
-              size="sm"
-              className="w-full text-xs"
+              className="w-full py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors border border-dashed border-border/40 rounded hover:border-border/60"
             >
-              <Plus className="h-3 w-3 mr-1" />
+              <Plus className="h-3 w-3 inline mr-1" />
               Adicionar Exercício
-            </Button>
+            </button>
           </div>
         </DialogContent>
       </Dialog>
