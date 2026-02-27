@@ -411,23 +411,20 @@ export async function updateUserGoalDb(
     quantity?: number;
     actual_progress?: number;
     perc?: number;
-    days_completed?: number;
   },
 ) {
   if (!hasSupabaseConfig || !supabase) return;
 
   const updateData: any = {};
 
-  // Map actual_progress to days_completed for database consistency
-  if (updates.actual_progress !== undefined) {
-    updateData.days_completed = updates.actual_progress;
-  }
-
-  // Copy other fields as-is
+  // Copy duration and quantity as-is
   if (updates.duration !== undefined) updateData.duration = updates.duration;
   if (updates.quantity !== undefined) updateData.quantity = updates.quantity;
-  if (updates.perc !== undefined) updateData.perc = Math.round(updates.perc);
-  if (updates.days_completed !== undefined) updateData.days_completed = updates.days_completed;
+
+  // For perc: use provided value, or calculate from actual_progress if available
+  if (updates.perc !== undefined) {
+    updateData.perc = Math.round(updates.perc);
+  }
 
   const { error } = await supabase
     .from("user_goals")
@@ -435,13 +432,14 @@ export async function updateUserGoalDb(
     .eq("id", userGoalId);
 
   if (error) {
-    console.error("Error updating user goal:", {
-      code: error.code,
-      message: error.message,
+    const errorMsg = error?.message || String(error);
+    const errorCode = error?.code || "UNKNOWN";
+    console.error(`Error updating user goal [${errorCode}]:`, {
+      message: errorMsg,
       userGoalId,
       updates: updateData,
     });
-    throw new Error(`Failed to update goal: ${error.message}`);
+    throw new Error(`Failed to update goal: ${errorMsg}`);
   }
 }
 
@@ -467,6 +465,7 @@ export type UserGoal = {
   quantity: number;
   type_goal: number;
   perc: number;
+  actual_progress: number;
 };
 
 export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
@@ -535,16 +534,22 @@ export async function getUserGoalsByUserIdDb(
   }
 
   return userGoalsData.map(
-    (row: any) =>
-      ({
+    (row: any) => {
+      const quantity = Number(row.quantity ?? 0);
+      const perc = Number(row.perc ?? 0);
+      const actual_progress = Math.round((perc / 100) * quantity);
+
+      return {
         id: String(row.id),
         goal_id: String(row.goal_id ?? ""),
         description: goalsDescriptions.get(String(row.goal_id)) ?? "",
         duration: Number(row.duration ?? 0),
-        quantity: Number(row.quantity ?? 0),
+        quantity,
         type_goal: Number(row.type_goal ?? 0),
-        perc: Number(row.perc ?? 0),
-      }) satisfies UserGoal,
+        perc,
+        actual_progress,
+      } satisfies UserGoal;
+    },
   );
 }
 
@@ -584,14 +589,19 @@ export async function getUserGoalByIdDb(
     .eq("id", data.goal_id)
     .maybeSingle();
 
+  const quantity = Number(data.quantity ?? 0);
+  const perc = Number(data.perc ?? 0);
+  const actual_progress = Math.round((perc / 100) * quantity);
+
   return {
     id: String(data.id),
     goal_id: String(data.goal_id ?? ""),
     description: String(goalData?.description ?? ""),
     duration: Number(data.duration ?? 0),
-    quantity: Number(data.quantity ?? 0),
+    quantity,
     type_goal: Number(data.type_goal ?? 0),
-    perc: Number(data.perc ?? 0),
+    perc,
+    actual_progress,
   };
 }
 

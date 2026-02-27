@@ -24,6 +24,7 @@ export type PostWithStats = PostWithLikes & {
     duration: number;
     quantity: number;
     type_goal: number;
+    actual_progress: number;
   };
 };
 
@@ -90,6 +91,7 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
             duration: specificGoal.duration,
             quantity: specificGoal.quantity,
             type_goal: specificGoal.type_goal,
+            actual_progress: specificGoal.actual_progress,
           };
         }
       } else if (userGoals.length > 0) {
@@ -103,6 +105,7 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
           duration: goal.duration,
           quantity: goal.quantity,
           type_goal: goal.type_goal,
+          actual_progress: goal.actual_progress,
         };
       }
 

@@ -543,11 +543,7 @@ export default function Goals() {
         });
       } catch (err: any) {
         const errorMsg = err?.message || "Tente novamente.";
-        console.error("Error during check-in with goal:", {
-          message: errorMsg,
-          error: err,
-          goalId: goal?.id,
-        });
+        console.error("Error during check-in with goal:", errorMsg);
         toast({
           title: "Erro ao fazer check-in",
           description: errorMsg,
@@ -576,10 +572,7 @@ export default function Goals() {
         });
       } catch (err: any) {
         const errorMsg = err?.message || "Tente novamente.";
-        console.error("Error during check-in (no goal):", {
-          message: errorMsg,
-          error: err,
-        });
+        console.error("Error during check-in (no goal):", errorMsg);
         toast({
           title: "Erro ao fazer check-in",
           description: errorMsg,
@@ -627,11 +620,7 @@ export default function Goals() {
       });
     } catch (err: any) {
       const errorMsg = err?.message || "Tente novamente.";
-      console.error("Error during check-in (selected goal):", {
-        message: errorMsg,
-        error: err,
-        selectedGoalId: selectedCheckInGoal?.id,
-      });
+      console.error("Error during check-in (selected goal):", errorMsg);
       toast({
         title: "Erro ao fazer check-in",
         description: errorMsg,
@@ -2166,11 +2155,7 @@ export default function Goals() {
                         setEditGoalModalOpen(false);
                       } catch (err: any) {
                         const errorMsg = err?.message || "Tente novamente.";
-                        console.error("Error updating goal:", {
-                          message: errorMsg,
-                          error: err,
-                          goalId: editingGoal?.id,
-                        });
+                        console.error("Error updating goal:", errorMsg);
                         toast({
                           title: "Erro ao atualizar meta",
                           description: errorMsg,
