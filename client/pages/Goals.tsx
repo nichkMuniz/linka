@@ -162,6 +162,8 @@ export default function Goals() {
     string | null
   >(null);
   const [restTimerRemaining, setRestTimerRemaining] = React.useState(0);
+  const [restTimerPaused, setRestTimerPaused] = React.useState(false);
+  const [swipedSeriesId, setSwipedSeriesId] = React.useState<string | null>(null);
   const [finishWorkoutConfirmOpen, setFinishWorkoutConfirmOpen] = React.useState(false);
 
   // Edit goal modal state
@@ -778,7 +780,7 @@ export default function Goals() {
   // Rest timer effect
   React.useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (restTimerModalOpen && restTimerRemaining > 0) {
+    if (restTimerModalOpen && restTimerRemaining > 0 && !restTimerPaused) {
       interval = setInterval(() => {
         setRestTimerRemaining((prev) => {
           if (prev <= 1) {
@@ -1853,13 +1855,35 @@ export default function Goals() {
           </div>
 
           {/* Timer and Finish Button - Sticky at top */}
-          <div className="flex items-center gap-2">
-            <div className="flex-1 p-3 rounded-lg border-2 border-brand bg-brand/10">
-              <p className="text-xs font-semibold text-brand mb-1">Duração</p>
-              <p className="text-2xl font-bold text-brand">
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Duração</p>
+              <p className="text-xl font-bold text-foreground">
                 {formatDuration(workoutDuration)}
               </p>
             </div>
+
+            {/* Totals Display */}
+            <div className="flex items-end gap-4">
+              <div className="text-right">
+                <p className="text-xs font-medium text-muted-foreground">Séries</p>
+                <p className="text-xl font-bold text-foreground">
+                  {userWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).length, 0)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs font-medium text-muted-foreground">Kilos</p>
+                <p className="text-xl font-bold text-foreground">
+                  {Math.round(
+                    userWorkouts.reduce((total, workout) => {
+                      const series = workoutSeries[workout.workout_id] || [];
+                      return total + series.reduce((sum, s) => sum + (s.kg || 0), 0);
+                    }, 0) * 10
+                  ) / 10}
+                </p>
+              </div>
+            </div>
+
             <button
               onClick={handleFinishWorkout}
               className="rounded-lg h-12 px-4 bg-destructive hover:bg-destructive/90 text-white flex items-center justify-center transition-colors flex-shrink-0 font-medium text-sm"
@@ -1910,80 +1934,109 @@ export default function Goals() {
 
                   {/* Series List - Focus on inputs */}
                   <div className="p-3 space-y-2.5">
-                    {(workoutSeries[workout.workout_id] || []).map((series, index) => (
-                      <div
-                        key={index}
-                        className={`flex items-center gap-2.5 p-2.5 rounded-lg border border-border/40 transition-all ${
-                          series.completed ? "opacity-60 bg-muted/30" : "bg-muted/10"
-                        }`}
-                      >
-                        {/* Series number */}
-                        <div className="w-8 h-8 flex items-center justify-center rounded-full bg-brand text-white font-bold text-sm flex-shrink-0">
-                          {series.series}
-                        </div>
+                    {(workoutSeries[workout.workout_id] || []).map((series, index) => {
+                      const seriesKey = `${workout.workout_id}-${index}`;
+                      const isRevealed = swipedSeriesId === seriesKey;
 
-                        {/* Inputs - Large and prominent */}
-                        <div className="flex items-center gap-2 flex-1">
-                          <input
-                            type="number"
-                            step="0.5"
-                            value={series.kg === 0 ? "" : series.kg}
-                            onChange={(e) =>
-                              handleUpdateSerie(
-                                workout.workout_id,
-                                index,
-                                "kg",
-                                e.target.value,
-                              )
+                      return (
+                        <div
+                          key={index}
+                          className={`flex items-center gap-2 p-2.5 rounded-lg border border-border/40 transition-all ${
+                            series.completed ? "opacity-60 bg-muted/30" : "bg-muted/10"
+                          }`}
+                          onMouseEnter={() => setSwipedSeriesId(seriesKey)}
+                          onMouseLeave={() => setSwipedSeriesId(null)}
+                          onTouchStart={(e) => {
+                            const touch = e.touches[0];
+                            (e.currentTarget as any).touchStartX = touch.clientX;
+                          }}
+                          onTouchMove={(e) => {
+                            const touch = e.touches[0];
+                            const startX = (e.currentTarget as any).touchStartX;
+                            const deltaX = startX - touch.clientX;
+
+                            if (deltaX > 50) {
+                              setSwipedSeriesId(seriesKey);
+                            } else if (deltaX < -50) {
+                              setSwipedSeriesId(null);
                             }
-                            placeholder="kg"
-                            className="w-20 h-11 px-3 border-2 border-border/60 rounded-lg text-base font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
-                          />
-                          <span className="text-base font-bold text-muted-foreground">×</span>
-                          <input
-                            type="number"
-                            value={series.reps === 0 ? "" : series.reps}
-                            onChange={(e) =>
-                              handleUpdateSerie(
-                                workout.workout_id,
-                                index,
-                                "reps",
-                                e.target.value,
-                              )
-                            }
-                            placeholder="reps"
-                            className="w-20 h-11 px-3 border-2 border-border/60 rounded-lg text-base font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
-                          />
+                          }}
+                          onTouchEnd={(e) => {
+                            (e.currentTarget as any).touchStartX = null;
+                          }}
+                        >
+                          {/* Series number */}
+                          <div className="w-7 h-7 flex items-center justify-center rounded-full bg-brand text-white font-bold text-xs flex-shrink-0">
+                            {series.series}
+                          </div>
+
+                          {/* Inputs - Large and prominent */}
+                          <div className="flex items-center gap-1.5 flex-1">
+                            <input
+                              type="number"
+                              step="0.5"
+                              value={series.kg === 0 ? "" : series.kg}
+                              onChange={(e) =>
+                                handleUpdateSerie(
+                                  workout.workout_id,
+                                  index,
+                                  "kg",
+                                  e.target.value,
+                                )
+                              }
+                              placeholder="kg"
+                              className="w-16 h-10 px-2 border-2 border-border/60 rounded text-sm font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
+                            />
+                            <span className="text-sm font-bold text-muted-foreground">×</span>
+                            <input
+                              type="number"
+                              value={series.reps === 0 ? "" : series.reps}
+                              onChange={(e) =>
+                                handleUpdateSerie(
+                                  workout.workout_id,
+                                  index,
+                                  "reps",
+                                  e.target.value,
+                                )
+                              }
+                              placeholder="reps"
+                              className="w-16 h-10 px-2 border-2 border-border/60 rounded text-sm font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
+                            />
+                          </div>
+
+                          {/* Completed toggle and Delete button - side by side */}
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button
+                              onClick={() =>
+                                handleToggleSerieCompleted(
+                                  workout.workout_id,
+                                  index,
+                                )
+                              }
+                              className="p-1.5 hover:bg-muted/60 rounded transition-colors"
+                              title={series.completed ? "Marcar como pendente" : "Marcar como concluído"}
+                            >
+                              {series.completed ? (
+                                <CheckCircle2 className="h-4 w-4 text-brand" />
+                              ) : (
+                                <Circle className="h-4 w-4 text-muted-foreground" />
+                              )}
+                            </button>
+
+                            {/* Delete button - Show on hover/swipe */}
+                            <button
+                              onClick={() => handleDeleteSerie(workout.workout_id, index)}
+                              className={`p-1.5 hover:bg-red-500/10 rounded transition-all duration-200 ${
+                                isRevealed ? "opacity-100 w-auto" : "opacity-0 w-0 overflow-hidden"
+                              }`}
+                              title="Remover série"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </button>
+                          </div>
                         </div>
-
-                        {/* Completed toggle */}
-                        <button
-                          onClick={() =>
-                            handleToggleSerieCompleted(
-                              workout.workout_id,
-                              index,
-                            )
-                          }
-                          className="p-2 hover:bg-muted/60 rounded transition-colors flex-shrink-0"
-                          title={series.completed ? "Marcar como pendente" : "Marcar como concluído"}
-                        >
-                          {series.completed ? (
-                            <CheckCircle2 className="h-5 w-5 text-brand" />
-                          ) : (
-                            <Circle className="h-5 w-5 text-muted-foreground" />
-                          )}
-                        </button>
-
-                        {/* Delete button */}
-                        <button
-                          onClick={() => handleDeleteSerie(workout.workout_id, index)}
-                          className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
-                          title="Remover série"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
 
                     {/* Add Series Button - Prominent */}
                     <button
@@ -2081,17 +2134,27 @@ export default function Goals() {
 
             <div className="flex gap-3 w-full">
               <Button
-                onClick={() => setRestTimerModalOpen(false)}
+                onClick={() => {
+                  setRestTimerModalOpen(false);
+                  setRestTimerPaused(false);
+                }}
                 variant="outline"
                 className="flex-1 rounded-full"
               >
                 Pular
               </Button>
               <Button
-                onClick={() => setRestTimerModalOpen(false)}
+                onClick={() => {
+                  if (restTimerRemaining === 0) {
+                    setRestTimerModalOpen(false);
+                    setRestTimerPaused(false);
+                  } else {
+                    setRestTimerPaused(!restTimerPaused);
+                  }
+                }}
                 className="flex-1 rounded-full"
               >
-                {restTimerRemaining === 0 ? "Próxima" : "Pausar"}
+                {restTimerRemaining === 0 ? "Próxima" : (restTimerPaused ? "Retomar" : "Pausar")}
               </Button>
             </div>
           </div>
