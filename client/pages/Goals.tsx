@@ -752,6 +752,29 @@ export default function Goals() {
     }
   };
 
+  const handleDeleteSerie = (workoutId: string, seriesIndex: number) => {
+    const currentSeries = workoutSeries[workoutId] || [];
+    const updated = currentSeries.filter((_, idx) => idx !== seriesIndex);
+
+    // Renumber the series
+    const renumbered = updated.map((serie, idx) => ({
+      ...serie,
+      series: idx + 1,
+    }));
+
+    setWorkoutSeries({
+      ...workoutSeries,
+      [workoutId]: renumbered,
+    });
+  };
+
+  const handleReorderExercises = (draggedIndex: number, targetIndex: number) => {
+    const reordered = [...userWorkouts];
+    const [dragged] = reordered.splice(draggedIndex, 1);
+    reordered.splice(targetIndex, 0, dragged);
+    setUserWorkouts(reordered);
+  };
+
   // Rest timer effect
   React.useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -1831,9 +1854,9 @@ export default function Goals() {
 
           {/* Timer and Finish Button - Sticky at top */}
           <div className="flex items-center gap-2">
-            <div className="flex-1 p-2 rounded-lg border border-brand/20 bg-brand/5">
-              <p className="text-xs font-medium text-muted-foreground mb-0.5">Duração</p>
-              <p className="text-lg font-bold text-brand">
+            <div className="flex-1 p-3 rounded-lg border-2 border-brand bg-brand/10">
+              <p className="text-xs font-semibold text-brand mb-1">Duração</p>
+              <p className="text-2xl font-bold text-brand">
                 {formatDuration(workoutDuration)}
               </p>
             </div>
@@ -1849,10 +1872,26 @@ export default function Goals() {
           {/* Exercises List - Scrollable */}
           <div className="flex-1 overflow-y-auto mt-2 space-y-3 pr-2">
             {userWorkouts.length > 0 ? (
-              userWorkouts.map((workout) => (
+              userWorkouts.map((workout, workoutIndex) => (
                 <div
                   key={workout.id}
-                  className="rounded-lg overflow-hidden border border-border/40"
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("workoutIndex", workoutIndex.toString());
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const sourceIndex = parseInt(e.dataTransfer.getData("workoutIndex"));
+                    if (sourceIndex !== workoutIndex) {
+                      handleReorderExercises(sourceIndex, workoutIndex);
+                    }
+                  }}
+                  className="rounded-lg overflow-hidden border-2 border-border/60 cursor-move hover:border-brand/50 transition-colors hover:bg-muted/20"
                 >
                   {/* Exercise Header - Minimalist */}
                   <div className="p-2.5 bg-muted/20 border-b border-border/40">
@@ -1870,16 +1909,16 @@ export default function Goals() {
                   </div>
 
                   {/* Series List - Focus on inputs */}
-                  <div className="p-2.5 space-y-2">
+                  <div className="p-3 space-y-2.5">
                     {(workoutSeries[workout.workout_id] || []).map((series, index) => (
                       <div
                         key={index}
-                        className={`flex items-center gap-2 transition-all ${
-                          series.completed ? "opacity-50" : ""
+                        className={`flex items-center gap-2.5 p-2.5 rounded-lg border border-border/40 transition-all ${
+                          series.completed ? "opacity-60 bg-muted/30" : "bg-muted/10"
                         }`}
                       >
-                        {/* Series number - Compact */}
-                        <div className="w-7 h-7 flex items-center justify-center rounded-full bg-brand/10 text-brand font-bold text-xs flex-shrink-0 text-center">
+                        {/* Series number */}
+                        <div className="w-8 h-8 flex items-center justify-center rounded-full bg-brand text-white font-bold text-sm flex-shrink-0">
                           {series.series}
                         </div>
 
@@ -1898,9 +1937,9 @@ export default function Goals() {
                               )
                             }
                             placeholder="kg"
-                            className="w-16 h-9 px-2.5 border border-border/60 rounded text-sm font-medium bg-background placeholder:text-muted-foreground/50"
+                            className="w-20 h-11 px-3 border-2 border-border/60 rounded-lg text-base font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
                           />
-                          <span className="text-sm font-medium text-muted-foreground">×</span>
+                          <span className="text-base font-bold text-muted-foreground">×</span>
                           <input
                             type="number"
                             value={series.reps === 0 ? "" : series.reps}
@@ -1913,7 +1952,7 @@ export default function Goals() {
                               )
                             }
                             placeholder="reps"
-                            className="w-16 h-9 px-2.5 border border-border/60 rounded text-sm font-medium bg-background placeholder:text-muted-foreground/50"
+                            className="w-20 h-11 px-3 border-2 border-border/60 rounded-lg text-base font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
                           />
                         </div>
 
@@ -1925,7 +1964,7 @@ export default function Goals() {
                               index,
                             )
                           }
-                          className="p-1.5 hover:bg-muted/60 rounded transition-colors flex-shrink-0"
+                          className="p-2 hover:bg-muted/60 rounded transition-colors flex-shrink-0"
                           title={series.completed ? "Marcar como pendente" : "Marcar como concluído"}
                         >
                           {series.completed ? (
@@ -1934,15 +1973,24 @@ export default function Goals() {
                             <Circle className="h-5 w-5 text-muted-foreground" />
                           )}
                         </button>
+
+                        {/* Delete button */}
+                        <button
+                          onClick={() => handleDeleteSerie(workout.workout_id, index)}
+                          className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
+                          title="Remover série"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </button>
                       </div>
                     ))}
 
-                    {/* Add Series Button - Subtle */}
+                    {/* Add Series Button - Prominent */}
                     <button
                       onClick={() => handleAddSerie(workout.workout_id)}
-                      className="w-full mt-2 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors border border-dashed border-border/40 rounded hover:border-border/60"
+                      className="w-full mt-1 py-2.5 text-sm font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded-lg border-2 border-brand"
                     >
-                      <Plus className="h-3 w-3 inline mr-1" />
+                      <Plus className="h-4 w-4 inline mr-2" />
                       Nova série
                     </button>
                   </div>
