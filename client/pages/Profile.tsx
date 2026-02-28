@@ -34,6 +34,8 @@ import {
   isFollowingDb,
   getCommercialProfileDb,
   createOrUpdateCommercialProfileDb,
+  getWorkoutHistoryDb,
+  deleteRoutinesOfTypeDb,
   type UserProfile,
   type PostWithUser,
   type UserStats,
@@ -187,6 +189,11 @@ export default function Profile() {
   const [linkedGoal, setLinkedGoal] = React.useState<UserGoal | null>(null);
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
+  const [workoutHistoryModalOpen, setWorkoutHistoryModalOpen] = React.useState(false);
+  const [selectedWorkoutForHistory, setSelectedWorkoutForHistory] = React.useState<Workout | null>(null);
+  const [deleteRoutineId, setDeleteRoutineId] = React.useState<string | null>(null);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = React.useState(false);
+  const [isDeletingRoutine, setIsDeletingRoutine] = React.useState(false);
   const [showFollowersModal, setShowFollowersModal] = React.useState(false);
   const [showFollowingModal, setShowFollowingModal] = React.useState(false);
   const [followers, setFollowers] = React.useState<any[]>([]);
@@ -770,6 +777,42 @@ export default function Profile() {
       });
     } finally {
       setIsUpdatingGoal(false);
+    }
+  };
+
+  const handleOpenWorkoutHistory = (workout: Workout) => {
+    setSelectedWorkoutForHistory(workout);
+    setWorkoutHistoryModalOpen(true);
+  };
+
+  const handleDeleteRoutine = async () => {
+    if (!deleteRoutineId || !user) return;
+
+    setIsDeletingRoutine(true);
+    try {
+      const routineToDelete = routines.find((r) => r.id === deleteRoutineId);
+      if (!routineToDelete) return;
+
+      await deleteRoutinesOfTypeDb(routineToDelete.type, user.id, deleteRoutineId);
+
+      // Update routines list
+      setRoutines(routines.filter((r) => r.id !== deleteRoutineId));
+      setIsDeleteConfirmOpen(false);
+      setDeleteRoutineId(null);
+
+      toast({
+        title: "Rotina removida!",
+        description: "A rotina foi deletada com sucesso.",
+      });
+    } catch (err: any) {
+      console.error("Error deleting routine:", err);
+      toast({
+        title: "Erro ao deletar rotina",
+        description: err.message || "Tente novamente mais tarde.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingRoutine(false);
     }
   };
 
@@ -2264,6 +2307,18 @@ export default function Profile() {
                         <Edit2 className="h-5 w-5" />
                       </button>
 
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteRoutineId(routinesOfType[0]?.id || null);
+                          setIsDeleteConfirmOpen(true);
+                        }}
+                        className="shrink-0 p-2 rounded-lg text-muted-foreground hover:bg-red-500/10 hover:text-red-500 transition-all"
+                        title="Deletar rotina"
+                      >
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+
                       <div
                         className={`transform transition-transform ${
                           isExpanded ? "rotate-180" : ""
@@ -2292,91 +2347,76 @@ export default function Profile() {
                             {itemsOfType.map((item) => (
                               <Card
                                 key={item.id}
-                                className="border-border/60 bg-background"
+                                className="border-border/60 bg-background cursor-pointer hover:bg-muted/30 transition-colors"
+                                onClick={() => {
+                                  if (typeCode === 1) {
+                                    handleOpenWorkoutHistory({
+                                      id: item.workout_id,
+                                      name: item.workoutName,
+                                      description: item.workoutDescription || undefined,
+                                      photo: item.workoutPhoto || undefined,
+                                    } as any);
+                                  }
+                                }}
                               >
                                 <CardContent className="p-4">
-                                  <div className="flex items-start gap-3">
-                                    {typeCode === 1 && item.workoutPhoto ? (
-                                      <img
-                                        src={item.workoutPhoto}
-                                        alt={item.workoutName}
-                                        className="h-12 w-12 rounded object-cover flex-shrink-0"
-                                      />
-                                    ) : typeCode === 2 && item.dietPhoto ? (
-                                      <img
-                                        src={item.dietPhoto}
-                                        alt={item.dietName}
-                                        className="h-12 w-12 rounded object-cover flex-shrink-0"
-                                      />
-                                    ) : typeCode === 3 && item.habitPhoto ? (
-                                      <img
-                                        src={item.habitPhoto}
-                                        alt={item.habitName}
-                                        className="h-12 w-12 rounded object-cover flex-shrink-0"
-                                      />
-                                    ) : (
-                                      <div className="h-12 w-12 rounded bg-muted flex-shrink-0" />
-                                    )}
-                                    <div className="flex-1 min-w-0">
-                                      <p className="font-medium text-sm">
-                                        {typeCode === 1
-                                          ? item.workoutName
-                                          : typeCode === 2
-                                            ? item.dietName
-                                            : item.habitName}
+                                  <p className="font-medium text-sm">
+                                    {typeCode === 1
+                                      ? item.workoutName
+                                      : typeCode === 2
+                                        ? item.dietName
+                                        : item.habitName}
+                                  </p>
+                                  {typeCode === 1 &&
+                                    item.workoutDescription && (
+                                      <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                        {item.workoutDescription}
                                       </p>
-                                      {typeCode === 1 &&
-                                        item.workoutDescription && (
-                                          <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                            {item.workoutDescription}
-                                          </p>
+                                    )}
+                                  {typeCode === 2 &&
+                                    item.dietDescription && (
+                                      <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                        {item.dietDescription}
+                                      </p>
+                                    )}
+                                  {typeCode === 3 &&
+                                    item.habitDescription && (
+                                      <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                        {item.habitDescription}
+                                      </p>
+                                    )}
+                                  <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+                                    {typeCode === 1 && (
+                                      <>
+                                        {item.series && (
+                                          <span>Séries: {item.series}</span>
                                         )}
-                                      {typeCode === 2 &&
-                                        item.dietDescription && (
-                                          <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                            {item.dietDescription}
-                                          </p>
+                                        {item.duration && (
+                                          <span>
+                                            Duração: {item.duration}min
+                                          </span>
                                         )}
-                                      {typeCode === 3 &&
-                                        item.habitDescription && (
-                                          <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                            {item.habitDescription}
-                                          </p>
+                                        {item.volume && (
+                                          <span>
+                                            Volume: {item.volume}kg
+                                          </span>
                                         )}
-                                      <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
-                                        {typeCode === 1 && (
-                                          <>
-                                            {item.series && (
-                                              <span>Séries: {item.series}</span>
-                                            )}
-                                            {item.duration && (
-                                              <span>
-                                                Duração: {item.duration}min
-                                              </span>
-                                            )}
-                                            {item.volume && (
-                                              <span>
-                                                Volume: {item.volume}kg
-                                              </span>
-                                            )}
-                                          </>
+                                      </>
+                                    )}
+                                    {typeCode === 2 && (
+                                      <>
+                                        {item.dietCalories && (
+                                          <span>
+                                            {item.dietCalories} cal
+                                          </span>
                                         )}
-                                        {typeCode === 2 && (
-                                          <>
-                                            {item.dietCalories && (
-                                              <span>
-                                                {item.dietCalories} cal
-                                              </span>
-                                            )}
-                                            {item.calories && (
-                                              <span>
-                                                Total: {item.calories} cal
-                                              </span>
-                                            )}
-                                          </>
+                                        {item.calories && (
+                                          <span>
+                                            Total: {item.calories} cal
+                                          </span>
                                         )}
-                                      </div>
-                                    </div>
+                                      </>
+                                    )}
                                   </div>
                                 </CardContent>
                               </Card>
@@ -2823,6 +2863,64 @@ export default function Profile() {
           )}
         </DrawerContent>
       </Drawer>
+
+      {/* Delete Routine Confirmation Dialog */}
+      <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deletar Rotina</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Tem certeza que deseja deletar esta rotina? Esta ação não pode ser desfeita.
+          </p>
+          <div className="flex gap-3 mt-4">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setIsDeleteConfirmOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              onClick={handleDeleteRoutine}
+              disabled={isDeletingRoutine}
+            >
+              {isDeletingRoutine ? "Deletando..." : "Deletar"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Workout History Modal */}
+      {selectedWorkoutForHistory && (
+        <Dialog open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
+          <DialogContent className="max-h-[90dvh] overflow-auto">
+            <DialogHeader>
+              <DialogTitle>{selectedWorkoutForHistory.name}</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {selectedWorkoutForHistory.description && (
+                <p className="text-sm text-muted-foreground">
+                  {selectedWorkoutForHistory.description}
+                </p>
+              )}
+
+              <div>
+                <p className="text-sm font-medium mb-3">Histórico de Séries</p>
+                <div className="space-y-2">
+                  {/* Placeholder for workout history - would be populated from getWorkoutHistoryDb */}
+                  <p className="text-xs text-muted-foreground text-center py-4">
+                    Carregando histórico...
+                  </p>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
