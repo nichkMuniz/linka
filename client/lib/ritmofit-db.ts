@@ -1183,6 +1183,7 @@ export type UserWorkoutWithDetails = {
   workoutName?: string;
   workoutPhoto?: string | null;
   workoutDescription?: string;
+  muscle_group?: string | null;
 };
 
 export async function getUserWorkoutsDb(
@@ -1193,7 +1194,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, volume, reps, calories, duration, time_rest, workouts(name, photo, description)",
+      "id, workout_id, user_id, volume, reps, calories, duration, time_rest, workouts(name, photo, description, muscle_group)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -1231,7 +1232,7 @@ export async function getUserWorkoutsDb(
         if (workoutIds.length > 0) {
           const { data: workoutsData } = await supabase
             .from("workouts")
-            .select("id, name, photo, description")
+            .select("id, name, photo, description, muscle_group")
             .in("id", workoutIds);
 
           if (workoutsData) {
@@ -1255,6 +1256,7 @@ export async function getUserWorkoutsDb(
             workoutName: workoutDetails?.name || "Exercício desconhecido",
             workoutPhoto: workoutDetails?.photo || null,
             workoutDescription: workoutDetails?.description || undefined,
+            muscle_group: workoutDetails?.muscle_group || null,
           };
         });
       } else if (errorFallback) {
@@ -1283,6 +1285,7 @@ export async function getUserWorkoutsDb(
     workoutName: (row.workouts as any)?.name || "Exercício desconhecido",
     workoutPhoto: (row.workouts as any)?.photo || null,
     workoutDescription: (row.workouts as any)?.description || undefined,
+    muscle_group: (row.workouts as any)?.muscle_group || null,
   }));
 }
 

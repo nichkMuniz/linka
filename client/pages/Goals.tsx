@@ -2707,7 +2707,7 @@ export default function Goals() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {Array.from(new Set(userWorkouts.map((w) => w.muscleGroup).filter(Boolean))).map(
+                  {Array.from(new Set(userWorkouts.map((w) => w.muscle_group).filter(Boolean))).map(
                     (muscleGroup) => (
                       <button
                         key={muscleGroup}
@@ -2748,7 +2748,7 @@ export default function Goals() {
                         .includes(routineSearchQuery.toLowerCase());
                       const matchesMuscleGroup =
                         goalRoutineMuscleGroups.size === 0 ||
-                        goalRoutineMuscleGroups.has(workout.muscleGroup);
+                        goalRoutineMuscleGroups.has(workout.muscle_group || "");
                       return matchesSearch && matchesMuscleGroup;
                     })
                     .map((workout) => (
@@ -2772,9 +2772,9 @@ export default function Goals() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <span className="text-sm font-medium">{workout.workoutName}</span>
-                            {workout.muscleGroup && (
+                            {workout.muscle_group && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                {workout.muscleGroup}
+                                {workout.muscle_group}
                               </p>
                             )}
                           </div>
