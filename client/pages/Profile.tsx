@@ -100,6 +100,7 @@ import {
   MessageCircle,
   UserPlus,
   MessageSquare,
+  Filter,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
@@ -158,6 +159,10 @@ export default function Profile() {
     Set<string>
   >(new Set());
   const [isSavingWorkouts, setIsSavingWorkouts] = React.useState(false);
+  const [searchQueryWorkouts, setSearchQueryWorkouts] = React.useState("");
+  const [selectedMuscleGroups, setSelectedMuscleGroups] = React.useState<
+    Set<string>
+  >(new Set());
   const [userWorkouts, setUserWorkouts] = React.useState<
     UserWorkoutWithDetails[]
   >([]);
@@ -954,6 +959,16 @@ export default function Profile() {
         setHabitsLoading(false);
       }
     }
+  };
+
+  const handleToggleMuscleGroup = (muscleGroup: string) => {
+    const newSelected = new Set(selectedMuscleGroups);
+    if (newSelected.has(muscleGroup)) {
+      newSelected.delete(muscleGroup);
+    } else {
+      newSelected.add(muscleGroup);
+    }
+    setSelectedMuscleGroups(newSelected);
   };
 
   const handleCreateRoutine = async (workoutId?: string) => {
@@ -1766,6 +1781,8 @@ export default function Profile() {
                 setSelectedRoutineType(null);
                 setWorkouts([]);
                 setSelectedWorkoutIds(new Set());
+                setSearchQueryWorkouts("");
+                setSelectedMuscleGroups(new Set());
                 setDiets([]);
                 setSelectedDietIds(new Set());
                 setHabits([]);
@@ -1820,23 +1837,39 @@ export default function Profile() {
 
                   <Input
                     placeholder="Buscar exercício por nome..."
-                    onChange={(e) => {
-                      const query = e.target.value.toLowerCase();
-                      if (query.trim() === "") {
-                        handleSelectRoutineType(1);
-                      } else {
-                        setWorkouts(
-                          workouts.filter(
-                            (w) =>
-                              w.name.toLowerCase().includes(query) ||
-                              (w.description &&
-                                w.description.toLowerCase().includes(query))
-                          )
-                        );
-                      }
-                    }}
+                    value={searchQueryWorkouts}
+                    onChange={(e) => setSearchQueryWorkouts(e.target.value)}
                     className="mb-4"
                   />
+
+                  {/* Muscle Group Filter */}
+                  {workouts.length > 0 && (
+                    <div className="space-y-2 mb-4">
+                      <div className="flex items-center gap-2">
+                        <Filter className="h-4 w-4 text-muted-foreground" />
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Filtrar por grupo muscular:
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {Array.from(new Set(workouts.map((w) => w.muscle_group).filter(Boolean))).map(
+                          (muscleGroup) => (
+                            <button
+                              key={muscleGroup}
+                              onClick={() => handleToggleMuscleGroup(muscleGroup)}
+                              className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
+                                selectedMuscleGroups.has(muscleGroup)
+                                  ? "border-brand bg-brand/20 text-brand"
+                                  : "border-border/60 text-muted-foreground hover:border-border/80"
+                              }`}
+                            >
+                              {muscleGroup}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {workoutsLoading ? (
                     <div className="text-center py-6 text-sm text-muted-foreground">
@@ -1844,7 +1877,17 @@ export default function Profile() {
                     </div>
                   ) : workouts.length > 0 ? (
                     <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-                      {workouts.map((workout) => {
+                      {workouts
+                        .filter(
+                          (w) =>
+                            (w.name.toLowerCase().includes(searchQueryWorkouts.toLowerCase()) ||
+                              (w.description &&
+                                w.description
+                                  .toLowerCase()
+                                  .includes(searchQueryWorkouts.toLowerCase()))) &&
+                            (selectedMuscleGroups.size === 0 || selectedMuscleGroups.has(w.muscle_group || "")),
+                        )
+                        .map((workout) => {
                         const isSelected = selectedWorkoutIds.has(workout.id);
                         return (
                           <button
@@ -1864,37 +1907,41 @@ export default function Profile() {
                                 : "border-border/60 hover:border-border/80 hover:bg-muted/50"
                             }`}
                           >
-                            <div className="flex items-start gap-3">
-                              {workout.photo ? (
-                                <img
-                                  src={workout.photo}
-                                  alt={workout.name}
-                                  className="h-16 w-16 rounded object-cover flex-shrink-0"
-                                />
-                              ) : (
-                                <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <p
-                                  className={`font-medium transition-colors ${
-                                    isSelected
-                                      ? "text-brand"
-                                      : "group-hover:text-brand"
-                                  }`}
-                                >
-                                  {workout.name}
-                                </p>
-                                {workout.description && (
-                                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                                    {workout.description}
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-start gap-3 flex-1 min-w-0">
+                                {workout.photo ? (
+                                  <img
+                                    src={workout.photo}
+                                    alt={workout.name}
+                                    className="h-16 w-16 rounded object-cover flex-shrink-0"
+                                  />
+                                ) : (
+                                  <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p
+                                    className={`font-medium transition-colors ${
+                                      isSelected
+                                        ? "text-brand"
+                                        : "group-hover:text-brand"
+                                    }`}
+                                  >
+                                    {workout.name}
                                   </p>
+                                  {workout.description && (
+                                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                      {workout.description}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="shrink-0 mt-1">
+                                {isSelected ? (
+                                  <Check className="h-5 w-5 text-brand" />
+                                ) : (
+                                  <div className="h-5 w-5 rounded border border-border/60" />
                                 )}
                               </div>
-                              {isSelected && (
-                                <div className="shrink-0 mt-1">
-                                  <Check className="h-5 w-5 text-brand" />
-                                </div>
-                              )}
                             </div>
                           </button>
                         );
