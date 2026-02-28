@@ -789,13 +789,17 @@ export default function Profile() {
     // Fetch workout history
     setIsLoadingWorkoutHistory(true);
     try {
-      const history = await getWorkoutHistoryDb(workout.id);
+      if (!user) {
+        throw new Error("Usuário não autenticado");
+      }
+      const history = await getWorkoutHistoryDb(user.id, workout.id);
       setWorkoutHistory(history || []);
     } catch (err: any) {
-      console.error("Error loading workout history:", err);
+      const errorMsg = err?.message || String(err);
+      console.error("Error loading workout history:", errorMsg);
       toast({
         title: "Erro ao carregar histórico",
-        description: "Não foi possível carregar o histórico do exercício.",
+        description: errorMsg || "Não foi possível carregar o histórico do exercício.",
         variant: "destructive",
       });
       setWorkoutHistory([]);
@@ -2928,16 +2932,16 @@ export default function Profile() {
                         <div className="grid grid-cols-3 gap-2 text-sm">
                           <div>
                             <p className="text-xs text-muted-foreground">Kilos</p>
-                            <p className="font-semibold">{record.kg || 0} kg</p>
+                            <p className="font-semibold">{record.kilos || 0} kg</p>
                           </div>
                           <div>
-                            <p className="text-xs text-muted-foreground">Repetições</p>
-                            <p className="font-semibold">{record.reps || 0}</p>
+                            <p className="text-xs text-muted-foreground">Volume</p>
+                            <p className="font-semibold">{record.volume || 0}</p>
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">Data</p>
                             <p className="font-semibold text-xs">
-                              {new Date(record.created_at).toLocaleDateString()}
+                              {new Date(record.createdAt).toLocaleDateString()}
                             </p>
                           </div>
                         </div>
