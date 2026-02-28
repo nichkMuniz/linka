@@ -35,7 +35,6 @@ import {
   getCommercialProfileDb,
   createOrUpdateCommercialProfileDb,
   getWorkoutHistoryDb,
-  deleteRoutinesOfTypeDb,
   type UserProfile,
   type PostWithUser,
   type UserStats,
@@ -816,7 +815,14 @@ export default function Profile() {
       const routineToDelete = routines.find((r) => r.id === deleteRoutineId);
       if (!routineToDelete) return;
 
-      await deleteRoutinesOfTypeDb(routineToDelete.type, user.id, deleteRoutineId);
+      // Delete the specific routine from the database
+      const { error } = await supabase
+        .from("routines")
+        .delete()
+        .eq("id", deleteRoutineId)
+        .eq("user_id", user.id);
+
+      if (error) throw error;
 
       // Update routines list
       setRoutines(routines.filter((r) => r.id !== deleteRoutineId));
@@ -828,10 +834,11 @@ export default function Profile() {
         description: "A rotina foi deletada com sucesso.",
       });
     } catch (err: any) {
-      console.error("Error deleting routine:", err);
+      const errorMsg = err?.message || "Tente novamente mais tarde.";
+      console.error("Error deleting routine:", errorMsg);
       toast({
         title: "Erro ao deletar rotina",
-        description: err.message || "Tente novamente mais tarde.",
+        description: errorMsg,
         variant: "destructive",
       });
     } finally {
