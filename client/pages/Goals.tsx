@@ -197,6 +197,9 @@ export default function Goals() {
   const [selectedGoalForRoutines, setSelectedGoalForRoutines] = React.useState<any>(null);
   const [goalRoutineSelection, setGoalRoutineSelection] = React.useState<Set<string>>(new Set());
   const [routineSearchQuery, setRoutineSearchQuery] = React.useState("");
+  const [goalRoutineMuscleGroups, setGoalRoutineMuscleGroups] = React.useState<
+    Set<string>
+  >(new Set());
 
   // Completion tracking for Rotinas tab items
   const [completedDietIds, setCompletedDietIds] = React.useState<Set<string>>(new Set());
@@ -2685,14 +2688,51 @@ export default function Goals() {
             </DrawerTitle>
           </DrawerHeader>
 
-          {/* Search Input */}
-          <div className="px-4 py-3 border-b border-border/60">
+          {/* Search Input and Muscle Group Filter */}
+          <div className="px-4 py-3 border-b border-border/60 space-y-3">
             <Input
               placeholder="Buscar rotina..."
               value={routineSearchQuery}
               onChange={(e) => setRoutineSearchQuery(e.target.value)}
               className="h-9 rounded-full text-sm"
             />
+
+            {/* Muscle Group Filter */}
+            {userWorkouts.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Grupo muscular:
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {Array.from(new Set(userWorkouts.map((w) => w.muscleGroup).filter(Boolean))).map(
+                    (muscleGroup) => (
+                      <button
+                        key={muscleGroup}
+                        onClick={() => {
+                          const newSelection = new Set(goalRoutineMuscleGroups);
+                          if (newSelection.has(muscleGroup)) {
+                            newSelection.delete(muscleGroup);
+                          } else {
+                            newSelection.add(muscleGroup);
+                          }
+                          setGoalRoutineMuscleGroups(newSelection);
+                        }}
+                        className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
+                          goalRoutineMuscleGroups.has(muscleGroup)
+                            ? "border-brand bg-brand/20 text-brand"
+                            : "border-border/60 text-muted-foreground hover:border-border/80"
+                        }`}
+                      >
+                        {muscleGroup}
+                      </button>
+                    ),
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
@@ -2702,11 +2742,15 @@ export default function Goals() {
                 <p className="text-sm font-semibold">Exercícios ({userWorkouts.length})</p>
                 <div className="space-y-2">
                   {userWorkouts
-                    .filter((workout) =>
-                      workout.workoutName
+                    .filter((workout) => {
+                      const matchesSearch = workout.workoutName
                         ?.toLowerCase()
-                        .includes(routineSearchQuery.toLowerCase())
-                    )
+                        .includes(routineSearchQuery.toLowerCase());
+                      const matchesMuscleGroup =
+                        goalRoutineMuscleGroups.size === 0 ||
+                        goalRoutineMuscleGroups.has(workout.muscleGroup);
+                      return matchesSearch && matchesMuscleGroup;
+                    })
                     .map((workout) => (
                       <button
                         key={workout.id}
@@ -2725,14 +2769,22 @@ export default function Goals() {
                             : "border-border/60 hover:border-border/80"
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">{workout.workoutName}</span>
-                          <input
-                            type="checkbox"
-                            checked={goalRoutineSelection.has(workout.id)}
-                            onChange={() => {}}
-                            className="h-4 w-4"
-                          />
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium">{workout.workoutName}</span>
+                            {workout.muscleGroup && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {workout.muscleGroup}
+                              </p>
+                            )}
+                          </div>
+                          <div className="shrink-0 mt-0.5">
+                            {goalRoutineSelection.has(workout.id) ? (
+                              <Check className="h-5 w-5 text-brand" />
+                            ) : (
+                              <div className="h-5 w-5 border-2 border-border rounded" />
+                            )}
+                          </div>
                         </div>
                       </button>
                     ))}
@@ -2767,14 +2819,15 @@ export default function Goals() {
                             : "border-border/60 hover:border-border/80"
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">{diet.dietName}</span>
-                          <input
-                            type="checkbox"
-                            checked={goalRoutineSelection.has(diet.id)}
-                            onChange={() => {}}
-                            className="h-4 w-4"
-                          />
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="text-sm font-medium flex-1">{diet.dietName}</span>
+                          <div className="shrink-0 mt-0.5">
+                            {goalRoutineSelection.has(diet.id) ? (
+                              <Check className="h-5 w-5 text-brand" />
+                            ) : (
+                              <div className="h-5 w-5 border-2 border-border rounded" />
+                            )}
+                          </div>
                         </div>
                       </button>
                     ))}
@@ -2809,14 +2862,15 @@ export default function Goals() {
                             : "border-border/60 hover:border-border/80"
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">{habit.habitName}</span>
-                          <input
-                            type="checkbox"
-                            checked={goalRoutineSelection.has(habit.id)}
-                            onChange={() => {}}
-                            className="h-4 w-4"
-                          />
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="text-sm font-medium flex-1">{habit.habitName}</span>
+                          <div className="shrink-0 mt-0.5">
+                            {goalRoutineSelection.has(habit.id) ? (
+                              <Check className="h-5 w-5 text-brand" />
+                            ) : (
+                              <div className="h-5 w-5 border-2 border-border rounded" />
+                            )}
+                          </div>
                         </div>
                       </button>
                     ))}
@@ -2849,6 +2903,7 @@ export default function Goals() {
                     setGoalRoutineSelection(new Set());
                     setSelectedGoalForRoutines(null);
                     setRoutineSearchQuery("");
+                    setGoalRoutineMuscleGroups(new Set());
                   } catch (err) {
                     toast({
                       title: "Erro ao vincular rotinas",
