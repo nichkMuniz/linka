@@ -191,6 +191,8 @@ export default function Profile() {
   const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
   const [workoutHistoryModalOpen, setWorkoutHistoryModalOpen] = React.useState(false);
   const [selectedWorkoutForHistory, setSelectedWorkoutForHistory] = React.useState<Workout | null>(null);
+  const [workoutHistory, setWorkoutHistory] = React.useState<any[]>([]);
+  const [isLoadingWorkoutHistory, setIsLoadingWorkoutHistory] = React.useState(false);
   const [deleteRoutineId, setDeleteRoutineId] = React.useState<string | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = React.useState(false);
   const [isDeletingRoutine, setIsDeletingRoutine] = React.useState(false);
@@ -780,9 +782,26 @@ export default function Profile() {
     }
   };
 
-  const handleOpenWorkoutHistory = (workout: Workout) => {
+  const handleOpenWorkoutHistory = async (workout: Workout) => {
     setSelectedWorkoutForHistory(workout);
     setWorkoutHistoryModalOpen(true);
+
+    // Fetch workout history
+    setIsLoadingWorkoutHistory(true);
+    try {
+      const history = await getWorkoutHistoryDb(workout.id);
+      setWorkoutHistory(history || []);
+    } catch (err: any) {
+      console.error("Error loading workout history:", err);
+      toast({
+        title: "Erro ao carregar histórico",
+        description: "Não foi possível carregar o histórico do exercício.",
+        variant: "destructive",
+      });
+      setWorkoutHistory([]);
+    } finally {
+      setIsLoadingWorkoutHistory(false);
+    }
   };
 
   const handleDeleteRoutine = async () => {
@@ -2296,20 +2315,6 @@ export default function Profile() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          toast({
-                            title: "Editar Rotina",
-                            description: "Funcionalidade em desenvolvimento.",
-                          });
-                        }}
-                        className="shrink-0 p-2 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-all"
-                        title="Editar rotina"
-                      >
-                        <Edit2 className="h-5 w-5" />
-                      </button>
-
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
                           setDeleteRoutineId(routinesOfType[0]?.id || null);
                           setIsDeleteConfirmOpen(true);
                         }}
@@ -2866,18 +2871,20 @@ export default function Profile() {
 
       {/* Delete Routine Confirmation Dialog */}
       <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Deletar Rotina</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja deletar esta rotina? Esta ação não pode ser desfeita.
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Tem certeza que deseja deletar esta rotina? Esta ação não pode ser desfeita.
-          </p>
-          <div className="flex gap-3 mt-4">
+
+          <div className="flex gap-3 mt-6">
             <Button
               variant="outline"
               className="flex-1"
               onClick={() => setIsDeleteConfirmOpen(false)}
+              disabled={isDeletingRoutine}
             >
               Cancelar
             </Button>
@@ -2896,27 +2903,63 @@ export default function Profile() {
       {/* Workout History Modal */}
       {selectedWorkoutForHistory && (
         <Dialog open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
-          <DialogContent className="max-h-[90dvh] overflow-auto">
+          <DialogContent className="max-w-2xl max-h-[90dvh] overflow-hidden flex flex-col">
             <DialogHeader>
               <DialogTitle>{selectedWorkoutForHistory.name}</DialogTitle>
+              {selectedWorkoutForHistory.description && (
+                <DialogDescription>
+                  {selectedWorkoutForHistory.description}
+                </DialogDescription>
+              )}
             </DialogHeader>
 
-            <div className="space-y-4">
-              {selectedWorkoutForHistory.description && (
-                <p className="text-sm text-muted-foreground">
-                  {selectedWorkoutForHistory.description}
-                </p>
-              )}
-
+            <div className="flex-1 overflow-y-auto space-y-4 pr-4">
               <div>
-                <p className="text-sm font-medium mb-3">Histórico de Séries</p>
-                <div className="space-y-2">
-                  {/* Placeholder for workout history - would be populated from getWorkoutHistoryDb */}
-                  <p className="text-xs text-muted-foreground text-center py-4">
-                    Carregando histórico...
-                  </p>
-                </div>
+                <p className="text-sm font-semibold mb-3">Histórico de Séries</p>
+
+                {isLoadingWorkoutHistory ? (
+                  <div className="text-center py-8">
+                    <p className="text-xs text-muted-foreground">Carregando histórico...</p>
+                  </div>
+                ) : workoutHistory && workoutHistory.length > 0 ? (
+                  <div className="space-y-2">
+                    {workoutHistory.map((record, idx) => (
+                      <div key={idx} className="p-3 rounded-lg border border-border/40 bg-muted/30">
+                        <div className="grid grid-cols-3 gap-2 text-sm">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Kilos</p>
+                            <p className="font-semibold">{record.kg || 0} kg</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Repetições</p>
+                            <p className="font-semibold">{record.reps || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Data</p>
+                            <p className="font-semibold text-xs">
+                              {new Date(record.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-xs text-muted-foreground">Nenhum histórico encontrado</p>
+                  </div>
+                )}
               </div>
+            </div>
+
+            <div className="flex gap-3 mt-4 border-t border-border/40 pt-4">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setWorkoutHistoryModalOpen(false)}
+              >
+                Fechar
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
