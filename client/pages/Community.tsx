@@ -896,7 +896,7 @@ export default function Community() {
         open={isCreateGroupModalOpen}
         onOpenChange={setIsCreateGroupModalOpen}
       >
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               {groupStep === "config" ? "Criar Novo Grupo" : "Convidar Participantes"}
@@ -1150,7 +1150,7 @@ export default function Community() {
         open={isAddCheckInModalOpen}
         onOpenChange={setIsAddCheckInModalOpen}
       >
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Adicionar Check-in</DrawerTitle>
           </DrawerHeader>
@@ -1293,7 +1293,7 @@ export default function Community() {
 
       {/* Check-in Detail Modal */}
       <Drawer open={isCheckInDetailOpen} onOpenChange={setIsCheckInDetailOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0 flex items-center justify-between">
             <DrawerTitle>Detalhes do Check-in</DrawerTitle>
             {selectedCheckInForDetail && selectedCheckInForDetail.userId === user?.id && (
@@ -1403,7 +1403,7 @@ export default function Community() {
 
       {/* Group Details Modal */}
       <Drawer open={isGroupDetailsOpen} onOpenChange={setIsGroupDetailsOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Detalhes do Grupo</DrawerTitle>
           </DrawerHeader>
@@ -1442,6 +1442,41 @@ export default function Community() {
                     <p className="text-sm">{selectedGroupForView.goal}</p>
                   </div>
                 </div>
+
+                {/* Action Buttons */}
+                <div className="space-y-2 pt-4 border-t border-border/40">
+                  <Button
+                    onClick={() => {
+                      toast({
+                        title: "Adicionar Membros",
+                        description: "Funcionalidade em desenvolvimento",
+                      });
+                    }}
+                    className="w-full rounded-full gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Adicionar Membros
+                  </Button>
+
+                  <Button
+                    onClick={() => {
+                      if (window.confirm("Tem certeza que deseja apagar este grupo? Esta ação é irreversível.")) {
+                        toast({
+                          title: "Grupo apagado!",
+                          description: "O grupo foi removido com sucesso.",
+                        });
+                        setIsGroupDetailsOpen(false);
+                        setSelectedGroupForView(null);
+                        setGroupCheckIns([]);
+                      }
+                    }}
+                    variant="destructive"
+                    className="w-full rounded-full gap-2"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Apagar Grupo
+                  </Button>
+                </div>
               </div>
             )}
           </div>
@@ -1450,7 +1485,7 @@ export default function Community() {
 
       {/* Classifications Modal */}
       <Drawer open={isClassificationsOpen} onOpenChange={setIsClassificationsOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Classificações</DrawerTitle>
           </DrawerHeader>
