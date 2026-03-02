@@ -58,6 +58,7 @@ export default function Community() {
   });
   const [selectedInvitees, setSelectedInvitees] = React.useState<Set<string>>(new Set());
   const [userGroups, setUserGroups] = React.useState<any[]>([]);
+  const [selectedGroupForView, setSelectedGroupForView] = React.useState<any>(null);
 
   // Load conversations, following users, and ranking
   React.useEffect(() => {
@@ -468,60 +469,132 @@ export default function Community() {
         <>
           {/* Header */}
           <div className="flex-shrink-0 px-4 pt-4 pb-0 flex items-center justify-between">
-            <h1 className="text-2xl font-bold tracking-tight">Duelos</h1>
-            <Button
-              onClick={() => {
-                setGroupStep("config");
-                setGroupConfig({ name: "", location: "", goal: "" });
-                setSelectedInvitees(new Set());
-                setIsCreateGroupModalOpen(true);
-              }}
-              size="sm"
-              className="gap-2 rounded-full"
-            >
-              <Plus className="h-4 w-4" />
-              Criar Grupo
-            </Button>
+            {selectedGroupForView ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedGroupForView(null)}
+                  className="p-1 hover:bg-muted rounded-full transition-colors"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+                <h1 className="text-2xl font-bold tracking-tight">{selectedGroupForView.name}</h1>
+              </div>
+            ) : (
+              <>
+                <h1 className="text-2xl font-bold tracking-tight">Duelos</h1>
+                <Button
+                  onClick={() => {
+                    setGroupStep("config");
+                    setGroupConfig({ name: "", location: "", goal: "" });
+                    setSelectedInvitees(new Set());
+                    setIsCreateGroupModalOpen(true);
+                  }}
+                  size="sm"
+                  className="gap-2 rounded-full"
+                >
+                  <Plus className="h-4 w-4" />
+                  Criar Grupo
+                </Button>
+              </>
+            )}
           </div>
 
-          {/* Duels Grid - 2 columns */}
+          {/* Duels Grid or Group Detail */}
           <div className="flex-1 overflow-y-auto px-3 pb-4 pt-4">
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                {
-                  icon: "⚔️",
-                  name: "Supino Attack",
-                  description: "Maior volume de supino",
-                  participants: 12,
-                  city: "São Paulo",
-                  isOfficial: true,
-                },
-                {
-                  icon: "🏃",
-                  name: "Cardio Masters",
-                  description: "Maior tempo em cardio",
-                  participants: 8,
-                  city: "Rio de Janeiro",
-                  isOfficial: true,
-                },
-                {
-                  icon: "💪",
-                  name: "Leg Day Warriors",
-                  description: "Volume total de perna",
-                  participants: 15,
-                  city: "Belo Horizonte",
-                  isOfficial: true,
-                },
-                {
-                  icon: "🔥",
-                  name: "Calorie Burners",
-                  description: "Maior gasto calórico",
-                  participants: 10,
-                  city: "Curitiba",
-                  isOfficial: true,
-                },
-                ...userGroups,
-              ].map((group) => (
+            {selectedGroupForView ? (
+              <div className="space-y-4">
+                {/* Group Info */}
+                <div className="p-4 rounded-lg bg-card border border-brand/20 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{selectedGroupForView.icon}</span>
+                    <div className="flex-1">
+                      <h2 className="font-semibold text-brand">{selectedGroupForView.name}</h2>
+                      <p className="text-xs text-muted-foreground">📍 {selectedGroupForView.city}</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{selectedGroupForView.description}</p>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="bg-brand/20 text-brand px-2 py-1 rounded">👥 {selectedGroupForView.participants} participantes</span>
+                  </div>
+                </div>
+
+                {/* Check-ins from Participants */}
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-sm">Check-ins dos Participantes</h3>
+                  {[...selectedGroupForView.members, selectedGroupForView.createdBy].map((memberId, idx) => (
+                    <Card key={memberId || idx} className="border-border/60">
+                      <CardContent className="p-3 space-y-2">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs">
+                            👤
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">
+                              {followers.find(f => f.id === memberId)?.nickname || "Criador"}
+                            </p>
+                          </div>
+                          <span className="text-xs bg-muted/50 px-2 py-1 rounded-full text-brand">
+                            ✓ Ativo
+                          </span>
+                        </div>
+
+                        {/* Mock Check-in Data */}
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="text-center p-2 rounded bg-muted/20">
+                            <div className="font-semibold text-brand">12</div>
+                            <div className="text-muted-foreground">Séries</div>
+                          </div>
+                          <div className="text-center p-2 rounded bg-muted/20">
+                            <div className="font-semibold text-brand">1850</div>
+                            <div className="text-muted-foreground">Volume (kg)</div>
+                          </div>
+                          <div className="text-center p-2 rounded bg-muted/20">
+                            <div className="font-semibold text-brand">Hoje</div>
+                            <div className="text-muted-foreground">Treinou</div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  {
+                    icon: "⚔️",
+                    name: "Supino Attack",
+                    description: "Maior volume de supino",
+                    participants: 12,
+                    city: "São Paulo",
+                    isOfficial: true,
+                  },
+                  {
+                    icon: "🏃",
+                    name: "Cardio Masters",
+                    description: "Maior tempo em cardio",
+                    participants: 8,
+                    city: "Rio de Janeiro",
+                    isOfficial: true,
+                  },
+                  {
+                    icon: "💪",
+                    name: "Leg Day Warriors",
+                    description: "Volume total de perna",
+                    participants: 15,
+                    city: "Belo Horizonte",
+                    isOfficial: true,
+                  },
+                  {
+                    icon: "🔥",
+                    name: "Calorie Burners",
+                    description: "Maior gasto calórico",
+                    participants: 10,
+                    city: "Curitiba",
+                    isOfficial: true,
+                  },
+                  ...userGroups,
+                ].map((group) => (
                 <Card
                   key={group.name}
                   className="border-border/60 hover:shadow-md transition-shadow flex flex-col"
@@ -566,10 +639,7 @@ export default function Community() {
                       onClick={() => {
                         if (group.createdBy === user?.id) {
                           // View group check-ins for user's own groups
-                          toast({
-                            title: "Check-ins do Grupo",
-                            description: `Grupo: ${group.name} - ${group.participants} participantes`,
-                          });
+                          setSelectedGroupForView(group);
                         } else if (group.isOfficial) {
                           // Join official groups
                           toast({
@@ -579,12 +649,13 @@ export default function Community() {
                         }
                       }}
                     >
-                      {group.createdBy === user?.id ? "Ver Check-ins" : "Participar"}
+                      {group.createdBy === user?.id ? "Ver Grupo" : "Participar"}
                     </Button>
                   </CardContent>
                 </Card>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}
@@ -763,9 +834,27 @@ export default function Community() {
 
                 {/* Invite Followers */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    Convidar Participantes ({selectedInvitees.size})
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium">
+                      Convidar Participantes ({selectedInvitees.size})
+                    </label>
+                    {followers.length > 0 && (
+                      <Button
+                        onClick={() => {
+                          if (selectedInvitees.size === followers.length) {
+                            setSelectedInvitees(new Set());
+                          } else {
+                            setSelectedInvitees(new Set(followers.map(f => f.id)));
+                          }
+                        }}
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-7"
+                      >
+                        {selectedInvitees.size === followers.length ? "Desselecionar Todos" : "Selecionar Todos"}
+                      </Button>
+                    )}
+                  </div>
                   <div className="space-y-2 max-h-96">
                     {followers.length > 0 ? (
                       followers.map((follower) => (
@@ -800,9 +889,6 @@ export default function Community() {
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-medium truncate">
                               {follower.nickname}
-                            </div>
-                            <div className="text-xs text-muted-foreground truncate">
-                              @{follower.id}
                             </div>
                           </div>
                         </button>
