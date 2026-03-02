@@ -1958,7 +1958,8 @@ export default function Goals() {
               {userWorkouts.map((workout) => {
                 const series = workoutSeries[workout.workout_id] || [];
                 return (
-                  <div key={workout.id} className="border-b border-border/40 px-4 py-3">
+                  <div key={workout.id} className="px-4 py-3">
+                    <div className="bg-card border border-brand/20 rounded-lg p-3 mb-3">
                     {/* Exercise Header */}
                     <button
                       onClick={() => handleOpenWorkoutHistory({
@@ -1993,7 +1994,7 @@ export default function Goals() {
                         onChange={(e) =>
                           handleSetExerciseRestTime(workout.workout_id, parseInt(e.target.value))
                         }
-                        className="text-xs font-medium text-brand bg-transparent border-0 focus:outline-none cursor-pointer"
+                        className="text-xs font-medium text-foreground bg-background border border-brand/40 rounded px-2 py-1 focus:border-brand focus:outline-none cursor-pointer hover:border-brand/60 transition-colors"
                       >
                         <option value="">Padrão</option>
                         {REST_TIME_OPTIONS.map((time) => (
@@ -2020,7 +2021,7 @@ export default function Goals() {
                         return (
                           <div
                             key={index}
-                            className={`grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 items-center py-1.5 ${
+                            className={`group relative grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 items-center py-1.5 rounded hover:bg-muted/20 transition-colors ${
                               s.completed ? "opacity-50" : ""
                             }`}
                           >
@@ -2070,34 +2071,45 @@ export default function Goals() {
                             />
 
                             {/* Checkbox */}
-                            <button
-                              onClick={() =>
-                                handleToggleSerieCompleted(
-                                  workout.workout_id,
-                                  index,
-                                )
-                              }
-                              className="h-6 w-6 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors"
-                            >
-                              {s.completed ? (
-                                <CheckCircle2 className="h-4 w-4 text-brand" />
-                              ) : (
-                                <Circle className="h-4 w-4 text-muted-foreground" />
-                              )}
-                            </button>
+                            <div className="relative flex items-center justify-center">
+                              <button
+                                onClick={() =>
+                                  handleToggleSerieCompleted(
+                                    workout.workout_id,
+                                    index,
+                                  )
+                                }
+                                className="h-6 w-6 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors"
+                              >
+                                {s.completed ? (
+                                  <CheckCircle2 className="h-4 w-4 text-brand" />
+                                ) : (
+                                  <Circle className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSerie(workout.workout_id, index)}
+                                className="absolute opacity-0 group-hover:opacity-100 transition-opacity -right-2 h-6 w-6 rounded-full bg-destructive/80 hover:bg-destructive flex items-center justify-center flex-shrink-0"
+                                title="Deletar série"
+                                aria-label="Deletar série"
+                              >
+                                <Trash2 className="h-3 w-3 text-white" />
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
                     </div>
 
-                    {/* Add Series Button */}
-                    <button
-                      onClick={() => handleAddSerie(workout.workout_id)}
-                      className="w-full mt-2 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded flex items-center justify-center gap-2"
-                    >
-                      <Plus className="h-3 w-3" />
-                      Adicionar Série
-                    </button>
+                      {/* Add Series Button */}
+                      <button
+                        onClick={() => handleAddSerie(workout.workout_id)}
+                        className="w-full mt-2 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded flex items-center justify-center gap-2"
+                      >
+                        <Plus className="h-3 w-3" />
+                        Adicionar Série
+                      </button>
+                    </div>
                   </div>
                 );
               })}
