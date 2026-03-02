@@ -4390,7 +4390,7 @@ export type DuelGroup = {
   goal: string;
   icon: string;
   createdAt: string;
-  members: string[];
+  updatedAt?: string;
 };
 
 export type GroupCheckIn = {
@@ -4406,10 +4406,6 @@ export type GroupCheckIn = {
   createdAt: string;
 };
 
-// Mock data storage for groups and check-ins (would be in database in production)
-let groupsStore: Record<string, DuelGroup> = {};
-let checkInsStore: Record<string, GroupCheckIn[]> = {};
-
 // Create a new duel group
 export async function createDuelGroupDb(
   createdBy: string,
@@ -4418,34 +4414,184 @@ export async function createDuelGroupDb(
   goal: string,
   members: string[]
 ): Promise<DuelGroup> {
-  const id = `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  const group: DuelGroup = {
-    id,
-    createdBy,
-    name,
-    location,
-    goal,
-    icon: "⚔️",
-    createdAt: new Date().toISOString(),
-    members,
-  };
+  if (!supabase) throw new Error("Supabase not configured");
 
-  groupsStore[id] = group;
-  checkInsStore[id] = [];
+  try {
+    // Create the group
+    const { data: groupData, error: groupError } = await supabase
+      .from("duel_groups")
+      .insert({
+        created_by: createdBy,
+        name,
+        location,
+        goal,
+        icon: "⚔️",
+      })
+      .select()
+      .single();
 
-  return group;
+    if (groupError) throw groupError;
+    if (!groupData) throw new Error("Failed to create group");
+
+    // Add the creator as a participant
+    const participantsToAdd = [createdBy, ...members];
+    const { error: participantsError } = await supabase
+      .from("duel_group_participants")
+      .insert(
+        participantsToAdd.map((userId) => ({
+          group_id: groupData.id,
+          user_id: userId,
+        }))
+      );
+
+    if (participantsError) throw participantsError;
+
+    return {
+      id: groupData.id,
+      createdBy: groupData.created_by,
+      name: groupData.name,
+      location: groupData.location,
+      goal: groupData.goal,
+      icon: groupData.icon,
+      createdAt: groupData.created_at,
+      updatedAt: groupData.updated_at,
+    };
+  } catch (error) {
+    console.error("Error creating duel group:", error);
+    throw error;
+  }
 }
 
-// Get group by ID
+// Get group by ID with participant count
 export async function getDuelGroupDb(groupId: string): Promise<DuelGroup | null> {
-  return groupsStore[groupId] || null;
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("duel_groups")
+      .select("*")
+      .eq("id", groupId)
+      .single();
+
+    if (error || !data) return null;
+
+    return {
+      id: data.id,
+      createdBy: data.created_by,
+      name: data.name,
+      location: data.location,
+      goal: data.goal,
+      icon: data.icon,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  } catch (error) {
+    console.error("Error getting duel group:", error);
+    return null;
+  }
+}
+
+// Get user's own groups (created by user)
+export async function getUserCreatedDuelGroupsDb(userId: string): Promise<DuelGroup[]> {
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("duel_groups")
+      .select("*")
+      .eq("created_by", userId)
+      .order("created_at", { ascending: false });
+
+    if (error || !data) return [];
+
+    return data.map((group: any) => ({
+      id: group.id,
+      createdBy: group.created_by,
+      name: group.name,
+      location: group.location,
+      goal: group.goal,
+      icon: group.icon,
+      createdAt: group.created_at,
+      updatedAt: group.updated_at,
+    }));
+  } catch (error) {
+    console.error("Error getting user created groups:", error);
+    return [];
+  }
+}
+
+// Get groups user can participate in (not created by user, user not already member)
+export async function getAvailableDuelGroupsDb(userId: string): Promise<DuelGroup[]> {
+  if (!supabase) return [];
+
+  try {
+    // Get all groups not created by user
+    const { data, error } = await supabase
+      .from("duel_groups")
+      .select("*")
+      .neq("created_by", userId)
+      .order("created_at", { ascending: false });
+
+    if (error || !data) return [];
+
+    // Filter out groups where user is already a participant
+    const { data: participations } = await supabase
+      .from("duel_group_participants")
+      .select("group_id")
+      .eq("user_id", userId);
+
+    const userGroupIds = new Set(participations?.map((p: any) => p.group_id) || []);
+
+    return data
+      .filter((group: any) => !userGroupIds.has(group.id))
+      .map((group: any) => ({
+        id: group.id,
+        createdBy: group.created_by,
+        name: group.name,
+        location: group.location,
+        goal: group.goal,
+        icon: group.icon,
+        createdAt: group.created_at,
+        updatedAt: group.updated_at,
+      }));
+  } catch (error) {
+    console.error("Error getting available groups:", error);
+    return [];
+  }
 }
 
 // Get all groups for a user (created by or member of)
 export async function getUserDuelGroupsDb(userId: string): Promise<DuelGroup[]> {
-  return Object.values(groupsStore).filter(
-    (group) => group.createdBy === userId || group.members.includes(userId)
-  );
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("duel_groups")
+      .select(
+        `
+        *,
+        duel_group_participants(user_id)
+      `
+      )
+      .or(`created_by.eq.${userId},duel_group_participants.user_id.eq.${userId}`)
+      .order("created_at", { ascending: false });
+
+    if (error || !data) return [];
+
+    return data.map((group: any) => ({
+      id: group.id,
+      createdBy: group.created_by,
+      name: group.name,
+      location: group.location,
+      goal: group.goal,
+      icon: group.icon,
+      createdAt: group.created_at,
+      updatedAt: group.updated_at,
+    }));
+  } catch (error) {
+    console.error("Error getting user groups:", error);
+    return [];
+  }
 }
 
 // Add check-in to group
@@ -4459,28 +4605,72 @@ export async function addGroupCheckInDb(
   series: number = 0,
   volume: number = 0
 ): Promise<GroupCheckIn> {
-  const checkIn: GroupCheckIn = {
-    id: `checkin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    groupId,
-    userId,
-    userName,
-    photo,
-    description,
-    workoutInfo,
-    series,
-    volume,
-    createdAt: new Date().toISOString(),
-  };
+  if (!supabase) throw new Error("Supabase not configured");
 
-  if (!checkInsStore[groupId]) {
-    checkInsStore[groupId] = [];
+  try {
+    const { data, error } = await supabase
+      .from("duel_check_ins")
+      .insert({
+        group_id: groupId,
+        user_id: userId,
+        user_name: userName,
+        photo,
+        description,
+        workout_info: workoutInfo,
+        series,
+        volume,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!data) throw new Error("Failed to create check-in");
+
+    return {
+      id: data.id,
+      groupId: data.group_id,
+      userId: data.user_id,
+      userName: data.user_name,
+      photo: data.photo || "",
+      description: data.description || "",
+      workoutInfo: data.workout_info || "",
+      series: data.series || 0,
+      volume: data.volume || 0,
+      createdAt: data.created_at,
+    };
+  } catch (error) {
+    console.error("Error adding check-in:", error);
+    throw error;
   }
-
-  checkInsStore[groupId].push(checkIn);
-  return checkIn;
 }
 
 // Get check-ins for a group
 export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[]> {
-  return checkInsStore[groupId] || [];
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("duel_check_ins")
+      .select("*")
+      .eq("group_id", groupId)
+      .order("created_at", { ascending: false });
+
+    if (error || !data) return [];
+
+    return data.map((checkIn: any) => ({
+      id: checkIn.id,
+      groupId: checkIn.group_id,
+      userId: checkIn.user_id,
+      userName: checkIn.user_name,
+      photo: checkIn.photo || "",
+      description: checkIn.description || "",
+      workoutInfo: checkIn.workout_info || "",
+      series: checkIn.series || 0,
+      volume: checkIn.volume || 0,
+      createdAt: checkIn.created_at,
+    }));
+  } catch (error) {
+    console.error("Error getting check-ins:", error);
+    return [];
+  }
 }

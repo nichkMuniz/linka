@@ -10,11 +10,15 @@ import {
   getDuelGroupDb,
   addGroupCheckInDb,
   getGroupCheckInsDb,
+  getUserCreatedDuelGroupsDb,
+  getAvailableDuelGroupsDb,
+  getUserWorkoutsDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
   type RankingUser,
   type GroupCheckIn,
+  type UserWorkoutWithDetails,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,6 +34,13 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 type ViewMode = "conversations" | "conversation";
@@ -62,16 +73,19 @@ export default function Community() {
     goal: "",
   });
   const [selectedInvitees, setSelectedInvitees] = React.useState<Set<string>>(new Set());
-  const [userGroups, setUserGroups] = React.useState<any[]>([]);
+  const [userCreatedGroups, setUserCreatedGroups] = React.useState<any[]>([]);
+  const [availableGroups, setAvailableGroups] = React.useState<any[]>([]);
   const [selectedGroupForView, setSelectedGroupForView] = React.useState<any>(null);
   const [groupCheckIns, setGroupCheckIns] = React.useState<GroupCheckIn[]>([]);
   const [isAddCheckInModalOpen, setIsAddCheckInModalOpen] = React.useState(false);
   const [checkInForm, setCheckInForm] = React.useState({
     photo: "",
     description: "",
-    workoutInfo: "",
+    workoutId: "",
   });
   const [checkInPhotoFile, setCheckInPhotoFile] = React.useState<File | null>(null);
+  const [userWorkouts, setUserWorkouts] = React.useState<UserWorkoutWithDetails[]>([]);
+  const [participantsSearch, setParticipantsSearch] = React.useState("");
 
   // Load conversations, following users, and ranking
   React.useEffect(() => {
@@ -99,6 +113,43 @@ export default function Community() {
 
     loadData();
   }, []);
+
+  // Load user groups when user changes
+  React.useEffect(() => {
+    const loadUserGroups = async () => {
+      if (!user?.id) return;
+      try {
+        const [createdGroups, availGroups] = await Promise.all([
+          getUserCreatedDuelGroupsDb(user.id),
+          getAvailableDuelGroupsDb(user.id),
+        ]);
+        setUserCreatedGroups(
+          createdGroups.map((group) => ({
+            ...group,
+            icon: "⚔️",
+            description: group.goal,
+            participants: 1,
+            city: group.location,
+            isOfficial: false,
+          }))
+        );
+        setAvailableGroups(
+          availGroups.map((group) => ({
+            ...group,
+            icon: "⚔️",
+            description: group.goal,
+            participants: 1,
+            city: group.location,
+            isOfficial: false,
+          }))
+        );
+      } catch (err: any) {
+        console.error("Error loading user groups:", err);
+      }
+    };
+
+    loadUserGroups();
+  }, [user?.id]);
 
   // Auto-select conversation from URL parameter
   React.useEffect(() => {
@@ -494,18 +545,10 @@ export default function Community() {
               </button>
               <h1 className="text-2xl font-bold tracking-tight">{selectedGroupForView.name}</h1>
             </div>
-            <Button
-              onClick={() => setIsAddCheckInModalOpen(true)}
-              size="sm"
-              className="gap-2 rounded-full"
-            >
-              <Plus className="h-4 w-4" />
-              Adicionar Check-in
-            </Button>
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto px-3 pb-4 pt-4">
+          <div className="flex-1 overflow-y-auto px-3 pb-20 pt-4">
             <div className="space-y-4">
               {/* Group Info */}
               <div className="p-4 rounded-lg bg-card border border-brand/20 space-y-2">
@@ -577,6 +620,28 @@ export default function Community() {
               </div>
             </div>
           </div>
+
+          {/* Centered Add Check-in Button at Bottom */}
+          <div className="fixed bottom-0 left-0 right-0 flex justify-center items-center py-4 bg-background border-t border-border/40">
+            <button
+              onClick={async () => {
+                if (!user?.id) return;
+                try {
+                  const workouts = await getUserWorkoutsDb(user.id);
+                  setUserWorkouts(workouts);
+                } catch (err) {
+                  console.error("Error loading workouts:", err);
+                }
+                setCheckInForm({ photo: "", description: "", workoutId: "" });
+                setCheckInPhotoFile(null);
+                setIsAddCheckInModalOpen(true);
+              }}
+              className="h-14 w-14 rounded-full bg-brand text-white flex items-center justify-center hover:bg-brand/90 transition-colors shadow-lg"
+              title="Adicionar check-in"
+            >
+              <Plus className="h-6 w-6" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -602,110 +667,104 @@ export default function Community() {
           </div>
 
           {/* Duels Grid */}
-          <div className="flex-1 overflow-y-auto px-3 pb-4 pt-4">
-            <div className="grid grid-cols-2 gap-3">
-                {[
-                  {
-                    icon: "⚔️",
-                    name: "Supino Attack",
-                    description: "Maior volume de supino",
-                    participants: 12,
-                    city: "São Paulo",
-                    isOfficial: true,
-                  },
-                  {
-                    icon: "🏃",
-                    name: "Cardio Masters",
-                    description: "Maior tempo em cardio",
-                    participants: 8,
-                    city: "Rio de Janeiro",
-                    isOfficial: true,
-                  },
-                  {
-                    icon: "💪",
-                    name: "Leg Day Warriors",
-                    description: "Volume total de perna",
-                    participants: 15,
-                    city: "Belo Horizonte",
-                    isOfficial: true,
-                  },
-                  {
-                    icon: "🔥",
-                    name: "Calorie Burners",
-                    description: "Maior gasto calórico",
-                    participants: 10,
-                    city: "Curitiba",
-                    isOfficial: true,
-                  },
-                  ...userGroups,
-                ].map((group) => (
-                <Card
-                  key={group.name}
-                  className="border-border/60 hover:shadow-md transition-shadow flex flex-col"
-                >
-                  <CardContent className="p-3 flex flex-col h-full">
-                    {/* Icon and Name */}
-                    <div className="flex items-start gap-2 mb-2">
-                      <span className="text-2xl flex-shrink-0">{group.icon}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-xs line-clamp-2">
-                          {group.name}
-                        </p>
-                        {group.createdBy === user?.id && (
-                          <span className="inline-block text-xs bg-brand/20 text-brand px-1.5 py-0.5 rounded-full mt-0.5">
-                            Seu Grupo
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
-                      {group.description}
-                    </p>
-
-                    {/* Info Footer */}
-                    <div className="space-y-2 mb-3 flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">
-                          👥 {group.participants}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          📍 {group.city}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Action Button */}
-                    <Button
-                      size="sm"
-                      className="w-full rounded-full text-xs h-8"
-                      onClick={async () => {
-                        if (group.createdBy === user?.id) {
-                          // View group check-ins for user's own groups
-                          setSelectedGroupForView(group);
-                          // Load check-ins from database
-                          try {
-                            const checkIns = await getGroupCheckInsDb(group.id);
-                            setGroupCheckIns(checkIns);
-                          } catch (err: any) {
-                            console.error("Error loading check-ins:", err);
-                          }
-                        } else if (group.isOfficial) {
-                          // Join official groups
-                          toast({
-                            title: "Participando!",
-                            description: `Você agora faz parte de "${group.name}"`,
-                          });
-                        }
-                      }}
+          <div className="flex-1 overflow-y-auto px-3 pb-4 pt-4 space-y-6">
+            {/* User Created Groups Section */}
+            {userCreatedGroups.length > 0 && (
+              <div>
+                <h2 className="text-sm font-semibold text-brand mb-3">Meus Grupos</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  {userCreatedGroups.map((group) => (
+                    <Card
+                      key={group.id}
+                      className="border-border/60 hover:shadow-md transition-shadow flex flex-col"
                     >
-                      {group.createdBy === user?.id ? "Ver Grupo" : "Participar"}
-                    </Button>
-                  </CardContent>
-                </Card>
-                ))}
-            </div>
+                      <CardContent className="p-3 flex flex-col h-full">
+                        <div className="flex items-start gap-2 mb-2">
+                          <span className="text-2xl flex-shrink-0">{group.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-xs line-clamp-2">{group.name}</p>
+                            <span className="inline-block text-xs bg-brand/20 text-brand px-1.5 py-0.5 rounded-full mt-0.5">
+                              Seu Grupo
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{group.description}</p>
+                        <div className="space-y-2 mb-3 flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">👥 {group.participants}</span>
+                            <span className="text-xs text-muted-foreground">📍 {group.city}</span>
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="w-full rounded-full text-xs h-8"
+                          onClick={async () => {
+                            setSelectedGroupForView(group);
+                            try {
+                              const checkIns = await getGroupCheckInsDb(group.id);
+                              setGroupCheckIns(checkIns);
+                            } catch (err: any) {
+                              console.error("Error loading check-ins:", err);
+                            }
+                          }}
+                        >
+                          Ver Grupo
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Available Groups Section */}
+            {availableGroups.length > 0 && (
+              <div>
+                <h2 className="text-sm font-semibold text-muted-foreground mb-3">Grupos Disponíveis</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  {availableGroups.map((group) => (
+                    <Card
+                      key={group.id}
+                      className="border-border/60 hover:shadow-md transition-shadow flex flex-col"
+                    >
+                      <CardContent className="p-3 flex flex-col h-full">
+                        <div className="flex items-start gap-2 mb-2">
+                          <span className="text-2xl flex-shrink-0">{group.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-xs line-clamp-2">{group.name}</p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{group.description}</p>
+                        <div className="space-y-2 mb-3 flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-muted-foreground">👥 {group.participants}</span>
+                            <span className="text-xs text-muted-foreground">📍 {group.city}</span>
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="w-full rounded-full text-xs h-8"
+                          onClick={() => {
+                            toast({
+                              title: "Participando!",
+                              description: `Você agora faz parte de "${group.name}"`,
+                            });
+                          }}
+                        >
+                          Participar
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {userCreatedGroups.length === 0 && availableGroups.length === 0 && (
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center">
+                <p className="text-sm text-muted-foreground">Nenhum grupo disponível no momento</p>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -824,16 +883,43 @@ export default function Community() {
                   />
                 </div>
 
-                {/* Location */}
+                {/* Location - Brazilian States */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Localidade *</label>
-                  <Input
-                    value={groupConfig.location}
-                    onChange={(e) =>
-                      setGroupConfig({ ...groupConfig, location: e.target.value })
-                    }
-                    placeholder="Ex: São Paulo, Rio de Janeiro..."
-                  />
+                  <label className="text-sm font-medium">Estado (UF) *</label>
+                  <Select value={groupConfig.location} onValueChange={(value) => setGroupConfig({ ...groupConfig, location: value })}>
+                    <SelectTrigger className="rounded-lg">
+                      <SelectValue placeholder="Selecione um estado" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="AC">Acre (AC)</SelectItem>
+                      <SelectItem value="AL">Alagoas (AL)</SelectItem>
+                      <SelectItem value="AP">Amapá (AP)</SelectItem>
+                      <SelectItem value="AM">Amazonas (AM)</SelectItem>
+                      <SelectItem value="BA">Bahia (BA)</SelectItem>
+                      <SelectItem value="CE">Ceará (CE)</SelectItem>
+                      <SelectItem value="DF">Distrito Federal (DF)</SelectItem>
+                      <SelectItem value="ES">Espírito Santo (ES)</SelectItem>
+                      <SelectItem value="GO">Goiás (GO)</SelectItem>
+                      <SelectItem value="MA">Maranhão (MA)</SelectItem>
+                      <SelectItem value="MT">Mato Grosso (MT)</SelectItem>
+                      <SelectItem value="MS">Mato Grosso do Sul (MS)</SelectItem>
+                      <SelectItem value="MG">Minas Gerais (MG)</SelectItem>
+                      <SelectItem value="PA">Pará (PA)</SelectItem>
+                      <SelectItem value="PB">Paraíba (PB)</SelectItem>
+                      <SelectItem value="PR">Paraná (PR)</SelectItem>
+                      <SelectItem value="PE">Pernambuco (PE)</SelectItem>
+                      <SelectItem value="PI">Piauí (PI)</SelectItem>
+                      <SelectItem value="RJ">Rio de Janeiro (RJ)</SelectItem>
+                      <SelectItem value="RN">Rio Grande do Norte (RN)</SelectItem>
+                      <SelectItem value="RS">Rio Grande do Sul (RS)</SelectItem>
+                      <SelectItem value="RO">Rondônia (RO)</SelectItem>
+                      <SelectItem value="RR">Roraima (RR)</SelectItem>
+                      <SelectItem value="SC">Santa Catarina (SC)</SelectItem>
+                      <SelectItem value="SP">São Paulo (SP)</SelectItem>
+                      <SelectItem value="SE">Sergipe (SE)</SelectItem>
+                      <SelectItem value="TO">Tocantins (TO)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* Goal */}
@@ -891,10 +977,13 @@ export default function Community() {
                     {followers.length > 0 && (
                       <Button
                         onClick={() => {
-                          if (selectedInvitees.size === followers.length) {
+                          const filteredFollowers = followers.filter((f) =>
+                            f.nickname.toLowerCase().includes(participantsSearch.toLowerCase())
+                          );
+                          if (selectedInvitees.size === filteredFollowers.length) {
                             setSelectedInvitees(new Set());
                           } else {
-                            setSelectedInvitees(new Set(followers.map(f => f.id)));
+                            setSelectedInvitees(new Set(filteredFollowers.map(f => f.id)));
                           }
                         }}
                         variant="ghost"
@@ -905,9 +994,24 @@ export default function Community() {
                       </Button>
                     )}
                   </div>
-                  <div className="space-y-2 max-h-96">
+
+                  {/* Search Field */}
+                  {followers.length > 0 && (
+                    <Input
+                      placeholder="Pesquisar seguidor..."
+                      value={participantsSearch}
+                      onChange={(e) => setParticipantsSearch(e.target.value)}
+                      className="rounded-lg"
+                    />
+                  )}
+
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
                     {followers.length > 0 ? (
-                      followers.map((follower) => (
+                      followers
+                        .filter((f) =>
+                          f.nickname.toLowerCase().includes(participantsSearch.toLowerCase())
+                        )
+                        .map((follower) => (
                         <button
                           key={follower.id}
                           onClick={() => {
@@ -980,7 +1084,7 @@ export default function Community() {
                           isOfficial: false,
                         };
 
-                        setUserGroups([...userGroups, newGroup]);
+                        setUserCreatedGroups([...userCreatedGroups, newGroup]);
                         setIsCreateGroupModalOpen(false);
                         toast({
                           title: "Grupo criado!",
@@ -1078,30 +1182,44 @@ export default function Community() {
                 />
               </div>
 
-              {/* Workout Info */}
+              {/* Workout Select */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">O que você treinou?</label>
-                <Textarea
-                  value={checkInForm.workoutInfo}
-                  onChange={(e) =>
-                    setCheckInForm({ ...checkInForm, workoutInfo: e.target.value })
-                  }
-                  placeholder="Ex: Supino reto 4x8, Rosca Direta 3x10..."
-                  className="min-h-20"
-                />
+                <label className="text-sm font-medium">O que você treinou? *</label>
+                <Select value={checkInForm.workoutId} onValueChange={(value) => setCheckInForm({ ...checkInForm, workoutId: value })}>
+                  <SelectTrigger className="rounded-lg">
+                    <SelectValue placeholder="Selecione um exercício" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {userWorkouts.length > 0 ? (
+                      userWorkouts.map((workout) => (
+                        <SelectItem key={workout.workout_id} value={workout.workout_id}>
+                          {workout.workoutName}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <div className="px-4 py-2 text-sm text-muted-foreground">
+                        Nenhum exercício registrado
+                      </div>
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
 
               <Button
                 onClick={async () => {
                   if (!user || !selectedGroupForView) return;
                   try {
+                    // Find the selected workout name
+                    const selectedWorkout = userWorkouts.find((w) => w.workout_id === checkInForm.workoutId);
+                    const workoutName = selectedWorkout?.workoutName || "Exercício desconhecido";
+
                     const checkIn = await addGroupCheckInDb(
                       selectedGroupForView.id,
                       user.id,
                       user.displayName || "Usuário",
                       checkInForm.photo,
                       checkInForm.description,
-                      checkInForm.workoutInfo,
+                      workoutName,
                       0,
                       0
                     );
@@ -1111,9 +1229,10 @@ export default function Community() {
                     setCheckInForm({
                       photo: "",
                       description: "",
-                      workoutInfo: "",
+                      workoutId: "",
                     });
                     setCheckInPhotoFile(null);
+                    setParticipantsSearch("");
 
                     toast({
                       title: "Check-in adicionado!",
@@ -1128,7 +1247,7 @@ export default function Community() {
                   }
                 }}
                 className="w-full rounded-full"
-                disabled={!checkInForm.workoutInfo || !user}
+                disabled={!checkInForm.workoutId || !user}
               >
                 Adicionar Check-in
               </Button>
