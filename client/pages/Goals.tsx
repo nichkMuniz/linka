@@ -1926,41 +1926,63 @@ export default function Goals() {
                 const series = workoutSeries[currentWorkout.workout_id] || [];
                 return (
                   <>
-                    {/* Header */}
-                    <div className="shrink-0 border-b border-border/40 p-4">
+                    {/* Header with Duration and Close Button */}
+                    <div className="shrink-0 border-b border-border/40 px-4 py-6">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex-1">
-                          <h2 className="text-lg font-bold text-foreground">
-                            {currentWorkout.workoutName}
-                          </h2>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {currentWorkoutIndex + 1} de {userWorkouts.length}
+                          <p className="text-xs font-medium text-muted-foreground mb-1">Duração</p>
+                          <p className="text-2xl font-bold text-foreground">
+                            {formatDuration(workoutDuration)}
                           </p>
                         </div>
                         <button
-                          onClick={() => setWorkoutModalOpen(false)}
-                          className="p-2 hover:bg-muted/50 rounded transition-colors"
+                          onClick={handleFinishWorkout}
+                          className="h-12 px-6 rounded-lg bg-destructive hover:bg-destructive/90 text-white flex items-center justify-center transition-colors flex-shrink-0 font-medium text-sm gap-2"
+                          title="Encerrar treino"
                         >
-                          <X className="h-5 w-5 text-muted-foreground" />
+                          <Pause className="h-4 w-4" />
+                          Encerrar
                         </button>
                       </div>
                     </div>
 
-                    {/* Notes */}
-                    <div className="shrink-0 px-4 pt-2 pb-1 border-b border-border/40">
-                      <input
-                        type="text"
-                        placeholder="Adicionar notas aqui..."
-                        className="w-full text-sm text-muted-foreground bg-transparent border-0 placeholder:text-muted-foreground/60 focus:outline-none"
-                      />
+                    {/* Exercises Scroll List */}
+                    <div className="shrink-0 border-b border-border/40 px-4 py-3 overflow-x-auto">
+                      <div className="flex gap-2 min-w-min">
+                        {userWorkouts.map((workout, index) => (
+                          <button
+                            key={workout.id}
+                            onClick={() => setCurrentWorkoutIndex(index)}
+                            className={`px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                              index === currentWorkoutIndex
+                                ? "bg-brand text-white"
+                                : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
+                            }`}
+                          >
+                            {workout.workoutName}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
-                    {/* Rest Time */}
-                    <div className="shrink-0 px-4 py-2 border-b border-border/40 flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-brand" />
-                      <span className="text-sm font-medium text-brand">
-                        Descanso: {workoutExerciseRestTimes[currentWorkout.workout_id] ? (workoutExerciseRestTimes[currentWorkout.workout_id] < 60 ? `${workoutExerciseRestTimes[currentWorkout.workout_id]}s` : `${Math.floor(workoutExerciseRestTimes[currentWorkout.workout_id] / 60)}m`) : "Padrão"}
-                      </span>
+                    {/* Rest Time with Selector */}
+                    <div className="shrink-0 px-4 py-3 border-b border-border/40 flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-brand flex-shrink-0" />
+                      <span className="text-sm font-medium text-muted-foreground">Descanso:</span>
+                      <select
+                        value={workoutExerciseRestTimes[currentWorkout.workout_id] || ""}
+                        onChange={(e) =>
+                          handleSetExerciseRestTime(currentWorkout.workout_id, parseInt(e.target.value))
+                        }
+                        className="text-sm font-medium text-brand bg-transparent border-0 focus:outline-none cursor-pointer"
+                      >
+                        <option value="">Padrão</option>
+                        {REST_TIME_OPTIONS.map((time) => (
+                          <option key={time} value={time}>
+                            {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     {/* Table Header */}
@@ -2061,36 +2083,6 @@ export default function Goals() {
                       </button>
                     </div>
 
-                    {/* Navigation and Finish */}
-                    <div className="shrink-0 border-t border-border/40 p-4 flex gap-3">
-                      <button
-                        onClick={() => setCurrentWorkoutIndex(Math.max(0, currentWorkoutIndex - 1))}
-                        disabled={currentWorkoutIndex === 0}
-                        className="flex-1 py-2 px-3 text-sm font-medium border border-border/60 rounded-lg hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <ChevronUp className="h-4 w-4 inline mr-2" />
-                        Anterior
-                      </button>
-                      <button
-                        onClick={() =>
-                          setCurrentWorkoutIndex(
-                            Math.min(userWorkouts.length - 1, currentWorkoutIndex + 1),
-                          )
-                        }
-                        disabled={currentWorkoutIndex === userWorkouts.length - 1}
-                        className="flex-1 py-2 px-3 text-sm font-medium border border-border/60 rounded-lg hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        Próximo
-                        <ChevronDown className="h-4 w-4 inline ml-2" />
-                      </button>
-                      <button
-                        onClick={handleFinishWorkout}
-                        className="flex-1 py-2 px-3 text-sm font-medium rounded-lg bg-destructive hover:bg-destructive/90 text-white transition-colors flex items-center justify-center gap-2"
-                      >
-                        <Pause className="h-4 w-4" />
-                        Encerrar
-                      </button>
-                    </div>
                   </>
                 );
               })()}
