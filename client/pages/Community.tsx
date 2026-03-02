@@ -6,10 +6,15 @@ import {
   markMessagesAsReadDb,
   getFollowingDb,
   getRankingDb,
+  createDuelGroupDb,
+  getDuelGroupDb,
+  addGroupCheckInDb,
+  getGroupCheckInsDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
   type RankingUser,
+  type GroupCheckIn,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -59,6 +64,14 @@ export default function Community() {
   const [selectedInvitees, setSelectedInvitees] = React.useState<Set<string>>(new Set());
   const [userGroups, setUserGroups] = React.useState<any[]>([]);
   const [selectedGroupForView, setSelectedGroupForView] = React.useState<any>(null);
+  const [groupCheckIns, setGroupCheckIns] = React.useState<GroupCheckIn[]>([]);
+  const [isAddCheckInModalOpen, setIsAddCheckInModalOpen] = React.useState(false);
+  const [checkInForm, setCheckInForm] = React.useState({
+    photo: "",
+    description: "",
+    workoutInfo: "",
+  });
+  const [checkInPhotoFile, setCheckInPhotoFile] = React.useState<File | null>(null);
 
   // Load conversations, following users, and ranking
   React.useEffect(() => {
@@ -464,39 +477,128 @@ export default function Community() {
         </>
       )}
 
+      {/* Duels Tab - Full Screen Group View */}
+      {selectedGroupForView && (
+        <div className="fixed inset-0 bg-background flex flex-col z-50">
+          {/* Header */}
+          <div className="flex-shrink-0 px-4 pt-4 pb-2 flex items-center justify-between border-b border-border/40">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setSelectedGroupForView(null);
+                  setGroupCheckIns([]);
+                }}
+                className="p-1 hover:bg-muted rounded-full transition-colors"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <h1 className="text-2xl font-bold tracking-tight">{selectedGroupForView.name}</h1>
+            </div>
+            <Button
+              onClick={() => setIsAddCheckInModalOpen(true)}
+              size="sm"
+              className="gap-2 rounded-full"
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar Check-in
+            </Button>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto px-3 pb-4 pt-4">
+            <div className="space-y-4">
+              {/* Group Info */}
+              <div className="p-4 rounded-lg bg-card border border-brand/20 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">{selectedGroupForView.icon}</span>
+                  <div className="flex-1">
+                    <h2 className="font-semibold text-brand">{selectedGroupForView.name}</h2>
+                    <p className="text-xs text-muted-foreground">📍 {selectedGroupForView.city}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">{selectedGroupForView.description}</p>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="bg-brand/20 text-brand px-2 py-1 rounded">👥 {selectedGroupForView.participants} participantes</span>
+                </div>
+              </div>
+
+              {/* Check-ins from Participants */}
+              <div className="space-y-3">
+                <h3 className="font-semibold text-sm">Check-ins dos Participantes</h3>
+                {groupCheckIns.length > 0 ? (
+                  groupCheckIns.map((checkIn) => (
+                    <Card key={checkIn.id} className="border-border/60">
+                      <CardContent className="p-3 space-y-2">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs flex-shrink-0">
+                            👤
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{checkIn.userName}</p>
+                            <p className="text-xs text-muted-foreground truncate">{new Date(checkIn.createdAt).toLocaleDateString()}</p>
+                          </div>
+                          <span className="text-xs bg-muted/50 px-2 py-1 rounded-full text-brand flex-shrink-0">
+                            ✓ Ativo
+                          </span>
+                        </div>
+
+                        {checkIn.photo && (
+                          <div className="w-full h-32 rounded bg-muted overflow-hidden">
+                            <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
+                          </div>
+                        )}
+
+                        <div className="space-y-1 text-xs">
+                          <p className="text-muted-foreground">{checkIn.description}</p>
+                          <p className="text-brand font-medium">{checkIn.workoutInfo}</p>
+                        </div>
+
+                        {/* Check-in Stats */}
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="text-center p-2 rounded bg-muted/20">
+                            <div className="font-semibold text-brand">{checkIn.series}</div>
+                            <div className="text-muted-foreground">Séries</div>
+                          </div>
+                          <div className="text-center p-2 rounded bg-muted/20">
+                            <div className="font-semibold text-brand">{checkIn.volume}</div>
+                            <div className="text-muted-foreground">Volume (kg)</div>
+                          </div>
+                          <div className="text-center p-2 rounded bg-muted/20">
+                            <div className="font-semibold text-brand">Hoje</div>
+                            <div className="text-muted-foreground">Treinou</div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">Nenhum check-in ainda</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Duels Tab */}
-      {activeTab === "duels" && (
+      {activeTab === "duels" && !selectedGroupForView && (
         <>
           {/* Header */}
           <div className="flex-shrink-0 px-4 pt-4 pb-0 flex items-center justify-between">
-            {selectedGroupForView ? (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setSelectedGroupForView(null)}
-                  className="p-1 hover:bg-muted rounded-full transition-colors"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </button>
-                <h1 className="text-2xl font-bold tracking-tight">{selectedGroupForView.name}</h1>
-              </div>
-            ) : (
-              <>
-                <h1 className="text-2xl font-bold tracking-tight">Duelos</h1>
-                <Button
-                  onClick={() => {
-                    setGroupStep("config");
-                    setGroupConfig({ name: "", location: "", goal: "" });
-                    setSelectedInvitees(new Set());
-                    setIsCreateGroupModalOpen(true);
-                  }}
-                  size="sm"
-                  className="gap-2 rounded-full"
-                >
-                  <Plus className="h-4 w-4" />
-                  Criar Grupo
-                </Button>
-              </>
-            )}
+            <h1 className="text-2xl font-bold tracking-tight">Duelos</h1>
+            <Button
+              onClick={() => {
+                setGroupStep("config");
+                setGroupConfig({ name: "", location: "", goal: "" });
+                setSelectedInvitees(new Set());
+                setIsCreateGroupModalOpen(true);
+              }}
+              size="sm"
+              className="gap-2 rounded-full"
+            >
+              <Plus className="h-4 w-4" />
+              Criar Grupo
+            </Button>
           </div>
 
           {/* Duels Grid or Group Detail */}
@@ -636,10 +738,17 @@ export default function Community() {
                     <Button
                       size="sm"
                       className="w-full rounded-full text-xs h-8"
-                      onClick={() => {
+                      onClick={async () => {
                         if (group.createdBy === user?.id) {
                           // View group check-ins for user's own groups
                           setSelectedGroupForView(group);
+                          // Load check-ins from database
+                          try {
+                            const checkIns = await getGroupCheckInsDb(group.id);
+                            setGroupCheckIns(checkIns);
+                          } catch (err: any) {
+                            console.error("Error loading check-ins:", err);
+                          }
                         } else if (group.isOfficial) {
                           // Join official groups
                           toast({
@@ -910,24 +1019,39 @@ export default function Community() {
                     Voltar
                   </Button>
                   <Button
-                    onClick={() => {
-                      const newGroup = {
-                        id: Math.random().toString(36).substr(2, 9),
-                        icon: "⚔️",
-                        name: groupConfig.name,
-                        description: groupConfig.goal,
-                        participants: selectedInvitees.size + 1,
-                        city: groupConfig.location,
-                        createdBy: user?.id,
-                        members: Array.from(selectedInvitees),
-                        checkIns: [],
-                      };
-                      setUserGroups([...userGroups, newGroup]);
-                      setIsCreateGroupModalOpen(false);
-                      toast({
-                        title: "Grupo criado!",
-                        description: `"${groupConfig.name}" foi criado com sucesso.`,
-                      });
+                    onClick={async () => {
+                      if (!user) return;
+                      try {
+                        const savedGroup = await createDuelGroupDb(
+                          user.id,
+                          groupConfig.name,
+                          groupConfig.location,
+                          groupConfig.goal,
+                          Array.from(selectedInvitees)
+                        );
+
+                        const newGroup = {
+                          ...savedGroup,
+                          icon: "⚔️",
+                          description: groupConfig.goal,
+                          participants: selectedInvitees.size + 1,
+                          city: groupConfig.location,
+                          isOfficial: false,
+                        };
+
+                        setUserGroups([...userGroups, newGroup]);
+                        setIsCreateGroupModalOpen(false);
+                        toast({
+                          title: "Grupo criado!",
+                          description: `"${groupConfig.name}" foi criado com sucesso.`,
+                        });
+                      } catch (err: any) {
+                        toast({
+                          title: "Erro ao criar grupo",
+                          description: err.message || "Tente novamente",
+                          variant: "destructive",
+                        });
+                      }
                     }}
                     className="flex-1 rounded-full"
                     disabled={selectedInvitees.size === 0}
@@ -937,6 +1061,137 @@ export default function Community() {
                 </div>
               </div>
             )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Add Check-in Modal */}
+      <Drawer
+        open={isAddCheckInModalOpen}
+        onOpenChange={setIsAddCheckInModalOpen}
+      >
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Adicionar Check-in</DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <div className="space-y-4">
+              {/* Photo Upload */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Foto do Treino</label>
+                <div className="border-2 border-dashed border-brand/40 rounded-lg p-4 text-center">
+                  {checkInPhotoFile ? (
+                    <div className="space-y-2">
+                      <img
+                        src={URL.createObjectURL(checkInPhotoFile)}
+                        alt="preview"
+                        className="w-full h-32 object-cover rounded"
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setCheckInPhotoFile(null)}
+                        className="w-full text-xs"
+                      >
+                        Remover Foto
+                      </Button>
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer block">
+                      <div className="text-3xl mb-2">📸</div>
+                      <p className="text-sm text-muted-foreground mb-2">Clique para selecionar uma foto</p>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          if (e.target.files?.[0]) {
+                            setCheckInPhotoFile(e.target.files[0]);
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setCheckInForm({
+                                ...checkInForm,
+                                photo: reader.result as string,
+                              });
+                            };
+                            reader.readAsDataURL(e.target.files[0]);
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              {/* Description */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Descrição</label>
+                <Textarea
+                  value={checkInForm.description}
+                  onChange={(e) =>
+                    setCheckInForm({ ...checkInForm, description: e.target.value })
+                  }
+                  placeholder="Como foi seu treino? Deixe uma mensagem..."
+                  className="min-h-20"
+                />
+              </div>
+
+              {/* Workout Info */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">O que você treinou?</label>
+                <Textarea
+                  value={checkInForm.workoutInfo}
+                  onChange={(e) =>
+                    setCheckInForm({ ...checkInForm, workoutInfo: e.target.value })
+                  }
+                  placeholder="Ex: Supino reto 4x8, Rosca Direta 3x10..."
+                  className="min-h-20"
+                />
+              </div>
+
+              <Button
+                onClick={async () => {
+                  if (!user || !selectedGroupForView) return;
+                  try {
+                    const checkIn = await addGroupCheckInDb(
+                      selectedGroupForView.id,
+                      user.id,
+                      user.displayName || "Usuário",
+                      checkInForm.photo,
+                      checkInForm.description,
+                      checkInForm.workoutInfo,
+                      0,
+                      0
+                    );
+
+                    setGroupCheckIns([...groupCheckIns, checkIn]);
+                    setIsAddCheckInModalOpen(false);
+                    setCheckInForm({
+                      photo: "",
+                      description: "",
+                      workoutInfo: "",
+                    });
+                    setCheckInPhotoFile(null);
+
+                    toast({
+                      title: "Check-in adicionado!",
+                      description: "Seu check-in foi registrado com sucesso.",
+                    });
+                  } catch (err: any) {
+                    toast({
+                      title: "Erro ao adicionar check-in",
+                      description: err.message || "Tente novamente",
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                className="w-full rounded-full"
+                disabled={!checkInForm.workoutInfo || !user}
+              >
+                Adicionar Check-in
+              </Button>
+            </div>
           </div>
         </DrawerContent>
       </Drawer>

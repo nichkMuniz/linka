@@ -4380,3 +4380,107 @@ export async function saveHabitHistoryDb(
     throw err;
   }
 }
+
+// Group and Check-in Types
+export type DuelGroup = {
+  id: string;
+  createdBy: string;
+  name: string;
+  location: string;
+  goal: string;
+  icon: string;
+  createdAt: string;
+  members: string[];
+};
+
+export type GroupCheckIn = {
+  id: string;
+  groupId: string;
+  userId: string;
+  userName: string;
+  photo: string;
+  description: string;
+  workoutInfo: string;
+  series: number;
+  volume: number;
+  createdAt: string;
+};
+
+// Mock data storage for groups and check-ins (would be in database in production)
+let groupsStore: Record<string, DuelGroup> = {};
+let checkInsStore: Record<string, GroupCheckIn[]> = {};
+
+// Create a new duel group
+export async function createDuelGroupDb(
+  createdBy: string,
+  name: string,
+  location: string,
+  goal: string,
+  members: string[]
+): Promise<DuelGroup> {
+  const id = `group_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const group: DuelGroup = {
+    id,
+    createdBy,
+    name,
+    location,
+    goal,
+    icon: "⚔️",
+    createdAt: new Date().toISOString(),
+    members,
+  };
+
+  groupsStore[id] = group;
+  checkInsStore[id] = [];
+
+  return group;
+}
+
+// Get group by ID
+export async function getDuelGroupDb(groupId: string): Promise<DuelGroup | null> {
+  return groupsStore[groupId] || null;
+}
+
+// Get all groups for a user (created by or member of)
+export async function getUserDuelGroupsDb(userId: string): Promise<DuelGroup[]> {
+  return Object.values(groupsStore).filter(
+    (group) => group.createdBy === userId || group.members.includes(userId)
+  );
+}
+
+// Add check-in to group
+export async function addGroupCheckInDb(
+  groupId: string,
+  userId: string,
+  userName: string,
+  photo: string,
+  description: string,
+  workoutInfo: string,
+  series: number = 0,
+  volume: number = 0
+): Promise<GroupCheckIn> {
+  const checkIn: GroupCheckIn = {
+    id: `checkin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    groupId,
+    userId,
+    userName,
+    photo,
+    description,
+    workoutInfo,
+    series,
+    volume,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (!checkInsStore[groupId]) {
+    checkInsStore[groupId] = [];
+  }
+
+  checkInsStore[groupId].push(checkIn);
+  return checkIn;
+}
+
+// Get check-ins for a group
+export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[]> {
+  return checkInsStore[groupId] || [];
+}
