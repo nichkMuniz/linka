@@ -541,43 +541,66 @@ export default function Community() {
       {/* Duels Tab - Full Screen Group View */}
       {selectedGroupForView && (
         <div className="fixed inset-0 bg-background flex flex-col z-[51]">
-          {/* Header */}
-          <div className="flex-shrink-0 px-4 pt-4 pb-2 flex items-center justify-between border-b border-border/40">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setSelectedGroupForView(null);
-                  setGroupCheckIns([]);
-                }}
-                className="p-1 hover:bg-muted rounded-full transition-colors"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-              <h1 className="text-2xl font-bold tracking-tight">{selectedGroupForView.name}</h1>
-            </div>
+          {/* Header with Back Button */}
+          <div className="flex-shrink-0 px-4 pt-3 pb-0 flex items-center justify-start border-b border-border/40">
+            <button
+              onClick={() => {
+                setSelectedGroupForView(null);
+                setGroupCheckIns([]);
+              }}
+              className="p-2 hover:bg-muted rounded-full transition-colors"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto px-3 pt-4">
-            <div className="space-y-4">
-              {/* Group Info */}
-              <div className="p-4 rounded-lg bg-card border border-brand/20 space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl">{selectedGroupForView.icon}</span>
-                  <div className="flex-1">
-                    <h2 className="font-semibold text-brand">{selectedGroupForView.name}</h2>
-                    <p className="text-xs text-muted-foreground">📍 {selectedGroupForView.city}</p>
-                  </div>
-                </div>
-                <p className="text-sm text-muted-foreground">{selectedGroupForView.description}</p>
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="bg-brand/20 text-brand px-2 py-1 rounded">👥 {selectedGroupForView.participants} participantes</span>
+          <div className="flex-1 overflow-y-auto">
+            <div className="pb-32">
+              {/* Hero Banner Section */}
+              <div className="bg-gradient-to-br from-brand/20 via-brand/10 to-background relative h-40 flex items-center justify-center border-b border-border/40">
+                <div className="text-center">
+                  <div className="text-6xl mb-2">{selectedGroupForView.icon}</div>
+                  <h1 className="text-2xl font-bold">{selectedGroupForView.name}</h1>
                 </div>
               </div>
 
+              {/* Stats Section */}
+              <div className="px-4 py-4 space-y-2">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center">
+                    <div className="text-lg font-bold text-brand">47</div>
+                    <div className="text-xs text-muted-foreground">Líder</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center">
+                    <div className="text-lg font-bold text-brand">{selectedGroupForView.participants}</div>
+                    <div className="text-xs text-muted-foreground">Você</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center">
+                    <div className="text-lg font-bold text-brand">283</div>
+                    <div className="text-xs text-muted-foreground">dias</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Group Description */}
+              <div className="px-4 py-2">
+                <p className="text-sm text-muted-foreground">{selectedGroupForView.description}</p>
+                <p className="text-xs text-muted-foreground mt-2">📍 {selectedGroupForView.city}</p>
+              </div>
+
+              {/* Divider */}
+              <div className="px-4 py-3">
+                <div className="h-px bg-border/40"></div>
+              </div>
+
+              {/* Hoje (Today) Section */}
+              <div className="px-4 py-2">
+                <h3 className="font-semibold text-base mb-3">Hoje</h3>
+              </div>
+
               {/* Check-ins from Participants */}
-              <div className="space-y-3">
-                <h3 className="font-semibold text-sm">Check-ins dos Participantes</h3>
+              <div className="space-y-2 px-3">
                 {groupCheckIns.length > 0 ? (
                   groupCheckIns.map((checkIn) => (
                     <button
@@ -588,49 +611,25 @@ export default function Community() {
                       }}
                       className="w-full text-left"
                     >
-                      <Card className="border-border/60 hover:shadow-md transition-shadow cursor-pointer">
-                        <CardContent className="p-3 space-y-2">
-                          <div className="flex items-center gap-2 mb-2">
-                            <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs flex-shrink-0">
-                              👤
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{checkIn.userName}</p>
-                              <p className="text-xs text-muted-foreground truncate">{new Date(checkIn.createdAt).toLocaleDateString()}</p>
-                            </div>
-                            <span className="text-xs bg-muted/50 px-2 py-1 rounded-full text-brand flex-shrink-0">
-                              ✓ Ativo
-                            </span>
-                          </div>
-
+                      <div className="p-3 rounded-lg bg-muted/30 border border-border/40 hover:bg-muted/50 transition-colors">
+                        <div className="flex gap-3">
                           {checkIn.photo && (
-                            <div className="w-full h-32 rounded bg-muted overflow-hidden">
+                            <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted flex-shrink-0">
                               <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
                             </div>
                           )}
-
-                          <div className="space-y-1 text-xs">
-                            <p className="text-muted-foreground">{checkIn.description}</p>
-                            <p className="text-brand font-medium">{checkIn.workoutInfo}</p>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold truncate">{checkIn.workoutInfo}</p>
+                            <p className="text-xs text-muted-foreground truncate">{checkIn.userName}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                           </div>
-
-                          {/* Check-in Stats */}
-                          <div className="grid grid-cols-3 gap-2 text-xs">
-                            <div className="text-center p-2 rounded bg-muted/20">
-                              <div className="font-semibold text-brand">{checkIn.series}</div>
-                              <div className="text-muted-foreground">Séries</div>
-                            </div>
-                            <div className="text-center p-2 rounded bg-muted/20">
-                              <div className="font-semibold text-brand">{checkIn.volume}</div>
-                              <div className="text-muted-foreground">Volume (kg)</div>
-                            </div>
-                            <div className="text-center p-2 rounded bg-muted/20">
-                              <div className="font-semibold text-brand">Hoje</div>
-                              <div className="text-muted-foreground">Treinou</div>
-                            </div>
+                          <div className="flex-shrink-0 text-right">
+                            <button className="flex items-center justify-center w-10 h-10 rounded-full bg-brand text-white hover:bg-brand/90 transition-colors">
+                              <Plus className="h-5 w-5" />
+                            </button>
                           </div>
-                        </CardContent>
-                      </Card>
+                        </div>
+                      </div>
                     </button>
                   ))
                 ) : (
@@ -640,8 +639,26 @@ export default function Community() {
             </div>
           </div>
 
+          {/* Bottom Navigation Tabs */}
+          <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border/40 z-[52]">
+            <div className="flex items-center justify-around h-16 px-4">
+              <button className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors">
+                <span className="text-xl">📋</span>
+                <span className="text-xs">Detalhes</span>
+              </button>
+              <button className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors">
+                <span className="text-xl">🏆</span>
+                <span className="text-xs">Classificações</span>
+              </button>
+              <button className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors">
+                <span className="text-xl">💬</span>
+                <span className="text-xs">Bate-papo</span>
+              </button>
+            </div>
+          </div>
+
           {/* Centered Add Check-in Button at Bottom */}
-          <div className="flex-shrink-0 flex justify-center items-center py-4 bg-background border-t border-border/40 pb-20">
+          <div className="fixed bottom-20 right-4 z-[53]">
             <button
               onClick={async () => {
                 if (!user?.id) return;
