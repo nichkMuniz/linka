@@ -623,11 +623,6 @@ export default function Community() {
                             <p className="text-xs text-muted-foreground truncate">{checkIn.userName}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                           </div>
-                          <div className="flex-shrink-0 text-right">
-                            <button className="flex items-center justify-center w-10 h-10 rounded-full bg-brand text-white hover:bg-brand/90 transition-colors">
-                              <Plus className="h-5 w-5" />
-                            </button>
-                          </div>
                         </div>
                       </div>
                     </button>
@@ -664,9 +659,15 @@ export default function Community() {
                 if (!user?.id) return;
                 try {
                   const routines = await getUserExerciseRoutinesDb(user.id);
-                  setExerciseRoutines(routines);
-                } catch (err) {
+                  setExerciseRoutines(routines || []);
+                } catch (err: any) {
                   console.error("Error loading exercise routines:", err);
+                  setExerciseRoutines([]);
+                  toast({
+                    title: "Aviso",
+                    description: "Não foi possível carregar as rotinas. Tente novamente.",
+                    variant: "destructive",
+                  });
                 }
                 setCheckInForm({ photo: "", description: "", workoutId: "" });
                 setCheckInPhotoFile(null);
