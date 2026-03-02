@@ -188,6 +188,9 @@ export default function Goals() {
   const [workoutHistory, setWorkoutHistory] = React.useState<WorkoutHistoryRecord[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = React.useState(false);
 
+  // Workout history for displaying in series (during registration)
+  const [workoutHistoriesMap, setWorkoutHistoriesMap] = React.useState<Record<string, WorkoutHistoryRecord[]>>({});
+
   // Goal selection for check-in state
   const [checkInGoalSelectionOpen, setCheckInGoalSelectionOpen] = React.useState(false);
   const [selectedCheckInGoal, setSelectedCheckInGoal] = React.useState<UserGoal | null>(null);
@@ -335,6 +338,22 @@ export default function Goals() {
           ...prev,
           ...initialSeries,
         }));
+      }
+
+      // Load workout histories for all exercises
+      if (user) {
+        (async () => {
+          const historiesMap: Record<string, WorkoutHistoryRecord[]> = {};
+          for (const workout of userWorkouts) {
+            try {
+              const history = await getWorkoutHistoryDb(user.id, workout.workout_id);
+              historiesMap[workout.workout_id] = history;
+            } catch (err) {
+              historiesMap[workout.workout_id] = [];
+            }
+          }
+          setWorkoutHistoriesMap(historiesMap);
+        })();
       }
     }
   }, [workoutModalOpen, userWorkouts]);
@@ -1346,7 +1365,7 @@ export default function Goals() {
                     key={typeCode}
                     className="border-border/60 overflow-hidden"
                   >
-                    <div className="w-full p-4 flex items-center justify-between hover:bg-muted/30 transition-colors text-left">
+                    <div className="w-full p-3 flex items-center justify-between hover:bg-muted/30 transition-colors text-left">
                       <button
                         onClick={() =>
                           setExpandedRoutineId(
@@ -1357,7 +1376,7 @@ export default function Goals() {
                       >
                         <div className="flex flex-col justify-center items-center flex-1">
                           <p className="text-sm font-medium">{typeLabel}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
+                          <p className="text-xs text-muted-foreground mt-0.5">
                             {itemsForType.length > 0
                               ? `${itemsForType.length} item(ns)`
                               : "Sem itens"}
@@ -1413,14 +1432,14 @@ export default function Goals() {
 
                     {/* Expanded content */}
                     {isExpanded && (
-                      <div className="border-t border-border/60 bg-muted/20 p-4 space-y-2">
+                      <div className="border-t border-border/60 bg-muted/20 p-2.5 space-y-1.5">
                         {itemsForType.length > 0 ? (
                           itemsForType.map((item: any) => (
                             <div
                               key={item.id}
-                              className="space-y-2"
+                              className="space-y-1.5"
                             >
-                              <div className="flex items-start gap-3 rounded-lg">
+                              <div className="flex items-start gap-2.5 rounded-lg">
                                 {/* Mark as completed checkbox for diets (left side) */}
                                 {typeCode === 2 && (
                                   <button
@@ -1851,11 +1870,11 @@ export default function Goals() {
       </Drawer>
 
       {/* Workout Modal */}
-      <Dialog open={workoutModalOpen} onOpenChange={setWorkoutModalOpen}>
-        <DialogContent className="max-h-[90dvh] overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between gap-3">
-            <DialogTitle>Registrar Treino</DialogTitle>
-          </div>
+      <Drawer open={workoutModalOpen} onOpenChange={setWorkoutModalOpen}>
+        <DrawerContent className="max-h-[90dvh] overflow-hidden flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Registrar Treino</DrawerTitle>
+          </DrawerHeader>
 
           {/* Timer and Finish Button - Sticky at top */}
           <div className="flex items-center gap-3">
@@ -1871,7 +1890,7 @@ export default function Goals() {
               <div className="text-right">
                 <p className="text-xs font-medium text-muted-foreground">Séries</p>
                 <p className="text-xl font-bold text-foreground">
-                  {userWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).length, 0)}
+                  {userWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).filter((s) => s.completed).length, 0)}
                 </p>
               </div>
               <div className="text-right">
@@ -1974,7 +1993,7 @@ export default function Goals() {
                           </div>
 
                           {/* Inputs - Large and prominent */}
-                          <div className="flex items-center gap-1.5 flex-1">
+                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
                             <input
                               type="number"
                               step="0.5"
@@ -1988,9 +2007,9 @@ export default function Goals() {
                                 )
                               }
                               placeholder="kg"
-                              className="w-16 h-10 px-2 border-2 border-border/60 rounded text-sm font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
+                              className="w-14 h-9 px-1.5 border-2 border-border/60 rounded text-xs font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
                             />
-                            <span className="text-sm font-bold text-muted-foreground">×</span>
+                            <span className="text-xs font-bold text-muted-foreground">×</span>
                             <input
                               type="number"
                               value={series.reps === 0 ? "" : series.reps}
@@ -2003,8 +2022,22 @@ export default function Goals() {
                                 )
                               }
                               placeholder="reps"
-                              className="w-16 h-10 px-2 border-2 border-border/60 rounded text-sm font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
+                              className="w-14 h-9 px-1.5 border-2 border-border/60 rounded text-xs font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
                             />
+
+                            {/* History display */}
+                            {workoutHistoriesMap[workout.workout_id]?.length > 0 && (
+                              <div className="flex items-center gap-0.5 text-xs text-muted-foreground ml-1.5 px-2 py-1 rounded bg-muted/30 whitespace-nowrap">
+                                <span className="text-xs font-medium">Último:</span>
+                                <span className="font-semibold text-foreground">
+                                  {Math.round((workoutHistoriesMap[workout.workout_id]?.[0]?.kilos || 0) * 10) / 10}
+                                </span>
+                                <span>×</span>
+                                <span className="font-semibold text-foreground">
+                                  {workoutHistoriesMap[workout.workout_id]?.[0]?.volume || 0}
+                                </span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Completed toggle and Delete button - side by side */}
@@ -2092,8 +2125,8 @@ export default function Goals() {
               Adicionar Exercício
             </button>
           </div>
-        </DialogContent>
-      </Dialog>
+        </DrawerContent>
+      </Drawer>
 
       {/* Rest Timer Modal */}
       <Dialog open={restTimerModalOpen} onOpenChange={setRestTimerModalOpen}>
