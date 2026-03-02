@@ -272,6 +272,9 @@ export default function Profile() {
     { day: "Dom", minutes: 75 },
   ]);
 
+  // Personalization state
+  const [isPersonalizationOpen, setIsPersonalizationOpen] = React.useState(false);
+
   const loadProfile = React.useCallback(async () => {
     if (!profileUserId) return;
 
@@ -286,6 +289,7 @@ export default function Profile() {
         userHabitsData,
         userGoalsData,
         reelsData,
+        commercialProfileData,
       ] = await Promise.all([
         getUserProfileDb(profileUserId),
         getUserPostsDb(profileUserId),
@@ -296,6 +300,7 @@ export default function Profile() {
         getUserHabitsDb(profileUserId),
         getUserGoalsByUserIdDb(profileUserId),
         getUserReelsDb(profileUserId),
+        getCommercialProfileDb(profileUserId),
       ]);
 
       setProfile(profileData);
@@ -307,6 +312,7 @@ export default function Profile() {
       setUserHabits(userHabitsData);
       setUserGoals(userGoalsData);
       setReels(reelsData);
+      setCommercialProfile(commercialProfileData);
     } catch (err: any) {
       console.error("Error loading profile:", err);
       toast({
@@ -1298,6 +1304,26 @@ export default function Profile() {
                       {profile.bio}
                     </p>
                   )}
+
+                  {/* Commercial Profile Info */}
+                  {commercialProfile && (
+                    <div className="flex flex-col gap-1 mt-2 p-2 rounded-lg bg-muted/20 border border-brand/20">
+                      <div className="text-sm font-medium text-brand">
+                        🏪 {commercialProfile.business_name}
+                      </div>
+                      {commercialProfile.business_website && (
+                        <a
+                          href={commercialProfile.business_website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-brand hover:underline flex items-center gap-1"
+                        >
+                          <span>🔗</span>
+                          {commercialProfile.business_website.replace(/^https?:\/\//, "")}
+                        </a>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1891,30 +1917,55 @@ export default function Profile() {
                       </DrawerContent>
                     </Drawer>
 
-                    <Button
-                      onClick={() => {
-                        toggleLayoutMode();
-                        window.location.reload();
-                      }}
-                      variant="outline"
-                      className="w-full rounded-full gap-2"
+                    {/* Personalization Drawer */}
+                    <Drawer
+                      open={isPersonalizationOpen}
+                      onOpenChange={setIsPersonalizationOpen}
                     >
-                      <span>🎨</span>
-                      {layoutMode === "novo" ? "Layout Antigo" : "Novo Layout"}
-                    </Button>
+                      <Button
+                        onClick={() => setIsPersonalizationOpen(true)}
+                        variant="outline"
+                        className="w-full rounded-full gap-2"
+                      >
+                        <span>🎨</span>
+                        Personalização
+                      </Button>
 
-                    <Button
-                      onClick={() => setTheme(isDark ? "light" : "dark")}
-                      variant="outline"
-                      className="w-full rounded-full gap-2"
-                    >
-                      {isDark ? (
-                        <Sun className="h-4 w-4" />
-                      ) : (
-                        <Moon className="h-4 w-4" />
-                      )}
-                      {isDark ? "Modo Claro" : "Modo Noturno"}
-                    </Button>
+                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                        <DrawerHeader className="shrink-0">
+                          <DrawerTitle>Personalização</DrawerTitle>
+                        </DrawerHeader>
+
+                        <div className="flex-1 overflow-y-auto px-4 pb-4">
+                          <div className="space-y-2">
+                          <Button
+                            onClick={() => {
+                              toggleLayoutMode();
+                              window.location.reload();
+                            }}
+                            variant="outline"
+                            className="w-full rounded-full gap-2"
+                          >
+                            <span>📐</span>
+                            {layoutMode === "novo" ? "Layout Antigo" : "Novo Layout"}
+                          </Button>
+
+                          <Button
+                            onClick={() => setTheme(isDark ? "light" : "dark")}
+                            variant="outline"
+                            className="w-full rounded-full gap-2"
+                          >
+                            {isDark ? (
+                              <Sun className="h-4 w-4" />
+                            ) : (
+                              <Moon className="h-4 w-4" />
+                            )}
+                            {isDark ? "Modo Claro" : "Modo Noturno"}
+                          </Button>
+                          </div>
+                        </div>
+                      </DrawerContent>
+                    </Drawer>
 
                     <Button
                       onClick={handleLogout}
@@ -1924,60 +1975,6 @@ export default function Profile() {
                       <LogOut className="h-4 w-4" />
                       Desconectar
                     </Button>
-
-                    <Dialog
-                      open={isDeleteAccountOpen}
-                      onOpenChange={setIsDeleteAccountOpen}
-                    >
-                      <DialogTrigger asChild>
-                        <Button
-                          variant="destructive"
-                          className="w-full rounded-full gap-2"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Encerrar Conta
-                        </Button>
-                      </DialogTrigger>
-
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle className="text-red-600">Encerrar Conta</DialogTitle>
-                          <DialogDescription>
-                            Esta ação não pode ser desfeita. Todos os seus dados serão permanentemente deletados.
-                          </DialogDescription>
-                        </DialogHeader>
-
-                        <div className="space-y-4 py-4">
-                          <p className="text-sm text-muted-foreground">
-                            Para confirmar a exclusão da sua conta, digite "DELETAR CONTA" no campo abaixo:
-                          </p>
-                          <Input
-                            value={deleteConfirmText}
-                            onChange={(e) => setDeleteConfirmText(e.target.value)}
-                            placeholder="DELETAR CONTA"
-                            className="uppercase"
-                          />
-                        </div>
-
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={() => setIsDeleteAccountOpen(false)}
-                            variant="outline"
-                            className="w-full rounded-full"
-                          >
-                            Cancelar
-                          </Button>
-                          <Button
-                            onClick={handleDeleteAccount}
-                            disabled={isDeleting || deleteConfirmText !== "DELETAR CONTA"}
-                            variant="destructive"
-                            className="w-full rounded-full"
-                          >
-                            {isDeleting ? "Deletando..." : "Confirmar Exclusão"}
-                          </Button>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
                   </div>
                 </DrawerContent>
               </Drawer>
