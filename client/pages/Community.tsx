@@ -12,13 +12,14 @@ import {
   getGroupCheckInsDb,
   getUserCreatedDuelGroupsDb,
   getAvailableDuelGroupsDb,
-  getUserWorkoutsDb,
+  getUserExerciseRoutinesDb,
+  getUserProfileDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
   type RankingUser,
   type GroupCheckIn,
-  type UserWorkoutWithDetails,
+  type ExerciseRoutine,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -84,7 +85,7 @@ export default function Community() {
     workoutId: "",
   });
   const [checkInPhotoFile, setCheckInPhotoFile] = React.useState<File | null>(null);
-  const [userWorkouts, setUserWorkouts] = React.useState<UserWorkoutWithDetails[]>([]);
+  const [exerciseRoutines, setExerciseRoutines] = React.useState<ExerciseRoutine[]>([]);
   const [participantsSearch, setParticipantsSearch] = React.useState("");
   const [selectedCheckInForDetail, setSelectedCheckInForDetail] = React.useState<GroupCheckIn | null>(null);
   const [isCheckInDetailOpen, setIsCheckInDetailOpen] = React.useState(false);
@@ -122,8 +123,9 @@ export default function Community() {
     const loadUserData = async () => {
       if (!user?.id) return;
       try {
-        // Get user nickname from metadata
-        const nickname = (user.user_metadata?.full_name as string) || user.email?.split("@")[0] || "Usuário";
+        // Get user nickname from profile
+        const userProfile = await getUserProfileDb(user.id);
+        const nickname = userProfile?.nickname || user.email?.split("@")[0] || "Usuário";
         setUserNickname(nickname);
 
         // Load user groups
@@ -538,7 +540,7 @@ export default function Community() {
 
       {/* Duels Tab - Full Screen Group View */}
       {selectedGroupForView && (
-        <div className="fixed inset-0 bg-background flex flex-col z-50">
+        <div className="fixed inset-0 bg-background flex flex-col z-[51]">
           {/* Header */}
           <div className="flex-shrink-0 px-4 pt-4 pb-2 flex items-center justify-between border-b border-border/40">
             <div className="flex items-center gap-2">
@@ -639,15 +641,15 @@ export default function Community() {
           </div>
 
           {/* Centered Add Check-in Button at Bottom */}
-          <div className="flex-shrink-0 flex justify-center items-center py-4 bg-background border-t border-border/40">
+          <div className="flex-shrink-0 flex justify-center items-center py-4 bg-background border-t border-border/40 pb-20">
             <button
               onClick={async () => {
                 if (!user?.id) return;
                 try {
-                  const workouts = await getUserWorkoutsDb(user.id);
-                  setUserWorkouts(workouts);
+                  const routines = await getUserExerciseRoutinesDb(user.id);
+                  setExerciseRoutines(routines);
                 } catch (err) {
-                  console.error("Error loading workouts:", err);
+                  console.error("Error loading exercise routines:", err);
                 }
                 setCheckInForm({ photo: "", description: "", workoutId: "" });
                 setCheckInPhotoFile(null);
@@ -1199,23 +1201,23 @@ export default function Community() {
                 />
               </div>
 
-              {/* Workout Select */}
+              {/* Exercise Routine Select */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">O que você treinou? *</label>
                 <Select value={checkInForm.workoutId} onValueChange={(value) => setCheckInForm({ ...checkInForm, workoutId: value })}>
                   <SelectTrigger className="rounded-lg">
-                    <SelectValue placeholder="Selecione um exercício" />
+                    <SelectValue placeholder="Selecione uma rotina de treino" />
                   </SelectTrigger>
                   <SelectContent>
-                    {userWorkouts.length > 0 ? (
-                      userWorkouts.map((workout) => (
-                        <SelectItem key={workout.workout_id} value={workout.workout_id}>
-                          {workout.workoutName}
+                    {exerciseRoutines.length > 0 ? (
+                      exerciseRoutines.map((routine) => (
+                        <SelectItem key={routine.id} value={routine.id}>
+                          {routine.exerciseName}
                         </SelectItem>
                       ))
                     ) : (
                       <div className="px-4 py-2 text-sm text-muted-foreground">
-                        Nenhum exercício registrado
+                        Nenhuma rotina de treino registrada
                       </div>
                     )}
                   </SelectContent>
@@ -1226,9 +1228,9 @@ export default function Community() {
                 onClick={async () => {
                   if (!user || !selectedGroupForView) return;
                   try {
-                    // Find the selected workout name
-                    const selectedWorkout = userWorkouts.find((w) => w.workout_id === checkInForm.workoutId);
-                    const workoutName = selectedWorkout?.workoutName || "Exercício desconhecido";
+                    // Find the selected exercise routine
+                    const selectedRoutine = exerciseRoutines.find((r) => r.id === checkInForm.workoutId);
+                    const exerciseName = selectedRoutine?.exerciseName || "Exercício desconhecido";
 
                     const checkIn = await addGroupCheckInDb(
                       selectedGroupForView.id,
@@ -1236,7 +1238,7 @@ export default function Community() {
                       userNickname || "Usuário",
                       checkInForm.photo,
                       checkInForm.description,
-                      workoutName,
+                      exerciseName,
                       0,
                       0
                     );

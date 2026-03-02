@@ -1111,6 +1111,66 @@ export async function getRoutinesByGoalIdDb(
   }));
 }
 
+export type ExerciseRoutine = {
+  id: string;
+  routineId: string;
+  userId: string;
+  exerciseName: string;
+  exercisePhoto?: string | null;
+};
+
+export async function getUserExerciseRoutinesDb(userId: string): Promise<ExerciseRoutine[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  // Get user routines of type 1 (Exercicios)
+  const { data: routines, error: routinesError } = await supabase
+    .from("routines")
+    .select("id, user_id, type, program_id")
+    .eq("user_id", userId)
+    .eq("type", 1)
+    .order("created_at", { ascending: false });
+
+  if (routinesError) {
+    const errorMsg = routinesError?.message || String(routinesError);
+    const errorCode = routinesError?.code || "UNKNOWN";
+    console.error(`Error fetching exercise routines [${errorCode}]:`, errorMsg);
+    return [];
+  }
+
+  if (!routines || routines.length === 0) return [];
+
+  // Get workout details for each routine
+  const workoutIds = routines
+    .map((r: any) => r.program_id)
+    .filter(Boolean);
+
+  let workoutDetailsMap: { [key: string]: any } = {};
+
+  if (workoutIds.length > 0) {
+    const { data: workouts } = await supabase
+      .from("workouts")
+      .select("id, name, photo")
+      .in("id", workoutIds);
+
+    if (workouts) {
+      workouts.forEach((w: any) => {
+        workoutDetailsMap[String(w.id)] = w;
+      });
+    }
+  }
+
+  return routines.map((routine: any) => {
+    const workoutDetails = workoutDetailsMap[String(routine.program_id)];
+    return {
+      id: String(routine.id ?? ""),
+      routineId: String(routine.id ?? ""),
+      userId: String(routine.user_id ?? ""),
+      exerciseName: workoutDetails?.name || "Exercício desconhecido",
+      exercisePhoto: workoutDetails?.photo || null,
+    };
+  });
+}
+
 export type UserWorkout = {
   id: string;
   workout_id: string;

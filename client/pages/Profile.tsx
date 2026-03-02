@@ -1299,8 +1299,47 @@ export default function Profile() {
                     </h1>
                     <UserInsignias userId={profileUserId || ""} />
                   </div>
+
+                  {/* Stats Row - Horizontal inline */}
+                  <div className="flex gap-4 mt-2">
+                    <div className="flex flex-col">
+                      <div className="text-base font-semibold">
+                        {stats.postsCount}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Posts</div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowFollowersModal(true);
+                        loadFollowersData();
+                      }}
+                      className="flex flex-col hover:opacity-80 transition-opacity"
+                    >
+                      <div className="text-base font-semibold">
+                        {stats.followersCount}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Seguidores
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowFollowingModal(true);
+                        loadFollowingData();
+                      }}
+                      className="flex flex-col hover:opacity-80 transition-opacity"
+                    >
+                      <div className="text-base font-semibold">
+                        {stats.followingCount}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Seguindo
+                      </div>
+                    </button>
+                  </div>
+
                   {profile.bio && (
-                    <p className="text-sm text-muted-foreground line-clamp-2">
+                    <p className="text-sm text-muted-foreground line-clamp-2 mt-2">
                       {profile.bio}
                     </p>
                   )}
@@ -1353,7 +1392,7 @@ export default function Profile() {
                       <Button
                         onClick={openEditDialog}
                         variant="outline"
-                        className="w-full rounded-full gap-2"
+                        className="gap-2"
                       >
                         <Edit2 className="h-4 w-4" />
                         Editar Perfil
@@ -1458,7 +1497,7 @@ export default function Profile() {
                         <Button
                           onClick={handleOpenCommercialProfile}
                           variant="outline"
-                          className="w-full rounded-full gap-2"
+                          className="gap-2"
                         >
                           <span className="text-lg">🏪</span>
                           Perfil Comercial
@@ -1597,7 +1636,7 @@ export default function Profile() {
                       <Button
                         onClick={() => setIsEditAccountOpen(true)}
                         variant="outline"
-                        className="w-full rounded-full gap-2"
+                        className="gap-2"
                       >
                         <Lock className="h-4 w-4" />
                         Editar Conta
@@ -1672,7 +1711,7 @@ export default function Profile() {
                       <Button
                         onClick={() => setIsLanguageOpen(true)}
                         variant="outline"
-                        className="w-full rounded-full gap-2"
+                        className="gap-2"
                       >
                         <Globe className="h-4 w-4" />
                         Idioma
@@ -1726,7 +1765,7 @@ export default function Profile() {
                       <Button
                         onClick={() => setIsNotificationsOpen(true)}
                         variant="outline"
-                        className="w-full rounded-full gap-2"
+                        className="gap-2"
                       >
                         <Bell className="h-4 w-4" />
                         Notificações
@@ -1848,7 +1887,7 @@ export default function Profile() {
                       <Button
                         onClick={() => setIsTimeManagementOpen(true)}
                         variant="outline"
-                        className="w-full rounded-full gap-2"
+                        className="gap-2"
                       >
                         <BarChart3 className="h-4 w-4" />
                         Gerenciamento de Tempo
@@ -1925,7 +1964,7 @@ export default function Profile() {
                       <Button
                         onClick={() => setIsPersonalizationOpen(true)}
                         variant="outline"
-                        className="w-full rounded-full gap-2"
+                        className="gap-2"
                       >
                         <span>🎨</span>
                         Personalização
@@ -1970,7 +2009,7 @@ export default function Profile() {
                     <Button
                       onClick={handleLogout}
                       variant="destructive"
-                      className="w-full rounded-full gap-2"
+                      className="gap-2"
                     >
                       <LogOut className="h-4 w-4" />
                       Desconectar
@@ -1981,43 +2020,6 @@ export default function Profile() {
             )}
           </div>
 
-          {/* Stats Row - Centered */}
-          <div className="flex gap-3 sm:gap-6 justify-center">
-            <div className="flex flex-col items-center space-y-0.5">
-              <div className="text-base sm:text-lg font-semibold">
-                {stats.postsCount}
-              </div>
-              <div className="text-xs text-muted-foreground whitespace-nowrap">Posts</div>
-            </div>
-            <button
-              onClick={() => {
-                setShowFollowersModal(true);
-                loadFollowersData();
-              }}
-              className="flex flex-col items-center space-y-0.5 hover:opacity-80 transition-opacity"
-            >
-              <div className="text-base sm:text-lg font-semibold">
-                {stats.followersCount}
-              </div>
-              <div className="text-xs text-muted-foreground whitespace-nowrap">
-                Seguidores
-              </div>
-            </button>
-            <button
-              onClick={() => {
-                setShowFollowingModal(true);
-                loadFollowingData();
-              }}
-              className="flex flex-col items-center space-y-0.5 hover:opacity-80 transition-opacity"
-            >
-              <div className="text-base sm:text-lg font-semibold">
-                {stats.followingCount}
-              </div>
-              <div className="text-xs text-muted-foreground whitespace-nowrap">
-                Seguindo
-              </div>
-            </button>
-          </div>
 
           {/* Action Buttons - Below stats, centered */}
           {isViewingOtherProfile && (
