@@ -90,6 +90,8 @@ export default function Community() {
   const [selectedCheckInForDetail, setSelectedCheckInForDetail] = React.useState<GroupCheckIn | null>(null);
   const [isCheckInDetailOpen, setIsCheckInDetailOpen] = React.useState(false);
   const [userNickname, setUserNickname] = React.useState<string>("");
+  const [isGroupDetailsOpen, setIsGroupDetailsOpen] = React.useState(false);
+  const [isClassificationsOpen, setIsClassificationsOpen] = React.useState(false);
 
   // Load conversations, following users, and ranking
   React.useEffect(() => {
@@ -583,12 +585,6 @@ export default function Community() {
                 </div>
               </div>
 
-              {/* Group Description */}
-              <div className="px-4 py-2">
-                <p className="text-sm text-muted-foreground">{selectedGroupForView.description}</p>
-                <p className="text-xs text-muted-foreground mt-2">📍 {selectedGroupForView.city}</p>
-              </div>
-
               {/* Divider */}
               <div className="px-4 py-3">
                 <div className="h-px bg-border/40"></div>
@@ -637,17 +633,19 @@ export default function Community() {
           {/* Bottom Navigation Tabs */}
           <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border/40 z-[52]">
             <div className="flex items-center justify-around h-16 px-4">
-              <button className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors">
+              <button
+                onClick={() => setIsGroupDetailsOpen(true)}
+                className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors"
+              >
                 <span className="text-xl">📋</span>
                 <span className="text-xs">Detalhes</span>
               </button>
-              <button className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors">
+              <button
+                onClick={() => setIsClassificationsOpen(true)}
+                className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors"
+              >
                 <span className="text-xl">🏆</span>
                 <span className="text-xs">Classificações</span>
-              </button>
-              <button className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors">
-                <span className="text-xl">💬</span>
-                <span className="text-xs">Bate-papo</span>
               </button>
             </div>
           </div>
@@ -1399,6 +1397,94 @@ export default function Community() {
                 </div>
               </div>
             )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Group Details Modal */}
+      <Drawer open={isGroupDetailsOpen} onOpenChange={setIsGroupDetailsOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Detalhes do Grupo</DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            {selectedGroupForView && (
+              <div className="space-y-4">
+                {/* Group Name */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">Nome do Grupo</label>
+                  <div className="p-3 rounded-lg bg-muted/20">
+                    <p className="text-sm font-medium">{selectedGroupForView.name}</p>
+                  </div>
+                </div>
+
+                {/* Location */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">Local</label>
+                  <div className="p-3 rounded-lg bg-muted/20">
+                    <p className="text-sm">📍 {selectedGroupForView.city}</p>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">Descrição</label>
+                  <div className="p-3 rounded-lg bg-muted/20">
+                    <p className="text-sm">{selectedGroupForView.description}</p>
+                  </div>
+                </div>
+
+                {/* Goal */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">Objetivo</label>
+                  <div className="p-3 rounded-lg bg-muted/20">
+                    <p className="text-sm">{selectedGroupForView.goal}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Classifications Modal */}
+      <Drawer open={isClassificationsOpen} onOpenChange={setIsClassificationsOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Classificações</DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <div className="space-y-2">
+              {groupCheckIns.length > 0 ? (
+                // Group check-ins by user and count
+                Object.entries(
+                  groupCheckIns.reduce((acc: { [key: string]: { userName: string; count: number } }, checkIn) => {
+                    if (!acc[checkIn.userId]) {
+                      acc[checkIn.userId] = { userName: checkIn.userName, count: 0 };
+                    }
+                    acc[checkIn.userId].count++;
+                    return acc;
+                  }, {})
+                )
+                  .sort((a, b) => b[1].count - a[1].count)
+                  .map(([userId, data], index) => (
+                    <div key={userId} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border border-border/40">
+                      <div className="text-lg font-bold text-brand w-8 text-center">
+                        {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold">{data.userName}</p>
+                        <p className="text-xs text-muted-foreground">{data.count} check-ins</p>
+                      </div>
+                      <div className="text-lg font-bold text-brand">{data.count}</div>
+                    </div>
+                  ))
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-8">Nenhum check-in ainda</p>
+              )}
+            </div>
           </div>
         </DrawerContent>
       </Drawer>
