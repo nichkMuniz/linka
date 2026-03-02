@@ -4462,6 +4462,7 @@ export type DuelGroup = {
   icon: string;
   createdAt: string;
   updatedAt?: string;
+  endDate?: string;
 };
 
 export type GroupCheckIn = {
@@ -4483,7 +4484,8 @@ export async function createDuelGroupDb(
   name: string,
   location: string,
   goal: string,
-  members: string[]
+  members: string[],
+  endDate?: string
 ): Promise<DuelGroup> {
   if (!supabase) throw new Error("Supabase not configured");
 
@@ -4496,6 +4498,7 @@ export async function createDuelGroupDb(
         name,
         location,
         goal,
+        end_date: endDate || null,
         icon: "⚔️",
       })
       .select()
@@ -4526,6 +4529,7 @@ export async function createDuelGroupDb(
       icon: groupData.icon,
       createdAt: groupData.created_at,
       updatedAt: groupData.updated_at,
+      endDate: groupData.end_date,
     };
   } catch (error) {
     console.error("Error creating duel group:", error);
@@ -4555,6 +4559,7 @@ export async function getDuelGroupDb(groupId: string): Promise<DuelGroup | null>
       icon: data.icon,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
+      endDate: data.end_date,
     };
   } catch (error) {
     console.error("Error getting duel group:", error);
@@ -4584,6 +4589,7 @@ export async function getUserCreatedDuelGroupsDb(userId: string): Promise<DuelGr
       icon: group.icon,
       createdAt: group.created_at,
       updatedAt: group.updated_at,
+      endDate: group.end_date,
     }));
   } catch (error) {
     console.error("Error getting user created groups:", error);
@@ -4624,6 +4630,7 @@ export async function getAvailableDuelGroupsDb(userId: string): Promise<DuelGrou
         icon: group.icon,
         createdAt: group.created_at,
         updatedAt: group.updated_at,
+        endDate: group.end_date,
       }));
   } catch (error) {
     console.error("Error getting available groups:", error);
@@ -4658,6 +4665,7 @@ export async function getUserDuelGroupsDb(userId: string): Promise<DuelGroup[]> 
       icon: group.icon,
       createdAt: group.created_at,
       updatedAt: group.updated_at,
+      endDate: group.end_date,
     }));
   } catch (error) {
     console.error("Error getting user groups:", error);
@@ -4743,5 +4751,102 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
   } catch (error) {
     console.error("Error getting check-ins:", error);
     return [];
+  }
+}
+
+// Update a check-in
+export async function updateGroupCheckInDb(
+  checkInId: string,
+  workoutInfo: string,
+  description: string
+): Promise<GroupCheckIn> {
+  if (!supabase) throw new Error("Supabase not configured");
+
+  try {
+    const { data, error } = await supabase
+      .from("duel_check_ins")
+      .update({
+        workout_info: workoutInfo,
+        description: description,
+      })
+      .eq("id", checkInId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!data) throw new Error("Failed to update check-in");
+
+    return {
+      id: data.id,
+      groupId: data.group_id,
+      userId: data.user_id,
+      userName: data.user_name,
+      photo: data.photo || "",
+      description: data.description || "",
+      workoutInfo: data.workout_info || "",
+      series: data.series || 0,
+      volume: data.volume || 0,
+      createdAt: data.created_at,
+    };
+  } catch (error) {
+    console.error("Error updating check-in:", error);
+    throw error;
+  }
+}
+
+// Delete a check-in
+export async function deleteGroupCheckInDb(checkInId: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase not configured");
+
+  try {
+    const { error } = await supabase
+      .from("duel_check_ins")
+      .delete()
+      .eq("id", checkInId);
+
+    if (error) throw error;
+  } catch (error) {
+    console.error("Error deleting check-in:", error);
+    throw error;
+  }
+}
+
+// Add members to a duel group
+export async function addMembersToGroupDb(
+  groupId: string,
+  memberIds: string[]
+): Promise<void> {
+  if (!supabase) throw new Error("Supabase not configured");
+
+  try {
+    // Get existing participants
+    const { data: existingParticipants, error: fetchError } = await supabase
+      .from("duel_group_participants")
+      .select("user_id")
+      .eq("group_id", groupId);
+
+    if (fetchError) throw fetchError;
+
+    const existingUserIds = new Set(existingParticipants?.map((p: any) => p.user_id) || []);
+
+    // Filter out members who are already in the group
+    const newMembers = memberIds.filter((id) => !existingUserIds.has(id));
+
+    if (newMembers.length === 0) return;
+
+    // Add new members
+    const { error: insertError } = await supabase
+      .from("duel_group_participants")
+      .insert(
+        newMembers.map((userId) => ({
+          group_id: groupId,
+          user_id: userId,
+        }))
+      );
+
+    if (insertError) throw insertError;
+  } catch (error) {
+    console.error("Error adding members to group:", error);
+    throw error;
   }
 }

@@ -14,6 +14,9 @@ import {
   getAvailableDuelGroupsDb,
   getUserExerciseRoutinesDb,
   getUserProfileDb,
+  addMembersToGroupDb,
+  updateGroupCheckInDb,
+  deleteGroupCheckInDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
@@ -72,6 +75,7 @@ export default function Community() {
     name: "",
     location: "",
     goal: "",
+    endDate: "",
   });
   const [selectedInvitees, setSelectedInvitees] = React.useState<Set<string>>(new Set());
   const [userCreatedGroups, setUserCreatedGroups] = React.useState<any[]>([]);
@@ -92,6 +96,14 @@ export default function Community() {
   const [userNickname, setUserNickname] = React.useState<string>("");
   const [isGroupDetailsOpen, setIsGroupDetailsOpen] = React.useState(false);
   const [isClassificationsOpen, setIsClassificationsOpen] = React.useState(false);
+  const [isAddMembersModalOpen, setIsAddMembersModalOpen] = React.useState(false);
+  const [selectedMembers, setSelectedMembers] = React.useState<Set<string>>(new Set());
+  const [addMembersSearch, setAddMembersSearch] = React.useState("");
+  const [isEditCheckInOpen, setIsEditCheckInOpen] = React.useState(false);
+  const [editCheckInForm, setEditCheckInForm] = React.useState({
+    workoutInfo: "",
+    description: "",
+  });
 
   // Load conversations, following users, and ranking
   React.useEffect(() => {
@@ -569,20 +581,77 @@ export default function Community() {
 
               {/* Stats Section */}
               <div className="px-4 py-4 space-y-2">
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center">
-                    <div className="text-lg font-bold text-brand">47</div>
-                    <div className="text-xs text-muted-foreground">Líder</div>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center">
-                    <div className="text-lg font-bold text-brand">{selectedGroupForView.participants}</div>
-                    <div className="text-xs text-muted-foreground">Você</div>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center">
-                    <div className="text-lg font-bold text-brand">283</div>
-                    <div className="text-xs text-muted-foreground">dias</div>
-                  </div>
-                </div>
+                {(() => {
+                  // Calculate leader stats
+                  const leaderStats = groupCheckIns.length > 0
+                    ? Object.entries(
+                        groupCheckIns.reduce((acc: { [key: string]: { userName: string; count: number } }, checkIn) => {
+                          if (!acc[checkIn.userId]) {
+                            acc[checkIn.userId] = { userName: checkIn.userName, count: 0 };
+                          }
+                          acc[checkIn.userId].count++;
+                          return acc;
+                        }, {})
+                      )
+                        .sort((a, b) => b[1].count - a[1].count)
+                        .map(([userId, data]) => ({ userId, ...data }))[0]
+                    : null;
+
+                  // Calculate user ranking position
+                  const userRanking = groupCheckIns.length > 0
+                    ? Object.entries(
+                        groupCheckIns.reduce((acc: { [key: string]: { userName: string; count: number } }, checkIn) => {
+                          if (!acc[checkIn.userId]) {
+                            acc[checkIn.userId] = { userName: checkIn.userName, count: 0 };
+                          }
+                          acc[checkIn.userId].count++;
+                          return acc;
+                        }, {})
+                      )
+                        .sort((a, b) => b[1].count - a[1].count)
+                        .findIndex(([userId]) => userId === user?.id) + 1
+                    : 0;
+
+                  // Calculate days remaining
+                  const daysRemaining = selectedGroupForView.endDate
+                    ? Math.ceil(
+                        (new Date(selectedGroupForView.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
+                      )
+                    : null;
+
+                  return (
+                    <div className="grid grid-cols-3 gap-3">
+                      {/* Leader Card */}
+                      <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center flex flex-col items-center">
+                        <div className="text-lg font-bold text-brand mb-1">
+                          {leaderStats?.count || 0}
+                        </div>
+                        {leaderStats?.userName && (
+                          <div className="text-xs text-muted-foreground truncate w-full">
+                            {leaderStats.userName}
+                          </div>
+                        )}
+                        <div className="text-xs text-muted-foreground">Líder</div>
+                      </div>
+
+                      {/* User Ranking Card */}
+                      <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center">
+                        <div className="text-lg font-bold text-brand mb-2">
+                          {userRanking > 0 ? `#${userRanking}` : "-"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Você</div>
+                      </div>
+
+                      {/* Days Remaining Card */}
+                      <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center">
+                        <div className="text-lg font-bold text-brand mb-2">
+                          {daysRemaining !== null ? (daysRemaining > 0 ? daysRemaining : "Fim") : "-"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">dias</div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Divider */}
@@ -970,6 +1039,18 @@ export default function Community() {
                   />
                 </div>
 
+                {/* End Date */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Data de Término</label>
+                  <Input
+                    type="date"
+                    value={groupConfig.endDate}
+                    onChange={(e) =>
+                      setGroupConfig({ ...groupConfig, endDate: e.target.value })
+                    }
+                  />
+                </div>
+
                 <Button
                   onClick={() => {
                     if (groupConfig.name && groupConfig.location && groupConfig.goal) {
@@ -1107,7 +1188,8 @@ export default function Community() {
                           groupConfig.name,
                           groupConfig.location,
                           groupConfig.goal,
-                          Array.from(selectedInvitees)
+                          Array.from(selectedInvitees),
+                          groupConfig.endDate
                         );
 
                         const newGroup = {
@@ -1300,10 +1382,13 @@ export default function Community() {
               <div className="flex gap-2">
                 <button
                   onClick={() => {
-                    toast({
-                      title: "Editar",
-                      description: "Funcionalidade em desenvolvimento",
-                    });
+                    if (selectedCheckInForDetail) {
+                      setEditCheckInForm({
+                        workoutInfo: selectedCheckInForDetail.workoutInfo,
+                        description: selectedCheckInForDetail.description,
+                      });
+                      setIsEditCheckInOpen(true);
+                    }
                   }}
                   className="p-2 hover:bg-muted rounded-lg transition-colors"
                   title="Editar check-in"
@@ -1313,12 +1398,14 @@ export default function Community() {
                 <button
                   onClick={() => {
                     if (selectedCheckInForDetail) {
-                      setGroupCheckIns(groupCheckIns.filter((c) => c.id !== selectedCheckInForDetail.id));
-                      setIsCheckInDetailOpen(false);
-                      toast({
-                        title: "Check-in excluído!",
-                        description: "O check-in foi removido com sucesso.",
-                      });
+                      if (window.confirm("Tem certeza que deseja excluir este check-in? Esta ação é irreversível.")) {
+                        setGroupCheckIns(groupCheckIns.filter((c) => c.id !== selectedCheckInForDetail.id));
+                        setIsCheckInDetailOpen(false);
+                        toast({
+                          title: "Check-in excluído!",
+                          description: "O check-in foi removido com sucesso.",
+                        });
+                      }
                     }
                   }}
                   className="p-2 hover:bg-destructive/10 rounded-lg transition-colors"
@@ -1427,14 +1514,6 @@ export default function Community() {
                   </div>
                 </div>
 
-                {/* Description */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Descrição</label>
-                  <div className="p-3 rounded-lg bg-muted/20">
-                    <p className="text-sm">{selectedGroupForView.description}</p>
-                  </div>
-                </div>
-
                 {/* Goal */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-muted-foreground">Objetivo</label>
@@ -1447,10 +1526,9 @@ export default function Community() {
                 <div className="space-y-2 pt-4 border-t border-border/40">
                   <Button
                     onClick={() => {
-                      toast({
-                        title: "Adicionar Membros",
-                        description: "Funcionalidade em desenvolvimento",
-                      });
+                      setSelectedMembers(new Set());
+                      setAddMembersSearch("");
+                      setIsAddMembersModalOpen(true);
                     }}
                     className="w-full rounded-full gap-2"
                   >
@@ -1520,6 +1598,237 @@ export default function Community() {
                 <p className="text-sm text-muted-foreground text-center py-8">Nenhum check-in ainda</p>
               )}
             </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Add Members Modal */}
+      <Drawer open={isAddMembersModalOpen} onOpenChange={setIsAddMembersModalOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Adicionar Membros</DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-4 flex flex-col">
+            {/* Search Field */}
+            {followers.length > 0 && (
+              <div className="mb-4">
+                <Input
+                  placeholder="Pesquisar seguidor..."
+                  value={addMembersSearch}
+                  onChange={(e) => setAddMembersSearch(e.target.value)}
+                  className="rounded-lg"
+                />
+              </div>
+            )}
+
+            {/* Followers List */}
+            <div className="space-y-2 flex-1 overflow-y-auto">
+              {followers.length > 0 ? (
+                followers
+                  .filter((f) =>
+                    f.nickname.toLowerCase().includes(addMembersSearch.toLowerCase())
+                  )
+                  .map((follower) => (
+                    <button
+                      key={follower.id}
+                      onClick={() => {
+                        const newSelected = new Set(selectedMembers);
+                        if (newSelected.has(follower.id)) {
+                          newSelected.delete(follower.id);
+                        } else {
+                          newSelected.add(follower.id);
+                        }
+                        setSelectedMembers(newSelected);
+                      }}
+                      className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2 ${
+                        selectedMembers.has(follower.id)
+                          ? "border-brand bg-brand/10"
+                          : "border-border hover:border-brand/50"
+                      }`}
+                    >
+                      <div
+                        className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                          selectedMembers.has(follower.id)
+                            ? "bg-brand border-brand"
+                            : "border-muted-foreground"
+                        }`}
+                      >
+                        {selectedMembers.has(follower.id) && (
+                          <Check className="h-3 w-3 text-white" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">
+                          {follower.nickname}
+                        </div>
+                      </div>
+                    </button>
+                  ))
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Você não segue ninguém ainda
+                </p>
+              )}
+            </div>
+
+            {/* Add Button */}
+            <div className="mt-4 pt-4 border-t border-border/40">
+              <Button
+                onClick={async () => {
+                  try {
+                    if (selectedGroupForView && selectedMembers.size > 0) {
+                      await addMembersToGroupDb(
+                        selectedGroupForView.id,
+                        Array.from(selectedMembers)
+                      );
+                      toast({
+                        title: "Membros adicionados!",
+                        description: `${selectedMembers.size} membro(s) adicionado(s) ao grupo.`,
+                      });
+                      setIsAddMembersModalOpen(false);
+                      setSelectedMembers(new Set());
+                      setAddMembersSearch("");
+                    } else if (selectedMembers.size === 0) {
+                      toast({
+                        title: "Selecione membros",
+                        description: "Selecione pelo menos um membro para adicionar",
+                        variant: "destructive",
+                      });
+                    }
+                  } catch (error: any) {
+                    toast({
+                      title: "Erro ao adicionar membros",
+                      description: error.message || "Tente novamente",
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                className="w-full rounded-full"
+                disabled={selectedMembers.size === 0}
+              >
+                Adicionar {selectedMembers.size > 0 ? `(${selectedMembers.size})` : ""}
+              </Button>
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Edit Check-in Modal */}
+      <Drawer open={isEditCheckInOpen} onOpenChange={setIsEditCheckInOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Editar Check-in</DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            {selectedCheckInForDetail && (
+              <div className="space-y-4">
+                {/* Exercise */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Exercício *</label>
+                  <Input
+                    value={editCheckInForm.workoutInfo}
+                    onChange={(e) =>
+                      setEditCheckInForm({
+                        ...editCheckInForm,
+                        workoutInfo: e.target.value,
+                      })
+                    }
+                    placeholder="Ex: Supino Reto..."
+                  />
+                </div>
+
+                {/* Description */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Descrição</label>
+                  <Textarea
+                    value={editCheckInForm.description}
+                    onChange={(e) =>
+                      setEditCheckInForm({
+                        ...editCheckInForm,
+                        description: e.target.value,
+                      })
+                    }
+                    placeholder="Adicione detalhes sobre seu treino..."
+                    className="min-h-24"
+                  />
+                </div>
+
+                {/* Stats (Read-only) */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="text-center p-3 rounded-lg bg-muted/20">
+                    <div className="font-semibold text-brand text-lg">
+                      {selectedCheckInForDetail.series}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Séries</div>
+                  </div>
+                  <div className="text-center p-3 rounded-lg bg-muted/20">
+                    <div className="font-semibold text-brand text-lg">
+                      {selectedCheckInForDetail.volume}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Volume (kg)</div>
+                  </div>
+                  <div className="text-center p-3 rounded-lg bg-muted/20">
+                    <div className="font-semibold text-brand text-lg">✓</div>
+                    <div className="text-xs text-muted-foreground">Concluído</div>
+                  </div>
+                </div>
+
+                {/* Save Button */}
+                <Button
+                  onClick={async () => {
+                    try {
+                      if (editCheckInForm.workoutInfo.trim()) {
+                        await updateGroupCheckInDb(
+                          selectedCheckInForDetail.id,
+                          editCheckInForm.workoutInfo,
+                          editCheckInForm.description
+                        );
+
+                        // Update local state
+                        const updatedCheckIns = groupCheckIns.map((c) =>
+                          c.id === selectedCheckInForDetail.id
+                            ? {
+                                ...c,
+                                workoutInfo: editCheckInForm.workoutInfo,
+                                description: editCheckInForm.description,
+                              }
+                            : c
+                        );
+                        setGroupCheckIns(updatedCheckIns);
+                        setSelectedCheckInForDetail({
+                          ...selectedCheckInForDetail,
+                          workoutInfo: editCheckInForm.workoutInfo,
+                          description: editCheckInForm.description,
+                        });
+
+                        setIsEditCheckInOpen(false);
+                        toast({
+                          title: "Check-in atualizado!",
+                          description: "Suas alterações foram salvas com sucesso.",
+                        });
+                      } else {
+                        toast({
+                          title: "Campo obrigatório",
+                          description: "Preencha o campo de exercício",
+                          variant: "destructive",
+                        });
+                      }
+                    } catch (error: any) {
+                      toast({
+                        title: "Erro ao atualizar check-in",
+                        description: error.message || "Tente novamente",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                  className="w-full rounded-full"
+                >
+                  Salvar Alterações
+                </Button>
+              </div>
+            )}
           </div>
         </DrawerContent>
       </Drawer>
