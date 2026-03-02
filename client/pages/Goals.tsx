@@ -1889,10 +1889,11 @@ export default function Goals() {
                 </button>
                 <button
                   onClick={handleFinishWorkout}
-                  className="px-5 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-colors font-medium text-sm"
-                  title="Concluir treino"
+                  className="p-2 rounded-lg bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-colors"
+                  title="Finalizar treino"
+                  aria-label="Finalizar treino"
                 >
-                  Concluir
+                  <X className="h-5 w-5" />
                 </button>
               </div>
 
@@ -1921,9 +1922,31 @@ export default function Goals() {
                     {userWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).filter((s) => s.completed).length, 0)}
                   </p>
                 </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-xs">💪</span>
-                  <span className="text-xs">💪</span>
+                <div className="flex items-center gap-2">
+                  {Array.from(
+                    new Set(
+                      userWorkouts
+                        .filter((w) => w.muscle_group)
+                        .map((w) => w.muscle_group)
+                    )
+                  )
+                    .slice(0, 3)
+                    .map((muscleGroup) => {
+                      const muscleIcons: Record<string, React.ReactNode> = {
+                        "Peito": <span className="text-sm">🏋️</span>,
+                        "Costas": <span className="text-sm">🔙</span>,
+                        "Pernas": <span className="text-sm">🦵</span>,
+                        "Ombros": <span className="text-sm">💪</span>,
+                        "Braços": <span className="text-sm">💪</span>,
+                        "Abdômen": <span className="text-sm">⚡</span>,
+                        "Glúteos": <span className="text-sm">🍑</span>,
+                      };
+                      return (
+                        <span key={muscleGroup} title={muscleGroup}>
+                          {muscleIcons[muscleGroup] || <span className="text-sm">💪</span>}
+                        </span>
+                      );
+                    })}
                 </div>
               </div>
             </div>
@@ -1946,13 +1969,6 @@ export default function Goals() {
                       })}
                       className="flex items-center gap-3 mb-2 hover:opacity-80 transition-opacity w-full"
                     >
-                      <div className="w-9 h-9 rounded-full bg-muted/30 flex-shrink-0 flex items-center justify-center text-xs">
-                        {workout.workoutPhoto ? (
-                          <img src={workout.workoutPhoto} alt={workout.workoutName} className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          "📋"
-                        )}
-                      </div>
                       <h3 className="text-sm font-semibold text-brand">
                         {workout.workoutName}
                       </h3>
