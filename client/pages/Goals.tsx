@@ -1879,102 +1879,105 @@ export default function Goals() {
             <DrawerTitle>Registrar Treino</DrawerTitle>
           </DrawerHeader>
 
-          {/* Timer and Finish Button - Sticky at top */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <p className="text-xs font-medium text-muted-foreground mb-0.5">Duração</p>
-              <p className="text-xl font-bold text-foreground">
-                {formatDuration(workoutDuration)}
-              </p>
-            </div>
-
-            {/* Totals Display */}
-            <div className="flex items-end gap-4">
-              <div className="text-right">
-                <p className="text-xs font-medium text-muted-foreground">Séries</p>
-                <p className="text-xl font-bold text-foreground">
-                  {userWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).filter((s) => s.completed).length, 0)}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs font-medium text-muted-foreground">Kilos</p>
-                <p className="text-xl font-bold text-foreground">
-                  {Math.round(
-                    userWorkouts.reduce((total, workout) => {
-                      const series = workoutSeries[workout.workout_id] || [];
-                      return total + series.reduce((sum, s) => sum + (s.kg || 0), 0);
-                    }, 0) * 10
-                  ) / 10}
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={handleFinishWorkout}
-              className="rounded-lg h-12 px-4 bg-destructive hover:bg-destructive/90 text-white flex items-center justify-center transition-colors flex-shrink-0 font-medium text-sm"
-              title="Encerrar treino"
-            >
-              <Pause className="h-4 w-4" />
-            </button>
-          </div>
-
+          {/* Header and Stats */}
           {userWorkouts.length > 0 && (
-            <>
-              {/* Current Workout */}
-              {(() => {
-                const currentWorkout = userWorkouts[currentWorkoutIndex];
-                const series = workoutSeries[currentWorkout.workout_id] || [];
+            <div className="shrink-0 border-b border-border/40 px-4 py-4">
+              <div className="flex items-center justify-between gap-4 mb-3">
+                <button className="flex items-center gap-2">
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-base font-semibold">Treinamento</span>
+                </button>
+                <button
+                  onClick={handleFinishWorkout}
+                  className="px-5 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-colors font-medium text-sm"
+                  title="Concluir treino"
+                >
+                  Concluir
+                </button>
+              </div>
+
+              {/* Stats Row */}
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                  <p className="text-xs text-muted-foreground mb-0.5">Duração</p>
+                  <p className="text-base font-bold text-brand">
+                    {formatDuration(workoutDuration)}
+                  </p>
+                </div>
+                <div className="flex flex-col">
+                  <p className="text-xs text-muted-foreground mb-0.5">Volume</p>
+                  <p className="text-base font-bold text-foreground">
+                    {Math.round(
+                      userWorkouts.reduce((total, workout) => {
+                        const series = workoutSeries[workout.workout_id] || [];
+                        return total + series.reduce((sum, s) => sum + (s.kg || 0), 0);
+                      }, 0) * 10
+                    ) / 10} kg
+                  </p>
+                </div>
+                <div className="flex flex-col">
+                  <p className="text-xs text-muted-foreground mb-0.5">Séries</p>
+                  <p className="text-base font-bold text-foreground">
+                    {userWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).filter((s) => s.completed).length, 0)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs">💪</span>
+                  <span className="text-xs">💪</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Exercises List - Scrollable */}
+          {userWorkouts.length > 0 ? (
+            <div className="flex-1 overflow-y-auto">
+              {userWorkouts.map((workout) => {
+                const series = workoutSeries[workout.workout_id] || [];
                 return (
-                  <>
-                    {/* Header with Duration and Close Button */}
-                    <div className="shrink-0 border-b border-border/40 px-4 py-6">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex-1">
-                          <p className="text-xs font-medium text-muted-foreground mb-1">Duração</p>
-                          <p className="text-2xl font-bold text-foreground">
-                            {formatDuration(workoutDuration)}
-                          </p>
-                        </div>
-                        <button
-                          onClick={handleFinishWorkout}
-                          className="h-12 px-6 rounded-lg bg-destructive hover:bg-destructive/90 text-white flex items-center justify-center transition-colors flex-shrink-0 font-medium text-sm gap-2"
-                          title="Encerrar treino"
-                        >
-                          <Pause className="h-4 w-4" />
-                          Encerrar
-                        </button>
+                  <div key={workout.id} className="border-b border-border/40 px-4 py-3">
+                    {/* Exercise Header */}
+                    <button
+                      onClick={() => handleOpenWorkoutHistory({
+                        id: workout.workout_id,
+                        name: workout.workoutName,
+                        description: workout.workoutDescription || undefined,
+                        photo: workout.workoutPhoto || undefined,
+                      })}
+                      className="flex items-center gap-3 mb-2 hover:opacity-80 transition-opacity w-full"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-muted/30 flex-shrink-0 flex items-center justify-center text-xs">
+                        {workout.workoutPhoto ? (
+                          <img src={workout.workoutPhoto} alt={workout.workoutName} className="w-full h-full rounded-full object-cover" />
+                        ) : (
+                          "📋"
+                        )}
                       </div>
+                      <h3 className="text-sm font-semibold text-brand">
+                        {workout.workoutName}
+                      </h3>
+                      <MoreVertical className="h-4 w-4 text-muted-foreground ml-auto flex-shrink-0" />
+                    </button>
+
+                    {/* Notes */}
+                    <div className="mb-2">
+                      <input
+                        type="text"
+                        placeholder="Adicionar notas aqui..."
+                        className="w-full text-xs text-muted-foreground bg-transparent border-0 placeholder:text-muted-foreground/60 focus:outline-none"
+                      />
                     </div>
 
-                    {/* Exercises Scroll List */}
-                    <div className="shrink-0 border-b border-border/40 px-4 py-3 overflow-x-auto">
-                      <div className="flex gap-2 min-w-min">
-                        {userWorkouts.map((workout, index) => (
-                          <button
-                            key={workout.id}
-                            onClick={() => setCurrentWorkoutIndex(index)}
-                            className={`px-4 py-2 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
-                              index === currentWorkoutIndex
-                                ? "bg-brand text-white"
-                                : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
-                            }`}
-                          >
-                            {workout.workoutName}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Rest Time with Selector */}
-                    <div className="shrink-0 px-4 py-3 border-b border-border/40 flex items-center gap-2">
+                    {/* Rest Time Selector */}
+                    <div className="flex items-center gap-2 mb-2">
                       <Clock className="h-4 w-4 text-brand flex-shrink-0" />
-                      <span className="text-sm font-medium text-muted-foreground">Descanso:</span>
+                      <span className="text-xs font-medium text-brand">Descanso:</span>
                       <select
-                        value={workoutExerciseRestTimes[currentWorkout.workout_id] || ""}
+                        value={workoutExerciseRestTimes[workout.workout_id] || ""}
                         onChange={(e) =>
-                          handleSetExerciseRestTime(currentWorkout.workout_id, parseInt(e.target.value))
+                          handleSetExerciseRestTime(workout.workout_id, parseInt(e.target.value))
                         }
-                        className="text-sm font-medium text-brand bg-transparent border-0 focus:outline-none cursor-pointer"
+                        className="text-xs font-medium text-brand bg-transparent border-0 focus:outline-none cursor-pointer"
                       >
                         <option value="">Padrão</option>
                         {REST_TIME_OPTIONS.map((time) => (
@@ -1986,7 +1989,7 @@ export default function Goals() {
                     </div>
 
                     {/* Table Header */}
-                    <div className="shrink-0 px-4 py-2 bg-muted/20 grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 text-xs font-semibold text-muted-foreground border-b border-border/40">
+                    <div className="grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 mb-1 py-1 text-xs font-semibold text-muted-foreground border-b border-border/20">
                       <div>SÉRIE</div>
                       <div>ANTERIOR</div>
                       <div className="text-center">KG</div>
@@ -1994,19 +1997,19 @@ export default function Goals() {
                       <div className="text-center">✓</div>
                     </div>
 
-                    {/* Series Table - Scrollable */}
-                    <div className="flex-1 overflow-y-auto px-4 py-2 space-y-0">
+                    {/* Series Rows */}
+                    <div className="space-y-0">
                       {series.map((s, index) => {
-                        const previousRecord = workoutHistoriesMap[currentWorkout.workout_id]?.[index];
+                        const previousRecord = workoutHistoriesMap[workout.workout_id]?.[index];
                         return (
                           <div
                             key={index}
-                            className={`grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 items-center py-2 border-b border-border/20 ${
-                              s.completed ? "opacity-50 bg-muted/30" : ""
+                            className={`grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 items-center py-1.5 ${
+                              s.completed ? "opacity-50" : ""
                             }`}
                           >
                             {/* Series Number */}
-                            <div className="font-bold text-center text-sm">
+                            <div className="font-bold text-center text-xs">
                               {index + 1}
                             </div>
 
@@ -2024,14 +2027,14 @@ export default function Goals() {
                               value={s.kg === 0 ? "" : s.kg}
                               onChange={(e) =>
                                 handleUpdateSerie(
-                                  currentWorkout.workout_id,
+                                  workout.workout_id,
                                   index,
                                   "kg",
                                   e.target.value,
                                 )
                               }
                               placeholder="0"
-                              className="w-full h-9 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
+                              className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
                             />
 
                             {/* REPS Input */}
@@ -2040,53 +2043,53 @@ export default function Goals() {
                               value={s.reps === 0 ? "" : s.reps}
                               onChange={(e) =>
                                 handleUpdateSerie(
-                                  currentWorkout.workout_id,
+                                  workout.workout_id,
                                   index,
                                   "reps",
                                   e.target.value,
                                 )
                               }
                               placeholder="0"
-                              className="w-full h-9 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
+                              className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
                             />
 
                             {/* Checkbox */}
                             <button
                               onClick={() =>
                                 handleToggleSerieCompleted(
-                                  currentWorkout.workout_id,
+                                  workout.workout_id,
                                   index,
                                 )
                               }
-                              className="h-8 w-8 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors"
+                              className="h-6 w-6 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors"
                             >
                               {s.completed ? (
-                                <CheckCircle2 className="h-5 w-5 text-brand" />
+                                <CheckCircle2 className="h-4 w-4 text-brand" />
                               ) : (
-                                <Circle className="h-5 w-5 text-muted-foreground" />
+                                <Circle className="h-4 w-4 text-muted-foreground" />
                               )}
                             </button>
                           </div>
                         );
                       })}
-
                     </div>
 
                     {/* Add Series Button */}
-                    <div className="shrink-0 px-4 py-3 border-t border-border/40">
-                      <button
-                        onClick={() => handleAddSerie(currentWorkout.workout_id)}
-                        className="w-full py-3 text-sm font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded-lg flex items-center justify-center gap-2"
-                      >
-                        <Plus className="h-4 w-4" />
-                        Adicionar Série
-                      </button>
-                    </div>
-
-                  </>
+                    <button
+                      onClick={() => handleAddSerie(workout.workout_id)}
+                      className="w-full mt-2 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded flex items-center justify-center gap-2"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Adicionar Série
+                    </button>
+                  </div>
                 );
-              })()}
-            </>
+              })}
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-sm text-muted-foreground">Nenhum exercício adicionado</p>
+            </div>
           )}
 
           {/* Bottom Actions - Sticky */}
