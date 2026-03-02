@@ -17,7 +17,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight } from "lucide-react";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
+import { Textarea } from "@/components/ui/textarea";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 type ViewMode = "conversations" | "conversation";
@@ -40,6 +47,17 @@ export default function Community() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+
+  // Group creation state
+  const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = React.useState(false);
+  const [groupStep, setGroupStep] = React.useState<"config" | "invite">("config");
+  const [groupConfig, setGroupConfig] = React.useState({
+    name: "",
+    location: "",
+    goal: "",
+  });
+  const [selectedInvitees, setSelectedInvitees] = React.useState<Set<string>>(new Set());
+  const [userGroups, setUserGroups] = React.useState<any[]>([]);
 
   // Load conversations, following users, and ranking
   React.useEffect(() => {
@@ -449,8 +467,21 @@ export default function Community() {
       {activeTab === "duels" && (
         <>
           {/* Header */}
-          <div className="flex-shrink-0 px-4 pt-4 pb-0">
+          <div className="flex-shrink-0 px-4 pt-4 pb-0 flex items-center justify-between">
             <h1 className="text-2xl font-bold tracking-tight">Duelos</h1>
+            <Button
+              onClick={() => {
+                setGroupStep("config");
+                setGroupConfig({ name: "", location: "", goal: "" });
+                setSelectedInvitees(new Set());
+                setIsCreateGroupModalOpen(true);
+              }}
+              size="sm"
+              className="gap-2 rounded-full"
+            >
+              <Plus className="h-4 w-4" />
+              Criar Grupo
+            </Button>
           </div>
 
           {/* Duels Grid - 2 columns */}
@@ -463,6 +494,7 @@ export default function Community() {
                   description: "Maior volume de supino",
                   participants: 12,
                   city: "São Paulo",
+                  isOfficial: true,
                 },
                 {
                   icon: "🏃",
@@ -470,6 +502,7 @@ export default function Community() {
                   description: "Maior tempo em cardio",
                   participants: 8,
                   city: "Rio de Janeiro",
+                  isOfficial: true,
                 },
                 {
                   icon: "💪",
@@ -477,6 +510,7 @@ export default function Community() {
                   description: "Volume total de perna",
                   participants: 15,
                   city: "Belo Horizonte",
+                  isOfficial: true,
                 },
                 {
                   icon: "🔥",
@@ -484,7 +518,9 @@ export default function Community() {
                   description: "Maior gasto calórico",
                   participants: 10,
                   city: "Curitiba",
+                  isOfficial: true,
                 },
+                ...userGroups,
               ].map((group) => (
                 <Card
                   key={group.name}
@@ -494,9 +530,16 @@ export default function Community() {
                     {/* Icon and Name */}
                     <div className="flex items-start gap-2 mb-2">
                       <span className="text-2xl flex-shrink-0">{group.icon}</span>
-                      <p className="font-semibold text-xs line-clamp-2">
-                        {group.name}
-                      </p>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-xs line-clamp-2">
+                          {group.name}
+                        </p>
+                        {group.createdBy === user?.id && (
+                          <span className="inline-block text-xs bg-brand/20 text-brand px-1.5 py-0.5 rounded-full mt-0.5">
+                            Seu Grupo
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Description */}
@@ -516,12 +559,27 @@ export default function Community() {
                       </div>
                     </div>
 
-                    {/* Participar Button */}
+                    {/* Action Button */}
                     <Button
                       size="sm"
                       className="w-full rounded-full text-xs h-8"
+                      onClick={() => {
+                        if (group.createdBy === user?.id) {
+                          // View group check-ins for user's own groups
+                          toast({
+                            title: "Check-ins do Grupo",
+                            description: `Grupo: ${group.name} - ${group.participants} participantes`,
+                          });
+                        } else if (group.isOfficial) {
+                          // Join official groups
+                          toast({
+                            title: "Participando!",
+                            description: `Você agora faz parte de "${group.name}"`,
+                          });
+                        }
+                      }}
                     >
-                      Participar
+                      {group.createdBy === user?.id ? "Ver Check-ins" : "Participar"}
                     </Button>
                   </CardContent>
                 </Card>
@@ -617,6 +675,185 @@ export default function Community() {
           </div>
         </>
       )}
+
+      {/* Create Group Drawer */}
+      <Drawer
+        open={isCreateGroupModalOpen}
+        onOpenChange={setIsCreateGroupModalOpen}
+      >
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>
+              {groupStep === "config" ? "Criar Novo Grupo" : "Convidar Participantes"}
+            </DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            {groupStep === "config" ? (
+              <div className="space-y-4">
+                {/* Group Name */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Nome do Grupo *</label>
+                  <Input
+                    value={groupConfig.name}
+                    onChange={(e) =>
+                      setGroupConfig({ ...groupConfig, name: e.target.value })
+                    }
+                    placeholder="Ex: Supino Masters, Cardio Challenge..."
+                  />
+                </div>
+
+                {/* Location */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Localidade *</label>
+                  <Input
+                    value={groupConfig.location}
+                    onChange={(e) =>
+                      setGroupConfig({ ...groupConfig, location: e.target.value })
+                    }
+                    placeholder="Ex: São Paulo, Rio de Janeiro..."
+                  />
+                </div>
+
+                {/* Goal */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Meta do Grupo *</label>
+                  <Textarea
+                    value={groupConfig.goal}
+                    onChange={(e) =>
+                      setGroupConfig({ ...groupConfig, goal: e.target.value })
+                    }
+                    placeholder="Ex: Maior volume total de supino em 30 dias..."
+                    className="min-h-20"
+                  />
+                </div>
+
+                <Button
+                  onClick={() => {
+                    if (groupConfig.name && groupConfig.location && groupConfig.goal) {
+                      setGroupStep("invite");
+                    } else {
+                      toast({
+                        title: "Campos obrigatórios",
+                        description: "Preencha todos os campos para continuar",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                  className="w-full rounded-full mt-6"
+                >
+                  Próximo: Convidar Participantes
+                  <ChevronRight className="h-4 w-4 ml-2" />
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Selected Group Info */}
+                <div className="p-4 rounded-lg bg-muted/20 border border-brand/20">
+                  <div className="text-sm font-semibold text-brand mb-1">
+                    {groupConfig.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    📍 {groupConfig.location}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-2">
+                    {groupConfig.goal}
+                  </div>
+                </div>
+
+                {/* Invite Followers */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Convidar Participantes ({selectedInvitees.size})
+                  </label>
+                  <div className="space-y-2 max-h-96">
+                    {followers.length > 0 ? (
+                      followers.map((follower) => (
+                        <button
+                          key={follower.id}
+                          onClick={() => {
+                            const newSelected = new Set(selectedInvitees);
+                            if (newSelected.has(follower.id)) {
+                              newSelected.delete(follower.id);
+                            } else {
+                              newSelected.add(follower.id);
+                            }
+                            setSelectedInvitees(newSelected);
+                          }}
+                          className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2 ${
+                            selectedInvitees.has(follower.id)
+                              ? "border-brand bg-brand/10"
+                              : "border-border hover:border-brand/50"
+                          }`}
+                        >
+                          <div
+                            className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                              selectedInvitees.has(follower.id)
+                                ? "bg-brand border-brand"
+                                : "border-muted-foreground"
+                            }`}
+                          >
+                            {selectedInvitees.has(follower.id) && (
+                              <Check className="h-3 w-3 text-white" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate">
+                              {follower.nickname}
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              @{follower.id}
+                            </div>
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        Você não segue ninguém ainda
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => setGroupStep("config")}
+                    variant="outline"
+                    className="flex-1 rounded-full"
+                  >
+                    Voltar
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      const newGroup = {
+                        id: Math.random().toString(36).substr(2, 9),
+                        icon: "⚔️",
+                        name: groupConfig.name,
+                        description: groupConfig.goal,
+                        participants: selectedInvitees.size + 1,
+                        city: groupConfig.location,
+                        createdBy: user?.id,
+                        members: Array.from(selectedInvitees),
+                        checkIns: [],
+                      };
+                      setUserGroups([...userGroups, newGroup]);
+                      setIsCreateGroupModalOpen(false);
+                      toast({
+                        title: "Grupo criado!",
+                        description: `"${groupConfig.name}" foi criado com sucesso.`,
+                      });
+                    }}
+                    className="flex-1 rounded-full"
+                    disabled={selectedInvitees.size === 0}
+                  >
+                    Criar Grupo
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }
