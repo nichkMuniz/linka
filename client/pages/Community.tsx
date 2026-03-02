@@ -75,8 +75,10 @@ export default function Community() {
     name: "",
     location: "",
     goal: "",
-    endDate: "",
+    durationDays: "",
+    photo: "",
   });
+  const [groupPhotoFile, setGroupPhotoFile] = React.useState<File | null>(null);
   const [selectedInvitees, setSelectedInvitees] = React.useState<Set<string>>(new Set());
   const [userCreatedGroups, setUserCreatedGroups] = React.useState<any[]>([]);
   const [availableGroups, setAvailableGroups] = React.useState<any[]>([]);
@@ -963,7 +965,23 @@ export default function Community() {
       {/* Create Group Drawer */}
       <Drawer
         open={isCreateGroupModalOpen}
-        onOpenChange={setIsCreateGroupModalOpen}
+        onOpenChange={(open) => {
+          setIsCreateGroupModalOpen(open);
+          if (!open) {
+            // Reset form when closing
+            setGroupConfig({
+              name: "",
+              location: "",
+              goal: "",
+              durationDays: "",
+              photo: "",
+            });
+            setGroupPhotoFile(null);
+            setSelectedInvitees(new Set());
+            setGroupStep("config");
+            setParticipantsSearch("");
+          }
+        }}
       >
         <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
@@ -994,7 +1012,7 @@ export default function Community() {
                     <SelectTrigger className="rounded-lg">
                       <SelectValue placeholder="Selecione um estado" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="z-[101]">
                       <SelectItem value="AC">Acre (AC)</SelectItem>
                       <SelectItem value="AL">Alagoas (AL)</SelectItem>
                       <SelectItem value="AP">Amapá (AP)</SelectItem>
@@ -1039,16 +1057,57 @@ export default function Community() {
                   />
                 </div>
 
-                {/* End Date */}
+                {/* Duration */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Data de Término</label>
-                  <Input
-                    type="date"
-                    value={groupConfig.endDate}
-                    onChange={(e) =>
-                      setGroupConfig({ ...groupConfig, endDate: e.target.value })
-                    }
-                  />
+                  <label className="text-sm font-medium">Duração do Desafio</label>
+                  <Select value={groupConfig.durationDays} onValueChange={(value) => setGroupConfig({ ...groupConfig, durationDays: value })}>
+                    <SelectTrigger className="rounded-lg">
+                      <SelectValue placeholder="Selecione a duração" />
+                    </SelectTrigger>
+                    <SelectContent className="z-[101]">
+                      <SelectItem value="30">30 dias</SelectItem>
+                      <SelectItem value="60">60 dias</SelectItem>
+                      <SelectItem value="90">90 dias</SelectItem>
+                      <SelectItem value="120">120 dias</SelectItem>
+                      <SelectItem value="180">180 dias</SelectItem>
+                      <SelectItem value="360">360 dias</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Group Photo */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Foto do Grupo</label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setGroupPhotoFile(file);
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setGroupConfig({
+                              ...groupConfig,
+                              photo: reader.result as string,
+                            });
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="flex-1"
+                    />
+                  </div>
+                  {groupConfig.photo && (
+                    <div className="rounded-lg overflow-hidden bg-muted h-32">
+                      <img
+                        src={groupConfig.photo}
+                        alt="group"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <Button
@@ -1183,13 +1242,22 @@ export default function Community() {
                     onClick={async () => {
                       if (!user) return;
                       try {
+                        // Calculate end date based on duration
+                        let endDate: string | undefined;
+                        if (groupConfig.durationDays) {
+                          const now = new Date();
+                          const days = parseInt(groupConfig.durationDays);
+                          now.setDate(now.getDate() + days);
+                          endDate = now.toISOString();
+                        }
+
                         const savedGroup = await createDuelGroupDb(
                           user.id,
                           groupConfig.name,
                           groupConfig.location,
                           groupConfig.goal,
                           Array.from(selectedInvitees),
-                          groupConfig.endDate
+                          endDate
                         );
 
                         const newGroup = {
@@ -1203,6 +1271,17 @@ export default function Community() {
 
                         setUserCreatedGroups([...userCreatedGroups, newGroup]);
                         setIsCreateGroupModalOpen(false);
+                        // Reset form
+                        setGroupConfig({
+                          name: "",
+                          location: "",
+                          goal: "",
+                          durationDays: "",
+                          photo: "",
+                        });
+                        setGroupPhotoFile(null);
+                        setSelectedInvitees(new Set());
+                        setGroupStep("config");
                         toast({
                           title: "Grupo criado!",
                           description: `"${groupConfig.name}" foi criado com sucesso.`,
