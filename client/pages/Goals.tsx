@@ -68,6 +68,7 @@ import {
   Trash2,
   Edit2,
   Check,
+  Clock,
 } from "lucide-react";
 import {
   Dialog,
@@ -165,6 +166,7 @@ export default function Goals() {
   const [restTimerPaused, setRestTimerPaused] = React.useState(false);
   const [swipedSeriesId, setSwipedSeriesId] = React.useState<string | null>(null);
   const [finishWorkoutConfirmOpen, setFinishWorkoutConfirmOpen] = React.useState(false);
+  const [currentWorkoutIndex, setCurrentWorkoutIndex] = React.useState(0);
 
   // Edit goal modal state
   const [editGoalModalOpen, setEditGoalModalOpen] = React.useState(false);
@@ -903,6 +905,7 @@ export default function Goals() {
       // Reset and close
       setWorkoutModalOpen(false);
       setWorkoutSeries({});
+      setCurrentWorkoutIndex(0);
       setWorkoutDuration(0);
       setWorkoutStartTime(null);
       setFinishWorkoutConfirmOpen(false);
@@ -1915,205 +1918,184 @@ export default function Goals() {
             </button>
           </div>
 
-          {/* Exercises List - Scrollable */}
-          <div className="flex-1 overflow-y-auto mt-2 space-y-3 pr-2">
-            {userWorkouts.length > 0 ? (
-              userWorkouts.map((workout, workoutIndex) => (
-                <div
-                  key={workout.id}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.effectAllowed = "move";
-                    e.dataTransfer.setData("workoutIndex", workoutIndex.toString());
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const sourceIndex = parseInt(e.dataTransfer.getData("workoutIndex"));
-                    if (sourceIndex !== workoutIndex) {
-                      handleReorderExercises(sourceIndex, workoutIndex);
-                    }
-                  }}
-                  className="rounded-lg overflow-hidden border-2 border-border/60 cursor-move hover:border-brand/50 transition-colors hover:bg-muted/20"
-                >
-                  {/* Exercise Header - Minimalist */}
-                  <div className="p-2.5 bg-muted/20 border-b border-border/40">
-                    <button
-                      onClick={() => handleOpenWorkoutHistory({
-                        id: workout.workout_id,
-                        name: workout.workoutName,
-                        description: workout.workoutDescription || undefined,
-                        photo: workout.workoutPhoto || undefined,
-                      })}
-                      className="text-sm font-semibold truncate hover:text-brand hover:underline text-left transition-colors"
-                    >
-                      {workout.workoutName}
-                    </button>
-                  </div>
-
-                  {/* Series List - Focus on inputs */}
-                  <div className="p-3 space-y-2.5">
-                    {(workoutSeries[workout.workout_id] || []).map((series, index) => {
-                      const seriesKey = `${workout.workout_id}-${index}`;
-                      const isRevealed = swipedSeriesId === seriesKey;
-
-                      return (
-                        <div
-                          key={index}
-                          className={`flex items-center gap-2 p-2.5 rounded-lg border border-border/40 transition-all ${
-                            series.completed ? "opacity-60 bg-muted/30" : "bg-muted/10"
-                          }`}
-                          onMouseEnter={() => setSwipedSeriesId(seriesKey)}
-                          onMouseLeave={() => setSwipedSeriesId(null)}
-                          onTouchStart={(e) => {
-                            const touch = e.touches[0];
-                            (e.currentTarget as any).touchStartX = touch.clientX;
-                          }}
-                          onTouchMove={(e) => {
-                            const touch = e.touches[0];
-                            const startX = (e.currentTarget as any).touchStartX;
-                            const deltaX = startX - touch.clientX;
-
-                            if (deltaX > 50) {
-                              setSwipedSeriesId(seriesKey);
-                            } else if (deltaX < -50) {
-                              setSwipedSeriesId(null);
-                            }
-                          }}
-                          onTouchEnd={(e) => {
-                            (e.currentTarget as any).touchStartX = null;
-                          }}
+          {userWorkouts.length > 0 && (
+            <>
+              {/* Current Workout */}
+              {(() => {
+                const currentWorkout = userWorkouts[currentWorkoutIndex];
+                const series = workoutSeries[currentWorkout.workout_id] || [];
+                return (
+                  <>
+                    {/* Header */}
+                    <div className="shrink-0 border-b border-border/40 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1">
+                          <h2 className="text-lg font-bold text-foreground">
+                            {currentWorkout.workoutName}
+                          </h2>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {currentWorkoutIndex + 1} de {userWorkouts.length}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setWorkoutModalOpen(false)}
+                          className="p-2 hover:bg-muted/50 rounded transition-colors"
                         >
-                          {/* Series number */}
-                          <div className="w-7 h-7 flex items-center justify-center rounded-full bg-brand text-white font-bold text-xs flex-shrink-0">
-                            {series.series}
-                          </div>
+                          <X className="h-5 w-5 text-muted-foreground" />
+                        </button>
+                      </div>
+                    </div>
 
-                          {/* Inputs - Large and prominent */}
-                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    {/* Notes */}
+                    <div className="shrink-0 px-4 pt-2 pb-1 border-b border-border/40">
+                      <input
+                        type="text"
+                        placeholder="Adicionar notas aqui..."
+                        className="w-full text-sm text-muted-foreground bg-transparent border-0 placeholder:text-muted-foreground/60 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Rest Time */}
+                    <div className="shrink-0 px-4 py-2 border-b border-border/40 flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-brand" />
+                      <span className="text-sm font-medium text-brand">
+                        Descanso: {workoutExerciseRestTimes[currentWorkout.workout_id] ? (workoutExerciseRestTimes[currentWorkout.workout_id] < 60 ? `${workoutExerciseRestTimes[currentWorkout.workout_id]}s` : `${Math.floor(workoutExerciseRestTimes[currentWorkout.workout_id] / 60)}m`) : "Padrão"}
+                      </span>
+                    </div>
+
+                    {/* Table Header */}
+                    <div className="shrink-0 px-4 py-2 bg-muted/20 grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 text-xs font-semibold text-muted-foreground border-b border-border/40">
+                      <div>SÉRIE</div>
+                      <div>ANTERIOR</div>
+                      <div className="text-center">KG</div>
+                      <div className="text-center">REPS</div>
+                      <div className="text-center">✓</div>
+                    </div>
+
+                    {/* Series Table - Scrollable */}
+                    <div className="flex-1 overflow-y-auto px-4 py-2 space-y-0">
+                      {series.map((s, index) => {
+                        const previousRecord = workoutHistoriesMap[currentWorkout.workout_id]?.[index];
+                        return (
+                          <div
+                            key={index}
+                            className={`grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 items-center py-2 border-b border-border/20 ${
+                              s.completed ? "opacity-50 bg-muted/30" : ""
+                            }`}
+                          >
+                            {/* Series Number */}
+                            <div className="font-bold text-center text-sm">
+                              {index + 1}
+                            </div>
+
+                            {/* Previous Record */}
+                            <div className="text-xs text-muted-foreground">
+                              {previousRecord
+                                ? `${Math.round((previousRecord.kilos || 0) * 10) / 10}kg × ${previousRecord.volume || 0}`
+                                : "—"}
+                            </div>
+
+                            {/* KG Input */}
                             <input
                               type="number"
                               step="0.5"
-                              value={series.kg === 0 ? "" : series.kg}
+                              value={s.kg === 0 ? "" : s.kg}
                               onChange={(e) =>
                                 handleUpdateSerie(
-                                  workout.workout_id,
+                                  currentWorkout.workout_id,
                                   index,
                                   "kg",
                                   e.target.value,
                                 )
                               }
-                              placeholder="kg"
-                              className="w-14 h-9 px-1.5 border-2 border-border/60 rounded text-xs font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
+                              placeholder="0"
+                              className="w-full h-9 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
                             />
-                            <span className="text-xs font-bold text-muted-foreground">×</span>
+
+                            {/* REPS Input */}
                             <input
                               type="number"
-                              value={series.reps === 0 ? "" : series.reps}
+                              value={s.reps === 0 ? "" : s.reps}
                               onChange={(e) =>
                                 handleUpdateSerie(
-                                  workout.workout_id,
+                                  currentWorkout.workout_id,
                                   index,
                                   "reps",
                                   e.target.value,
                                 )
                               }
-                              placeholder="reps"
-                              className="w-14 h-9 px-1.5 border-2 border-border/60 rounded text-xs font-semibold bg-background placeholder:text-muted-foreground/50 focus:border-brand focus:outline-none"
+                              placeholder="0"
+                              className="w-full h-9 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
                             />
 
-                            {/* History display */}
-                            {workoutHistoriesMap[workout.workout_id]?.length > 0 && (
-                              <div className="flex items-center gap-0.5 text-xs text-muted-foreground ml-1.5 px-2 py-1 rounded bg-muted/30 whitespace-nowrap">
-                                <span className="text-xs font-medium">Último:</span>
-                                <span className="font-semibold text-foreground">
-                                  {Math.round((workoutHistoriesMap[workout.workout_id]?.[0]?.kilos || 0) * 10) / 10}
-                                </span>
-                                <span>×</span>
-                                <span className="font-semibold text-foreground">
-                                  {workoutHistoriesMap[workout.workout_id]?.[0]?.volume || 0}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Completed toggle and Delete button - side by side */}
-                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {/* Checkbox */}
                             <button
                               onClick={() =>
                                 handleToggleSerieCompleted(
-                                  workout.workout_id,
+                                  currentWorkout.workout_id,
                                   index,
                                 )
                               }
-                              className="p-1.5 hover:bg-muted/60 rounded transition-colors"
-                              title={series.completed ? "Marcar como pendente" : "Marcar como concluído"}
+                              className="h-8 w-8 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors"
                             >
-                              {series.completed ? (
-                                <CheckCircle2 className="h-4 w-4 text-brand" />
+                              {s.completed ? (
+                                <CheckCircle2 className="h-5 w-5 text-brand" />
                               ) : (
-                                <Circle className="h-4 w-4 text-muted-foreground" />
+                                <Circle className="h-5 w-5 text-muted-foreground" />
                               )}
                             </button>
-
-                            {/* Delete button - Show on hover/swipe */}
-                            <button
-                              onClick={() => handleDeleteSerie(workout.workout_id, index)}
-                              className={`p-1.5 hover:bg-red-500/10 rounded transition-all duration-200 ${
-                                isRevealed ? "opacity-100 w-auto" : "opacity-0 w-0 overflow-hidden"
-                              }`}
-                              title="Remover série"
-                            >
-                              <Trash2 className="h-4 w-4 text-red-500" />
-                            </button>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
 
-                    {/* Add Series Button - Prominent */}
-                    <button
-                      onClick={() => handleAddSerie(workout.workout_id)}
-                      className="w-full mt-1 py-2.5 text-sm font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded-lg border-2 border-brand"
-                    >
-                      <Plus className="h-4 w-4 inline mr-2" />
-                      Nova série
-                    </button>
-                  </div>
+                    </div>
 
-                  {/* Rest Time - Collapsed */}
-                  <div className="px-2.5 py-2 bg-muted/10 border-t border-border/40">
-                    <details className="group">
-                      <summary className="text-xs font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
-                        Descanso entre séries: {workoutExerciseRestTimes[workout.workout_id] ? (workoutExerciseRestTimes[workout.workout_id] < 60 ? `${workoutExerciseRestTimes[workout.workout_id]}s` : `${Math.floor(workoutExerciseRestTimes[workout.workout_id] / 60)}m`) : "Padrão"}
-                      </summary>
-                      <select
-                        value={workoutExerciseRestTimes[workout.workout_id] || ""}
-                        onChange={(e) =>
-                          handleSetExerciseRestTime(workout.workout_id, parseInt(e.target.value))
-                        }
-                        className="w-full mt-2 px-2.5 py-1.5 border border-border/60 rounded text-xs bg-background"
+                    {/* Add Series Button */}
+                    <div className="shrink-0 px-4 py-3 border-t border-border/40">
+                      <button
+                        onClick={() => handleAddSerie(currentWorkout.workout_id)}
+                        className="w-full py-3 text-sm font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded-lg flex items-center justify-center gap-2"
                       >
-                        <option value="">Padrão</option>
-                        {REST_TIME_OPTIONS.map((time) => (
-                          <option key={time} value={time}>
-                            {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
-                          </option>
-                        ))}
-                      </select>
-                    </details>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-sm text-muted-foreground">Nenhum exercício adicionado</p>
-              </div>
-            )}
-          </div>
+                        <Plus className="h-4 w-4" />
+                        Adicionar Série
+                      </button>
+                    </div>
+
+                    {/* Navigation and Finish */}
+                    <div className="shrink-0 border-t border-border/40 p-4 flex gap-3">
+                      <button
+                        onClick={() => setCurrentWorkoutIndex(Math.max(0, currentWorkoutIndex - 1))}
+                        disabled={currentWorkoutIndex === 0}
+                        className="flex-1 py-2 px-3 text-sm font-medium border border-border/60 rounded-lg hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronUp className="h-4 w-4 inline mr-2" />
+                        Anterior
+                      </button>
+                      <button
+                        onClick={() =>
+                          setCurrentWorkoutIndex(
+                            Math.min(userWorkouts.length - 1, currentWorkoutIndex + 1),
+                          )
+                        }
+                        disabled={currentWorkoutIndex === userWorkouts.length - 1}
+                        className="flex-1 py-2 px-3 text-sm font-medium border border-border/60 rounded-lg hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Próximo
+                        <ChevronDown className="h-4 w-4 inline ml-2" />
+                      </button>
+                      <button
+                        onClick={handleFinishWorkout}
+                        className="flex-1 py-2 px-3 text-sm font-medium rounded-lg bg-destructive hover:bg-destructive/90 text-white transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Pause className="h-4 w-4" />
+                        Encerrar
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+            </>
+          )}
 
           {/* Bottom Actions - Sticky */}
           <div className="mt-2 border-t border-border/40 pt-2">
