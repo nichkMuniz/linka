@@ -601,67 +601,9 @@ export default function Community() {
             </Button>
           </div>
 
-          {/* Duels Grid or Group Detail */}
+          {/* Duels Grid */}
           <div className="flex-1 overflow-y-auto px-3 pb-4 pt-4">
-            {selectedGroupForView ? (
-              <div className="space-y-4">
-                {/* Group Info */}
-                <div className="p-4 rounded-lg bg-card border border-brand/20 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">{selectedGroupForView.icon}</span>
-                    <div className="flex-1">
-                      <h2 className="font-semibold text-brand">{selectedGroupForView.name}</h2>
-                      <p className="text-xs text-muted-foreground">📍 {selectedGroupForView.city}</p>
-                    </div>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{selectedGroupForView.description}</p>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="bg-brand/20 text-brand px-2 py-1 rounded">👥 {selectedGroupForView.participants} participantes</span>
-                  </div>
-                </div>
-
-                {/* Check-ins from Participants */}
-                <div className="space-y-3">
-                  <h3 className="font-semibold text-sm">Check-ins dos Participantes</h3>
-                  {[...selectedGroupForView.members, selectedGroupForView.createdBy].map((memberId, idx) => (
-                    <Card key={memberId || idx} className="border-border/60">
-                      <CardContent className="p-3 space-y-2">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs">
-                            👤
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-sm font-medium">
-                              {followers.find(f => f.id === memberId)?.nickname || "Criador"}
-                            </p>
-                          </div>
-                          <span className="text-xs bg-muted/50 px-2 py-1 rounded-full text-brand">
-                            ✓ Ativo
-                          </span>
-                        </div>
-
-                        {/* Mock Check-in Data */}
-                        <div className="grid grid-cols-3 gap-2 text-xs">
-                          <div className="text-center p-2 rounded bg-muted/20">
-                            <div className="font-semibold text-brand">12</div>
-                            <div className="text-muted-foreground">Séries</div>
-                          </div>
-                          <div className="text-center p-2 rounded bg-muted/20">
-                            <div className="font-semibold text-brand">1850</div>
-                            <div className="text-muted-foreground">Volume (kg)</div>
-                          </div>
-                          <div className="text-center p-2 rounded bg-muted/20">
-                            <div className="font-semibold text-brand">Hoje</div>
-                            <div className="text-muted-foreground">Treinou</div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3">
                 {[
                   {
                     icon: "⚔️",
@@ -763,8 +705,7 @@ export default function Community() {
                   </CardContent>
                 </Card>
                 ))}
-              </div>
-            )}
+            </div>
           </div>
         </>
       )}
