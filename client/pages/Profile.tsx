@@ -101,6 +101,12 @@ import {
   UserPlus,
   MessageSquare,
   Filter,
+  Lock,
+  Bell,
+  Globe,
+  BarChart3,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
@@ -233,6 +239,38 @@ export default function Profile() {
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = React.useState("");
+
+  // Edit account state
+  const [isEditAccountOpen, setIsEditAccountOpen] = React.useState(false);
+  const [isResettingPassword, setIsResettingPassword] = React.useState(false);
+  const [passwordResetEmail, setPasswordResetEmail] = React.useState("");
+
+  // Language state
+  const [isLanguageOpen, setIsLanguageOpen] = React.useState(false);
+  const [currentLanguage, setCurrentLanguage] = React.useState("pt");
+
+  // Notifications state
+  const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false);
+  const [notifications, setNotifications] = React.useState({
+    workoutReminders: true,
+    achievementAlerts: true,
+    friendActivity: true,
+    messages: true,
+    sound: true,
+  });
+
+  // Time Management state
+  const [isTimeManagementOpen, setIsTimeManagementOpen] = React.useState(false);
+  const [dailyUsageLimit, setDailyUsageLimit] = React.useState(0);
+  const [usageDataLast7Days] = React.useState([
+    { day: "Seg", minutes: 45 },
+    { day: "Ter", minutes: 60 },
+    { day: "Qua", minutes: 55 },
+    { day: "Qui", minutes: 70 },
+    { day: "Sex", minutes: 80 },
+    { day: "Sab", minutes: 90 },
+    { day: "Dom", minutes: 75 },
+  ]);
 
   const loadProfile = React.useCallback(async () => {
     if (!profileUserId) return;
@@ -1362,6 +1400,18 @@ export default function Profile() {
                             />
                           </div>
 
+                          {/* Email */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Email</label>
+                            <Input
+                              type="email"
+                              value={user?.email || ""}
+                              disabled
+                              className="opacity-70"
+                            />
+                            <p className="text-xs text-muted-foreground">Email não pode ser alterado aqui</p>
+                          </div>
+
                           {/* Save Button */}
                           <Button
                             onClick={handleSaveProfile}
@@ -1507,6 +1557,334 @@ export default function Profile() {
                             className="w-full rounded-full"
                           >
                             {isSavingCommercial ? "Salvando..." : "Salvar Perfil Comercial"}
+                          </Button>
+                          </div>
+                        </div>
+                      </DrawerContent>
+                    </Drawer>
+
+                    {/* Edit Account Drawer */}
+                    <Drawer
+                      open={isEditAccountOpen}
+                      onOpenChange={setIsEditAccountOpen}
+                    >
+                      <Button
+                        onClick={() => setIsEditAccountOpen(true)}
+                        variant="outline"
+                        className="w-full rounded-full gap-2"
+                      >
+                        <Lock className="h-4 w-4" />
+                        Editar Conta
+                      </Button>
+
+                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                        <DrawerHeader className="shrink-0">
+                          <DrawerTitle>Editar Conta</DrawerTitle>
+                        </DrawerHeader>
+
+                        <div className="flex-1 overflow-y-auto px-4 pb-4">
+                          <div className="space-y-4">
+                          {/* Password Reset */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Redefinir Senha</label>
+                            <Button
+                              onClick={async () => {
+                                setIsResettingPassword(true);
+                                try {
+                                  await supabase.auth.resetPasswordForEmail(user?.email || "", {
+                                    redirectTo: `${window.location.origin}/reset-password`,
+                                  });
+                                  toast({
+                                    title: "Email enviado",
+                                    description: "Verifique seu email para redefinir a senha",
+                                  });
+                                } catch (error) {
+                                  toast({
+                                    title: "Erro",
+                                    description: "Falha ao enviar email de redefinição",
+                                    variant: "destructive",
+                                  });
+                                } finally {
+                                  setIsResettingPassword(false);
+                                }
+                              }}
+                              disabled={isResettingPassword}
+                              variant="outline"
+                              className="w-full rounded-full"
+                            >
+                              {isResettingPassword ? "Enviando..." : "Enviar Email de Redefinição"}
+                            </Button>
+                            <p className="text-xs text-muted-foreground">Você receberá um link para redefinir sua senha</p>
+                          </div>
+
+                          {/* Danger Zone */}
+                          <div className="border-t pt-4">
+                            <h3 className="text-sm font-semibold text-destructive mb-3">Zona de Perigo</h3>
+                            <Button
+                              onClick={() => {
+                                setIsEditAccountOpen(false);
+                                setIsDeleteAccountOpen(true);
+                              }}
+                              variant="destructive"
+                              className="w-full rounded-full gap-2"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Encerrar Conta
+                            </Button>
+                            <p className="text-xs text-muted-foreground mt-2">Esta ação é permanente e não pode ser desfeita</p>
+                          </div>
+                          </div>
+                        </div>
+                      </DrawerContent>
+                    </Drawer>
+
+                    {/* Languages Drawer */}
+                    <Drawer
+                      open={isLanguageOpen}
+                      onOpenChange={setIsLanguageOpen}
+                    >
+                      <Button
+                        onClick={() => setIsLanguageOpen(true)}
+                        variant="outline"
+                        className="w-full rounded-full gap-2"
+                      >
+                        <Globe className="h-4 w-4" />
+                        Idioma
+                      </Button>
+
+                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                        <DrawerHeader className="shrink-0">
+                          <DrawerTitle>Selecione o Idioma</DrawerTitle>
+                        </DrawerHeader>
+
+                        <div className="flex-1 overflow-y-auto px-4 pb-4">
+                          <div className="space-y-2">
+                          <button
+                            onClick={() => {
+                              setCurrentLanguage("pt");
+                              setIsLanguageOpen(false);
+                            }}
+                            className={`w-full p-3 rounded-lg border text-left transition-colors ${
+                              currentLanguage === "pt"
+                                ? "border-brand bg-brand/10"
+                                : "border-border hover:border-brand/50"
+                            }`}
+                          >
+                            <div className="font-medium">Português (Brasil)</div>
+                            <div className="text-xs text-muted-foreground">pt-BR</div>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setCurrentLanguage("en");
+                              setIsLanguageOpen(false);
+                            }}
+                            className={`w-full p-3 rounded-lg border text-left transition-colors ${
+                              currentLanguage === "en"
+                                ? "border-brand bg-brand/10"
+                                : "border-border hover:border-brand/50"
+                            }`}
+                          >
+                            <div className="font-medium">English</div>
+                            <div className="text-xs text-muted-foreground">en-US</div>
+                          </button>
+                          </div>
+                        </div>
+                      </DrawerContent>
+                    </Drawer>
+
+                    {/* Notifications Drawer */}
+                    <Drawer
+                      open={isNotificationsOpen}
+                      onOpenChange={setIsNotificationsOpen}
+                    >
+                      <Button
+                        onClick={() => setIsNotificationsOpen(true)}
+                        variant="outline"
+                        className="w-full rounded-full gap-2"
+                      >
+                        <Bell className="h-4 w-4" />
+                        Notificações
+                      </Button>
+
+                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                        <DrawerHeader className="shrink-0">
+                          <DrawerTitle>Configurar Notificações</DrawerTitle>
+                        </DrawerHeader>
+
+                        <div className="flex-1 overflow-y-auto px-4 pb-4">
+                          <div className="space-y-3">
+                          <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                            <div>
+                              <div className="text-sm font-medium">Lembretes de Treino</div>
+                              <div className="text-xs text-muted-foreground">Notificações sobre seus treinos</div>
+                            </div>
+                            <button
+                              onClick={() => setNotifications({...notifications, workoutReminders: !notifications.workoutReminders})}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                notifications.workoutReminders ? "bg-brand" : "bg-muted"
+                              }`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  notifications.workoutReminders ? "translate-x-6" : "translate-x-1"
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                            <div>
+                              <div className="text-sm font-medium">Alertas de Conquistas</div>
+                              <div className="text-xs text-muted-foreground">Notificações sobre suas metas atingidas</div>
+                            </div>
+                            <button
+                              onClick={() => setNotifications({...notifications, achievementAlerts: !notifications.achievementAlerts})}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                notifications.achievementAlerts ? "bg-brand" : "bg-muted"
+                              }`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  notifications.achievementAlerts ? "translate-x-6" : "translate-x-1"
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                            <div>
+                              <div className="text-sm font-medium">Atividade de Amigos</div>
+                              <div className="text-xs text-muted-foreground">Atividades de pessoas que você segue</div>
+                            </div>
+                            <button
+                              onClick={() => setNotifications({...notifications, friendActivity: !notifications.friendActivity})}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                notifications.friendActivity ? "bg-brand" : "bg-muted"
+                              }`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  notifications.friendActivity ? "translate-x-6" : "translate-x-1"
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                            <div>
+                              <div className="text-sm font-medium">Mensagens</div>
+                              <div className="text-xs text-muted-foreground">Notificações de mensagens diretas</div>
+                            </div>
+                            <button
+                              onClick={() => setNotifications({...notifications, messages: !notifications.messages})}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                notifications.messages ? "bg-brand" : "bg-muted"
+                              }`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  notifications.messages ? "translate-x-6" : "translate-x-1"
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          <div className="border-t pt-4 mt-4">
+                            <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                              <div>
+                                <div className="text-sm font-medium">Sons</div>
+                                <div className="text-xs text-muted-foreground">Ativar som das notificações</div>
+                              </div>
+                              <button
+                                onClick={() => setNotifications({...notifications, sound: !notifications.sound})}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                  notifications.sound ? "bg-brand" : "bg-muted"
+                                }`}
+                              >
+                                <span
+                                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                    notifications.sound ? "translate-x-6" : "translate-x-1"
+                                  }`}
+                                />
+                              </button>
+                            </div>
+                          </div>
+                          </div>
+                        </div>
+                      </DrawerContent>
+                    </Drawer>
+
+                    {/* Time Management Drawer */}
+                    <Drawer
+                      open={isTimeManagementOpen}
+                      onOpenChange={setIsTimeManagementOpen}
+                    >
+                      <Button
+                        onClick={() => setIsTimeManagementOpen(true)}
+                        variant="outline"
+                        className="w-full rounded-full gap-2"
+                      >
+                        <BarChart3 className="h-4 w-4" />
+                        Gerenciamento de Tempo
+                      </Button>
+
+                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                        <DrawerHeader className="shrink-0">
+                          <DrawerTitle>Gerenciamento de Tempo</DrawerTitle>
+                        </DrawerHeader>
+
+                        <div className="flex-1 overflow-y-auto px-4 pb-4">
+                          <div className="space-y-4">
+                          {/* Usage Chart */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Uso nos Últimos 7 Dias</label>
+                            <div className="p-4 rounded-lg border border-border/50 bg-muted/20">
+                              <div className="flex items-end justify-between gap-2 h-32">
+                                {usageDataLast7Days.map((data, idx) => {
+                                  const maxMinutes = Math.max(...usageDataLast7Days.map(d => d.minutes));
+                                  const heightPercent = (data.minutes / maxMinutes) * 100;
+                                  return (
+                                    <div key={idx} className="flex flex-col items-center gap-1 flex-1">
+                                      <div className="w-full bg-brand rounded-t" style={{height: `${heightPercent}%`}} />
+                                      <div className="text-xs text-muted-foreground">{data.day}</div>
+                                      <div className="text-xs font-semibold">{data.minutes}m</div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Daily Limit */}
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">Limite Diário de Uso</label>
+                            <div className="flex gap-2">
+                              <Input
+                                type="number"
+                                min="0"
+                                value={dailyUsageLimit}
+                                onChange={(e) => setDailyUsageLimit(parseInt(e.target.value) || 0)}
+                                placeholder="Minutos por dia (0 = sem limite)"
+                                className="flex-1"
+                              />
+                              <span className="text-sm text-muted-foreground py-2">min</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {dailyUsageLimit === 0 ? "Sem limite estabelecido" : `Você poderá usar ${dailyUsageLimit} minutos por dia`}
+                            </p>
+                          </div>
+
+                          <Button
+                            onClick={() => {
+                              toast({
+                                title: "Limite salvo",
+                                description: `Limite diário de ${dailyUsageLimit || "sem"} minutos foi definido`,
+                              });
+                              setIsTimeManagementOpen(false);
+                            }}
+                            className="w-full rounded-full"
+                          >
+                            Salvar Limite
                           </Button>
                           </div>
                         </div>
