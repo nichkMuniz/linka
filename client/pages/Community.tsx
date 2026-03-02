@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, Trash2, Edit3 } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -86,6 +86,9 @@ export default function Community() {
   const [checkInPhotoFile, setCheckInPhotoFile] = React.useState<File | null>(null);
   const [userWorkouts, setUserWorkouts] = React.useState<UserWorkoutWithDetails[]>([]);
   const [participantsSearch, setParticipantsSearch] = React.useState("");
+  const [selectedCheckInForDetail, setSelectedCheckInForDetail] = React.useState<GroupCheckIn | null>(null);
+  const [isCheckInDetailOpen, setIsCheckInDetailOpen] = React.useState(false);
+  const [userNickname, setUserNickname] = React.useState<string>("");
 
   // Load conversations, following users, and ranking
   React.useEffect(() => {
@@ -114,11 +117,16 @@ export default function Community() {
     loadData();
   }, []);
 
-  // Load user groups when user changes
+  // Load user nickname and groups when user changes
   React.useEffect(() => {
-    const loadUserGroups = async () => {
+    const loadUserData = async () => {
       if (!user?.id) return;
       try {
+        // Get user nickname from metadata
+        const nickname = (user.user_metadata?.full_name as string) || user.email?.split("@")[0] || "Usuário";
+        setUserNickname(nickname);
+
+        // Load user groups
         const [createdGroups, availGroups] = await Promise.all([
           getUserCreatedDuelGroupsDb(user.id),
           getAvailableDuelGroupsDb(user.id),
@@ -148,8 +156,8 @@ export default function Community() {
       }
     };
 
-    loadUserGroups();
-  }, [user?.id]);
+    loadUserData();
+  }, [user?.id, user?.user_metadata]);
 
   // Auto-select conversation from URL parameter
   React.useEffect(() => {
@@ -548,7 +556,7 @@ export default function Community() {
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto px-3 pb-20 pt-4">
+          <div className="flex-1 overflow-y-auto px-3 pt-4">
             <div className="space-y-4">
               {/* Group Info */}
               <div className="p-4 rounded-lg bg-card border border-brand/20 space-y-2">
@@ -570,49 +578,58 @@ export default function Community() {
                 <h3 className="font-semibold text-sm">Check-ins dos Participantes</h3>
                 {groupCheckIns.length > 0 ? (
                   groupCheckIns.map((checkIn) => (
-                    <Card key={checkIn.id} className="border-border/60">
-                      <CardContent className="p-3 space-y-2">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs flex-shrink-0">
-                            👤
+                    <button
+                      key={checkIn.id}
+                      onClick={() => {
+                        setSelectedCheckInForDetail(checkIn);
+                        setIsCheckInDetailOpen(true);
+                      }}
+                      className="w-full text-left"
+                    >
+                      <Card className="border-border/60 hover:shadow-md transition-shadow cursor-pointer">
+                        <CardContent className="p-3 space-y-2">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-xs flex-shrink-0">
+                              👤
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{checkIn.userName}</p>
+                              <p className="text-xs text-muted-foreground truncate">{new Date(checkIn.createdAt).toLocaleDateString()}</p>
+                            </div>
+                            <span className="text-xs bg-muted/50 px-2 py-1 rounded-full text-brand flex-shrink-0">
+                              ✓ Ativo
+                            </span>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{checkIn.userName}</p>
-                            <p className="text-xs text-muted-foreground truncate">{new Date(checkIn.createdAt).toLocaleDateString()}</p>
-                          </div>
-                          <span className="text-xs bg-muted/50 px-2 py-1 rounded-full text-brand flex-shrink-0">
-                            ✓ Ativo
-                          </span>
-                        </div>
 
-                        {checkIn.photo && (
-                          <div className="w-full h-32 rounded bg-muted overflow-hidden">
-                            <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
-                          </div>
-                        )}
+                          {checkIn.photo && (
+                            <div className="w-full h-32 rounded bg-muted overflow-hidden">
+                              <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
+                            </div>
+                          )}
 
-                        <div className="space-y-1 text-xs">
-                          <p className="text-muted-foreground">{checkIn.description}</p>
-                          <p className="text-brand font-medium">{checkIn.workoutInfo}</p>
-                        </div>
+                          <div className="space-y-1 text-xs">
+                            <p className="text-muted-foreground">{checkIn.description}</p>
+                            <p className="text-brand font-medium">{checkIn.workoutInfo}</p>
+                          </div>
 
-                        {/* Check-in Stats */}
-                        <div className="grid grid-cols-3 gap-2 text-xs">
-                          <div className="text-center p-2 rounded bg-muted/20">
-                            <div className="font-semibold text-brand">{checkIn.series}</div>
-                            <div className="text-muted-foreground">Séries</div>
+                          {/* Check-in Stats */}
+                          <div className="grid grid-cols-3 gap-2 text-xs">
+                            <div className="text-center p-2 rounded bg-muted/20">
+                              <div className="font-semibold text-brand">{checkIn.series}</div>
+                              <div className="text-muted-foreground">Séries</div>
+                            </div>
+                            <div className="text-center p-2 rounded bg-muted/20">
+                              <div className="font-semibold text-brand">{checkIn.volume}</div>
+                              <div className="text-muted-foreground">Volume (kg)</div>
+                            </div>
+                            <div className="text-center p-2 rounded bg-muted/20">
+                              <div className="font-semibold text-brand">Hoje</div>
+                              <div className="text-muted-foreground">Treinou</div>
+                            </div>
                           </div>
-                          <div className="text-center p-2 rounded bg-muted/20">
-                            <div className="font-semibold text-brand">{checkIn.volume}</div>
-                            <div className="text-muted-foreground">Volume (kg)</div>
-                          </div>
-                          <div className="text-center p-2 rounded bg-muted/20">
-                            <div className="font-semibold text-brand">Hoje</div>
-                            <div className="text-muted-foreground">Treinou</div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
+                        </CardContent>
+                      </Card>
+                    </button>
                   ))
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-4">Nenhum check-in ainda</p>
@@ -622,7 +639,7 @@ export default function Community() {
           </div>
 
           {/* Centered Add Check-in Button at Bottom */}
-          <div className="fixed bottom-0 left-0 right-0 flex justify-center items-center py-4 bg-background border-t border-border/40">
+          <div className="flex-shrink-0 flex justify-center items-center py-4 bg-background border-t border-border/40">
             <button
               onClick={async () => {
                 if (!user?.id) return;
@@ -1216,7 +1233,7 @@ export default function Community() {
                     const checkIn = await addGroupCheckInDb(
                       selectedGroupForView.id,
                       user.id,
-                      user.displayName || "Usuário",
+                      userNickname || "Usuário",
                       checkInForm.photo,
                       checkInForm.description,
                       workoutName,
@@ -1252,6 +1269,116 @@ export default function Community() {
                 Adicionar Check-in
               </Button>
             </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Check-in Detail Modal */}
+      <Drawer open={isCheckInDetailOpen} onOpenChange={setIsCheckInDetailOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerHeader className="shrink-0 flex items-center justify-between">
+            <DrawerTitle>Detalhes do Check-in</DrawerTitle>
+            {selectedCheckInForDetail && selectedCheckInForDetail.userId === user?.id && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    toast({
+                      title: "Editar",
+                      description: "Funcionalidade em desenvolvimento",
+                    });
+                  }}
+                  className="p-2 hover:bg-muted rounded-lg transition-colors"
+                  title="Editar check-in"
+                >
+                  <Edit3 className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                </button>
+                <button
+                  onClick={() => {
+                    if (selectedCheckInForDetail) {
+                      setGroupCheckIns(groupCheckIns.filter((c) => c.id !== selectedCheckInForDetail.id));
+                      setIsCheckInDetailOpen(false);
+                      toast({
+                        title: "Check-in excluído!",
+                        description: "O check-in foi removido com sucesso.",
+                      });
+                    }
+                  }}
+                  className="p-2 hover:bg-destructive/10 rounded-lg transition-colors"
+                  title="Excluir check-in"
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </button>
+              </div>
+            )}
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            {selectedCheckInForDetail && (
+              <div className="space-y-4">
+                {/* User Info */}
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/20">
+                  <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-sm flex-shrink-0">
+                    👤
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">{selectedCheckInForDetail.userName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(selectedCheckInForDetail.createdAt).toLocaleDateString("pt-BR", {
+                        weekday: "long",
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Photo */}
+                {selectedCheckInForDetail.photo && (
+                  <div className="rounded-lg overflow-hidden bg-muted h-64">
+                    <img
+                      src={selectedCheckInForDetail.photo}
+                      alt="check-in"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+
+                {/* Workout Info */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">Exercício</label>
+                  <div className="p-3 rounded-lg bg-card border border-brand/20">
+                    <p className="text-sm font-medium text-brand">{selectedCheckInForDetail.workoutInfo}</p>
+                  </div>
+                </div>
+
+                {/* Description */}
+                {selectedCheckInForDetail.description && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Descrição</label>
+                    <div className="p-3 rounded-lg bg-muted/20">
+                      <p className="text-sm text-foreground">{selectedCheckInForDetail.description}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Stats */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="text-center p-3 rounded-lg bg-muted/20">
+                    <div className="font-semibold text-brand text-lg">{selectedCheckInForDetail.series}</div>
+                    <div className="text-xs text-muted-foreground">Séries</div>
+                  </div>
+                  <div className="text-center p-3 rounded-lg bg-muted/20">
+                    <div className="font-semibold text-brand text-lg">{selectedCheckInForDetail.volume}</div>
+                    <div className="text-xs text-muted-foreground">Volume (kg)</div>
+                  </div>
+                  <div className="text-center p-3 rounded-lg bg-muted/20">
+                    <div className="font-semibold text-brand text-lg">✓</div>
+                    <div className="text-xs text-muted-foreground">Concluído</div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </DrawerContent>
       </Drawer>
