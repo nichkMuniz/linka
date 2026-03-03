@@ -4531,9 +4531,11 @@ export async function createDuelGroupDb(
       updatedAt: groupData.updated_at,
       endDate: groupData.end_date,
     };
-  } catch (error) {
-    console.error("Error creating duel group:", error);
-    throw error;
+  } catch (error: any) {
+    const errorMsg = error?.message || JSON.stringify(error);
+    console.error("Error creating duel group:", errorMsg);
+    console.error("Full error details:", error);
+    throw new Error(errorMsg);
   }
 }
 

@@ -1112,7 +1112,7 @@ export default function Community() {
 
                 <Button
                   onClick={() => {
-                    if (groupConfig.name && groupConfig.location && groupConfig.goal) {
+                    if (groupConfig.name && groupConfig.location && groupConfig.goal && groupConfig.durationDays) {
                       setGroupStep("invite");
                     } else {
                       toast({
@@ -1287,9 +1287,11 @@ export default function Community() {
                           description: `"${groupConfig.name}" foi criado com sucesso.`,
                         });
                       } catch (err: any) {
+                        const errorMessage = err?.message || (typeof err === 'string' ? err : JSON.stringify(err)) || "Tente novamente";
+                        console.error("Full error details:", err);
                         toast({
                           title: "Erro ao criar grupo",
-                          description: err.message || "Tente novamente",
+                          description: errorMessage,
                           variant: "destructive",
                         });
                       }
