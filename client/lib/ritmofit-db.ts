@@ -3709,6 +3709,33 @@ export async function markNotificationsAsReadDb(): Promise<boolean> {
   }
 }
 
+export async function clearNotificationsDb(): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const viewer = await getViewer();
+  if (!viewer) return false;
+
+  try {
+    // Delete all notifications for the current user
+    const { error } = await supabase
+      .from("notifications")
+      .delete()
+      .eq("user_id", viewer.id);
+
+    if (error) {
+      const errorMsg = typeof error === 'object' ? JSON.stringify(error) : String(error);
+      console.error("Error clearing notifications:", errorMsg);
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    const errorMsg = typeof err === 'object' ? JSON.stringify(err) : String(err);
+    console.error("Error clearing notifications:", errorMsg);
+    return false;
+  }
+}
+
 export function subscribeToUnreadNotificationsDb(
   onNewNotification: (count: number) => void
 ): (() => void) | null {

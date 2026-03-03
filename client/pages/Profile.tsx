@@ -1392,10 +1392,10 @@ export default function Profile() {
                       <Button
                         onClick={openEditDialog}
                         variant="outline"
-                        className="gap-2"
+                        className="gap-2 justify-between"
                       >
+                        <span>Editar Perfil</span>
                         <Edit2 className="h-4 w-4" />
-                        Editar Perfil
                       </Button>
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col">
@@ -1497,10 +1497,10 @@ export default function Profile() {
                         <Button
                           onClick={handleOpenCommercialProfile}
                           variant="outline"
-                          className="gap-2"
+                          className="gap-2 justify-between"
                         >
+                          <span>Perfil Comercial</span>
                           <span className="text-lg">🏪</span>
-                          Perfil Comercial
                         </Button>
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col">
@@ -1636,10 +1636,10 @@ export default function Profile() {
                       <Button
                         onClick={() => setIsEditAccountOpen(true)}
                         variant="outline"
-                        className="gap-2"
+                        className="gap-2 justify-between"
                       >
+                        <span>Editar Conta</span>
                         <Lock className="h-4 w-4" />
-                        Editar Conta
                       </Button>
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col">
@@ -1711,10 +1711,10 @@ export default function Profile() {
                       <Button
                         onClick={() => setIsLanguageOpen(true)}
                         variant="outline"
-                        className="gap-2"
+                        className="gap-2 justify-between"
                       >
+                        <span>Idioma</span>
                         <Globe className="h-4 w-4" />
-                        Idioma
                       </Button>
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col">
@@ -1765,10 +1765,10 @@ export default function Profile() {
                       <Button
                         onClick={() => setIsNotificationsOpen(true)}
                         variant="outline"
-                        className="gap-2"
+                        className="gap-2 justify-between"
                       >
+                        <span>Notificações</span>
                         <Bell className="h-4 w-4" />
-                        Notificações
                       </Button>
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col">
@@ -1887,10 +1887,10 @@ export default function Profile() {
                       <Button
                         onClick={() => setIsTimeManagementOpen(true)}
                         variant="outline"
-                        className="gap-2"
+                        className="gap-2 justify-between"
                       >
+                        <span>Gerenciamento de Tempo</span>
                         <BarChart3 className="h-4 w-4" />
-                        Gerenciamento de Tempo
                       </Button>
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col">
@@ -1964,10 +1964,10 @@ export default function Profile() {
                       <Button
                         onClick={() => setIsPersonalizationOpen(true)}
                         variant="outline"
-                        className="gap-2"
+                        className="gap-2 justify-between"
                       >
+                        <span>Personalização</span>
                         <span>🎨</span>
-                        Personalização
                       </Button>
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col">
@@ -2064,7 +2064,7 @@ export default function Profile() {
       <Tabs defaultValue="posts" className="w-full">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="posts">Posts ({stats.postsCount})</TabsTrigger>
-          <TabsTrigger value="reels">Reels ({reels.length})</TabsTrigger>
+          <TabsTrigger value="reels">Shots ({reels.length})</TabsTrigger>
           <TabsTrigger value="routines">Rotinas</TabsTrigger>
         </TabsList>
 

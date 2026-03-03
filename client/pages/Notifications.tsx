@@ -1,7 +1,9 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
 import { Heart, MessageCircle, UserPlus, Zap, HeartHandshake, Flame, Trophy, Rocket, Target } from "lucide-react";
-import { getNotificationsDb, markNotificationsAsReadDb, type NotificationItem } from "@/lib/ritmofit-db";
+import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function Notifications() {
@@ -9,6 +11,7 @@ export default function Notifications() {
   const { user } = useAuth();
   const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [isClearing, setIsClearing] = React.useState(false);
 
   React.useEffect(() => {
     const loadNotifications = async () => {
@@ -129,6 +132,39 @@ export default function Notifications() {
     }
   };
 
+  const handleClearNotifications = async () => {
+    if (!window.confirm("Tem certeza que deseja limpar todas as notificações? Esta ação não pode ser desfeita.")) {
+      return;
+    }
+
+    setIsClearing(true);
+    try {
+      const success = await clearNotificationsDb();
+      if (success) {
+        setNotifications([]);
+        toast({
+          title: "Notificações limpas",
+          description: "Todas as suas notificações foram removidas.",
+        });
+      } else {
+        toast({
+          title: "Erro",
+          description: "Não foi possível limpar as notificações.",
+          variant: "destructive",
+        });
+      }
+    } catch (err: any) {
+      console.error("Error clearing notifications:", err);
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao limpar as notificações.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   return (
     <div className="w-full max-w-2xl mx-auto">
       <div className="space-y-4 pb-4">
@@ -156,7 +192,21 @@ export default function Notifications() {
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-4">
+            {/* Clear Notifications Button */}
+            <div className="flex justify-end">
+              <Button
+                onClick={handleClearNotifications}
+                disabled={isClearing}
+                variant="outline"
+                size="sm"
+                className="rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                Limpar Notificações
+              </Button>
+            </div>
+
+            <div className="space-y-2">
             {notifications.map((notification) => {
               const content = getNotificationContent(notification);
               const isRead = notification.read === true;
@@ -238,6 +288,7 @@ export default function Notifications() {
                 </button>
               );
             })}
+            </div>
           </div>
         )}
       </div>

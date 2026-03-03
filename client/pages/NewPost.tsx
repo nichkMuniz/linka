@@ -392,7 +392,7 @@ export default function NewPost() {
               </TabsTrigger>
               <TabsTrigger value="video" className="flex items-center gap-2">
                 <Video className="h-4 w-4" />
-                Reel
+                Shots
               </TabsTrigger>
             </TabsList>
 
@@ -702,7 +702,7 @@ export default function NewPost() {
                       Publicando...
                     </>
                   ) : (
-                    "Publicar Reel"
+                    "Publicar Shots"
                   )}
                 </Button>
               </div>
