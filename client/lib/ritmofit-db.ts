@@ -4894,26 +4894,36 @@ export async function getGroupParticipantsDb(
       .select("user_id")
       .eq("group_id", groupId);
 
-    if (fetchError) throw fetchError;
+    if (fetchError) {
+      const errorMsg = fetchError?.message || JSON.stringify(fetchError);
+      console.error("Error fetching participants:", errorMsg);
+      throw fetchError;
+    }
 
     if (!participants || participants.length === 0) return [];
 
     // Get user details for each participant
     const userIds = participants.map((p: any) => p.user_id);
     const { data: profiles, error: profileError } = await supabase
-      .from("user_profile")
-      .select("id, nickname, photo")
-      .in("id", userIds);
+      .from("profiles")
+      .select("user_id, nickname, photo")
+      .in("user_id", userIds);
 
-    if (profileError) throw profileError;
+    if (profileError) {
+      const errorMsg = profileError?.message || JSON.stringify(profileError);
+      console.error("Error fetching user profiles:", errorMsg);
+      throw profileError;
+    }
 
     return (profiles || []).map((profile: any) => ({
-      userId: profile.id,
+      userId: profile.user_id,
       userNickname: profile.nickname || "Usuário",
       userPhoto: profile.photo || null,
     }));
-  } catch (error) {
-    console.error("Error getting group participants:", error);
+  } catch (error: any) {
+    const errorMsg = error?.message || JSON.stringify(error);
+    console.error("Error getting group participants:", errorMsg);
+    console.error("Full error details:", error);
     return [];
   }
 }
