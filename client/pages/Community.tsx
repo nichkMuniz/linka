@@ -102,6 +102,7 @@ export default function Community() {
   const [userNickname, setUserNickname] = React.useState<string>("");
   const [isGroupDetailsOpen, setIsGroupDetailsOpen] = React.useState(false);
   const [isClassificationsOpen, setIsClassificationsOpen] = React.useState(false);
+  const [isParticipantsModalOpen, setIsParticipantsModalOpen] = React.useState(false);
   const [isAddMembersModalOpen, setIsAddMembersModalOpen] = React.useState(false);
   const [selectedMembers, setSelectedMembers] = React.useState<Set<string>>(new Set());
   const [addMembersSearch, setAddMembersSearch] = React.useState("");
@@ -677,16 +678,6 @@ export default function Community() {
                 >
                   Histórico ({groupCheckIns.length})
                 </button>
-                <button
-                  onClick={() => setActiveGroupViewTab("participants")}
-                  className={`px-2 py-2 text-sm font-medium transition-colors ${
-                    activeGroupViewTab === "participants"
-                      ? "text-foreground border-b-2 border-brand -mb-[2px]"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Participantes ({groupParticipants.length})
-                </button>
               </div>
 
               {/* Check-ins Tab */}
@@ -724,32 +715,6 @@ export default function Community() {
                 </div>
               )}
 
-              {/* Participants Tab */}
-              {activeGroupViewTab === "participants" && (
-                <div className="space-y-2 px-3 py-4">
-                  {groupParticipants.length > 0 ? (
-                    groupParticipants.map((participant) => (
-                      <div
-                        key={participant.userId}
-                        className="p-3 rounded-lg bg-muted/30 border border-border/40 flex items-center gap-3"
-                      >
-                        {participant.userPhoto ? (
-                          <img
-                            src={participant.userPhoto}
-                            alt={participant.userNickname}
-                            className="w-10 h-10 rounded-full object-cover flex-shrink-0"
-                          />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-muted flex-shrink-0" />
-                        )}
-                        <p className="text-sm font-medium">{participant.userNickname}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground text-center py-4">Nenhum participante ainda</p>
-                  )}
-                </div>
-              )}
             </div>
           </div>
 
@@ -762,6 +727,13 @@ export default function Community() {
               >
                 <span className="text-xl">📋</span>
                 <span className="text-xs">Detalhes</span>
+              </button>
+              <button
+                onClick={() => setIsParticipantsModalOpen(true)}
+                className="flex flex-col items-center justify-center gap-1 flex-1 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <span className="text-xl">👥</span>
+                <span className="text-xs">Participantes</span>
               </button>
               <button
                 onClick={() => setIsClassificationsOpen(true)}
@@ -1754,6 +1726,41 @@ export default function Community() {
                   ))
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-8">Nenhum check-in ainda</p>
+              )}
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Participants Modal */}
+      <Drawer open={isParticipantsModalOpen} onOpenChange={setIsParticipantsModalOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Participantes ({groupParticipants.length})</DrawerTitle>
+          </DrawerHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <div className="space-y-2">
+              {groupParticipants.length > 0 ? (
+                groupParticipants.map((participant) => (
+                  <div
+                    key={participant.userId}
+                    className="p-3 rounded-lg bg-muted/30 border border-border/40 flex items-center gap-3"
+                  >
+                    {participant.userPhoto ? (
+                      <img
+                        src={participant.userPhoto}
+                        alt={participant.userNickname}
+                        className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-muted flex-shrink-0" />
+                    )}
+                    <p className="text-sm font-medium">{participant.userNickname}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">Nenhum participante ainda</p>
               )}
             </div>
           </div>

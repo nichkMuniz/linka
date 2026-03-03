@@ -1753,25 +1753,17 @@ export default function Goals() {
                             }`}
                           >
                             {/* Exercise Info */}
-                            <div className="flex items-start justify-between">
-                              <div>
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex-1">
-                                    <span className="text-sm font-medium">
-                                      {workout.name}
-                                    </span>
-                                    {isAlreadySelected && !isNewSelection && (
-                                      <p className="text-xs text-green-600 dark:text-green-400 mt-1 font-medium">
-                                        ✓ Já adicionado
-                                      </p>
-                                    )}
-                                  </div>
-                                  <input
-                                    type="checkbox"
-                                    checked={isNewSelection}
-                                    onChange={() => { }}
-                                    className="h-4 w-4 flex-shrink-0"
-                                  />
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium">
+                                    {workout.name}
+                                  </span>
+                                  {isAlreadySelected && !isNewSelection && (
+                                    <p className="text-xs text-green-600 dark:text-green-400 font-medium">
+                                      ✓ Já adicionado
+                                    </p>
+                                  )}
                                 </div>
                                 {workout.description && (
                                   <p className="text-xs text-muted-foreground mt-1">
@@ -1784,6 +1776,12 @@ export default function Goals() {
                                   </p>
                                 )}
                               </div>
+                              <input
+                                type="checkbox"
+                                checked={isNewSelection}
+                                onChange={() => { }}
+                                className="h-4 w-4 flex-shrink-0 mt-0.5"
+                              />
                             </div>
                           </button>
                         );
