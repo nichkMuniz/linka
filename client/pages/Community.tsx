@@ -17,6 +17,8 @@ import {
   addMembersToGroupDb,
   updateGroupCheckInDb,
   deleteGroupCheckInDb,
+  deleteGroupDb,
+  getGroupParticipantsDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
@@ -84,6 +86,8 @@ export default function Community() {
   const [availableGroups, setAvailableGroups] = React.useState<any[]>([]);
   const [selectedGroupForView, setSelectedGroupForView] = React.useState<any>(null);
   const [groupCheckIns, setGroupCheckIns] = React.useState<GroupCheckIn[]>([]);
+  const [groupParticipants, setGroupParticipants] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null }>>([]);
+  const [activeGroupViewTab, setActiveGroupViewTab] = React.useState<"check-ins" | "participants">("check-ins");
   const [isAddCheckInModalOpen, setIsAddCheckInModalOpen] = React.useState(false);
   const [checkInForm, setCheckInForm] = React.useState({
     photo: "",
@@ -755,25 +759,12 @@ export default function Community() {
       {activeTab === "duels" && !selectedGroupForView && (
         <>
           {/* Header */}
-          <div className="flex-shrink-0 px-4 pt-4 pb-0 flex items-center justify-between">
+          <div className="flex-shrink-0 px-4 pt-4 pb-0 flex items-center justify-start">
             <h1 className="text-2xl font-bold tracking-tight">Duelos</h1>
-            <Button
-              onClick={() => {
-                setGroupStep("config");
-                setGroupConfig({ name: "", location: "", goal: "" });
-                setSelectedInvitees(new Set());
-                setIsCreateGroupModalOpen(true);
-              }}
-              size="sm"
-              className="gap-2 rounded-full"
-            >
-              <Plus className="h-4 w-4" />
-              Criar Grupo
-            </Button>
           </div>
 
           {/* Duels Grid */}
-          <div className="flex-1 overflow-y-auto px-3 pb-4 pt-4 space-y-6">
+          <div className="flex-1 overflow-y-auto px-3 pb-24 pt-4 space-y-6">
             {/* User Created Groups Section */}
             {userCreatedGroups.length > 0 && (
               <div>
@@ -806,11 +797,16 @@ export default function Community() {
                           className="w-full rounded-full text-xs h-8"
                           onClick={async () => {
                             setSelectedGroupForView(group);
+                            setActiveGroupViewTab("check-ins");
                             try {
-                              const checkIns = await getGroupCheckInsDb(group.id);
+                              const [checkIns, participants] = await Promise.all([
+                                getGroupCheckInsDb(group.id),
+                                getGroupParticipantsDb(group.id),
+                              ]);
                               setGroupCheckIns(checkIns);
+                              setGroupParticipants(participants);
                             } catch (err: any) {
-                              console.error("Error loading check-ins:", err);
+                              console.error("Error loading group data:", err);
                             }
                           }}
                         >
@@ -871,6 +867,22 @@ export default function Community() {
                 <p className="text-sm text-muted-foreground">Nenhum grupo disponível no momento</p>
               </div>
             )}
+          </div>
+
+          {/* Centered Create Group Button at Bottom */}
+          <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 z-[51] px-4">
+            <Button
+              onClick={() => {
+                setGroupStep("config");
+                setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "" });
+                setSelectedInvitees(new Set());
+                setIsCreateGroupModalOpen(true);
+              }}
+              className="gap-2 rounded-full px-6 h-12"
+            >
+              <Plus className="h-4 w-4" />
+              Criar Grupo
+            </Button>
           </div>
         </>
       )}
@@ -1387,7 +1399,7 @@ export default function Community() {
                   <SelectTrigger className="rounded-lg">
                     <SelectValue placeholder="Selecione uma rotina de treino" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent side="top" className="z-[101]">
                     {exerciseRoutines.length > 0 ? (
                       exerciseRoutines.map((routine) => (
                         <SelectItem key={routine.id} value={routine.id}>
@@ -1618,15 +1630,32 @@ export default function Community() {
                   </Button>
 
                   <Button
-                    onClick={() => {
+                    onClick={async () => {
                       if (window.confirm("Tem certeza que deseja apagar este grupo? Esta ação é irreversível.")) {
-                        toast({
-                          title: "Grupo apagado!",
-                          description: "O grupo foi removido com sucesso.",
-                        });
-                        setIsGroupDetailsOpen(false);
-                        setSelectedGroupForView(null);
-                        setGroupCheckIns([]);
+                        try {
+                          await deleteGroupDb(selectedGroupForView.id);
+                          toast({
+                            title: "Grupo apagado!",
+                            description: "O grupo foi removido com sucesso.",
+                          });
+                          setIsGroupDetailsOpen(false);
+                          setSelectedGroupForView(null);
+                          setGroupCheckIns([]);
+                          // Refresh the group lists
+                          const [createdGroups, availGroups] = await Promise.all([
+                            getUserCreatedDuelGroupsDb(user!.id),
+                            getAvailableDuelGroupsDb(user!.id),
+                          ]);
+                          setUserCreatedGroups(createdGroups.map((group) => ({ ...group })));
+                          setAvailableGroups(availGroups);
+                        } catch (error: any) {
+                          console.error("Error deleting group:", error);
+                          toast({
+                            title: "Erro ao apagar grupo",
+                            description: error?.message || "Tente novamente.",
+                            variant: "destructive",
+                          });
+                        }
                       }
                     }}
                     variant="destructive"

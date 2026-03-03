@@ -756,6 +756,7 @@ export type PostWithUser = {
   photos?: string[] | null;
   created_at: string;
   user_id: string;
+  user_goal_id?: string | null;
   userNickname: string;
   userPhoto: string | null;
 };
@@ -765,7 +766,7 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
 
   const { data, error } = await supabase
     .from("posts")
-    .select("id, description, photo, photos, created_at, user_id")
+    .select("id, description, photo, photos, created_at, user_id, user_goal_id")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -4876,6 +4877,61 @@ export async function addMembersToGroupDb(
     if (insertError) throw insertError;
   } catch (error) {
     console.error("Error adding members to group:", error);
+    throw error;
+  }
+}
+
+// Get all participants of a duel group with their user details
+export async function getGroupParticipantsDb(
+  groupId: string
+): Promise<Array<{ userId: string; userNickname: string; userPhoto: string | null }>> {
+  if (!supabase) return [];
+
+  try {
+    // Get participants from duel_group_participants table, then get their user details
+    const { data: participants, error: fetchError } = await supabase
+      .from("duel_group_participants")
+      .select("user_id")
+      .eq("group_id", groupId);
+
+    if (fetchError) throw fetchError;
+
+    if (!participants || participants.length === 0) return [];
+
+    // Get user details for each participant
+    const userIds = participants.map((p: any) => p.user_id);
+    const { data: profiles, error: profileError } = await supabase
+      .from("user_profile")
+      .select("id, nickname, photo")
+      .in("id", userIds);
+
+    if (profileError) throw profileError;
+
+    return (profiles || []).map((profile: any) => ({
+      userId: profile.id,
+      userNickname: profile.nickname || "Usuário",
+      userPhoto: profile.photo || null,
+    }));
+  } catch (error) {
+    console.error("Error getting group participants:", error);
+    return [];
+  }
+}
+
+// Delete a duel group
+export async function deleteGroupDb(groupId: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase not configured");
+
+  try {
+    // Delete the duel group (cascading deletes should handle participants and check-ins)
+    const { error: deleteError } = await supabase
+      .from("duel_groups")
+      .delete()
+      .eq("id", groupId);
+
+    if (deleteError) throw deleteError;
+  } catch (error) {
+    console.error("Error deleting group:", error);
     throw error;
   }
 }
