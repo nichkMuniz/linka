@@ -157,26 +157,8 @@ export default function Store() {
   ];
 
   React.useEffect(() => {
-    // TODO: Replace with actual database fetch when table is created
-    // const loadItems = async () => {
-    //   try {
-    //     setLoading(true);
-    //     const data = await getStoreCatalogDb(categoryFilter);
-    //     setItems(data);
-    //   } catch (err) {
-    //     console.error("Error loading store items:", err);
-    //     toast({
-    //       title: "Erro ao carregar loja",
-    //       description: "Tente novamente.",
-    //       variant: "destructive",
-    //     });
-    //   } finally {
-    //     setLoading(false);
-    //   }
-    // };
-    // loadItems();
-
     // Using mock data for now
+    // TODO: Replace with actual database fetch when table is created
     setItems(mockItems);
   }, [categoryFilter]);
 

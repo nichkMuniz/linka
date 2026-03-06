@@ -2723,10 +2723,8 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     const followingIds = await getFollowingIdsDb();
     const userIdsToShow = [viewer.id, ...followingIds];
 
-    console.log("[getReelsDb] Fetching reels for users:", userIdsToShow);
 
     if (userIdsToShow.length === 0) {
-      console.log("[getReelsDb] No users to fetch reels for");
       return [];
     }
 
@@ -2741,7 +2739,6 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
       return [];
     }
 
-    console.log("[getReelsDb] Found reels:", reelsData?.length || 0);
 
     if (!reelsData || reelsData.length === 0) {
       return [];
@@ -2751,10 +2748,6 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     const uniqueUserIds = [
       ...new Set((reelsData ?? []).map((r: any) => String(r.user_id))),
     ];
-    console.log(
-      "[getReelsDb] Fetching profiles for users:",
-      uniqueUserIds.length,
-    );
 
     let profiles: any[] = [];
     if (uniqueUserIds.length > 0) {
@@ -2770,7 +2763,6 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
       }
     }
 
-    console.log("[getReelsDb] Found profiles:", profiles.length);
 
     const profileMap = new Map(
       (profiles ?? []).map((p: any) => [
@@ -2781,7 +2773,6 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
 
     // Get all likes for these reels in one query
     const reelIds = (reelsData ?? []).map((r: any) => String(r.id));
-    console.log("[getReelsDb] Fetching likes for reels:", reelIds.length);
 
     let allLikes: any[] = [];
     if (reelIds.length > 0) {
@@ -2812,7 +2803,6 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
       }
     }
 
-    console.log("[getReelsDb] Found likes:", allLikes.length);
 
     const likesMap = new Map<
       string,
@@ -2869,7 +2859,6 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
       },
     );
 
-    console.log("[getReelsDb] Returning reels:", reelsWithUserData.length);
     return reelsWithUserData;
   } catch (err: any) {
     console.error("Error getting reels:", err?.message || JSON.stringify(err));
@@ -3694,7 +3683,6 @@ export async function markNotificationsAsReadDb(): Promise<boolean> {
 
       // If it's a column not found error, just return true since we can't track read status
       if (errorMsg.includes("read") || errorMsg.includes("column")) {
-        console.log("Read column doesn't exist - notifications read tracking skipped");
         return true;
       }
 
@@ -3875,14 +3863,12 @@ export async function deletePostDb(postId: string): Promise<boolean> {
     }
 
     // Delete the post itself
-    console.log("Deletando post com ID:", postId);
     const deleteResponse = await supabase
       .from("posts")
       .delete()
       .eq("id", postId)
       .select();
 
-    console.log("Resposta do delete do post:", deleteResponse);
 
     const { error: postDeleteError, data: deletedData } = deleteResponse;
 
@@ -3891,7 +3877,6 @@ export async function deletePostDb(postId: string): Promise<boolean> {
       throw postDeleteError;
     }
 
-    console.log("Post deletado com sucesso:", deletedData);
 
     // Delete image from storage if it exists
     if (postData.photo) {

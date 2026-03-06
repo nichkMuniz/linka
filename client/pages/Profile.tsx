@@ -83,8 +83,8 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
+import { LoadingSpinner } from "@/components/animated-loading";
 import {
-  Users,
   Edit2,
   Upload,
   Plus,
@@ -101,12 +101,9 @@ import {
   UserPlus,
   MessageSquare,
   Filter,
-  Lock,
   Bell,
   Globe,
   BarChart3,
-  Volume2,
-  VolumeX,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
@@ -1253,8 +1250,9 @@ export default function Profile() {
 
   if (authLoading || loading) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">
-        Carregando perfil...
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <LoadingSpinner className="h-12 w-12" />
+        <p className="text-sm text-muted-foreground">Carregando perfil...</p>
       </div>
     );
   }
@@ -1353,7 +1351,7 @@ export default function Profile() {
                   <Settings className="h-4 w-4" />
                 </Button>
 
-                <DrawerContent className="max-h-[90dvh] flex flex-col">
+                <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                   <DrawerHeader className="shrink-0">
                     <DrawerTitle>Configurações</DrawerTitle>
                   </DrawerHeader>
@@ -1372,7 +1370,7 @@ export default function Profile() {
                         <Edit2 className="h-4 w-4" />
                       </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
                           <DrawerTitle>Editar Perfil</DrawerTitle>
                         </DrawerHeader>
@@ -1527,7 +1525,7 @@ export default function Profile() {
                           <span className="text-lg">🏪</span>
                         </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
                           <DrawerTitle>Configurar Perfil Comercial</DrawerTitle>
                         </DrawerHeader>
@@ -1666,7 +1664,7 @@ export default function Profile() {
                         <Globe className="h-4 w-4" />
                       </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
                           <DrawerTitle>Selecione o Idioma</DrawerTitle>
                         </DrawerHeader>
@@ -1720,7 +1718,7 @@ export default function Profile() {
                         <Bell className="h-4 w-4" />
                       </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
                           <DrawerTitle>Configurar Notificações</DrawerTitle>
                         </DrawerHeader>
@@ -1842,7 +1840,7 @@ export default function Profile() {
                         <BarChart3 className="h-4 w-4" />
                       </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
                           <DrawerTitle>Gerenciamento de Tempo</DrawerTitle>
                         </DrawerHeader>
@@ -1919,7 +1917,7 @@ export default function Profile() {
                         <span>🎨</span>
                       </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col">
+                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
                           <DrawerTitle>Personalização</DrawerTitle>
                         </DrawerHeader>
@@ -2059,7 +2057,7 @@ export default function Profile() {
         </TabsList>
 
         {/* Posts Tab */}
-        <TabsContent value="posts" className="space-y-4">
+        <TabsContent value="posts" className="space-y-4 fade-in">
           {posts.length > 0 ? (
             <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {posts.map((post) => (
@@ -2094,7 +2092,7 @@ export default function Profile() {
         </TabsContent>
 
         {/* Reels Tab */}
-        <TabsContent value="reels" className="space-y-4">
+        <TabsContent value="reels" className="space-y-4 fade-in">
           {reels.length > 0 ? (
             <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {reels.map((reel) => (
@@ -2139,7 +2137,7 @@ export default function Profile() {
         </TabsContent>
 
         {/* Routines Tab */}
-        <TabsContent value="routines" className="space-y-4">
+        <TabsContent value="routines" className="space-y-4 fade-in">
           <Drawer
             open={isCreateRoutineOpen}
             onOpenChange={(open) => {
@@ -2157,7 +2155,7 @@ export default function Profile() {
               }
             }}
           >
-            <DrawerContent className="max-h-[90dvh] flex flex-col">
+            <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
               <DrawerHeader className="shrink-0">
                 <DrawerTitle>Nova Rotina</DrawerTitle>
               </DrawerHeader>
@@ -2662,7 +2660,7 @@ export default function Profile() {
                           <Tag className="h-5 w-5" />
                         </button>
 
-                        <DrawerContent className="max-h-[90dvh] flex flex-col">
+                        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                           <DrawerHeader className="shrink-0">
                             <DrawerTitle>
                               {linkedGoal ? "Meta Vinculada" : "Vincular Meta"}
@@ -2905,7 +2903,7 @@ export default function Profile() {
 
       {/* Post Viewer Drawer */}
       <Drawer open={isPostViewerOpen} onOpenChange={setIsPostViewerOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               {isEditingPost ? "Editar Post" : "Visualizar Post"}
@@ -3076,7 +3074,7 @@ export default function Profile() {
 
       {/* Followers Drawer */}
       <Drawer open={showFollowersModal} onOpenChange={setShowFollowersModal}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Seguidores</DrawerTitle>
           </DrawerHeader>
@@ -3142,7 +3140,7 @@ export default function Profile() {
 
       {/* Following Drawer */}
       <Drawer open={showFollowingModal} onOpenChange={setShowFollowingModal}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Seguindo</DrawerTitle>
           </DrawerHeader>
@@ -3206,7 +3204,7 @@ export default function Profile() {
 
       {/* Reel Editor Drawer */}
       <Drawer open={isReelEditorOpen} onOpenChange={setIsReelEditorOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               {isEditingReel ? "Editar Reel" : "Opções do Reel"}
@@ -3328,7 +3326,7 @@ export default function Profile() {
       {/* Workout History Modal */}
       {selectedWorkoutForHistory && (
         <Drawer open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
-          <DrawerContent className="max-h-[90dvh] flex flex-col">
+          <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
             <DrawerHeader className="shrink-0">
               <DrawerTitle>
                 Histórico de {selectedWorkoutForHistory?.name || "Exercício"}

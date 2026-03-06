@@ -14,6 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
+import { formatTimeAgo } from "@/lib/utils";
 import { ArrowLeft, Send, Check, CheckCheck } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
@@ -422,23 +423,4 @@ export default function Messages() {
       </div>
     </div>
   );
-}
-
-function formatTimeAgo(date: string): string {
-  const now = new Date();
-  const msgTime = new Date(date);
-  const diffMs = now.getTime() - msgTime.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "agora";
-  if (diffMins < 60) return `${diffMins}m`;
-  if (diffHours < 24) return `${diffHours}h`;
-  if (diffDays < 7) return `${diffDays}d`;
-
-  return msgTime.toLocaleDateString("pt-BR", {
-    month: "short",
-    day: "numeric",
-  });
 }

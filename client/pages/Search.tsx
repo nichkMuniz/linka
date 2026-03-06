@@ -44,7 +44,6 @@ export default function Search() {
       setIsLoading(true);
       try {
         const users = await getAllUsersDb(user.id);
-        console.log("Loaded users:", users);
         setAllUsers(users);
         setSearchUsers(users);
 

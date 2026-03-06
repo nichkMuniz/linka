@@ -42,6 +42,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { formatTimeAgo } from "@/lib/utils";
+import { LoadingSpinner } from "@/components/animated-loading";
 import type { PostWithStats } from "../services/post.service";
 import { StoriesCarousel } from "@/components/stories-carousel";
 import { StoryCreationDialog } from "@/components/story-creation-dialog";
@@ -439,9 +440,7 @@ export default function Index() {
       if (!confirmed) return;
 
       try {
-        console.log("Iniciando deleção do post:", post.id);
         const result = await deletePostDb(post.id);
-        console.log("Resultado da deleção:", result);
 
         // Remove post from local state
         setPosts((prev) => prev.filter((p) => p.id !== post.id));
@@ -508,7 +507,10 @@ export default function Index() {
 
   if (loading) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">Carregando...</div>
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <LoadingSpinner className="h-12 w-12" />
+        <p className="text-sm text-muted-foreground">Carregando feed...</p>
+      </div>
     );
   }
 
@@ -531,7 +533,7 @@ export default function Index() {
             posts.map((post) => (
               <Card
                 key={post.id}
-                className="border-border/60 relative overflow-hidden"
+                className="border-border/60 relative overflow-hidden fade-in"
               >
                 <CardContent className="space-y-3 p-0">
                   {/* Image Container with User Info Overlay */}

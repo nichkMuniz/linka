@@ -278,11 +278,7 @@ export default function Goals() {
           setUserHabits(userHabitsData);
           setUserGoals(userGoalsData);
 
-          console.log("[Goals] Routines:", routinesData);
-          console.log("[Goals] User workouts:", userWorkoutsData);
-          console.log("[Goals] User diets:", userDietsData);
-          console.log("[Goals] User habits:", userHabitsData);
-        }
+          }
       } catch (err: any) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         console.error("Erro ao carregar dados:", errorMessage);
@@ -1079,7 +1075,7 @@ export default function Goals() {
         </TabsList>
 
         {/* Metas Tab */}
-        <TabsContent value="metas" className="space-y-6">
+        <TabsContent value="metas" className="space-y-6 fade-in">
           {goals.length ? (
             <>
               {/* Selected Goals Section */}
@@ -1278,7 +1274,7 @@ export default function Goals() {
         </TabsContent>
 
         {/* Rotinas Tab */}
-        <TabsContent value="rotinas" className="space-y-4">
+        <TabsContent value="rotinas" className="space-y-4 fade-in">
           {/* Daily Check-in Block */}
           <Card className={`border-2 ${
             dailyCheckInDone
@@ -1631,7 +1627,7 @@ export default function Goals() {
 
       {/* Add Routine Drawer Modal */}
       <Drawer open={addRoutineModalOpen} onOpenChange={setAddRoutineModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Adicionar Rotina</DrawerTitle>
           </DrawerHeader>
@@ -1872,7 +1868,7 @@ export default function Goals() {
 
       {/* Workout Modal */}
       <Drawer open={workoutModalOpen} onOpenChange={setWorkoutModalOpen}>
-        <DrawerContent className="max-h-[90dvh] overflow-hidden flex flex-col">
+        <DrawerContent className="max-h-[90dvh] overflow-hidden flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Registrar Treino</DrawerTitle>
           </DrawerHeader>
@@ -2202,7 +2198,7 @@ export default function Goals() {
 
       {/* Edit Goal Drawer */}
       <Drawer open={editGoalModalOpen} onOpenChange={setEditGoalModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Editar Meta</DrawerTitle>
           </DrawerHeader>
@@ -2333,7 +2329,7 @@ export default function Goals() {
 
       {/* Finish Workout Confirmation Drawer */}
       <Drawer open={finishWorkoutConfirmOpen} onOpenChange={setFinishWorkoutConfirmOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Confirmar Encerramento do Treino</DrawerTitle>
           </DrawerHeader>
@@ -2546,7 +2542,7 @@ export default function Goals() {
 
       {/* Workout History Drawer */}
       <Drawer open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               Histórico de {selectedWorkoutForHistory?.name || "Exercício"}
@@ -2660,7 +2656,7 @@ export default function Goals() {
 
       {/* Goal Selection Modal for Check-in */}
       <Drawer open={checkInGoalSelectionOpen} onOpenChange={setCheckInGoalSelectionOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Selecione uma Meta para o Check-in</DrawerTitle>
           </DrawerHeader>
@@ -2717,7 +2713,7 @@ export default function Goals() {
 
       {/* Routine Selection Modal for Goal Cards */}
       <Drawer open={goalRoutineModalOpen} onOpenChange={setGoalRoutineModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               Vincular Rotinas a "{selectedGoalForRoutines?.description}"
