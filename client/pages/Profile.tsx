@@ -241,7 +241,6 @@ export default function Profile() {
   const [deleteConfirmText, setDeleteConfirmText] = React.useState("");
 
   // Edit account state
-  const [isEditAccountOpen, setIsEditAccountOpen] = React.useState(false);
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
   const [passwordResetEmail, setPasswordResetEmail] = React.useState("");
 
@@ -1452,6 +1451,56 @@ export default function Profile() {
                             <p className="text-xs text-muted-foreground">Email não pode ser alterado aqui</p>
                           </div>
 
+                          {/* Password Reset Section */}
+                          <div className="border-t pt-4 space-y-2">
+                            <label className="text-sm font-medium">Redefinir Senha</label>
+                            <Button
+                              onClick={async () => {
+                                setIsResettingPassword(true);
+                                try {
+                                  await supabase.auth.resetPasswordForEmail(user?.email || "", {
+                                    redirectTo: `${window.location.origin}/reset-password`,
+                                  });
+                                  toast({
+                                    title: "Email enviado",
+                                    description: "Verifique seu email para redefinir a senha",
+                                  });
+                                } catch (error) {
+                                  toast({
+                                    title: "Erro",
+                                    description: "Falha ao enviar email de redefinição",
+                                    variant: "destructive",
+                                  });
+                                } finally {
+                                  setIsResettingPassword(false);
+                                }
+                              }}
+                              disabled={isResettingPassword}
+                              variant="outline"
+                              className="w-full rounded-full"
+                            >
+                              {isResettingPassword ? "Enviando..." : "Enviar Email de Redefinição"}
+                            </Button>
+                            <p className="text-xs text-muted-foreground">Você receberá um link para redefinir sua senha</p>
+                          </div>
+
+                          {/* Danger Zone */}
+                          <div className="border-t pt-4">
+                            <h3 className="text-sm font-semibold text-destructive mb-3">Zona de Perigo</h3>
+                            <Button
+                              onClick={() => {
+                                setIsEditDialogOpen(false);
+                                setIsDeleteAccountOpen(true);
+                              }}
+                              variant="destructive"
+                              className="w-full rounded-full gap-2"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Encerrar Conta
+                            </Button>
+                            <p className="text-xs text-muted-foreground mt-2">Esta ação é permanente e não pode ser desfeita</p>
+                          </div>
+
                           {/* Save Button */}
                           <Button
                             onClick={handleSaveProfile}
@@ -1598,81 +1647,6 @@ export default function Profile() {
                           >
                             {isSavingCommercial ? "Salvando..." : "Salvar Perfil Comercial"}
                           </Button>
-                          </div>
-                        </div>
-                      </DrawerContent>
-                    </Drawer>
-
-                    {/* Edit Account Drawer */}
-                    <Drawer
-                      open={isEditAccountOpen}
-                      onOpenChange={setIsEditAccountOpen}
-                    >
-                      <Button
-                        onClick={() => setIsEditAccountOpen(true)}
-                        variant="outline"
-                        className="gap-2 justify-between"
-                      >
-                        <span>Editar Conta</span>
-                        <Lock className="h-4 w-4" />
-                      </Button>
-
-                      <DrawerContent className="max-h-[90dvh] flex flex-col">
-                        <DrawerHeader className="shrink-0">
-                          <DrawerTitle>Editar Conta</DrawerTitle>
-                        </DrawerHeader>
-
-                        <div className="flex-1 overflow-y-auto px-4 pb-4">
-                          <div className="space-y-4">
-                          {/* Password Reset */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Redefinir Senha</label>
-                            <Button
-                              onClick={async () => {
-                                setIsResettingPassword(true);
-                                try {
-                                  await supabase.auth.resetPasswordForEmail(user?.email || "", {
-                                    redirectTo: `${window.location.origin}/reset-password`,
-                                  });
-                                  toast({
-                                    title: "Email enviado",
-                                    description: "Verifique seu email para redefinir a senha",
-                                  });
-                                } catch (error) {
-                                  toast({
-                                    title: "Erro",
-                                    description: "Falha ao enviar email de redefinição",
-                                    variant: "destructive",
-                                  });
-                                } finally {
-                                  setIsResettingPassword(false);
-                                }
-                              }}
-                              disabled={isResettingPassword}
-                              variant="outline"
-                              className="w-full rounded-full"
-                            >
-                              {isResettingPassword ? "Enviando..." : "Enviar Email de Redefinição"}
-                            </Button>
-                            <p className="text-xs text-muted-foreground">Você receberá um link para redefinir sua senha</p>
-                          </div>
-
-                          {/* Danger Zone */}
-                          <div className="border-t pt-4">
-                            <h3 className="text-sm font-semibold text-destructive mb-3">Zona de Perigo</h3>
-                            <Button
-                              onClick={() => {
-                                setIsEditAccountOpen(false);
-                                setIsDeleteAccountOpen(true);
-                              }}
-                              variant="destructive"
-                              className="w-full rounded-full gap-2"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Encerrar Conta
-                            </Button>
-                            <p className="text-xs text-muted-foreground mt-2">Esta ação é permanente e não pode ser desfeita</p>
-                          </div>
                           </div>
                         </div>
                       </DrawerContent>
@@ -2006,8 +1980,19 @@ export default function Profile() {
               {/* Commercial Profile Info */}
               {commercialProfile && (
                 <div className="flex flex-col gap-1 p-2 rounded-lg bg-muted/20 border border-brand/20">
-                  <div className="text-sm font-medium text-brand">
-                    🏪 {commercialProfile.business_name}
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm font-medium text-brand">
+                      🏪 {commercialProfile.business_name}
+                    </div>
+                    {commercialProfile.business_segment && (
+                      <div className="text-xs px-2 py-0.5 rounded bg-brand/20 text-brand font-medium">
+                        {commercialProfile.business_segment === "academia" && "Academia / Fitness"}
+                        {commercialProfile.business_segment === "personal_trainer" && "Personal Trainer"}
+                        {commercialProfile.business_segment === "nutricao" && "Nutrição / Nutricionista"}
+                        {commercialProfile.business_segment === "psicologia" && "Psicologia / Coaching"}
+                        {commercialProfile.business_segment === "outros" && "Outros"}
+                      </div>
+                    )}
                   </div>
                   {commercialProfile.business_website && (
                     <a
@@ -2070,7 +2055,7 @@ export default function Profile() {
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="posts">Posts ({stats.postsCount})</TabsTrigger>
           <TabsTrigger value="reels">Shots ({reels.length})</TabsTrigger>
-          <TabsTrigger value="routines">Rotinas</TabsTrigger>
+          <TabsTrigger value="routines">Rotinas ({routines.length})</TabsTrigger>
         </TabsList>
 
         {/* Posts Tab */}
@@ -3342,67 +3327,113 @@ export default function Profile() {
 
       {/* Workout History Modal */}
       {selectedWorkoutForHistory && (
-        <Dialog open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
-          <DialogContent className="max-w-2xl max-h-[90dvh] overflow-hidden flex flex-col">
-            <DialogHeader>
-              <DialogTitle>{selectedWorkoutForHistory.name}</DialogTitle>
-              {selectedWorkoutForHistory.description && (
-                <DialogDescription>
-                  {selectedWorkoutForHistory.description}
-                </DialogDescription>
-              )}
-            </DialogHeader>
+        <Drawer open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
+          <DrawerContent className="max-h-[90dvh] flex flex-col">
+            <DrawerHeader className="shrink-0">
+              <DrawerTitle>
+                Histórico de {selectedWorkoutForHistory?.name || "Exercício"}
+              </DrawerTitle>
+            </DrawerHeader>
 
-            <div className="flex-1 overflow-y-auto space-y-4 pr-4">
-              <div>
-                <p className="text-sm font-semibold mb-3">Histórico de Séries</p>
+            <div className="flex-1 overflow-y-auto px-4 pb-6">
+              {isLoadingWorkoutHistory ? (
+                <div className="text-center py-6 text-sm text-muted-foreground">
+                  Carregando histórico...
+                </div>
+              ) : workoutHistory.length > 0 ? (
+                (() => {
+                  // Group records by day
+                  const groupedByDay: Record<string, typeof workoutHistory> = {};
+                  workoutHistory.forEach((record) => {
+                    const date = new Date(record.createdAt);
+                    const dateKey = date.toLocaleDateString("pt-BR");
+                    if (!groupedByDay[dateKey]) {
+                      groupedByDay[dateKey] = [];
+                    }
+                    groupedByDay[dateKey].push(record);
+                  });
 
-                {isLoadingWorkoutHistory ? (
-                  <div className="text-center py-8">
-                    <p className="text-xs text-muted-foreground">Carregando histórico...</p>
-                  </div>
-                ) : workoutHistory && workoutHistory.length > 0 ? (
-                  <div className="space-y-2">
-                    {workoutHistory.map((record, idx) => (
-                      <div key={idx} className="p-3 rounded-lg border border-border/40 bg-muted/30">
-                        <div className="grid grid-cols-3 gap-2 text-sm">
-                          <div>
-                            <p className="text-xs text-muted-foreground">Kilos</p>
-                            <p className="font-semibold">{record.kilos || 0} kg</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">Volume</p>
-                            <p className="font-semibold">{record.volume || 0}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">Data</p>
-                            <p className="font-semibold text-xs">
-                              {new Date(record.createdAt).toLocaleDateString()}
-                            </p>
+                  // Sort days in descending order (newest first)
+                  const sortedDates = Object.keys(groupedByDay).sort((a, b) => {
+                    const dateA = new Date(a.split("/").reverse().join("-"));
+                    const dateB = new Date(b.split("/").reverse().join("-"));
+                    return dateB.getTime() - dateA.getTime();
+                  });
+
+                  return sortedDates.map((dateKey) => {
+                    const dayRecords = groupedByDay[dateKey];
+                    const totalKilos = dayRecords
+                      .reduce((sum, r) => sum + (r.kilos || 0), 0);
+                    const totalReps = dayRecords.length;
+
+                    return (
+                      <div key={dateKey} className="mb-6">
+                        {/* Date Header */}
+                        <div className="sticky top-0 bg-background/95 py-2 mb-2">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase">
+                            {dateKey}
+                          </p>
+                          <div className="flex gap-4 mt-1">
+                            <div>
+                              <p className="text-xs text-muted-foreground">
+                                {totalReps} série(s)
+                              </p>
+                            </div>
+                            {totalKilos > 0 && (
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  {totalKilos} kg total
+                                </p>
+                              </div>
+                            )}
                           </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-xs text-muted-foreground">Nenhum histórico encontrado</p>
-                  </div>
-                )}
-              </div>
-            </div>
 
-            <div className="flex gap-3 mt-4 border-t border-border/40 pt-4">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setWorkoutHistoryModalOpen(false)}
-              >
-                Fechar
-              </Button>
+                        {/* Records for this day */}
+                        <div className="space-y-1">
+                          {dayRecords.map((record) => {
+                            const time = new Date(record.createdAt).toLocaleTimeString(
+                              "pt-BR",
+                              { hour: "2-digit", minute: "2-digit" }
+                            );
+                            return (
+                              <div
+                                key={record.id || `${record.createdAt}-${record.kilos}`}
+                                className="flex items-center justify-between p-2 rounded hover:bg-muted/40 transition-colors"
+                              >
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <p className="text-xs text-muted-foreground w-10">
+                                    {time}
+                                  </p>
+                                  <div className="flex gap-2 flex-1 min-w-0 overflow-x-auto">
+                                    {record.kilos && (
+                                      <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
+                                        {record.kilos} kg
+                                      </span>
+                                    )}
+                                    {record.volume && (
+                                      <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
+                                        {record.volume}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()
+              ) : (
+                <div className="text-center py-6 text-sm text-muted-foreground">
+                  Nenhum registro de treino encontrado
+                </div>
+              )}
             </div>
-          </DialogContent>
-        </Dialog>
+          </DrawerContent>
+        </Drawer>
       )}
     </div>
   );
