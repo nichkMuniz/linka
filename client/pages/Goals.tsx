@@ -1004,7 +1004,7 @@ export default function Goals() {
 
       // Create a routine record with the provided name if one is given
       if (routineName.trim()) {
-        await createRoutineDb(user.id, selectedRoutineType, undefined, routineName.trim());
+        await createRoutineDb(user.id, selectedRoutineType, routineName.trim());
       }
 
       if (selectedRoutineType === 1) {

@@ -1019,7 +1019,6 @@ export default function Profile() {
       const newRoutine = await createRoutineDb(
         user.id,
         selectedRoutineType,
-        workoutId,
       );
       if (newRoutine) {
         setRoutines([newRoutine, ...routines]);

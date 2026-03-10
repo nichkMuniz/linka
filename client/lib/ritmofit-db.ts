@@ -896,7 +896,6 @@ export type Routine = {
   id: string;
   user_id: string;
   type: number;
-  program_id: string | null;
   goal_id: string | null;
   name?: string;
 };
@@ -975,7 +974,7 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
 
   const { data, error } = await supabase
     .from("routines")
-    .select("id, user_id, type, program_id, goal_id")
+    .select("id, user_id, type, goal_id, name")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -990,15 +989,14 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
     id: String(row.id ?? ""),
     user_id: String(row.user_id ?? ""),
     type: Number(row.type ?? 1),
-    program_id: row.program_id ? String(row.program_id) : null,
     goal_id: row.goal_id ? String(row.goal_id) : null,
+    name: row.name ? String(row.name) : undefined,
   }));
 }
 
 export async function createRoutineDb(
   userId: string,
   type: RoutineTypeCode,
-  program_id?: string,
   name?: string,
 ): Promise<Routine | null> {
   if (!hasSupabaseConfig || !supabase) return null;
@@ -1008,10 +1006,9 @@ export async function createRoutineDb(
     .insert({
       user_id: userId,
       type,
-      program_id: program_id || null,
       name: name || null,
     })
-    .select("id, user_id, type, program_id, goal_id, name")
+    .select("id, user_id, type, goal_id, name")
     .maybeSingle();
 
   if (error) {
@@ -1027,7 +1024,6 @@ export async function createRoutineDb(
     id: String(data.id ?? ""),
     user_id: String(data.user_id ?? ""),
     type: Number(data.type ?? 1),
-    program_id: data.program_id ? String(data.program_id) : null,
     goal_id: data.goal_id ? String(data.goal_id) : null,
     name: data.name ? String(data.name) : undefined,
   };
@@ -1045,7 +1041,7 @@ export async function updateRoutineGoalDb(
       goal_id: goalId,
     })
     .eq("id", routineId)
-    .select("id, user_id, type, program_id, goal_id, name")
+    .select("id, user_id, type, goal_id, name")
     .maybeSingle();
 
   if (error) {
@@ -1061,7 +1057,6 @@ export async function updateRoutineGoalDb(
     id: String(data.id ?? ""),
     user_id: String(data.user_id ?? ""),
     type: Number(data.type ?? 1),
-    program_id: data.program_id ? String(data.program_id) : null,
     goal_id: data.goal_id ? String(data.goal_id) : null,
     name: data.name ? String(data.name) : undefined,
   };
@@ -1098,7 +1093,7 @@ export async function getRoutinesByGoalIdDb(
 
   const { data, error } = await supabase
     .from("routines")
-    .select("id, user_id, type, program_id, goal_id, name")
+    .select("id, user_id, type, goal_id, name")
     .eq("goal_id", goalId);
 
   if (error) {
@@ -1112,7 +1107,6 @@ export async function getRoutinesByGoalIdDb(
     id: String(row.id ?? ""),
     user_id: String(row.user_id ?? ""),
     type: Number(row.type ?? 1),
-    program_id: row.program_id ? String(row.program_id) : null,
     goal_id: row.goal_id ? String(row.goal_id) : null,
     name: row.name ? String(row.name) : undefined,
   }));
@@ -1133,7 +1127,7 @@ export async function getUserExerciseRoutinesDb(userId: string): Promise<Exercis
     // Get user routines of type 1 (Exercicios)
     const { data: routines, error: routinesError } = await supabase
       .from("routines")
-      .select("id, user_id, type, program_id")
+      .select("id, user_id, type")
       .eq("user_id", userId)
       .eq("type", 1)
       .order("created_at", { ascending: false });
@@ -1147,41 +1141,26 @@ export async function getUserExerciseRoutinesDb(userId: string): Promise<Exercis
 
     if (!routines || routines.length === 0) return [];
 
-    // Get workout details for each routine
-    const workoutIds = routines
-      .map((r: any) => r.program_id)
-      .filter(Boolean);
+    // Get user workouts for these routines
+    try {
+      const { data: userWorkouts } = await supabase
+        .from("user_workouts")
+        .select("id, user_id, workout_id, workouts(id, name, photo)")
+        .eq("user_id", userId);
 
-    let workoutDetailsMap: { [key: string]: any } = {};
+      if (!userWorkouts) return [];
 
-    if (workoutIds.length > 0) {
-      try {
-        const { data: workouts } = await supabase
-          .from("workouts")
-          .select("id, name, photo")
-          .in("id", workoutIds);
-
-        if (workouts) {
-          workouts.forEach((w: any) => {
-            workoutDetailsMap[String(w.id)] = w;
-          });
-        }
-      } catch (workoutErr: any) {
-        console.error("Error fetching workout details:", workoutErr);
-        // Continue without workout details
-      }
+      return userWorkouts.map((uw: any) => ({
+        id: String(uw.id ?? ""),
+        routineId: String(uw.id ?? ""),
+        userId: String(uw.user_id ?? ""),
+        exerciseName: (uw.workouts as any)?.name || "Exercício desconhecido",
+        exercisePhoto: (uw.workouts as any)?.photo || null,
+      }));
+    } catch (workoutErr: any) {
+      console.error("Error fetching user workouts:", workoutErr);
+      return [];
     }
-
-    return routines.map((routine: any) => {
-      const workoutDetails = workoutDetailsMap[String(routine.program_id)];
-      return {
-        id: String(routine.id ?? ""),
-        routineId: String(routine.id ?? ""),
-        userId: String(routine.user_id ?? ""),
-        exerciseName: workoutDetails?.name || "Exercício desconhecido",
-        exercisePhoto: workoutDetails?.photo || null,
-      };
-    });
   } catch (err: any) {
     const errorMsg = err?.message || String(err);
     console.error(`Unexpected error fetching exercise routines:`, errorMsg);
