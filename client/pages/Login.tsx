@@ -43,7 +43,7 @@ function BrandHeader() {
       </div>
       <div className="leading-tight">
         <div className="text-2xl font-extrabold tracking-tight text-foreground">
-          Ritmo<span className="text-brand">Fit</span>
+          Lin<span className="text-brand">Ka</span>
         </div>
       </div>
     </div>
@@ -81,6 +81,19 @@ export default function Login() {
   const [hasCommercialProfile, setHasCommercialProfile] = React.useState(false);
   const [selectedSegments, setSelectedSegments] = React.useState<Set<string>>(new Set());
   const [userEmail, setUserEmail] = React.useState("");
+  const [emailCheckStatus, setEmailCheckStatus] = React.useState<"idle" | "checking" | "valid" | "exists">("idle");
+  const [emailCheckMessage, setEmailCheckMessage] = React.useState("");
+  const [showForgotPassword, setShowForgotPassword] = React.useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = React.useState("");
+  const [isResettingPassword, setIsResettingPassword] = React.useState(false);
+  const [commercialData, setCommercialData] = React.useState({
+    business_segment: "",
+    business_name: "",
+    business_description: "",
+    business_phone: "",
+    business_email: "",
+    business_website: "",
+  });
 
   const canSubmit =
     !busy &&
@@ -215,6 +228,23 @@ export default function Login() {
       });
       return;
     }
+    // If commercial profile, go to commercial data step, else go to segments
+    if (hasCommercialProfile) {
+      setSignupStep(2.5);
+    } else {
+      setSignupStep(3);
+    }
+  };
+
+  const handleCommercialDataComplete = () => {
+    if (!commercialData.business_name.trim() || !commercialData.business_segment) {
+      toast({
+        title: "Preencha os campos obrigatórios",
+        description: "Segmento e Nome da Loja são obrigatórios.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSignupStep(3);
   };
 
@@ -227,6 +257,96 @@ export default function Login() {
       return;
     }
     setSignupStep(4);
+  };
+
+  const validateEmailExists = React.useCallback(async (emailToCheck: string) => {
+    if (!emailToCheck.trim() || !supabase) {
+      setEmailCheckStatus("idle");
+      setEmailCheckMessage("");
+      return;
+    }
+
+    setEmailCheckStatus("checking");
+
+    try {
+      const { data, error } = await supabase.auth.admin.listUsers();
+
+      if (error) {
+        // Fallback: Try signup which will fail if email exists
+        setEmailCheckStatus("idle");
+        setEmailCheckMessage("");
+        return;
+      }
+
+      // Check if email exists in auth users
+      const emailExists = data?.users.some((user) => user.email?.toLowerCase() === emailToCheck.toLowerCase());
+
+      if (emailExists) {
+        setEmailCheckStatus("exists");
+        setEmailCheckMessage("Este email já está cadastrado");
+      } else {
+        setEmailCheckStatus("valid");
+        setEmailCheckMessage("Email disponível ✓");
+      }
+    } catch {
+      // If admin method fails, don't show error
+      setEmailCheckStatus("idle");
+      setEmailCheckMessage("");
+    }
+  }, [supabase]);
+
+  // Debounce email validation
+  React.useEffect(() => {
+    if (signupStep !== 1) return;
+
+    const timer = setTimeout(() => {
+      validateEmailExists(email);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [email, signupStep, validateEmailExists]);
+
+  const handleResetPassword = async () => {
+    if (!hasSupabaseConfig || !supabase || !forgotPasswordEmail.trim()) {
+      toast({
+        title: "Email obrigatório",
+        description: "Por favor, informe seu email.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsResettingPassword(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail.trim(), {
+        redirectTo: `${window.location.origin}/`,
+      });
+
+      if (error) {
+        toast({
+          title: "Erro ao resetar senha",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Email enviado!",
+        description: "Verifique seu email para redefinir sua senha.",
+      });
+
+      setForgotPasswordEmail("");
+      setShowForgotPassword(false);
+    } catch (err: any) {
+      toast({
+        title: "Erro de conexão",
+        description: "Não foi possível enviar o email. Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsResettingPassword(false);
+    }
   };
 
   const toggleSegment = (segmentId: string) => {
@@ -282,7 +402,7 @@ export default function Login() {
 
       toast({
         title: "Conta criada com sucesso!",
-        description: "Bem-vindo ao RitmoFit!",
+        description: "Bem-vindo ao LinKa!",
       });
 
       if (biometricAvailable) {
@@ -317,7 +437,7 @@ export default function Login() {
         publicKey: {
           challenge,
           rp: {
-            name: "RitmoFit",
+            name: "LinKa",
             id: window.location.hostname,
           },
           user: {
@@ -498,7 +618,51 @@ export default function Login() {
           </CardHeader>
 
           <CardContent className="space-y-4">
-            {!networkStatus.isOnline ? (
+            {showForgotPassword ? (
+              <div className="grid gap-4">
+                <div className="text-center space-y-2">
+                  <h2 className="text-lg font-semibold">Redefinir Senha</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Informe seu email e enviaremos um link para redefinir sua senha
+                  </p>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="forgot_email">Email</Label>
+                  <Input
+                    id="forgot_email"
+                    type="email"
+                    value={forgotPasswordEmail}
+                    onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                    placeholder="voce@exemplo.com"
+                    autoComplete="email"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full flex-1"
+                    onClick={() => {
+                      setShowForgotPassword(false);
+                      setForgotPasswordEmail("");
+                    }}
+                    disabled={isResettingPassword}
+                  >
+                    Voltar
+                  </Button>
+                  <Button
+                    type="button"
+                    className="rounded-full flex-1"
+                    onClick={handleResetPassword}
+                    disabled={isResettingPassword || !forgotPasswordEmail.trim()}
+                  >
+                    {isResettingPassword ? "Enviando..." : "Enviar Email"}
+                  </Button>
+                </div>
+              </div>
+            ) : !networkStatus.isOnline ? (
               <div className="rounded-2xl border border-red-200/30 bg-red-50/20 p-4 text-sm text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-200">
                 Você parece estar offline. Verifique sua conexão com a internet.
               </div>
@@ -650,7 +814,16 @@ export default function Login() {
                     </div>
 
                     <div className="grid gap-2">
-                      <Label htmlFor="login_password">Senha</Label>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="login_password">Senha</Label>
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-brand hover:underline"
+                          onClick={() => setShowForgotPassword(true)}
+                        >
+                          Esqueci a senha
+                        </button>
+                      </div>
                       <Input
                         id="login_password"
                         type="password"
@@ -666,6 +839,7 @@ export default function Login() {
                       className="mt-1 rounded-full"
                       disabled={!canSubmit}
                     >
+                      <Fingerprint className="h-4 w-4 mr-2" />
                       {busy ? "Entrando..." : "Entrar"}
                     </Button>
 
@@ -705,10 +879,6 @@ export default function Login() {
                         submit("signup");
                       }}
                     >
-                      <div className="rounded-lg bg-brand/10 border border-brand/20 p-3 mb-3">
-                        <p className="text-sm font-medium text-brand">Etapa 1 de 4: Email e Senha</p>
-                      </div>
-
                       <div className="grid gap-2">
                         <Label htmlFor="signup_email">Email</Label>
                         <Input
@@ -718,7 +888,15 @@ export default function Login() {
                           onChange={(e) => setEmail(e.target.value)}
                           placeholder="voce@exemplo.com"
                           autoComplete="email"
+                          className={emailCheckStatus === "exists" ? "border-red-500" : emailCheckStatus === "valid" ? "border-green-500" : ""}
                         />
+                        {emailCheckMessage && (
+                          <p className={`text-xs ${emailCheckStatus === "exists" ? "text-red-600" : "text-green-600"}`}>
+                            {emailCheckStatus === "checking" && "Verificando..."}
+                            {emailCheckStatus === "exists" && "❌ " + emailCheckMessage}
+                            {emailCheckStatus === "valid" && "✓ " + emailCheckMessage}
+                          </p>
+                        )}
                       </div>
 
                       <div className="grid gap-2">
@@ -746,9 +924,6 @@ export default function Login() {
                   {/* Step 2: Name, Photo, Bio, Commercial Profile */}
                   {signupStep === 2 && (
                     <div className="grid gap-3">
-                      <div className="rounded-lg bg-brand/10 border border-brand/20 p-3 mb-3">
-                        <p className="text-sm font-medium text-brand">Etapa 2 de 4: Complete seu perfil</p>
-                      </div>
 
                       <div className="grid gap-2">
                         <Label htmlFor="signup_name">Nome completo</Label>
@@ -854,13 +1029,129 @@ export default function Login() {
                     </div>
                   )}
 
+                  {/* Step 2.5: Commercial Data */}
+                  {signupStep === 2.5 && (
+                    <div className="grid gap-3">
+
+                      <div className="grid gap-2">
+                        <Label>Segmento *</Label>
+                        <select
+                          value={commercialData.business_segment}
+                          onChange={(e) =>
+                            setCommercialData({
+                              ...commercialData,
+                              business_segment: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground"
+                        >
+                          <option value="">Selecione um segmento</option>
+                          <option value="academia">Academia / Fitness</option>
+                          <option value="personal_trainer">Personal Trainer</option>
+                          <option value="nutricao">Nutrição / Nutricionista</option>
+                          <option value="psicologia">Psicologia / Coaching</option>
+                          <option value="outros">Outros</option>
+                        </select>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label>Nome da Loja / Negócio *</Label>
+                        <Input
+                          value={commercialData.business_name}
+                          onChange={(e) =>
+                            setCommercialData({
+                              ...commercialData,
+                              business_name: e.target.value,
+                            })
+                          }
+                          placeholder="Ex: Academia Força Total"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label>Descrição</Label>
+                        <Textarea
+                          value={commercialData.business_description}
+                          onChange={(e) =>
+                            setCommercialData({
+                              ...commercialData,
+                              business_description: e.target.value,
+                            })
+                          }
+                          placeholder="Descreva seu negócio..."
+                          className="min-h-20"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label>Telefone</Label>
+                        <Input
+                          type="tel"
+                          value={commercialData.business_phone}
+                          onChange={(e) =>
+                            setCommercialData({
+                              ...commercialData,
+                              business_phone: e.target.value,
+                            })
+                          }
+                          placeholder="(11) 99999-9999"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label>Email</Label>
+                        <Input
+                          type="email"
+                          value={commercialData.business_email}
+                          onChange={(e) =>
+                            setCommercialData({
+                              ...commercialData,
+                              business_email: e.target.value,
+                            })
+                          }
+                          placeholder="contato@negocio.com"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label>Site / Portfolio</Label>
+                        <Input
+                          type="url"
+                          value={commercialData.business_website}
+                          onChange={(e) =>
+                            setCommercialData({
+                              ...commercialData,
+                              business_website: e.target.value,
+                            })
+                          }
+                          placeholder="https://seu-site.com"
+                        />
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-full flex-1"
+                          onClick={() => setSignupStep(2)}
+                        >
+                          Voltar
+                        </Button>
+                        <Button
+                          type="button"
+                          className="rounded-full flex-1"
+                          onClick={handleCommercialDataComplete}
+                          disabled={!commercialData.business_name.trim() || !commercialData.business_segment}
+                        >
+                          Próximo
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Step 3: Select Segments */}
                   {signupStep === 3 && (
                     <div className="grid gap-3">
-                      <div className="rounded-lg bg-brand/10 border border-brand/20 p-3 mb-3">
-                        <p className="text-sm font-medium text-brand">Etapa 3 de 4: Selecione seus interesses</p>
-                        <p className="text-xs text-muted-foreground mt-1">Escolha os tópicos que mais te motivam</p>
-                      </div>
 
                       <div className="grid gap-2">
                         {FITNESS_SEGMENTS.map((segment) => (
@@ -912,9 +1203,10 @@ export default function Login() {
                   {/* Step 4: Follow Users */}
                   {signupStep === 4 && (
                     <div className="grid gap-3">
-                      <div className="rounded-lg bg-brand/10 border border-brand/20 p-3 mb-3">
-                        <p className="text-sm font-medium text-brand">Etapa 4 de 4: Siga pessoas</p>
-                        <p className="text-xs text-muted-foreground mt-1">Busque e siga pessoas que você gostaria de acompanhar</p>
+                      <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center mb-3">
+                        <p className="text-sm text-muted-foreground">
+                          Você pode buscar e seguir pessoas após criar sua conta
+                        </p>
                       </div>
 
                       <div className="grid gap-2">
