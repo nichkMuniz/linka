@@ -4465,6 +4465,58 @@ export async function saveHabitHistoryDb(
   }
 }
 
+// Check if user has completed any routines today
+export async function hasCompletedRoutineToday(userId: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStart = today.toISOString();
+
+    // Check for today's workouts
+    const { data: workoutData, error: workoutError } = await supabase
+      .from("user_workouts_hist")
+      .select("id")
+      .eq("user_id", userId)
+      .gte("created_at", todayStart)
+      .limit(1);
+
+    if (!workoutError && workoutData && workoutData.length > 0) {
+      return true;
+    }
+
+    // Check for today's diets
+    const { data: dietData, error: dietError } = await supabase
+      .from("user_diets_hist")
+      .select("id")
+      .eq("user_id", userId)
+      .gte("created_at", todayStart)
+      .limit(1);
+
+    if (!dietError && dietData && dietData.length > 0) {
+      return true;
+    }
+
+    // Check for today's habits
+    const { data: habitData, error: habitError } = await supabase
+      .from("user_habits_hist")
+      .select("id")
+      .eq("user_id", userId)
+      .gte("created_at", todayStart)
+      .limit(1);
+
+    if (!habitError && habitData && habitData.length > 0) {
+      return true;
+    }
+
+    return false;
+  } catch (err: any) {
+    console.error("Error checking routine completion today:", err);
+    return false;
+  }
+}
+
 // Group and Check-in Types
 export type DuelGroup = {
   id: string;

@@ -29,6 +29,7 @@ import {
   saveDietHistoryDb,
   saveHabitHistoryDb,
   updateRoutineGoalDb,
+  hasCompletedRoutineToday,
   type ProgrammedGoal,
   type Workout,
   type Diet,
@@ -180,6 +181,7 @@ export default function Goals() {
   const [dailyCheckInDone, setDailyCheckInDone] = React.useState(false);
   const [isProcessingCheckIn, setIsProcessingCheckIn] = React.useState(false);
   const [weekCheckIns, setWeekCheckIns] = React.useState<Set<number>>(new Set()); // 0=dom, 1=seg, etc
+  const [hasCompletedRoutineToday, setHasCompletedRoutineToday] = React.useState(false);
   const [badgesModalOpen, setBadgesModalOpen] = React.useState(false);
 
   // Available goals accordion state
@@ -307,14 +309,34 @@ export default function Goals() {
         // Load week check-ins
         const weekCheckInDays = await getWeekCheckInsDb(user.id);
         setWeekCheckIns(new Set(weekCheckInDays));
+
+        // Check if user has completed any routine today
+        const hasCompleted = await hasCompletedRoutineToday(user.id);
+        setHasCompletedRoutineToday(hasCompleted);
       } catch (err) {
         console.error("Error loading check-in data:", err);
         // Gracefully fallback to empty state
         setDailyCheckInDone(false);
         setWeekCheckIns(new Set());
+        setHasCompletedRoutineToday(false);
       }
     })();
   }, [user]);
+
+  // Reload completed routine status when routines change
+  React.useEffect(() => {
+    if (!user) return;
+
+    (async () => {
+      try {
+        const hasCompleted = await hasCompletedRoutineToday(user.id);
+        setHasCompletedRoutineToday(hasCompleted);
+      } catch (err) {
+        console.error("Error checking routine completion:", err);
+        setHasCompletedRoutineToday(false);
+      }
+    })();
+  }, [user, userWorkouts, userDiets, userHabits]);
 
   // Initialize workoutSeries with one series for each exercise when modal opens
   React.useEffect(() => {
@@ -1316,7 +1338,7 @@ export default function Goals() {
                 {/* Check-in Button */}
                 <Button
                   onClick={handleDailyCheckIn}
-                  disabled={dailyCheckInDone || isProcessingCheckIn || (userWorkouts.length === 0 && userDiets.length === 0 && userHabits.length === 0)}
+                  disabled={dailyCheckInDone || isProcessingCheckIn || !hasCompletedRoutineToday}
                   className="w-full rounded-full"
                   variant={dailyCheckInDone ? "outline" : "default"}
                 >
@@ -1327,7 +1349,7 @@ export default function Goals() {
                       <Check className="h-4 w-4 mr-2" />
                       Check-in Feito
                     </>
-                  ) : userWorkouts.length === 0 && userDiets.length === 0 && userHabits.length === 0 ? (
+                  ) : !hasCompletedRoutineToday ? (
                     "Conclua uma rotina para fazer check-in"
                   ) : (
                     "Fazer Check In"
