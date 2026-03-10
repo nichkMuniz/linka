@@ -145,6 +145,7 @@ export default function Goals() {
 
   // Workout modal state
   const [workoutModalOpen, setWorkoutModalOpen] = React.useState(false);
+  const [selectedRoutineName, setSelectedRoutineName] = React.useState<string | null>(null);
   const [workoutSeries, setWorkoutSeries] = React.useState<
     Record<
       string,
@@ -926,6 +927,7 @@ export default function Goals() {
 
       // Reset and close
       setWorkoutModalOpen(false);
+      setSelectedRoutineName(null);
       setWorkoutSeries({});
       setCurrentWorkoutIndex(0);
       setWorkoutDuration(0);
@@ -1507,7 +1509,10 @@ export default function Goals() {
                         {/* Play button for exercises */}
                         {typeCode === 1 && itemsForRoutine.length > 0 && (
                           <button
-                            onClick={() => setWorkoutModalOpen(true)}
+                            onClick={() => {
+                              setSelectedRoutineName(displayLabel);
+                              setWorkoutModalOpen(true);
+                            }}
                             className="ml-2 p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors"
                           >
                             <Play className="h-5 w-5 text-brand" />
@@ -2047,7 +2052,14 @@ export default function Goals() {
           {/* Exercises List - Scrollable */}
           {userWorkouts.length > 0 ? (
             <div className="flex-1 overflow-y-auto">
-              {userWorkouts.map((workout) => {
+              {userWorkouts
+                .filter((workout) => {
+                  // If no routine selected, show all workouts
+                  if (!selectedRoutineName) return true;
+                  // If routine selected, show only workouts with matching name
+                  return workout.name === selectedRoutineName;
+                })
+                .map((workout) => {
                 const series = workoutSeries[workout.workout_id] || [];
                 return (
                   <div key={workout.id} className="px-4 py-3">
