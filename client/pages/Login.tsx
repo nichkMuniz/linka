@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
@@ -22,7 +23,7 @@ import {
   getNetworkStatus,
   checkSupabaseReachability,
 } from "@/lib/network-status";
-import { Chrome, Mail, Fingerprint } from "lucide-react";
+import { Fingerprint, Upload, X, Search, Check } from "lucide-react";
 
 function isEmailNotConfirmed(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
@@ -49,6 +50,15 @@ function BrandHeader() {
   );
 }
 
+const FITNESS_SEGMENTS = [
+  { id: "fitness", label: "🏋️ Fitness & Musculação" },
+  { id: "cardio", label: "🏃 Cardio & Corrida" },
+  { id: "diets", label: "🥗 Dietas & Nutrição" },
+  { id: "habits", label: "🎯 Hábitos & Mindfulness" },
+  { id: "yoga", label: "🧘 Yoga & Flexibilidade" },
+  { id: "sports", label: "⚽ Esportes" },
+];
+
 export default function Login() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
@@ -62,6 +72,15 @@ export default function Login() {
   const [biometricAvailable, setBiometricAvailable] = React.useState(false);
   const [hasBiometricRegistered, setHasBiometricRegistered] = React.useState(false);
   const [showBiometricSetup, setShowBiometricSetup] = React.useState(false);
+
+  // Multi-step signup states
+  const [signupStep, setSignupStep] = React.useState(1);
+  const [photoFile, setPhotoFile] = React.useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = React.useState<string>("");
+  const [bio, setBio] = React.useState("");
+  const [hasCommercialProfile, setHasCommercialProfile] = React.useState(false);
+  const [selectedSegments, setSelectedSegments] = React.useState<Set<string>>(new Set());
+  const [userEmail, setUserEmail] = React.useState("");
 
   const canSubmit =
     !busy &&
@@ -138,7 +157,7 @@ export default function Login() {
             toast({
               title: "Email não confirmado",
               description:
-                "Seu Supabase está exigindo confirmação por email. Para desativar: Supabase Dashboard → Authentication → Providers → Email → desmarque “Confirm email”.",
+                "Seu Supabase está exigindo confirmação por email. Para desativar: Supabase Dashboard → Authentication → Providers → Email → desmarque \"Confirm email\".",
             });
             return;
           }
@@ -159,73 +178,11 @@ export default function Login() {
         return;
       }
 
-      const trimmedDisplayName = displayName.trim();
-      if (!trimmedDisplayName) {
-        toast({
-          title: "Nome necessário",
-          description: "Por favor, informe seu nome.",
-        });
+      // Handle signup step 1: email and password validation
+      if (signupStep === 1) {
+        setUserEmail(trimmedEmail);
+        setSignupStep(2);
         return;
-      }
-
-      const { error } = await supabase.auth.signUp({
-        email: trimmedEmail,
-        password: trimmedPassword,
-        options: {
-          data: {
-            full_name: trimmedDisplayName,
-          },
-        },
-      });
-
-      if (error) {
-        toast({
-          title: "Não foi possível criar a conta",
-          description: error.message,
-        });
-        return;
-      }
-
-      // Tentamos logar imediatamente após o cadastro.
-      // OBS: se o seu projeto Supabase estiver com confirmação por email ligada,
-      // o sign-in pode falhar com "Email not confirmed".
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: trimmedEmail,
-        password: trimmedPassword,
-      });
-
-      if (signInError) {
-        if (isEmailNotConfirmed(signInError.message)) {
-          toast({
-            title: "Conta criada, mas o email não foi confirmado",
-            description:
-              "Para entrar sem confirmar email, desative no Supabase: Authentication → Providers → Email → “Confirm email”.",
-          });
-          return;
-        }
-
-        toast({
-          title: "Conta criada, mas não foi possível entrar",
-          description:
-            signInError.message ||
-            "Verifique as configurações de autenticação do Supabase.",
-        });
-        return;
-      }
-
-      // Show biometric setup if available, otherwise redirect
-      if (biometricAvailable) {
-        setShowBiometricSetup(true);
-        toast({
-          title: "Conta criada",
-          description: "Bem-vindo ao Linka!",
-        });
-      } else {
-        toast({
-          title: "Conta criada",
-          description: "Bem-vindo ao Linka!",
-        });
-        // User will be redirected to feed by useEffect above
       }
     } catch {
       toast({
@@ -238,37 +195,103 @@ export default function Login() {
     }
   };
 
-  const handleOAuthLogin = async (provider: "google" | "microsoft") => {
-    if (!hasSupabaseConfig || !supabase) {
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.currentTarget.files?.[0];
+    if (file) {
+      setPhotoFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhotoPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSignupStep2 = () => {
+    if (!displayName.trim()) {
       toast({
-        title: "Supabase não configurado",
-        description:
-          "Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para habilitar OAuth.",
+        title: "Nome obrigatório",
+        description: "Por favor, informe seu nome.",
       });
       return;
     }
+    setSignupStep(3);
+  };
+
+  const handleSignupStep3 = () => {
+    if (selectedSegments.size === 0) {
+      toast({
+        title: "Selecione pelo menos um segmento",
+        description: "Escolha os tópicos que mais te interessam.",
+      });
+      return;
+    }
+    setSignupStep(4);
+  };
+
+  const toggleSegment = (segmentId: string) => {
+    const newSegments = new Set(selectedSegments);
+    if (newSegments.has(segmentId)) {
+      newSegments.delete(segmentId);
+    } else {
+      newSegments.add(segmentId);
+    }
+    setSelectedSegments(newSegments);
+  };
+
+  const handleSignupComplete = async () => {
+    if (!hasSupabaseConfig || !supabase) return;
 
     setBusy(true);
-
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: provider,
+      const trimmedEmail = email.trim();
+      const trimmedPassword = password.trim();
+
+      // Create user auth account
+      const { error: signUpError } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password: trimmedPassword,
         options: {
-          redirectTo: `${window.location.origin}/`,
+          data: {
+            full_name: displayName,
+          },
         },
       });
 
-      if (error) {
+      if (signUpError) {
         toast({
-          title: `Não foi possível entrar com ${provider === "google" ? "Google" : "Outlook"}`,
-          description: error.message,
+          title: "Não foi possível criar a conta",
+          description: signUpError.message,
         });
+        return;
       }
-    } catch (err: any) {
+
+      // Sign in after signup
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password: trimmedPassword,
+      });
+
+      if (signInError && !isEmailNotConfirmed(signInError.message)) {
+        toast({
+          title: "Conta criada, mas não foi possível entrar",
+          description: signInError.message,
+        });
+        return;
+      }
+
+      toast({
+        title: "Conta criada com sucesso!",
+        description: "Bem-vindo ao RitmoFit!",
+      });
+
+      if (biometricAvailable) {
+        setShowBiometricSetup(true);
+      }
+    } catch {
       toast({
         title: "Falha de conexão",
-        description:
-          "Não foi possível conectar ao Supabase. Confira a URL e tente novamente.",
+        description: "Não foi possível criar sua conta.",
       });
     } finally {
       setBusy(false);
@@ -333,7 +356,6 @@ export default function Login() {
         btoa(String.fromCharCode(...new Uint8Array(credential.id)))
       );
 
-      setHasBiometricRegistered(true);
       toast({
         title: "Biometria registrada",
         description: "Você pode usar sua face ou digital para próximos logins.",
@@ -422,8 +444,6 @@ export default function Login() {
         return;
       }
 
-      // For demo purposes, we'll show a message
-      // In production, you'd verify this with the server
       toast({
         title: "Autenticação biométrica concluída",
         description:
@@ -471,8 +491,8 @@ export default function Login() {
             <CardDescription>
               {hasSupabaseConfig
                 ? biometricAvailable
-                  ? "Use email, biometria ou suas contas sociais."
-                  : "Use email e senha ou suas contas sociais."
+                  ? "Use email e biometria."
+                  : "Use email e senha."
                 : "Supabase ainda não foi configurado neste projeto."}
             </CardDescription>
           </CardHeader>
@@ -662,44 +682,13 @@ export default function Login() {
                       </Button>
                     )}
 
-                    <div className="relative">
-                      <div className="absolute inset-0 flex items-center">
-                        <Separator className="w-full" />
-                      </div>
-                      <div className="relative flex justify-center text-xs uppercase">
-                        <span className="bg-background px-2 text-muted-foreground">
-                          Ou
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="rounded-full"
-                        disabled={busy || !hasSupabaseConfig}
-                        onClick={() => handleOAuthLogin("google")}
-                      >
-                        <Chrome className="h-4 w-4 mr-2" />
-                        Entrar com Google
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="rounded-full"
-                        disabled={busy || !hasSupabaseConfig}
-                        onClick={() => handleOAuthLogin("microsoft")}
-                      >
-                        <Mail className="h-4 w-4 mr-2" />
-                        Entrar com Outlook
-                      </Button>
-                    </div>
-
                     <button
                       type="button"
                       className="text-left text-sm font-semibold text-brand hover:underline"
-                      onClick={() => setTab("signup")}
+                      onClick={() => {
+                        setTab("signup");
+                        setSignupStep(1);
+                      }}
                     >
                       Ainda não tem conta? Cadastre-se
                     </button>
@@ -707,83 +696,265 @@ export default function Login() {
                 </TabsContent>
 
                 <TabsContent value="signup" className="mt-4">
-                  <form
-                    className="grid gap-3"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      submit("signup");
-                    }}
-                  >
-                    <div className="grid gap-2">
-                      <Label htmlFor="signup_name">Nome</Label>
-                      <Input
-                        id="signup_name"
-                        type="text"
-                        value={displayName}
-                        onChange={(e) => setDisplayName(e.target.value)}
-                        placeholder="Seu nome completo"
-                        autoComplete="name"
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label htmlFor="signup_email">Email</Label>
-                      <Input
-                        id="signup_email"
-                        type="text"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="voce@exemplo.com"
-                        autoComplete="email"
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label htmlFor="signup_password">Senha</Label>
-                      <Input
-                        id="signup_password"
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Mínimo 6 caracteres"
-                        autoComplete="new-password"
-                      />
-                    </div>
-
-                    <Button
-                      type="submit"
-                      className="mt-1 rounded-full"
-                      disabled={!canSubmit || !displayName.trim()}
+                  {/* Step 1: Email and Password */}
+                  {signupStep === 1 && (
+                    <form
+                      className="grid gap-3"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        submit("signup");
+                      }}
                     >
-                      {busy ? "Criando..." : "Criar conta"}
-                    </Button>
+                      <div className="rounded-lg bg-brand/10 border border-brand/20 p-3 mb-3">
+                        <p className="text-sm font-medium text-brand">Etapa 1 de 4: Email e Senha</p>
+                      </div>
 
-                    {biometricAvailable && hasBiometricRegistered && (
-                      <>
-                        <div className="relative">
-                          <div className="absolute inset-0 flex items-center">
-                            <Separator className="w-full" />
-                          </div>
-                          <div className="relative flex justify-center text-xs uppercase">
-                            <span className="bg-background px-2 text-muted-foreground">
-                              Biometria
-                            </span>
-                          </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="signup_email">Email</Label>
+                        <Input
+                          id="signup_email"
+                          type="text"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="voce@exemplo.com"
+                          autoComplete="email"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="signup_password">Senha</Label>
+                        <Input
+                          id="signup_password"
+                          type="password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="Mínimo 6 caracteres"
+                          autoComplete="new-password"
+                        />
+                      </div>
+
+                      <Button
+                        type="submit"
+                        className="mt-2 rounded-full"
+                        disabled={!canSubmit}
+                      >
+                        {busy ? "Validando..." : "Próximo"}
+                      </Button>
+                    </form>
+                  )}
+
+                  {/* Step 2: Name, Photo, Bio, Commercial Profile */}
+                  {signupStep === 2 && (
+                    <div className="grid gap-3">
+                      <div className="rounded-lg bg-brand/10 border border-brand/20 p-3 mb-3">
+                        <p className="text-sm font-medium text-brand">Etapa 2 de 4: Complete seu perfil</p>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="signup_name">Nome completo</Label>
+                        <Input
+                          id="signup_name"
+                          type="text"
+                          value={displayName}
+                          onChange={(e) => setDisplayName(e.target.value)}
+                          placeholder="Seu nome completo"
+                          autoComplete="name"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label>Foto de perfil</Label>
+                        <div className="grid gap-2">
+                          {photoPreview && (
+                            <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-border/60">
+                              <img
+                                src={photoPreview}
+                                alt="Preview"
+                                className="w-full h-full object-cover"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPhotoFile(null);
+                                  setPhotoPreview("");
+                                }}
+                                className="absolute top-1 right-1 bg-black/40 hover:bg-black/60 text-white p-1 rounded"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          )}
+                          <label className="relative">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-full w-full"
+                              asChild
+                            >
+                              <span>
+                                <Upload className="h-4 w-4 mr-2" />
+                                {photoFile ? "Mudar foto" : "Adicionar foto"}
+                              </span>
+                            </Button>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handlePhotoChange}
+                              className="hidden"
+                            />
+                          </label>
                         </div>
+                      </div>
 
+                      <div className="grid gap-2">
+                        <Label htmlFor="signup_bio">Bio (opcional)</Label>
+                        <Textarea
+                          id="signup_bio"
+                          value={bio}
+                          onChange={(e) => setBio(e.target.value)}
+                          placeholder="Conte um pouco sobre você..."
+                          className="min-h-20"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-3 rounded-lg border border-border/60 p-3">
+                        <input
+                          type="checkbox"
+                          id="commercial_profile"
+                          checked={hasCommercialProfile}
+                          onChange={(e) => setHasCommercialProfile(e.target.checked)}
+                          className="w-4 h-4"
+                        />
+                        <div className="flex-1">
+                          <Label htmlFor="commercial_profile" className="font-medium cursor-pointer">
+                            Tenho perfil comercial
+                          </Label>
+                          <p className="text-xs text-muted-foreground">Academias, nutricionistas, personal trainers, etc</p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
                         <Button
                           type="button"
                           variant="outline"
-                          className="rounded-full"
-                          disabled={busy}
-                          onClick={() => handleRegisterBiometric()}
+                          className="rounded-full flex-1"
+                          onClick={() => setSignupStep(1)}
                         >
-                          <Fingerprint className="h-4 w-4 mr-2" />
-                          Registrar Biometria
+                          Voltar
                         </Button>
-                      </>
-                    )}
-                  </form>
+                        <Button
+                          type="button"
+                          className="rounded-full flex-1"
+                          onClick={handleSignupStep2}
+                          disabled={!displayName.trim()}
+                        >
+                          Próximo
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 3: Select Segments */}
+                  {signupStep === 3 && (
+                    <div className="grid gap-3">
+                      <div className="rounded-lg bg-brand/10 border border-brand/20 p-3 mb-3">
+                        <p className="text-sm font-medium text-brand">Etapa 3 de 4: Selecione seus interesses</p>
+                        <p className="text-xs text-muted-foreground mt-1">Escolha os tópicos que mais te motivam</p>
+                      </div>
+
+                      <div className="grid gap-2">
+                        {FITNESS_SEGMENTS.map((segment) => (
+                          <button
+                            key={segment.id}
+                            type="button"
+                            onClick={() => toggleSegment(segment.id)}
+                            className={`flex items-center gap-3 rounded-lg border-2 p-3 transition-all ${
+                              selectedSegments.has(segment.id)
+                                ? "border-brand bg-brand/10"
+                                : "border-border/60 hover:border-border"
+                            }`}
+                          >
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                              selectedSegments.has(segment.id)
+                                ? "border-brand bg-brand"
+                                : "border-border/60"
+                            }`}>
+                              {selectedSegments.has(segment.id) && (
+                                <Check className="h-3 w-3 text-white" />
+                              )}
+                            </div>
+                            <span className="text-sm font-medium">{segment.label}</span>
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-full flex-1"
+                          onClick={() => setSignupStep(2)}
+                        >
+                          Voltar
+                        </Button>
+                        <Button
+                          type="button"
+                          className="rounded-full flex-1"
+                          onClick={handleSignupStep3}
+                          disabled={selectedSegments.size === 0}
+                        >
+                          Próximo
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step 4: Follow Users */}
+                  {signupStep === 4 && (
+                    <div className="grid gap-3">
+                      <div className="rounded-lg bg-brand/10 border border-brand/20 p-3 mb-3">
+                        <p className="text-sm font-medium text-brand">Etapa 4 de 4: Siga pessoas</p>
+                        <p className="text-xs text-muted-foreground mt-1">Busque e siga pessoas que você gostaria de acompanhar</p>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            type="text"
+                            placeholder="Buscar pessoas..."
+                            className="pl-10"
+                            disabled
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
+                        <p className="text-sm text-muted-foreground">
+                          Você pode buscar e seguir pessoas após criar sua conta
+                        </p>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-full flex-1"
+                          onClick={() => setSignupStep(3)}
+                        >
+                          Voltar
+                        </Button>
+                        <Button
+                          type="button"
+                          className="rounded-full flex-1"
+                          onClick={handleSignupComplete}
+                          disabled={busy}
+                        >
+                          {busy ? "Criando..." : "Finalizar"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </TabsContent>
               </Tabs>
             )}
