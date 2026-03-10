@@ -1002,6 +1002,11 @@ export default function Goals() {
     try {
       const itemIds = Array.from(selectedItems);
 
+      // Create a routine record if a name is provided
+      if (routineName.trim()) {
+        await createRoutineDb(user.id, selectedRoutineType, routineName.trim());
+      }
+
       if (selectedRoutineType === 1) {
         // Save workouts
         await createUserWorkoutsDb(user.id, itemIds, {
@@ -1036,23 +1041,26 @@ export default function Goals() {
       setRoutineName("");
       setSearchQuery("");
 
-      // Refresh user items data to show newly added items
+      // Refresh routines and items data to show newly added items
       if (user) {
         try {
           const [
+            routinesData,
             userWorkoutsData,
             userDietsData,
             userHabitsData,
           ] = await Promise.all([
+            getUserRoutinesDb(user.id),
             getUserWorkoutsDb(user.id),
             getUserDietsDb(user.id),
             getUserHabitsDb(user.id),
           ]);
+          setRoutines(routinesData);
           setUserWorkouts(userWorkoutsData);
           setUserDiets(userDietsData);
           setUserHabits(userHabitsData);
         } catch (err) {
-          console.error("Error refreshing items:", err);
+          console.error("Error refreshing routines and items:", err);
         }
       }
     } catch (err: any) {
@@ -1369,111 +1377,149 @@ export default function Goals() {
 
           {routines.length > 0 ? (
             <div className="space-y-4">
-              {/* Show one card per type that has routines */}
-              {[1, 2, 3].map((typeCode) => {
-                const hasRoutinesOfType = routines.some(
-                  (r) => r.type === typeCode,
-                );
-                if (!hasRoutinesOfType) return null;
+              {/* Render named routines first, then group unnamed by type */}
+              {(() => {
+                const cards: any[] = [];
 
-                const typeLabel =
-                  typeCode === 1
-                    ? "Exercícios"
-                    : typeCode === 2
-                      ? "Dietas"
-                      : "Hábitos";
+                // First, render routines with names
+                const namedRoutines = routines.filter((r) => r.name);
+                namedRoutines.forEach((routine) => {
+                  const typeCode = routine.type;
+                  const itemsForType =
+                    typeCode === 1
+                      ? userWorkouts
+                      : typeCode === 2
+                        ? userDiets
+                        : userHabits;
 
-                // Get items for this type
-                const itemsForType =
-                  typeCode === 1
-                    ? userWorkouts
-                    : typeCode === 2
-                      ? userDiets
-                      : userHabits;
+                  const itemsForRoutine = itemsForType.filter(
+                    (item: any) => item.name === routine.name
+                  );
 
-                if (itemsForType.length === 0) return null;
+                  if (itemsForRoutine.length > 0) {
+                    cards.push({
+                      key: `routine-${routine.id}`,
+                      typeCode,
+                      displayLabel: routine.name,
+                      itemsForRoutine,
+                    });
+                  }
+                });
 
-                // Get the first routine name of this type, if it exists
-                const firstRoutineName = itemsForType.find((item: any) => item.name)?.name;
-                const displayLabel = firstRoutineName || typeLabel;
+                // Then, render unnamed routines grouped by type
+                [1, 2, 3].forEach((typeCode) => {
+                  const unnamedRoutinesOfType = routines.filter(
+                    (r) => r.type === typeCode && !r.name
+                  );
+                  if (unnamedRoutinesOfType.length === 0) return;
 
-                const isExpanded = expandedRoutineId === `type-${typeCode}`;
+                  const typeLabel =
+                    typeCode === 1
+                      ? "Exercícios"
+                      : typeCode === 2
+                        ? "Dietas"
+                        : "Hábitos";
 
-                return (
-                  <Card
-                    key={typeCode}
-                    className="border-border/60 overflow-hidden"
-                  >
-                    <div className="w-full p-3 flex items-center justify-between hover:bg-muted/30 transition-colors text-left">
-                      <button
-                        onClick={() =>
-                          setExpandedRoutineId(
-                            isExpanded ? null : `type-${typeCode}`,
-                          )
-                        }
+                  const itemsForType =
+                    typeCode === 1
+                      ? userWorkouts
+                      : typeCode === 2
+                        ? userDiets
+                        : userHabits;
+
+                  const itemsForRoutine = itemsForType.filter(
+                    (item: any) => !item.name
+                  );
+
+                  if (itemsForRoutine.length > 0) {
+                    cards.push({
+                      key: `type-${typeCode}`,
+                      typeCode,
+                      displayLabel: typeLabel,
+                      itemsForRoutine,
+                    });
+                  }
+                });
+
+                return cards.map((card) => {
+                  const { key, typeCode, displayLabel, itemsForRoutine } = card;
+                  const isExpanded = expandedRoutineId === key;
+
+                  return (
+                    <Card
+                      key={key}
+                      className="border-border/60 overflow-hidden"
+                    >
+                      <div className="w-full p-3 flex items-center justify-between hover:bg-muted/30 transition-colors text-left">
+                        <button
+                          onClick={() =>
+                            setExpandedRoutineId(
+                              isExpanded ? null : key,
+                            )
+                          }
                         className="flex-1 flex items-center justify-between"
                       >
-                        <div className="flex flex-col justify-center items-center flex-1">
-                          <p className="text-sm font-medium">{displayLabel}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {itemsForType.length > 0
-                              ? `${itemsForType.length} item(ns)`
-                              : "Sem itens"}
-                          </p>
-                        </div>
-                        {isExpanded ? (
-                          <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                        ) : (
-                          <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                        )}
-                      </button>
-
-                      {/* Dropdown menu for routine actions */}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button className="ml-2 p-2 hover:bg-muted/50 rounded transition-colors flex-shrink-0">
-                            <MoreVertical className="h-4 w-4 text-muted-foreground" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setAddRoutineModalOpen(true);
-                              setSelectedRoutineType(1); // 1 = Exercises
-                              setSelectedItems(new Set());
-                              setSearchQuery("");
-                              setSelectedMuscleGroups(new Set());
-                            }}
-                          >
-                            <Plus className="h-4 w-4 mr-2" />
-                            Adicionar exercícios
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDeleteRoutineType(typeCode)}
-                            className="text-red-500"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Excluir rotina
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-
-                      {/* Play button for exercises */}
-                      {typeCode === 1 && itemsForType.length > 0 && (
-                        <button
-                          onClick={() => setWorkoutModalOpen(true)}
-                          className="ml-2 p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors"
-                        >
-                          <Play className="h-5 w-5 text-brand" />
+                          <div className="flex flex-col justify-center items-center flex-1">
+                            <p className="text-sm font-medium">{displayLabel}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {itemsForRoutine.length > 0
+                                ? `${itemsForRoutine.length} item(ns)`
+                                : "Sem itens"}
+                            </p>
+                          </div>
+                          {isExpanded ? (
+                            <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                          ) : (
+                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                          )}
                         </button>
-                      )}
-                    </div>
 
-                    {/* Expanded content */}
-                    {isExpanded && (
-                      <div className="border-t border-border/60 bg-muted/20 p-2.5 space-y-1.5">
-                        {itemsForType.length > 0 ? (
-                          itemsForType.map((item: any) => (
+                        {/* Dropdown menu for routine actions */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button className="ml-2 p-2 hover:bg-muted/50 rounded transition-colors flex-shrink-0">
+                              <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setAddRoutineModalOpen(true);
+                                setSelectedRoutineType(1); // 1 = Exercises
+                                setSelectedItems(new Set());
+                                setSearchQuery("");
+                                setSelectedMuscleGroups(new Set());
+                              }}
+                            >
+                              <Plus className="h-4 w-4 mr-2" />
+                              Adicionar exercícios
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleDeleteRoutineType(typeCode)}
+                              className="text-red-500"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Excluir rotina
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        {/* Play button for exercises */}
+                        {typeCode === 1 && itemsForRoutine.length > 0 && (
+                          <button
+                            onClick={() => setWorkoutModalOpen(true)}
+                            className="ml-2 p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors"
+                          >
+                            <Play className="h-5 w-5 text-brand" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Expanded content */}
+                      {isExpanded && (
+                        <div className="border-t border-border/60 bg-muted/20 p-2.5 space-y-1.5">
+                          {itemsForRoutine.length > 0 ? (
+                            itemsForRoutine.map((item: any) => (
                             <div
                               key={item.id}
                               className="space-y-1.5"
@@ -1620,18 +1666,19 @@ export default function Goals() {
                                   <Trash2 className="h-4 w-4 text-red-500" />
                                 </button>
                               </div>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-xs text-muted-foreground text-center py-2">
-                            Nenhum item adicionado
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </Card>
-                );
-              })}
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-muted-foreground text-center py-2">
+                              Nenhum item adicionado
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </Card>
+                  );
+                });
+              })()}
 
               {/* Add more button */}
               <div className="flex justify-center pt-4 pb-4">
