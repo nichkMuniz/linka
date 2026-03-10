@@ -1391,6 +1391,12 @@ export default function Goals() {
                       ? userDiets
                       : userHabits;
 
+                if (itemsForType.length === 0) return null;
+
+                // Get the first routine name of this type, if it exists
+                const firstRoutineName = itemsForType.find((item: any) => item.name)?.name;
+                const displayLabel = firstRoutineName || typeLabel;
+
                 const isExpanded = expandedRoutineId === `type-${typeCode}`;
 
                 return (
@@ -1408,7 +1414,7 @@ export default function Goals() {
                         className="flex-1 flex items-center justify-between"
                       >
                         <div className="flex flex-col justify-center items-center flex-1">
-                          <p className="text-sm font-medium">{typeLabel}</p>
+                          <p className="text-sm font-medium">{displayLabel}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {itemsForType.length > 0
                               ? `${itemsForType.length} item(ns)`
