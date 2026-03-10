@@ -181,7 +181,7 @@ export default function Goals() {
   const [dailyCheckInDone, setDailyCheckInDone] = React.useState(false);
   const [isProcessingCheckIn, setIsProcessingCheckIn] = React.useState(false);
   const [weekCheckIns, setWeekCheckIns] = React.useState<Set<number>>(new Set()); // 0=dom, 1=seg, etc
-  const [hasCompletedRoutineToday, setHasCompletedRoutineToday] = React.useState(false);
+  const [routineCompletedTodayStatus, setRoutineCompletedTodayStatus] = React.useState(false);
   const [badgesModalOpen, setBadgesModalOpen] = React.useState(false);
 
   // Available goals accordion state
@@ -312,13 +312,13 @@ export default function Goals() {
 
         // Check if user has completed any routine today
         const hasCompleted = await hasCompletedRoutineToday(user.id);
-        setHasCompletedRoutineToday(hasCompleted);
+        setRoutineCompletedTodayStatus(hasCompleted);
       } catch (err) {
         console.error("Error loading check-in data:", err);
         // Gracefully fallback to empty state
         setDailyCheckInDone(false);
         setWeekCheckIns(new Set());
-        setHasCompletedRoutineToday(false);
+        setRoutineCompletedTodayStatus(false);
       }
     })();
   }, [user]);
@@ -330,10 +330,10 @@ export default function Goals() {
     (async () => {
       try {
         const hasCompleted = await hasCompletedRoutineToday(user.id);
-        setHasCompletedRoutineToday(hasCompleted);
+        setRoutineCompletedTodayStatus(hasCompleted);
       } catch (err) {
         console.error("Error checking routine completion:", err);
-        setHasCompletedRoutineToday(false);
+        setRoutineCompletedTodayStatus(false);
       }
     })();
   }, [user, userWorkouts, userDiets, userHabits]);
@@ -1338,7 +1338,7 @@ export default function Goals() {
                 {/* Check-in Button */}
                 <Button
                   onClick={handleDailyCheckIn}
-                  disabled={dailyCheckInDone || isProcessingCheckIn || !hasCompletedRoutineToday}
+                  disabled={dailyCheckInDone || isProcessingCheckIn || !routineCompletedTodayStatus}
                   className="w-full rounded-full"
                   variant={dailyCheckInDone ? "outline" : "default"}
                 >
@@ -1349,7 +1349,7 @@ export default function Goals() {
                       <Check className="h-4 w-4 mr-2" />
                       Check-in Feito
                     </>
-                  ) : !hasCompletedRoutineToday ? (
+                  ) : !routineCompletedTodayStatus ? (
                     "Conclua uma rotina para fazer check-in"
                   ) : (
                     "Fazer Check In"
