@@ -1198,6 +1198,7 @@ export type UserWorkout = {
   calories?: number | null;
   duration?: number | null;
   time_rest?: number | null;
+  name?: string | null;
 };
 
 export async function createUserWorkoutsDb(
@@ -1209,6 +1210,7 @@ export async function createUserWorkoutsDb(
     calories?: number;
     duration?: number;
     time_rest?: number;
+    name?: string;
   },
 ): Promise<UserWorkout[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -1221,13 +1223,14 @@ export async function createUserWorkoutsDb(
     calories: options?.calories || null,
     duration: options?.duration || null,
     time_rest: options?.time_rest || null,
+    name: options?.name || null,
   }));
 
   const { data, error } = await supabase
     .from("user_workouts")
     .insert(workoutsToInsert)
     .select(
-      "id, workout_id, user_id, volume, reps, calories, duration, time_rest",
+      "id, workout_id, user_id, volume, reps, calories, duration, time_rest, name",
     );
 
   if (error) {
@@ -1246,6 +1249,7 @@ export async function createUserWorkoutsDb(
     calories: row.calories,
     duration: row.duration,
     time_rest: row.time_rest,
+    name: row.name ? String(row.name) : null,
   }));
 }
 
@@ -1258,6 +1262,7 @@ export type UserWorkoutWithDetails = {
   calories?: number | null;
   duration?: number | null;
   time_rest?: number | null;
+  name?: string | null;
   workoutName?: string;
   workoutPhoto?: string | null;
   workoutDescription?: string;
@@ -1272,7 +1277,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, volume, reps, calories, duration, time_rest, workouts(name, photo, description, muscle_group)",
+      "id, workout_id, user_id, volume, reps, calories, duration, time_rest, name, workouts(name, photo, description, muscle_group)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -1295,7 +1300,7 @@ export async function getUserWorkoutsDb(
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_workouts")
         .select(
-          "id, workout_id, user_id, volume, reps, calories, duration, time_rest",
+          "id, workout_id, user_id, volume, reps, calories, duration, time_rest, name",
         )
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
@@ -1331,6 +1336,7 @@ export async function getUserWorkoutsDb(
             calories: row.calories,
             duration: row.duration,
             time_rest: row.time_rest,
+            name: row.name ? String(row.name) : null,
             workoutName: workoutDetails?.name || "Exercício desconhecido",
             workoutPhoto: workoutDetails?.photo || null,
             workoutDescription: workoutDetails?.description || undefined,
@@ -1360,6 +1366,7 @@ export async function getUserWorkoutsDb(
     calories: row.calories,
     duration: row.duration,
     time_rest: row.time_rest,
+    name: row.name ? String(row.name) : null,
     workoutName: (row.workouts as any)?.name || "Exercício desconhecido",
     workoutPhoto: (row.workouts as any)?.photo || null,
     workoutDescription: (row.workouts as any)?.description || undefined,
@@ -1373,6 +1380,7 @@ export type UserDiet = {
   user_id: string;
   quantity?: number | null;
   calories?: number | null;
+  name?: string | null;
 };
 
 export async function createUserDietsDb(
@@ -1381,6 +1389,7 @@ export async function createUserDietsDb(
   options?: {
     quantity?: number;
     calories?: number;
+    name?: string;
   },
 ): Promise<UserDiet[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -1390,12 +1399,13 @@ export async function createUserDietsDb(
     user_id: userId,
     quantity: options?.quantity || null,
     calories: options?.calories || null,
+    name: options?.name || null,
   }));
 
   const { data, error } = await supabase
     .from("user_diets")
     .insert(dietsToInsert)
-    .select("id, diet_id, user_id, quantity, calories");
+    .select("id, diet_id, user_id, quantity, calories, name");
 
   if (error) {
     const errorMsg = error?.message || String(error);
@@ -1410,6 +1420,7 @@ export async function createUserDietsDb(
     user_id: String(row.user_id ?? ""),
     quantity: row.quantity,
     calories: row.calories,
+    name: row.name ? String(row.name) : null,
   }));
 }
 
@@ -1419,6 +1430,7 @@ export type UserDietWithDetails = {
   user_id: string;
   quantity?: number | null;
   calories?: number | null;
+  name?: string | null;
   dietName?: string;
   dietPhoto?: string | null;
   dietDescription?: string;
@@ -1433,7 +1445,7 @@ export async function getUserDietsDb(
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, diet_id, user_id, quantity, calories, diets(name, photo, description, calories)",
+      "id, diet_id, user_id, quantity, calories, name, diets(name, photo, description, calories)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -1455,7 +1467,7 @@ export async function getUserDietsDb(
 
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_diets")
-        .select("id, diet_id, user_id, quantity, calories")
+        .select("id, diet_id, user_id, quantity, calories, name")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
@@ -1487,6 +1499,7 @@ export async function getUserDietsDb(
             user_id: String(row.user_id ?? ""),
             quantity: row.quantity,
             calories: row.calories,
+            name: row.name ? String(row.name) : null,
             dietName: dietDetails?.name || "Dieta desconhecida",
             dietPhoto: dietDetails?.photo || null,
             dietDescription: dietDetails?.description || undefined,
@@ -1513,6 +1526,7 @@ export async function getUserDietsDb(
     user_id: String(row.user_id ?? ""),
     quantity: row.quantity,
     calories: row.calories,
+    name: row.name ? String(row.name) : null,
     dietName: (row.diets as any)?.name || "Dieta desconhecida",
     dietPhoto: (row.diets as any)?.photo || null,
     dietDescription: (row.diets as any)?.description || undefined,
@@ -1524,23 +1538,28 @@ export type UserHabit = {
   id: string;
   habit_id: string;
   user_id: string;
+  name?: string | null;
 };
 
 export async function createUserHabitsDb(
   userId: string,
   habitIds: string[],
+  options?: {
+    name?: string;
+  },
 ): Promise<UserHabit[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   const habitsToInsert = habitIds.map((habitId) => ({
     habit_id: habitId,
     user_id: userId,
+    name: options?.name || null,
   }));
 
   const { data, error } = await supabase
     .from("user_habits")
     .insert(habitsToInsert)
-    .select("id, habit_id, user_id");
+    .select("id, habit_id, user_id, name");
 
   if (error) {
     const errorMsg = error?.message || String(error);
@@ -1553,6 +1572,7 @@ export async function createUserHabitsDb(
     id: String(row.id ?? ""),
     habit_id: String(row.habit_id ?? ""),
     user_id: String(row.user_id ?? ""),
+    name: row.name ? String(row.name) : null,
   }));
 }
 
@@ -1560,6 +1580,7 @@ export type UserHabitWithDetails = {
   id: string;
   habit_id: string;
   user_id: string;
+  name?: string | null;
   habitName?: string;
   habitPhoto?: string | null;
   habitDescription?: string;
@@ -1572,7 +1593,7 @@ export async function getUserHabitsDb(
 
   const { data, error } = await supabase
     .from("user_habits")
-    .select("id, habit_id, user_id, habits(name, photo, description)")
+    .select("id, habit_id, user_id, name, habits(name, photo, description)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -1593,7 +1614,7 @@ export async function getUserHabitsDb(
 
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_habits")
-        .select("id, habit_id, user_id")
+        .select("id, habit_id, user_id, name")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
@@ -1623,6 +1644,7 @@ export async function getUserHabitsDb(
             id: String(row.id ?? ""),
             habit_id: String(row.habit_id ?? ""),
             user_id: String(row.user_id ?? ""),
+            name: row.name ? String(row.name) : null,
             habitName: habitDetails?.name || "Hábito desconhecido",
             habitPhoto: habitDetails?.photo || null,
             habitDescription: habitDetails?.description || undefined,
@@ -1646,6 +1668,7 @@ export async function getUserHabitsDb(
     id: String(row.id ?? ""),
     habit_id: String(row.habit_id ?? ""),
     user_id: String(row.user_id ?? ""),
+    name: row.name ? String(row.name) : null,
     habitName: (row.habits as any)?.name || "Hábito desconhecido",
     habitPhoto: (row.habits as any)?.photo || null,
     habitDescription: (row.habits as any)?.description || undefined,

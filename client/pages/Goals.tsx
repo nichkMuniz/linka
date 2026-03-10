@@ -1009,13 +1009,19 @@ export default function Goals() {
 
       if (selectedRoutineType === 1) {
         // Save workouts
-        await createUserWorkoutsDb(user.id, itemIds);
+        await createUserWorkoutsDb(user.id, itemIds, {
+          name: routineName.trim() || undefined,
+        });
       } else if (selectedRoutineType === 2) {
         // Save diets
-        await createUserDietsDb(user.id, itemIds);
+        await createUserDietsDb(user.id, itemIds, {
+          name: routineName.trim() || undefined,
+        });
       } else if (selectedRoutineType === 3) {
         // Save habits
-        await createUserHabitsDb(user.id, itemIds);
+        await createUserHabitsDb(user.id, itemIds, {
+          name: routineName.trim() || undefined,
+        });
       }
 
       const typeLabel =
