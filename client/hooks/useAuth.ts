@@ -54,10 +54,8 @@ export function useAuth() {
       })
       .catch((err) => {
         if (isMounted) {
-          const errorMsg =
-            err instanceof Error ? err.message : "Failed to authenticate";
-          console.error("[useAuth] getUserSafe error:", errorMsg);
-          // Don't set error state - we may have a valid user from localStorage
+          // Don't log errors - getUserSafe already handles them and returns null on failure
+          // We may have a valid user from localStorage
           setError(null);
         }
       })

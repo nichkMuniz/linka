@@ -65,14 +65,17 @@ export async function getUserSafe(): Promise<User | null> {
     const { data } = await supabase.auth.getUser();
     return data.user ?? null;
   } catch (err) {
+    // Handle AbortError (request was cancelled/aborted)
+    if (err instanceof DOMException && err.name === "AbortError") {
+      console.warn("[getUserSafe] Auth request was aborted. Using cached session if available.");
+      return null;
+    }
+
     // Handle network-level errors (fetch failures)
     if (err instanceof TypeError && err.message.includes("Failed to fetch")) {
-      console.error(
-        "[getUserSafe] Network error reaching Supabase. This may be a CORS issue or network connectivity problem.",
-        err,
+      console.warn(
+        "[getUserSafe] Network error reaching Supabase. Using cached session if available.",
       );
-      // Return null instead of throwing to allow the app to load
-      // The session might be in localStorage and can be used
       return null;
     }
 
@@ -81,7 +84,9 @@ export async function getUserSafe(): Promise<User | null> {
       return null;
     }
 
-    console.error("[getUserSafe] Auth error:", err);
-    throw err;
+    // For any other auth error, log it but return null to allow graceful degradation
+    // The app can still function with cached session from localStorage
+    console.warn("[getUserSafe] Auth verification failed:", err instanceof Error ? err.message : String(err));
+    return null;
   }
 }
