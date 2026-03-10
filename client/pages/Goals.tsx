@@ -1002,11 +1002,6 @@ export default function Goals() {
     try {
       const itemIds = Array.from(selectedItems);
 
-      // Create a routine record with the provided name if one is given
-      if (routineName.trim()) {
-        await createRoutineDb(user.id, selectedRoutineType, routineName.trim());
-      }
-
       if (selectedRoutineType === 1) {
         // Save workouts
         await createUserWorkoutsDb(user.id, itemIds, {
@@ -1041,26 +1036,23 @@ export default function Goals() {
       setRoutineName("");
       setSearchQuery("");
 
-      // Refresh routines data to show newly added items
+      // Refresh user items data to show newly added items
       if (user) {
         try {
           const [
-            routinesData,
             userWorkoutsData,
             userDietsData,
             userHabitsData,
           ] = await Promise.all([
-            getUserRoutinesDb(user.id),
             getUserWorkoutsDb(user.id),
             getUserDietsDb(user.id),
             getUserHabitsDb(user.id),
           ]);
-          setRoutines(routinesData);
           setUserWorkouts(userWorkoutsData);
           setUserDiets(userDietsData);
           setUserHabits(userHabitsData);
         } catch (err) {
-          console.error("Error refreshing routines:", err);
+          console.error("Error refreshing items:", err);
         }
       }
     } catch (err: any) {
