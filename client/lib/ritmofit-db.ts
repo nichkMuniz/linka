@@ -898,6 +898,7 @@ export type Routine = {
   type: number;
   program_id: string | null;
   goal_id: string | null;
+  name?: string;
 };
 
 export type Workout = {
@@ -998,6 +999,7 @@ export async function createRoutineDb(
   userId: string,
   type: RoutineTypeCode,
   program_id?: string,
+  name?: string,
 ): Promise<Routine | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
@@ -1007,8 +1009,9 @@ export async function createRoutineDb(
       user_id: userId,
       type,
       program_id: program_id || null,
+      name: name || null,
     })
-    .select("id, user_id, type, program_id, goal_id")
+    .select("id, user_id, type, program_id, goal_id, name")
     .maybeSingle();
 
   if (error) {
@@ -1026,6 +1029,7 @@ export async function createRoutineDb(
     type: Number(data.type ?? 1),
     program_id: data.program_id ? String(data.program_id) : null,
     goal_id: data.goal_id ? String(data.goal_id) : null,
+    name: data.name ? String(data.name) : undefined,
   };
 }
 
@@ -1041,7 +1045,7 @@ export async function updateRoutineGoalDb(
       goal_id: goalId,
     })
     .eq("id", routineId)
-    .select("id, user_id, type, program_id, goal_id")
+    .select("id, user_id, type, program_id, goal_id, name")
     .maybeSingle();
 
   if (error) {
@@ -1059,6 +1063,7 @@ export async function updateRoutineGoalDb(
     type: Number(data.type ?? 1),
     program_id: data.program_id ? String(data.program_id) : null,
     goal_id: data.goal_id ? String(data.goal_id) : null,
+    name: data.name ? String(data.name) : undefined,
   };
 }
 
@@ -1093,7 +1098,7 @@ export async function getRoutinesByGoalIdDb(
 
   const { data, error } = await supabase
     .from("routines")
-    .select("id, user_id, type, program_id, goal_id")
+    .select("id, user_id, type, program_id, goal_id, name")
     .eq("goal_id", goalId);
 
   if (error) {
@@ -1109,6 +1114,7 @@ export async function getRoutinesByGoalIdDb(
     type: Number(row.type ?? 1),
     program_id: row.program_id ? String(row.program_id) : null,
     goal_id: row.goal_id ? String(row.goal_id) : null,
+    name: row.name ? String(row.name) : undefined,
   }));
 }
 

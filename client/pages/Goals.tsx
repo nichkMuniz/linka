@@ -12,6 +12,7 @@ import {
   createUserWorkoutsDb,
   createUserDietsDb,
   createUserHabitsDb,
+  createRoutineDb,
   getUserRoutinesDb,
   getUserWorkoutsDb,
   getUserDietsDb,
@@ -84,6 +85,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -121,6 +123,7 @@ export default function Goals() {
   const [selectedMuscleGroups, setSelectedMuscleGroups] = React.useState<
     Set<string>
   >(new Set());
+  const [routineName, setRoutineName] = React.useState("");
 
   // Base data for lookups
   const [workouts, setWorkouts] = React.useState<Workout[]>([]);
@@ -999,6 +1002,11 @@ export default function Goals() {
     try {
       const itemIds = Array.from(selectedItems);
 
+      // Create a routine record with the provided name if one is given
+      if (routineName.trim()) {
+        await createRoutineDb(user.id, selectedRoutineType, undefined, routineName.trim());
+      }
+
       if (selectedRoutineType === 1) {
         // Save workouts
         await createUserWorkoutsDb(user.id, itemIds);
@@ -1024,6 +1032,8 @@ export default function Goals() {
       setAddRoutineModalOpen(false);
       setSelectedRoutineType(null);
       setSelectedItems(new Set());
+      setRoutineName("");
+      setSearchQuery("");
 
       // Refresh routines data to show newly added items
       if (user) {
@@ -1662,6 +1672,17 @@ export default function Goals() {
             {/* Type Selection */}
             {selectedRoutineType === null ? (
               <div className="space-y-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="routine_name" className="text-sm font-medium">Nome da Rotina (Opcional)</Label>
+                  <Input
+                    id="routine_name"
+                    type="text"
+                    value={routineName}
+                    onChange={(e) => setRoutineName(e.target.value)}
+                    placeholder="Ex: Treino de Peito"
+                    className="h-9"
+                  />
+                </div>
                 <p className="text-sm font-medium">Selecione o tipo:</p>
                 <div className="grid grid-cols-1 gap-2">
                   {[1, 2, 3].map((typeCode) => {
