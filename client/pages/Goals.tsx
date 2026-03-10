@@ -1316,7 +1316,7 @@ export default function Goals() {
                 {/* Check-in Button */}
                 <Button
                   onClick={handleDailyCheckIn}
-                  disabled={dailyCheckInDone || isProcessingCheckIn}
+                  disabled={dailyCheckInDone || isProcessingCheckIn || (userWorkouts.length === 0 && userDiets.length === 0 && userHabits.length === 0)}
                   className="w-full rounded-full"
                   variant={dailyCheckInDone ? "outline" : "default"}
                 >
@@ -1327,6 +1327,8 @@ export default function Goals() {
                       <Check className="h-4 w-4 mr-2" />
                       Check-in Feito
                     </>
+                  ) : userWorkouts.length === 0 && userDiets.length === 0 && userHabits.length === 0 ? (
+                    "Conclua uma rotina para fazer check-in"
                   ) : (
                     "Fazer Check In"
                   )}

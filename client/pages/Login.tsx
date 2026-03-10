@@ -327,16 +327,31 @@ export default function Login() {
     }
 
     try {
-      const { data, error } = await supabase.auth.admin.listUsers();
+      // Try to sign in with a dummy password to check if email exists
+      // If email doesn't exist, we get "Invalid login credentials" error
+      // If email exists, we get "Invalid password" or similar error
+      const { error } = await supabase.auth.signInWithPassword({
+        email: emailToCheck.trim(),
+        password: "dummypassword123",
+      });
 
-      if (error) {
+      if (!error) {
+        // This shouldn't happen with dummy password
+        return true;
+      }
+
+      const errorMsg = error.message?.toLowerCase() || "";
+
+      // If we get "invalid login credentials" it means email doesn't exist
+      // If we get other errors like "invalid password" or "wrong password", email exists
+      if (errorMsg.includes("invalid login credentials") || errorMsg.includes("email not confirmed")) {
         return false;
       }
 
-      // Check if email exists in auth users
-      const emailExists = data?.users.some((user) => user.email?.toLowerCase() === emailToCheck.toLowerCase());
-      return emailExists;
+      // Email exists (got password error or other auth errors)
+      return true;
     } catch {
+      // If there's an error, assume email doesn't exist to not block signup
       return false;
     }
   }, [supabase]);
@@ -655,49 +670,7 @@ export default function Login() {
           )}
 
           <CardContent className="space-y-4">
-            {showForgotPassword ? (
-              <div className="grid gap-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowForgotPassword(false);
-                    setForgotPasswordEmail("");
-                  }}
-                  className="absolute top-6 left-6 p-2 hover:bg-muted rounded-lg transition-colors"
-                  disabled={isResettingPassword}
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </button>
-
-                <div className="text-center space-y-2 mt-2">
-                  <h2 className="text-lg font-semibold">Redefinir Senha</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Informe seu email e enviaremos um link para redefinir sua senha
-                  </p>
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="forgot_email">Email</Label>
-                  <Input
-                    id="forgot_email"
-                    type="email"
-                    value={forgotPasswordEmail}
-                    onChange={(e) => setForgotPasswordEmail(e.target.value)}
-                    placeholder="voce@exemplo.com"
-                    autoComplete="email"
-                  />
-                </div>
-
-                <Button
-                  type="button"
-                  className="rounded-full mt-2"
-                  onClick={handleResetPassword}
-                  disabled={isResettingPassword || !forgotPasswordEmail.trim()}
-                >
-                  {isResettingPassword ? "Enviando..." : "Enviar Email"}
-                </Button>
-              </div>
-            ) : !networkStatus.isOnline ? (
+            {!networkStatus.isOnline ? (
               <div className="rounded-2xl border border-red-200/30 bg-red-50/20 p-4 text-sm text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-200">
                 Você parece estar offline. Verifique sua conexão com a internet.
               </div>

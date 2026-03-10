@@ -1300,7 +1300,7 @@ export default function Profile() {
 
                   {/* Stats Row - Horizontal inline */}
                   <div className="flex gap-4 mt-2">
-                    <div className="flex flex-col">
+                    <div className="flex flex-col items-center">
                       <div className="text-base font-semibold">
                         {stats.postsCount}
                       </div>
