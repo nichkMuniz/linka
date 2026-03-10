@@ -31,14 +31,14 @@ function isEmailNotConfirmed(message: string | undefined) {
   return m.includes("email not confirmed") || m.includes("not confirmed");
 }
 
-function formatPhoneNumber(value: string): string {
+function formatPhoneDisplay(value: string): string {
   const cleaned = value.replace(/\D/g, "");
   if (cleaned.length <= 2) return cleaned;
   if (cleaned.length <= 7) return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2)}`;
-  if (cleaned.length <= 11) {
-    return `(${cleaned.slice(0, 2)}) 9 ${cleaned.slice(2, 7)}-${cleaned.slice(7)}`;
-  }
-  return `(${cleaned.slice(0, 2)}) 9 ${cleaned.slice(2, 7)}-${cleaned.slice(7, 11)}`;
+  const areaCode = cleaned.slice(0, 2);
+  const firstPart = cleaned.slice(2, 7);
+  const secondPart = cleaned.slice(7, 11);
+  return `(${areaCode}) ${firstPart}-${secondPart}`.trim();
 }
 
 function BrandHeader() {
@@ -237,25 +237,26 @@ export default function Login() {
             description: "As senhas informadas são diferentes.",
             variant: "destructive",
           });
+          setBusy(false);
           return;
         }
 
         // Validate email exists
-        setBusy(true);
         const emailExists = await validateEmailExists(trimmedEmail);
-        setBusy(false);
 
         if (emailExists) {
           toast({
-            title: "Email já cadastrado",
-            description: "Este email já está sendo usado. Use outro email ou tente fazer login.",
+            title: "Usuário já cadastrado",
+            description: "Este email já está sendo usado. Faça login ou use outro email.",
             variant: "destructive",
           });
+          setBusy(false);
           return;
         }
 
         setUserEmail(trimmedEmail);
         setSignupStep(2);
+        setBusy(false);
         return;
       }
     } catch {
@@ -772,6 +773,49 @@ export default function Login() {
                   </Button>
                 </div>
               </div>
+            ) : showForgotPassword ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowForgotPassword(false);
+                      setForgotPasswordEmail("");
+                    }}
+                    className="p-1 hover:bg-muted rounded transition-colors"
+                    disabled={isResettingPassword}
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                  </button>
+                  <div>
+                    <h2 className="text-lg font-semibold">Redefinir Senha</h2>
+                    <p className="text-xs text-muted-foreground">
+                      Informe seu email para receber um link
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="forgot_email">Email</Label>
+                  <Input
+                    id="forgot_email"
+                    type="email"
+                    value={forgotPasswordEmail}
+                    onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                    placeholder="voce@exemplo.com"
+                    autoComplete="email"
+                  />
+                </div>
+
+                <Button
+                  type="button"
+                  className="rounded-full w-full"
+                  onClick={handleResetPassword}
+                  disabled={isResettingPassword || !forgotPasswordEmail.trim()}
+                >
+                  {isResettingPassword ? "Enviando..." : "Enviar Email"}
+                </Button>
+              </div>
             ) : showBiometricSetup && biometricAvailable ? (
               <div className="grid gap-4">
                 <div className="rounded-2xl border border-border/60 bg-muted/20 p-6 text-center space-y-4">
@@ -848,16 +892,7 @@ export default function Login() {
                     </div>
 
                     <div className="grid gap-2">
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="login_password">Senha</Label>
-                        <button
-                          type="button"
-                          className="text-xs font-semibold text-brand hover:underline"
-                          onClick={() => setShowForgotPassword(true)}
-                        >
-                          Esqueci a senha
-                        </button>
-                      </div>
+                      <Label htmlFor="login_password">Senha</Label>
                       <Input
                         id="login_password"
                         type="password"
@@ -866,6 +901,13 @@ export default function Login() {
                         placeholder="••••••••"
                         autoComplete="current-password"
                       />
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-brand hover:underline text-left"
+                        onClick={() => setShowForgotPassword(true)}
+                      >
+                        Esqueci a senha
+                      </button>
                     </div>
 
                     <Button
@@ -1132,15 +1174,16 @@ export default function Login() {
                         <Label>Telefone</Label>
                         <Input
                           type="tel"
-                          value={commercialData.business_phone}
+                          value={formatPhoneDisplay(commercialData.business_phone)}
                           onChange={(e) => {
-                            const formatted = formatPhoneNumber(e.target.value);
+                            const rawValue = e.target.value.replace(/\D/g, "");
                             setCommercialData({
                               ...commercialData,
-                              business_phone: formatted,
+                              business_phone: rawValue,
                             });
                           }}
                           placeholder="(11) 9 9999-9999"
+                          inputMode="numeric"
                         />
                       </div>
 
