@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getUserPostsDb, getUserProfileDb, type PostWithUser } from "@/lib/ritmofit-db";
+import { getUserPostsDb, type PostWithUser } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/image-with-fallback";

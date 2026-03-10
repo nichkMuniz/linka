@@ -96,6 +96,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
+import { LoadingSpinner } from "@/components/animated-loading";
 
 export default function Goals() {
   const navigate = useNavigate();
@@ -1038,8 +1039,9 @@ export default function Goals() {
 
   if (loading) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">
-        Carregando dados...
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <LoadingSpinner className="h-12 w-12" />
+        <p className="text-sm text-muted-foreground">Carregando dados...</p>
       </div>
     );
   }

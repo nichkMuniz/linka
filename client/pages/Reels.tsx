@@ -25,6 +25,7 @@ import {
 import { MessageCircle, Send, Trash2, UserPlus, UserCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
+import { LoadingSpinner } from "@/components/animated-loading";
 
 export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
   const { user } = useAuth();
@@ -292,7 +293,8 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full w-full bg-black">
+      <div className="flex flex-col items-center justify-center h-full w-full bg-black gap-4">
+        <LoadingSpinner className="h-12 w-12" />
         <p className="text-sm text-muted-foreground">Carregando clips...</p>
       </div>
     );

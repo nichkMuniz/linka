@@ -1,5 +1,4 @@
 import { Link, useLocation } from "react-router-dom";
-import { useEffect } from "react";
 import { ArrowLeft, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -8,21 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export default function NotFound() {
   const location = useLocation();
 
-  useEffect(() => {
-    console.error(
-      "404 Error: User attempted to access non-existent route:",
-      location.pathname,
-    );
-  }, [location.pathname]);
-
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-6">
       <div className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">
-          P1gina n3o encontrada
+          Página não encontrada
         </h1>
         <p className="text-sm text-muted-foreground">
-          N3o existe rota para{" "}
+          Não existe rota para{" "}
           <span className="font-mono">{location.pathname}</span>.
         </p>
       </div>
@@ -36,7 +28,7 @@ export default function NotFound() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Se voca clicou em algum link, me diga qual tela queria abrir que eu
+            Se você clicou em algum link, me diga qual tela queria abrir que eu
             adiciono no app.
           </p>
           <Button asChild className="rounded-full">

@@ -48,6 +48,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { LoadingSpinner } from "@/components/animated-loading";
 
 type ViewMode = "conversations" | "conversation";
 
@@ -288,7 +289,8 @@ export default function Community() {
 
   if (loading) {
     return (
-      <div className="mx-auto grid w-full max-w-2xl gap-4 p-4">
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <LoadingSpinner className="h-12 w-12" />
         <p className="text-sm text-muted-foreground">Carregando...</p>
       </div>
     );

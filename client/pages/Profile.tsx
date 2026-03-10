@@ -905,8 +905,8 @@ export default function Profile() {
 
         const { error: uploadError } = await supabase.storage
           .from("posts")
-          .upload(filePath, new Blob([file], { type: file.type }), {
-            contentType: file.type,
+          .upload(filePath, editPhotoFile, {
+            contentType: editPhotoFile.type,
           });
 
 
