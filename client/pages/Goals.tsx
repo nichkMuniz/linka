@@ -1404,6 +1404,7 @@ export default function Goals() {
                       typeCode,
                       displayLabel: routine.name,
                       itemsForRoutine,
+                      isNamed: true,
                     });
                   }
                 });
@@ -1439,12 +1440,13 @@ export default function Goals() {
                       typeCode,
                       displayLabel: typeLabel,
                       itemsForRoutine,
+                      isNamed: false,
                     });
                   }
                 });
 
                 return cards.map((card) => {
-                  const { key, typeCode, displayLabel, itemsForRoutine } = card;
+                  const { key, typeCode, displayLabel, itemsForRoutine, isNamed } = card;
                   const isExpanded = expandedRoutineId === key;
 
                   return (
@@ -1510,7 +1512,8 @@ export default function Goals() {
                         {typeCode === 1 && itemsForRoutine.length > 0 && (
                           <button
                             onClick={() => {
-                              setSelectedRoutineName(displayLabel);
+                              // Use "__unnamed__" for routines without a name
+                              setSelectedRoutineName(isNamed ? displayLabel : "__unnamed__");
                               setWorkoutModalOpen(true);
                             }}
                             className="ml-2 p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors"
@@ -2056,6 +2059,10 @@ export default function Goals() {
                 .filter((workout) => {
                   // If no routine selected, show all workouts
                   if (!selectedRoutineName) return true;
+                  // If showing unnamed routines, show only workouts without a name
+                  if (selectedRoutineName === "__unnamed__") {
+                    return !workout.name;
+                  }
                   // If routine selected, show only workouts with matching name
                   return workout.name === selectedRoutineName;
                 })
