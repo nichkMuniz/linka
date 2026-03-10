@@ -2579,23 +2579,6 @@ export default function Profile() {
                 let itemsOfType: any[] = [];
                 const typeName = getRoutineTypeName(typeCode);
 
-                if (typeCode === 1) {
-                  // Exercises
-                  itemsOfType = userWorkouts.filter((uw) =>
-                    routinesOfType.some((r) => String(r.program_id) === uw.id),
-                  );
-                } else if (typeCode === 2) {
-                  // Diets
-                  itemsOfType = userDiets.filter((ud) =>
-                    routinesOfType.some((r) => String(r.program_id) === ud.id),
-                  );
-                } else if (typeCode === 3) {
-                  // Habits
-                  itemsOfType = userHabits.filter((uh) =>
-                    routinesOfType.some((r) => String(r.program_id) === uh.id),
-                  );
-                }
-
                 return (
                   <div
                     key={typeCode}
