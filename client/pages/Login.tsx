@@ -23,11 +23,22 @@ import {
   getNetworkStatus,
   checkSupabaseReachability,
 } from "@/lib/network-status";
-import { Fingerprint, Upload, X, Search, Check } from "lucide-react";
+import { Fingerprint, Upload, X, Search, Check, ArrowLeft } from "lucide-react";
+import { getAllUsersDb, searchUsersDb, type SearchUser, followUserDb } from "@/lib/ritmofit-db";
 
 function isEmailNotConfirmed(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
   return m.includes("email not confirmed") || m.includes("not confirmed");
+}
+
+function formatPhoneNumber(value: string): string {
+  const cleaned = value.replace(/\D/g, "");
+  if (cleaned.length <= 2) return cleaned;
+  if (cleaned.length <= 7) return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2)}`;
+  if (cleaned.length <= 11) {
+    return `(${cleaned.slice(0, 2)}) 9 ${cleaned.slice(2, 7)}-${cleaned.slice(7)}`;
+  }
+  return `(${cleaned.slice(0, 2)}) 9 ${cleaned.slice(2, 7)}-${cleaned.slice(7, 11)}`;
 }
 
 function BrandHeader() {
@@ -66,6 +77,7 @@ export default function Login() {
   const [tab, setTab] = React.useState<"login" | "signup">("login");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
   const [displayName, setDisplayName] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [networkStatus, setNetworkStatus] = React.useState(getNetworkStatus());
@@ -94,6 +106,10 @@ export default function Login() {
     business_email: "",
     business_website: "",
   });
+  const [availableUsers, setAvailableUsers] = React.useState<SearchUser[]>([]);
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [loadingUsers, setLoadingUsers] = React.useState(false);
+  const [step4SearchResults, setStep4SearchResults] = React.useState<SearchUser[]>([]);
 
   const canSubmit =
     !busy &&
@@ -126,6 +142,27 @@ export default function Login() {
 
     checkBiometric();
   }, []);
+
+  // Load available users for step 4
+  React.useEffect(() => {
+    const loadUsers = async () => {
+      setLoadingUsers(true);
+      try {
+        const users = await getAllUsersDb();
+        setAvailableUsers(users);
+        setStep4SearchResults(users);
+      } catch {
+        setAvailableUsers([]);
+        setStep4SearchResults([]);
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+
+    if (tab === "signup" && signupStep === 4) {
+      loadUsers();
+    }
+  }, [tab, signupStep]);
 
   React.useEffect(() => {
     if (authLoading) return;
@@ -193,6 +230,30 @@ export default function Login() {
 
       // Handle signup step 1: email and password validation
       if (signupStep === 1) {
+        // Check password confirmation
+        if (password !== confirmPassword) {
+          toast({
+            title: "Senhas não conferem",
+            description: "As senhas informadas são diferentes.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Validate email exists
+        setBusy(true);
+        const emailExists = await validateEmailExists(trimmedEmail);
+        setBusy(false);
+
+        if (emailExists) {
+          toast({
+            title: "Email já cadastrado",
+            description: "Este email já está sendo usado. Use outro email ou tente fazer login.",
+            variant: "destructive",
+          });
+          return;
+        }
+
         setUserEmail(trimmedEmail);
         setSignupStep(2);
         return;
@@ -259,52 +320,25 @@ export default function Login() {
     setSignupStep(4);
   };
 
-  const validateEmailExists = React.useCallback(async (emailToCheck: string) => {
+  const validateEmailExists = React.useCallback(async (emailToCheck: string): Promise<boolean> => {
     if (!emailToCheck.trim() || !supabase) {
-      setEmailCheckStatus("idle");
-      setEmailCheckMessage("");
-      return;
+      return false;
     }
-
-    setEmailCheckStatus("checking");
 
     try {
       const { data, error } = await supabase.auth.admin.listUsers();
 
       if (error) {
-        // Fallback: Try signup which will fail if email exists
-        setEmailCheckStatus("idle");
-        setEmailCheckMessage("");
-        return;
+        return false;
       }
 
       // Check if email exists in auth users
       const emailExists = data?.users.some((user) => user.email?.toLowerCase() === emailToCheck.toLowerCase());
-
-      if (emailExists) {
-        setEmailCheckStatus("exists");
-        setEmailCheckMessage("Este email já está cadastrado");
-      } else {
-        setEmailCheckStatus("valid");
-        setEmailCheckMessage("Email disponível ✓");
-      }
+      return emailExists;
     } catch {
-      // If admin method fails, don't show error
-      setEmailCheckStatus("idle");
-      setEmailCheckMessage("");
+      return false;
     }
   }, [supabase]);
-
-  // Debounce email validation
-  React.useEffect(() => {
-    if (signupStep !== 1) return;
-
-    const timer = setTimeout(() => {
-      validateEmailExists(email);
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [email, signupStep, validateEmailExists]);
 
   const handleResetPassword = async () => {
     if (!hasSupabaseConfig || !supabase || !forgotPasswordEmail.trim()) {
@@ -605,22 +639,36 @@ export default function Login() {
       <div className="mx-auto grid w-full max-w-md gap-6">
         <BrandHeader />
 
-        <Card className="border-border/60">
-          <CardHeader className="space-y-2">
-            <CardTitle className="text-base">Acessar conta</CardTitle>
-            <CardDescription>
-              {hasSupabaseConfig
-                ? biometricAvailable
-                  ? "Use email e biometria."
-                  : "Use email e senha."
-                : "Supabase ainda não foi configurado neste projeto."}
-            </CardDescription>
-          </CardHeader>
+        <Card className="border-border/60 relative">
+          {!showForgotPassword && (
+            <CardHeader className="space-y-2">
+              <CardTitle className="text-base">Acessar conta</CardTitle>
+              <CardDescription>
+                {hasSupabaseConfig
+                  ? biometricAvailable
+                    ? "Use email e biometria."
+                    : "Use email e senha."
+                  : "Supabase ainda não foi configurado neste projeto."}
+              </CardDescription>
+            </CardHeader>
+          )}
 
           <CardContent className="space-y-4">
             {showForgotPassword ? (
               <div className="grid gap-4">
-                <div className="text-center space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForgotPassword(false);
+                    setForgotPasswordEmail("");
+                  }}
+                  className="absolute top-6 left-6 p-2 hover:bg-muted rounded-lg transition-colors"
+                  disabled={isResettingPassword}
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+
+                <div className="text-center space-y-2 mt-2">
                   <h2 className="text-lg font-semibold">Redefinir Senha</h2>
                   <p className="text-sm text-muted-foreground">
                     Informe seu email e enviaremos um link para redefinir sua senha
@@ -639,28 +687,14 @@ export default function Login() {
                   />
                 </div>
 
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-full flex-1"
-                    onClick={() => {
-                      setShowForgotPassword(false);
-                      setForgotPasswordEmail("");
-                    }}
-                    disabled={isResettingPassword}
-                  >
-                    Voltar
-                  </Button>
-                  <Button
-                    type="button"
-                    className="rounded-full flex-1"
-                    onClick={handleResetPassword}
-                    disabled={isResettingPassword || !forgotPasswordEmail.trim()}
-                  >
-                    {isResettingPassword ? "Enviando..." : "Enviar Email"}
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  className="rounded-full mt-2"
+                  onClick={handleResetPassword}
+                  disabled={isResettingPassword || !forgotPasswordEmail.trim()}
+                >
+                  {isResettingPassword ? "Enviando..." : "Enviar Email"}
+                </Button>
               </div>
             ) : !networkStatus.isOnline ? (
               <div className="rounded-2xl border border-red-200/30 bg-red-50/20 p-4 text-sm text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-200">
@@ -888,15 +922,7 @@ export default function Login() {
                           onChange={(e) => setEmail(e.target.value)}
                           placeholder="voce@exemplo.com"
                           autoComplete="email"
-                          className={emailCheckStatus === "exists" ? "border-red-500" : emailCheckStatus === "valid" ? "border-green-500" : ""}
                         />
-                        {emailCheckMessage && (
-                          <p className={`text-xs ${emailCheckStatus === "exists" ? "text-red-600" : "text-green-600"}`}>
-                            {emailCheckStatus === "checking" && "Verificando..."}
-                            {emailCheckStatus === "exists" && "❌ " + emailCheckMessage}
-                            {emailCheckStatus === "valid" && "✓ " + emailCheckMessage}
-                          </p>
-                        )}
                       </div>
 
                       <div className="grid gap-2">
@@ -911,10 +937,29 @@ export default function Login() {
                         />
                       </div>
 
+                      <div className="grid gap-2">
+                        <Label htmlFor="signup_confirm_password">Confirmar Senha</Label>
+                        <Input
+                          id="signup_confirm_password"
+                          type="password"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="Confirme sua senha"
+                          autoComplete="new-password"
+                          className={confirmPassword && password !== confirmPassword ? "border-red-500" : ""}
+                        />
+                        {confirmPassword && password !== confirmPassword && (
+                          <p className="text-xs text-red-600">❌ As senhas não conferem</p>
+                        )}
+                        {confirmPassword && password === confirmPassword && password.length >= 6 && (
+                          <p className="text-xs text-green-600">✓ Senhas conferem</p>
+                        )}
+                      </div>
+
                       <Button
                         type="submit"
                         className="mt-2 rounded-full"
-                        disabled={!canSubmit}
+                        disabled={!email.trim() || password.length < 6 || password !== confirmPassword || busy}
                       >
                         {busy ? "Validando..." : "Próximo"}
                       </Button>
@@ -1088,13 +1133,14 @@ export default function Login() {
                         <Input
                           type="tel"
                           value={commercialData.business_phone}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const formatted = formatPhoneNumber(e.target.value);
                             setCommercialData({
                               ...commercialData,
-                              business_phone: e.target.value,
-                            })
-                          }
-                          placeholder="(11) 99999-9999"
+                              business_phone: formatted,
+                            });
+                          }}
+                          placeholder="(11) 9 9999-9999"
                         />
                       </div>
 
@@ -1203,31 +1249,91 @@ export default function Login() {
                   {/* Step 4: Follow Users */}
                   {signupStep === 4 && (
                     <div className="grid gap-3">
-                      <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center mb-3">
-                        <p className="text-sm text-muted-foreground">
-                          Você pode buscar e seguir pessoas após criar sua conta
-                        </p>
+                      <div className="text-center space-y-1 mb-2">
+                        <h3 className="font-semibold text-sm">Encontre pessoas para seguir</h3>
+                        <p className="text-xs text-muted-foreground">Busque por pessoas de interesse</p>
                       </div>
 
-                      <div className="grid gap-2">
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            type="text"
-                            placeholder="Buscar pessoas..."
-                            className="pl-10"
-                            disabled
-                          />
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                        <Input
+                          type="text"
+                          placeholder="Buscar pessoas..."
+                          value={searchQuery}
+                          onChange={(e) => {
+                            const query = e.target.value;
+                            setSearchQuery(query);
+                            if (query.trim()) {
+                              const filtered = availableUsers.filter(user =>
+                                user.nickname.toLowerCase().includes(query.toLowerCase()) ||
+                                (user.bio && user.bio.toLowerCase().includes(query.toLowerCase()))
+                              );
+                              setStep4SearchResults(filtered);
+                            } else {
+                              setStep4SearchResults(availableUsers);
+                            }
+                          }}
+                          className="pl-10"
+                        />
+                      </div>
+
+                      {loadingUsers ? (
+                        <div className="flex justify-center py-8">
+                          <div className="text-sm text-muted-foreground">Carregando pessoas...</div>
                         </div>
-                      </div>
+                      ) : step4SearchResults.length > 0 ? (
+                        <div className="grid grid-cols-3 gap-3 max-h-64 overflow-y-auto">
+                          {step4SearchResults.map((user) => (
+                            <button
+                              key={user.id}
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await followUserDb(user.id);
+                                  toast({
+                                    title: "Seguindo!",
+                                    description: `Você agora segue ${user.nickname}`,
+                                  });
+                                } catch (err) {
+                                  toast({
+                                    title: "Erro ao seguir",
+                                    description: "Não foi possível seguir este usuário",
+                                    variant: "destructive",
+                                  });
+                                }
+                              }}
+                              className="relative group rounded-lg overflow-hidden aspect-square bg-gradient-to-br from-brand/20 to-brand/10 border border-border/60 hover:border-brand transition-all"
+                            >
+                              {user.photo ? (
+                                <img
+                                  src={user.photo}
+                                  alt={user.nickname}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center p-2">
+                                  <div className="text-2xl font-bold text-brand">
+                                    {user.nickname.charAt(0).toUpperCase()}
+                                  </div>
+                                </div>
+                              )}
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-2">
+                                <p className="text-white text-xs font-semibold text-center line-clamp-2">
+                                  {user.nickname}
+                                </p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
+                          <p className="text-sm text-muted-foreground">
+                            Nenhuma pessoa encontrada
+                          </p>
+                        </div>
+                      )}
 
-                      <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
-                        <p className="text-sm text-muted-foreground">
-                          Você pode buscar e seguir pessoas após criar sua conta
-                        </p>
-                      </div>
-
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 pt-2">
                         <Button
                           type="button"
                           variant="outline"
@@ -1235,6 +1341,15 @@ export default function Login() {
                           onClick={() => setSignupStep(3)}
                         >
                           Voltar
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-full flex-1"
+                          onClick={handleSignupComplete}
+                          disabled={busy}
+                        >
+                          Pular
                         </Button>
                         <Button
                           type="button"
