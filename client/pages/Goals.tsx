@@ -493,39 +493,87 @@ export default function Goals() {
     }
   };
 
-  const handleDeleteRoutineType = async (typeCode: number) => {
+  // routineCardName = the card's display label if named, null if it's the unnamed group
+  const handleDeleteRoutineType = async (typeCode: number, routineCardName: string | null) => {
     try {
-      if (!user) return;
+      if (!user || !supabase) return;
 
-      // Delete routines of this type from the routines table
-      await deleteRoutinesOfTypeDb(user.id, typeCode as RoutineTypeCode);
+      const table =
+        typeCode === 1 ? "user_workouts" : typeCode === 2 ? "user_diets" : "user_habits";
 
-      // Also delete from the corresponding user_* table
-      let table = "";
-      if (typeCode === 1) table = "user_workouts";
-      else if (typeCode === 2) table = "user_diets";
-      else if (typeCode === 3) table = "user_habits";
-
-      if (table) {
+      // Delete matching items from user_* table
+      if (routineCardName) {
+        // Named routine: delete only items with this name
         const { error } = await supabase
           .from(table)
           .delete()
-          .eq("user_id", user.id);
-
+          .eq("user_id", user.id)
+          .eq("name", routineCardName);
+        if (error) throw error;
+      } else {
+        // Unnamed routine group: delete items with no name
+        const { error } = await supabase
+          .from(table)
+          .delete()
+          .eq("user_id", user.id)
+          .is("name", null);
         if (error) throw error;
       }
 
-      // Update local state
-      if (typeCode === 1) setUserWorkouts([]);
-      else if (typeCode === 2) setUserDiets([]);
-      else if (typeCode === 3) setUserHabits([]);
+      // Delete matching entry from routines table
+      if (routineCardName) {
+        const { error } = await supabase
+          .from("routines")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("type", typeCode)
+          .eq("name", routineCardName);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("routines")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("type", typeCode)
+          .is("name", null);
+        if (error) throw error;
+      }
 
-      // Update routines list
-      setRoutines((prev) => prev.filter((r) => r.type !== typeCode));
+      // Update local state — remove only matching items
+      if (typeCode === 1) {
+        setUserWorkouts((prev) =>
+          prev.filter((w) =>
+            routineCardName ? w.name !== routineCardName : Boolean(w.name),
+          ),
+        );
+      } else if (typeCode === 2) {
+        setUserDiets((prev) =>
+          prev.filter((d) =>
+            routineCardName ? d.name !== routineCardName : Boolean(d.name),
+          ),
+        );
+      } else if (typeCode === 3) {
+        setUserHabits((prev) =>
+          prev.filter((h) =>
+            routineCardName ? h.name !== routineCardName : Boolean(h.name),
+          ),
+        );
+      }
+
+      // Remove matching entries from routines list
+      setRoutines((prev) =>
+        prev.filter((r) => {
+          if (r.type !== typeCode) return true;
+          if (routineCardName) return r.name !== routineCardName;
+          return Boolean(r.name); // keep named, remove unnamed
+        }),
+      );
 
       toast({
         title: "Rotina removida",
-        description: "Todos os itens foram removidos.",
+        description: routineCardName
+          ? `"${routineCardName}" foi removida.`
+          : "Rotina sem nome removida.",
       });
     } catch (err: any) {
       console.error("Error deleting routine:", err);
@@ -1533,7 +1581,7 @@ export default function Goals() {
                                   : "Adicionar hábito"}
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => handleDeleteRoutineType(typeCode)}
+                              onClick={() => handleDeleteRoutineType(typeCode, isNamed ? displayLabel : null)}
                               className="text-red-500"
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
