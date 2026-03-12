@@ -2090,19 +2090,33 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
       return [];
     }
 
-    // Enrich stories with user info
-    const enrichedStories = await Promise.all(
-      (data ?? []).map(async (story: Story) => {
-        const userProfile = await getUserProfileDb(story.user_id);
-        return {
-          ...story,
-          userNickname: userProfile?.nickname || "Usuário",
-          userPhoto: userProfile?.photo || null,
-        };
-      }),
-    );
+    // Batch-fetch all story author profiles in a single query
+    const storyList = data ?? [];
+    const uniqueUserIds = [...new Set(storyList.map((s: any) => s.user_id).filter(Boolean))];
+    const profileMap = new Map<string, { nickname: string; photo: string | null }>();
 
-    return enrichedStories;
+    if (uniqueUserIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .in("user_id", uniqueUserIds);
+
+      (profiles ?? []).forEach((p: any) => {
+        profileMap.set(String(p.user_id), {
+          nickname: String(p.nickname ?? "Usuário"),
+          photo: p.photo ? String(p.photo) : null,
+        });
+      });
+    }
+
+    return storyList.map((story: any) => {
+      const profile = profileMap.get(story.user_id) ?? { nickname: "Usuário", photo: null };
+      return {
+        ...story,
+        userNickname: profile.nickname,
+        userPhoto: profile.photo,
+      };
+    });
   } catch (err: any) {
     console.error("Error fetching active stories:", err);
     return [];
@@ -2482,19 +2496,37 @@ export async function getConversationsDb(): Promise<Conversation[]> {
       conversationMap.get(otherUserId)?.push(msg);
     });
 
-    // Convert to conversations with user info
+    // Batch-fetch all conversation partner profiles in a single query
+    const otherUserIds = Array.from(conversationMap.keys()).filter(Boolean);
+    const profileMap = new Map<string, { nickname: string; photo: string | null }>();
+
+    if (otherUserIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .in("user_id", otherUserIds);
+
+      (profiles ?? []).forEach((p: any) => {
+        profileMap.set(String(p.user_id), {
+          nickname: String(p.nickname ?? "Usuário"),
+          photo: p.photo ? String(p.photo) : null,
+        });
+      });
+    }
+
+    // Build conversations from map (no serial awaits)
     const conversations: Conversation[] = [];
 
     for (const [userId, msgs] of conversationMap.entries()) {
-      const userProfile = await getUserProfileDb(userId);
+      const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null };
       const unreadCount = msgs.filter(
         (msg) => msg.id_following === viewer.id && msg.read === 0,
       ).length;
 
       conversations.push({
         userId,
-        userNickname: userProfile?.nickname || "Usuário",
-        userPhoto: userProfile?.photo || null,
+        userNickname: profile.nickname,
+        userPhoto: profile.photo,
         lastMessage: msgs[0]?.text || "",
         lastMessageTime: msgs[0]?.created_at || new Date().toISOString(),
         unreadCount,
@@ -3152,34 +3184,31 @@ export async function getReelCommentsDb(
       );
     }
 
-    // Fetch comments and enrich with user profiles
-    const enrichedComments = await Promise.all(
-      (data ?? []).map(async (row: any) => {
-        let userName = String(row.user_name ?? "Usuário");
+    // Batch-fetch all commenter profiles in a single query
+    const commentList = data ?? [];
+    const uniqueUserIds = [...new Set(commentList.map((r: any) => r.user_id).filter(Boolean))];
+    const profileMap = new Map<string, string>();
 
-        // Try to fetch the actual nickname from profiles table
-        try {
-          const userProfile = await getUserProfileDb(row.user_id);
-          if (userProfile?.nickname) {
-            userName = userProfile.nickname;
-          }
-        } catch (err) {
-          console.error(`Error fetching profile for user ${row.user_id}:`, err);
-        }
+    if (uniqueUserIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, nickname")
+        .in("user_id", uniqueUserIds);
 
-        return {
-          id: String(row.id),
-          reelId: String(row.reel_id),
-          userId: String(row.user_id),
-          userName,
-          userHandle: String(row.user_handle ?? "@user"),
-          text: String(row.text ?? ""),
-          createdAt: String(row.created_at ?? new Date().toISOString()),
-        } satisfies ReelComment;
-      })
-    );
+      (profiles ?? []).forEach((p: any) => {
+        if (p.nickname) profileMap.set(String(p.user_id), String(p.nickname));
+      });
+    }
 
-    return enrichedComments;
+    return commentList.map((row: any) => ({
+      id: String(row.id),
+      reelId: String(row.reel_id),
+      userId: String(row.user_id),
+      userName: profileMap.get(String(row.user_id)) ?? String(row.user_name ?? "Usuário"),
+      userHandle: String(row.user_handle ?? "@user"),
+      text: String(row.text ?? ""),
+      createdAt: String(row.created_at ?? new Date().toISOString()),
+    }) satisfies ReelComment);
   } catch (err: any) {
     console.error(
       "Error getting reel comments:",
@@ -3293,12 +3322,9 @@ export async function getRankingDb(): Promise<RankingUser[]> {
     const followingIds = await getFollowingIdsDb();
     const userIdsToShow = [viewer.id, ...followingIds];
 
-    // Count total check-ins per user from duel_check_ins table
-    // Points = total check-ins (persists even if weekly streak is lost)
-    const { data: checkInData, error: checkInError } = await supabase
-      .from("duel_check_ins")
-      .select("user_id")
-      .in("user_id", userIdsToShow);
+    // Use server-side aggregation to count check-ins per user (avoids fetching all rows)
+    const { data: countData, error: checkInError } = await supabase
+      .rpc("get_check_in_counts", { user_ids: userIdsToShow });
 
     if (checkInError) {
       const errMsg = checkInError?.message || checkInError?.code || JSON.stringify(checkInError);
@@ -3306,11 +3332,10 @@ export async function getRankingDb(): Promise<RankingUser[]> {
       return [];
     }
 
-    // Count check-ins per user
+    // Build check-in count map from aggregated result
     const checkInCounts: Record<string, number> = {};
-    for (const row of checkInData ?? []) {
-      const uid = String(row.user_id);
-      checkInCounts[uid] = (checkInCounts[uid] || 0) + 1;
+    for (const row of countData ?? []) {
+      checkInCounts[String(row.user_id)] = Number(row.check_in_count);
     }
 
     // Ensure the current viewer is included even with 0 check-ins
