@@ -3301,7 +3301,8 @@ export async function getRankingDb(): Promise<RankingUser[]> {
       .in("user_id", userIdsToShow);
 
     if (checkInError) {
-      console.error("Error fetching check-ins for ranking:", checkInError);
+      const errMsg = checkInError?.message || checkInError?.code || JSON.stringify(checkInError);
+      console.error("Error fetching check-ins for ranking:", errMsg);
       return [];
     }
 
