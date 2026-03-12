@@ -220,6 +220,9 @@ export default function Goals() {
   // Collapsed section state for Rotinas tab (stores type codes of collapsed sections)
   const [collapsedSections, setCollapsedSections] = React.useState<Set<number>>(new Set());
 
+  // Tracks which existing routine card we're adding items to (for pre-fill name context)
+  const [addToRoutineCardName, setAddToRoutineCardName] = React.useState<string | null>(null);
+
   const handleToggleSection = React.useCallback((sType: number) => {
     setCollapsedSections((prev) => {
       const next = new Set(prev);
@@ -1055,6 +1058,7 @@ export default function Goals() {
       setSelectedItems(new Set());
       setRoutineName("");
       setSearchQuery("");
+      setAddToRoutineCardName(null);
 
       // Refresh routines and items data to show newly added items
       if (user) {
@@ -1100,7 +1104,7 @@ export default function Goals() {
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-3xl gap-6">
+    <div className="mx-auto grid w-full max-w-3xl gap-6 overflow-x-hidden">
       <div className="flex items-start justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -1329,7 +1333,7 @@ export default function Goals() {
         </TabsContent>
 
         {/* Rotinas Tab */}
-        <TabsContent value="rotinas" className="space-y-4 fade-in px-2 overflow-x-hidden">
+        <TabsContent value="rotinas" className="space-y-4 fade-in px-2">
           {/* Daily Check-in Block */}
           <Card className={`border-2 ${
             dailyCheckInDone
@@ -1350,18 +1354,18 @@ export default function Goals() {
                   </p>
                 </div>
 
-                {/* Days of Week */}
-                <div className="flex justify-center gap-2">
+                {/* Days of Week - grid layout adapts to screen width */}
+                <div className="grid grid-cols-7 gap-1 w-full">
                   {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"].map((day, index) => (
                     <div
                       key={index}
-                      className={`flex flex-col items-center justify-center w-10 h-10 rounded-lg transition-all ${
+                      className={`flex flex-col items-center justify-center aspect-square rounded-lg transition-all ${
                         weekCheckIns.has(index)
                           ? "bg-brand text-white font-bold"
                           : "bg-muted text-muted-foreground"
                       }`}
                     >
-                      <span className="text-xs font-medium">{day}</span>
+                      <span className="text-[10px] font-medium">{day}</span>
                     </div>
                   ))}
                 </div>
@@ -1516,6 +1520,9 @@ export default function Goals() {
                                 setSelectedItems(new Set());
                                 setSearchQuery("");
                                 setSelectedMuscleGroups(new Set());
+                                // Pre-fill routine name when adding to an existing named routine
+                                setRoutineName(isNamed ? displayLabel : "");
+                                setAddToRoutineCardName(isNamed ? displayLabel : null);
                               }}
                             >
                               <Plus className="h-4 w-4 mr-2" />
@@ -1758,6 +1765,14 @@ export default function Goals() {
           </DrawerHeader>
 
           <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
+            {/* Context banner when adding to an existing named routine */}
+            {addToRoutineCardName && selectedRoutineType !== null && (
+              <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-brand/10 border border-brand/20 rounded-lg">
+                <span className="text-xs text-brand">Adicionando à rotina:</span>
+                <span className="text-xs font-semibold text-brand">{addToRoutineCardName}</span>
+              </div>
+            )}
+
             {/* Type Selection */}
             {selectedRoutineType === null ? (
               <div className="space-y-3">
@@ -1920,67 +1935,97 @@ export default function Goals() {
                       })}
 
                     {selectedRoutineType === 2 &&
-                      diets.map((diet) => (
-                        <button
-                          key={diet.id}
-                          onClick={() => handleSelectItem(diet.id)}
-                          className={`w-full p-3 rounded-lg border transition-all text-left ${selectedItems.has(diet.id)
-                              ? "border-brand bg-brand/10"
-                              : "border-border/60 hover:border-border/80"
+                      diets.map((diet) => {
+                        const isAlreadyInRoutine = userDiets.some(
+                          (ud) =>
+                            ud.diet_id === diet.id &&
+                            (addToRoutineCardName
+                              ? ud.name === addToRoutineCardName
+                              : !ud.name),
+                        );
+                        const isNewSelection = selectedItems.has(diet.id);
+                        return (
+                          <button
+                            key={diet.id}
+                            onClick={() => handleSelectItem(diet.id)}
+                            className={`w-full p-3 rounded-lg border transition-all text-left ${
+                              isNewSelection
+                                ? "border-brand bg-brand/10"
+                                : isAlreadyInRoutine
+                                  ? "border-green-500/40 bg-green-500/5"
+                                  : "border-border/60 hover:border-border/80"
                             }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">
-                              {diet.name}
-                            </span>
-                            <input
-                              type="checkbox"
-                              checked={selectedItems.has(diet.id)}
-                              onChange={() => { }}
-                              className="h-4 w-4"
-                            />
-                          </div>
-                          {diet.description && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {diet.description}
-                            </p>
-                          )}
-                          {diet.calories && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {diet.calories} cal
-                            </p>
-                          )}
-                        </button>
-                      ))}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <span className="text-sm font-medium truncate">{diet.name}</span>
+                                {isAlreadyInRoutine && !isNewSelection && (
+                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium flex-shrink-0">
+                                    ✓ Já adicionado
+                                  </span>
+                                )}
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={isNewSelection}
+                                onChange={() => {}}
+                                className="h-4 w-4 flex-shrink-0"
+                              />
+                            </div>
+                            {diet.description && (
+                              <p className="text-xs text-muted-foreground mt-1">{diet.description}</p>
+                            )}
+                            {diet.calories && (
+                              <p className="text-xs text-muted-foreground mt-1">{diet.calories} cal</p>
+                            )}
+                          </button>
+                        );
+                      })}
 
                     {selectedRoutineType === 3 &&
-                      habits.map((habit) => (
-                        <button
-                          key={habit.id}
-                          onClick={() => handleSelectItem(habit.id)}
-                          className={`w-full p-3 rounded-lg border transition-all text-left ${selectedItems.has(habit.id)
-                              ? "border-brand bg-brand/10"
-                              : "border-border/60 hover:border-border/80"
+                      habits.map((habit) => {
+                        const isAlreadyInRoutine = userHabits.some(
+                          (uh) =>
+                            uh.habit_id === habit.id &&
+                            (addToRoutineCardName
+                              ? uh.name === addToRoutineCardName
+                              : !uh.name),
+                        );
+                        const isNewSelection = selectedItems.has(habit.id);
+                        return (
+                          <button
+                            key={habit.id}
+                            onClick={() => handleSelectItem(habit.id)}
+                            className={`w-full p-3 rounded-lg border transition-all text-left ${
+                              isNewSelection
+                                ? "border-brand bg-brand/10"
+                                : isAlreadyInRoutine
+                                  ? "border-green-500/40 bg-green-500/5"
+                                  : "border-border/60 hover:border-border/80"
                             }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">
-                              {habit.name}
-                            </span>
-                            <input
-                              type="checkbox"
-                              checked={selectedItems.has(habit.id)}
-                              onChange={() => { }}
-                              className="h-4 w-4"
-                            />
-                          </div>
-                          {habit.description && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {habit.description}
-                            </p>
-                          )}
-                        </button>
-                      ))}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <span className="text-sm font-medium truncate">{habit.name}</span>
+                                {isAlreadyInRoutine && !isNewSelection && (
+                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium flex-shrink-0">
+                                    ✓ Já adicionado
+                                  </span>
+                                )}
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={isNewSelection}
+                                onChange={() => {}}
+                                className="h-4 w-4 flex-shrink-0"
+                              />
+                            </div>
+                            {habit.description && (
+                              <p className="text-xs text-muted-foreground mt-1">{habit.description}</p>
+                            )}
+                          </button>
+                        );
+                      })}
                   </div>
                 </div>
 
@@ -2023,7 +2068,7 @@ export default function Goals() {
                   title="Finalizar treino"
                   aria-label="Finalizar treino"
                 >
-                  <X className="h-5 w-5" />
+                  <Pause className="h-5 w-5" />
                 </button>
               </div>
 
