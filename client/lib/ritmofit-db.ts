@@ -1141,16 +1141,36 @@ export async function getUserExerciseRoutinesDb(userId: string): Promise<Exercis
 
     if (!routines || routines.length === 0) return [];
 
-    // Map each routine to an ExerciseRoutine entry
-    return routines.map((routine: any, index: number) => ({
-      id: String(routine.id ?? ""),
-      routineId: String(routine.id ?? ""),
-      userId: String(routine.user_id ?? ""),
-      exerciseName: routine.name
-        ? String(routine.name)
-        : `Rotina de Exercícios ${routines.length > 1 ? index + 1 : ""}`.trim(),
-      exercisePhoto: null,
-    }));
+    const result: ExerciseRoutine[] = [];
+    let hasUnnamed = false;
+
+    for (const routine of routines) {
+      if (routine.name) {
+        // Named routines appear individually
+        result.push({
+          id: String(routine.id ?? ""),
+          routineId: String(routine.id ?? ""),
+          userId: String(routine.user_id ?? ""),
+          exerciseName: String(routine.name),
+          exercisePhoto: null,
+        });
+      } else {
+        hasUnnamed = true;
+      }
+    }
+
+    // All unnamed routines are grouped into a single entry
+    if (hasUnnamed) {
+      result.push({
+        id: "__unnamed__",
+        routineId: "__unnamed__",
+        userId: userId,
+        exerciseName: "Rotina de Exercícios",
+        exercisePhoto: null,
+      });
+    }
+
+    return result;
   } catch (err: any) {
     const errorMsg = err?.message || String(err);
     console.error(`Unexpected error fetching exercise routines:`, errorMsg);
@@ -3269,28 +3289,39 @@ export async function getRankingDb(): Promise<RankingUser[]> {
   if (!viewer) return [];
 
   try {
-    // Get current user's following
+    // Get current user's following to include in ranking
     const followingIds = await getFollowingIdsDb();
     const userIdsToShow = [viewer.id, ...followingIds];
 
-    // Get ranking for these users
-    const { data: rankingData, error: rankingError } = await supabase
-      .from("ranking")
-      .select("user_id, points, level")
-      .in("user_id", userIdsToShow)
-      .order("points", { ascending: false });
+    // Count total check-ins per user from duel_check_ins table
+    // Points = total check-ins (persists even if weekly streak is lost)
+    const { data: checkInData, error: checkInError } = await supabase
+      .from("duel_check_ins")
+      .select("user_id")
+      .in("user_id", userIdsToShow);
 
-    if (rankingError) {
-      console.error("Error fetching ranking:", rankingError);
+    if (checkInError) {
+      console.error("Error fetching check-ins for ranking:", checkInError);
       return [];
     }
 
-    if (!rankingData || rankingData.length === 0) {
-      return [];
+    // Count check-ins per user
+    const checkInCounts: Record<string, number> = {};
+    for (const row of checkInData ?? []) {
+      const uid = String(row.user_id);
+      checkInCounts[uid] = (checkInCounts[uid] || 0) + 1;
     }
 
-    // Get profile data for each user
-    const userIds = rankingData.map((r: any) => String(r.user_id));
+    // Ensure the current viewer is included even with 0 check-ins
+    if (!checkInCounts[viewer.id]) {
+      checkInCounts[viewer.id] = 0;
+    }
+
+    const userIds = Object.keys(checkInCounts);
+
+    if (userIds.length === 0) return [];
+
+    // Get profile data for these users
     const { data: profiles } = await supabase
       .from("profiles")
       .select("user_id, nickname, photo")
@@ -3298,25 +3329,25 @@ export async function getRankingDb(): Promise<RankingUser[]> {
 
     const profileMap = new Map(
       (profiles ?? []).map((p: any) => [
-        p.user_id,
+        String(p.user_id),
         { nickname: p.nickname, photo: p.photo },
       ]),
     );
 
-    return (rankingData ?? []).map((row: any) => {
-      const profile = profileMap.get(String(row.user_id)) || {
-        nickname: "Usuário",
-        photo: null,
-      };
-
-      return {
-        userId: String(row.user_id),
-        userNickname: String(profile.nickname),
-        userPhoto: profile.photo ? String(profile.photo) : null,
-        points: Number(row.points ?? 0),
-        level: Number(row.level ?? 1),
-      };
-    });
+    // Build ranked list sorted by check-in count (points)
+    return userIds
+      .map((uid) => {
+        const profile = profileMap.get(uid) || { nickname: "Usuário", photo: null };
+        const points = checkInCounts[uid] || 0;
+        return {
+          userId: uid,
+          userNickname: String(profile.nickname),
+          userPhoto: profile.photo ? String(profile.photo) : null,
+          points,
+          level: Math.floor(points / 5) + 1,
+        };
+      })
+      .sort((a, b) => b.points - a.points);
   } catch (err: any) {
     console.error("Error getting ranking:", err);
     return [];

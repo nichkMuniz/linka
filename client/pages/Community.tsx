@@ -298,7 +298,7 @@ export default function Community() {
 
   if (activeTab === "messages" && viewMode === "conversation" && selectedConversation) {
     return (
-      <div className="fixed inset-0 bg-background flex flex-col z-50">
+      <div className="fixed top-0 left-0 right-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] bg-background flex flex-col z-50">
         {/* Header */}
         <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3">
           <button

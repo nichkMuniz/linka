@@ -1316,7 +1316,7 @@ export default function Goals() {
         </TabsContent>
 
         {/* Rotinas Tab */}
-        <TabsContent value="rotinas" className="space-y-4 fade-in">
+        <TabsContent value="rotinas" className="space-y-4 fade-in px-2">
           {/* Daily Check-in Block */}
           <Card className={`border-2 ${
             dailyCheckInDone
@@ -1445,7 +1445,24 @@ export default function Goals() {
                   }
                 });
 
-                return cards.map((card) => {
+                // Group cards by section (type)
+                const sectionConfigs = [
+                  { sType: 1, sLabel: "🏋️ Exercícios", sColor: "text-blue-600" },
+                  { sType: 2, sLabel: "🥗 Dietas", sColor: "text-emerald-600" },
+                  { sType: 3, sLabel: "🌱 Hábitos", sColor: "text-orange-600" },
+                ];
+
+                return sectionConfigs.flatMap(({ sType, sLabel, sColor }) => {
+                  const sectionCards = cards.filter((c) => c.typeCode === sType);
+                  if (sectionCards.length === 0) return [];
+
+                  const sectionHeader = (
+                    <h3 key={`section-header-${sType}`} className={`text-xs font-semibold uppercase tracking-wider px-1 pt-2 ${sColor}`}>
+                      {sLabel}
+                    </h3>
+                  );
+
+                  const cardElements = sectionCards.map((card) => {
                   const { key, typeCode, displayLabel, itemsForRoutine, isNamed } = card;
                   const isExpanded = expandedRoutineId === key;
 
@@ -1685,6 +1702,9 @@ export default function Goals() {
                       )}
                     </Card>
                   );
+                  });
+
+                  return [sectionHeader, ...cardElements];
                 });
               })()}
 
@@ -2837,51 +2857,14 @@ export default function Goals() {
             </DrawerTitle>
           </DrawerHeader>
 
-          {/* Search Input and Muscle Group Filter */}
-          <div className="px-4 py-3 border-b border-border/60 space-y-3">
+          {/* Search Input */}
+          <div className="px-4 py-3 border-b border-border/60">
             <Input
               placeholder="Buscar rotina..."
               value={routineSearchQuery}
               onChange={(e) => setRoutineSearchQuery(e.target.value)}
               className="h-9 rounded-full text-sm"
             />
-
-            {/* Muscle Group Filter */}
-            {userWorkouts.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Filter className="h-4 w-4 text-muted-foreground" />
-                  <p className="text-xs font-medium text-muted-foreground">
-                    Grupo muscular:
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {Array.from(new Set(userWorkouts.map((w) => w.muscle_group).filter(Boolean))).map(
-                    (muscleGroup) => (
-                      <button
-                        key={muscleGroup}
-                        onClick={() => {
-                          const newSelection = new Set(goalRoutineMuscleGroups);
-                          if (newSelection.has(muscleGroup)) {
-                            newSelection.delete(muscleGroup);
-                          } else {
-                            newSelection.add(muscleGroup);
-                          }
-                          setGoalRoutineMuscleGroups(newSelection);
-                        }}
-                        className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
-                          goalRoutineMuscleGroups.has(muscleGroup)
-                            ? "border-brand bg-brand/20 text-brand"
-                            : "border-border/60 text-muted-foreground hover:border-border/80"
-                        }`}
-                      >
-                        {muscleGroup}
-                      </button>
-                    ),
-                  )}
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
@@ -2891,15 +2874,11 @@ export default function Goals() {
                 <p className="text-sm font-semibold">Exercícios ({userWorkouts.length})</p>
                 <div className="space-y-2">
                   {userWorkouts
-                    .filter((workout) => {
-                      const matchesSearch = workout.workoutName
+                    .filter((workout) =>
+                      workout.workoutName
                         ?.toLowerCase()
-                        .includes(routineSearchQuery.toLowerCase());
-                      const matchesMuscleGroup =
-                        goalRoutineMuscleGroups.size === 0 ||
-                        goalRoutineMuscleGroups.has(workout.muscle_group || "");
-                      return matchesSearch && matchesMuscleGroup;
-                    })
+                        .includes(routineSearchQuery.toLowerCase())
+                    )
                     .map((workout) => (
                       <button
                         key={workout.id}
@@ -2921,11 +2900,6 @@ export default function Goals() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <span className="text-sm font-medium">{workout.workoutName}</span>
-                            {workout.muscle_group && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {workout.muscle_group}
-                              </p>
-                            )}
                           </div>
                           <div className="shrink-0 mt-0.5">
                             {goalRoutineSelection.has(workout.id) ? (
