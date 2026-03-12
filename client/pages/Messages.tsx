@@ -21,6 +21,14 @@ import { LoadingSpinner } from "@/components/animated-loading";
 
 type ViewMode = "conversations" | "conversation";
 
+type MessageReaction = {
+  emoji: string;
+  count: number;
+  userReacted: boolean;
+};
+
+const EMOJI_OPTIONS = ["❤️", "😂", "😮", "😢", "👍", "🔥"];
+
 export default function Messages() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -37,6 +45,13 @@ export default function Messages() {
   const [followers, setFollowers] = React.useState<SearchUser[]>([]);
   const [searchQuery, setSearchQuery] = React.useState("");
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+
+  // Emoji reaction state: messageId → emoji → reaction info
+  const [reactions, setReactions] = React.useState<
+    Record<string, Record<string, MessageReaction>>
+  >({});
+  const [hoveredMessageId, setHoveredMessageId] = React.useState<string | null>(null);
+  const hoverTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load conversations and following users
   React.useEffect(() => {
@@ -166,6 +181,59 @@ export default function Messages() {
     setSelectedConversation(null);
   }, []);
 
+  const handleReactToMessage = React.useCallback(
+    (messageId: string, emoji: string) => {
+      setReactions((prev) => {
+        const messageReactions = { ...(prev[messageId] || {}) };
+        const existing = messageReactions[emoji];
+        if (existing?.userReacted) {
+          // Remove reaction
+          const newCount = existing.count - 1;
+          if (newCount <= 0) {
+            const updated = { ...messageReactions };
+            delete updated[emoji];
+            return { ...prev, [messageId]: updated };
+          }
+          return {
+            ...prev,
+            [messageId]: {
+              ...messageReactions,
+              [emoji]: { emoji, count: newCount, userReacted: false },
+            },
+          };
+        } else {
+          // Add reaction
+          return {
+            ...prev,
+            [messageId]: {
+              ...messageReactions,
+              [emoji]: {
+                emoji,
+                count: (existing?.count || 0) + 1,
+                userReacted: true,
+              },
+            },
+          };
+        }
+      });
+      setHoveredMessageId(null);
+    },
+    [],
+  );
+
+  const handleMessageHover = React.useCallback((messageId: string | null) => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+    }
+    if (messageId === null) {
+      hoverTimeoutRef.current = setTimeout(() => {
+        setHoveredMessageId(null);
+      }, 300);
+    } else {
+      setHoveredMessageId(messageId);
+    }
+  }, []);
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
@@ -177,9 +245,9 @@ export default function Messages() {
 
   if (viewMode === "conversation" && selectedConversation) {
     return (
-      <div className="w-full h-[calc(100dvh-140px)] flex flex-col overflow-hidden">
+      <div className="fixed inset-0 bg-background flex flex-col z-50">
         {/* Header */}
-        <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3">
+        <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3 pt-safe">
           <button
             onClick={handleBackToConversations}
             className="text-muted-foreground hover:text-foreground flex-shrink-0"
@@ -203,58 +271,115 @@ export default function Messages() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto space-y-4 px-4 py-4">
-          {messages.length > 0 ? (
-            messages.map((message) => {
-              const isOwn = message.id_user === user?.id;
-              return (
-                <div
-                  key={message.id}
-                  className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
-                >
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          <div className="space-y-4">
+            {messages.length > 0 ? (
+              messages.map((message) => {
+                const isOwn = message.id_user === user?.id;
+                const messageReactions = reactions[message.id] || {};
+                const reactionEntries = Object.values(messageReactions);
+                const isHovered = hoveredMessageId === message.id;
+
+                return (
                   <div
-                    className={`max-w-xs px-4 py-2 rounded-lg space-y-1 break-words ${
-                      isOwn
-                        ? "bg-brand text-white rounded-br-none"
-                        : "bg-muted rounded-bl-none"
-                    }`}
+                    key={message.id}
+                    className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}
                   >
-                    <p className="text-sm">{message.text}</p>
-                    <div className="flex items-center justify-between gap-2">
-                      <p
-                        className={`text-xs ${
-                          isOwn ? "text-white/70" : "text-muted-foreground"
+                    <div
+                      className={`relative flex ${isOwn ? "flex-row-reverse" : "flex-row"} items-end gap-1`}
+                      onMouseEnter={() => handleMessageHover(message.id)}
+                      onMouseLeave={() => handleMessageHover(null)}
+                    >
+                      {/* Emoji Picker (appears on hover) */}
+                      {isHovered && (
+                        <div
+                          className={`absolute bottom-full mb-1 ${isOwn ? "right-0" : "left-0"} flex gap-1 bg-background border border-border/60 rounded-full px-2 py-1 shadow-lg z-10`}
+                          onMouseEnter={() => handleMessageHover(message.id)}
+                          onMouseLeave={() => handleMessageHover(null)}
+                        >
+                          {EMOJI_OPTIONS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              onClick={() => handleReactToMessage(message.id, emoji)}
+                              className="text-base hover:scale-125 transition-transform leading-none p-0.5"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <div
+                        className={`max-w-xs px-4 py-2 rounded-lg space-y-1 break-words ${
+                          isOwn
+                            ? "bg-brand text-white rounded-br-none"
+                            : "bg-muted rounded-bl-none"
                         }`}
                       >
-                        {new Date(message.created_at).toLocaleTimeString(
-                          "pt-BR",
-                          { hour: "2-digit", minute: "2-digit" },
-                        )}
-                      </p>
-                      {isOwn && (
-                        <span className="text-white/70 flex-shrink-0">
-                          {message.read === 1 ? (
-                            <CheckCheck className="h-4 w-4" />
-                          ) : (
-                            <Check className="h-4 w-4" />
+                        <p className="text-sm">{message.text}</p>
+                        <div className="flex items-center justify-between gap-2">
+                          <p
+                            className={`text-xs ${
+                              isOwn ? "text-white/70" : "text-muted-foreground"
+                            }`}
+                          >
+                            {new Date(message.created_at).toLocaleTimeString(
+                              "pt-BR",
+                              { hour: "2-digit", minute: "2-digit" },
+                            )}
+                          </p>
+                          {isOwn && (
+                            <span className="text-white/70 flex-shrink-0">
+                              {message.read === 1 ? (
+                                <CheckCheck className="h-4 w-4" />
+                              ) : (
+                                <Check className="h-4 w-4" />
+                              )}
+                            </span>
                           )}
-                        </span>
-                      )}
+                        </div>
+                      </div>
                     </div>
+
+                    {/* Reaction display */}
+                    {reactionEntries.length > 0 && (
+                      <div
+                        className={`flex gap-1 mt-1 flex-wrap ${isOwn ? "justify-end" : "justify-start"}`}
+                      >
+                        {reactionEntries.map((r) => (
+                          <button
+                            key={r.emoji}
+                            onClick={() =>
+                              handleReactToMessage(message.id, r.emoji)
+                            }
+                            className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${
+                              r.userReacted
+                                ? "bg-brand/10 border-brand/30 text-brand"
+                                : "bg-muted/50 border-border/40"
+                            }`}
+                          >
+                            <span>{r.emoji}</span>
+                            {r.count > 1 && (
+                              <span className="font-medium">{r.count}</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              );
-            })
-          ) : (
-            <div className="text-center text-muted-foreground text-sm">
-              Sem mensagens ainda. Inicie uma conversa!
-            </div>
-          )}
-          <div ref={messagesEndRef} />
+                );
+              })
+            ) : (
+              <div className="text-center text-muted-foreground text-sm">
+                Sem mensagens ainda. Inicie uma conversa!
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
         {/* Input */}
-        <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2">
+        <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2 pb-safe">
           <Input
             placeholder="Envie uma mensagem..."
             value={messageText}

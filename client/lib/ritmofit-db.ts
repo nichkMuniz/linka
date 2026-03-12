@@ -1124,10 +1124,10 @@ export async function getUserExerciseRoutinesDb(userId: string): Promise<Exercis
   if (!hasSupabaseConfig || !supabase) return [];
 
   try {
-    // Get user routines of type 1 (Exercicios)
+    // Get user routines of type 1 (Exercicios) directly
     const { data: routines, error: routinesError } = await supabase
       .from("routines")
-      .select("id, user_id, type")
+      .select("id, user_id, type, name")
       .eq("user_id", userId)
       .eq("type", 1)
       .order("created_at", { ascending: false });
@@ -1141,26 +1141,16 @@ export async function getUserExerciseRoutinesDb(userId: string): Promise<Exercis
 
     if (!routines || routines.length === 0) return [];
 
-    // Get user workouts for these routines
-    try {
-      const { data: userWorkouts } = await supabase
-        .from("user_workouts")
-        .select("id, user_id, workout_id, workouts(id, name, photo)")
-        .eq("user_id", userId);
-
-      if (!userWorkouts) return [];
-
-      return userWorkouts.map((uw: any) => ({
-        id: String(uw.id ?? ""),
-        routineId: String(uw.id ?? ""),
-        userId: String(uw.user_id ?? ""),
-        exerciseName: (uw.workouts as any)?.name || "Exercício desconhecido",
-        exercisePhoto: (uw.workouts as any)?.photo || null,
-      }));
-    } catch (workoutErr: any) {
-      console.error("Error fetching user workouts:", workoutErr);
-      return [];
-    }
+    // Map each routine to an ExerciseRoutine entry
+    return routines.map((routine: any, index: number) => ({
+      id: String(routine.id ?? ""),
+      routineId: String(routine.id ?? ""),
+      userId: String(routine.user_id ?? ""),
+      exerciseName: routine.name
+        ? String(routine.name)
+        : `Rotina de Exercícios ${routines.length > 1 ? index + 1 : ""}`.trim(),
+      exercisePhoto: null,
+    }));
   } catch (err: any) {
     const errorMsg = err?.message || String(err);
     console.error(`Unexpected error fetching exercise routines:`, errorMsg);

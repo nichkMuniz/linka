@@ -104,6 +104,8 @@ import {
   Bell,
   Globe,
   BarChart3,
+  Grid3X3,
+  Film,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
@@ -2049,10 +2051,15 @@ export default function Profile() {
 
       {/* Posts, Reels and Routines Tabs */}
       <Tabs defaultValue="posts" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="posts">Posts ({stats.postsCount})</TabsTrigger>
-          <TabsTrigger value="reels">Shots ({reels.length})</TabsTrigger>
-          <TabsTrigger value="routines">Rotinas ({routines.length})</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="posts" className="flex items-center gap-1.5">
+            <Grid3X3 className="h-4 w-4" />
+            Posts ({stats.postsCount})
+          </TabsTrigger>
+          <TabsTrigger value="reels" className="flex items-center gap-1.5">
+            <Film className="h-4 w-4" />
+            Shots ({reels.length})
+          </TabsTrigger>
         </TabsList>
 
         {/* Posts Tab */}
@@ -2135,8 +2142,8 @@ export default function Profile() {
           )}
         </TabsContent>
 
-        {/* Routines Tab */}
-        <TabsContent value="routines" className="space-y-4 fade-in">
+        {/* Routines Tab - removed */}
+        {false && <TabsContent value="routines_disabled" className="space-y-4 fade-in">
           <Drawer
             open={isCreateRoutineOpen}
             onOpenChange={(open) => {
@@ -2880,7 +2887,7 @@ export default function Profile() {
               </Button>
             </div>
           )}
-        </TabsContent>
+        </TabsContent>}
       </Tabs>
 
       {/* Post Viewer Drawer */}

@@ -298,7 +298,7 @@ export default function Community() {
 
   if (activeTab === "messages" && viewMode === "conversation" && selectedConversation) {
     return (
-      <div className="w-full h-[calc(100dvh-140px)] flex flex-col overflow-hidden">
+      <div className="fixed inset-0 bg-background flex flex-col z-50">
         {/* Header */}
         <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3">
           <button
@@ -581,10 +581,21 @@ export default function Community() {
           <div className="flex-1 overflow-y-auto">
             <div className="pb-32">
               {/* Hero Banner Section */}
-              <div className="bg-gradient-to-br from-brand/20 via-brand/10 to-background relative h-40 flex items-center justify-center border-b border-border/40">
-                <div className="text-center">
-                  <div className="text-6xl mb-2">{selectedGroupForView.icon}</div>
-                  <h1 className="text-2xl font-bold">{selectedGroupForView.name}</h1>
+              <div className="relative h-48 flex items-end border-b border-border/40 overflow-hidden">
+                {selectedGroupForView.photo ? (
+                  <img
+                    src={selectedGroupForView.photo}
+                    alt={selectedGroupForView.name}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="absolute inset-0 bg-gradient-to-br from-brand/20 via-brand/10 to-background" />
+                )}
+                <div className="relative z-10 w-full px-4 pb-4 bg-gradient-to-t from-black/60 to-transparent">
+                  {!selectedGroupForView.photo && (
+                    <div className="text-5xl mb-2">{selectedGroupForView.icon}</div>
+                  )}
+                  <h1 className="text-2xl font-bold text-white drop-shadow">{selectedGroupForView.name}</h1>
                 </div>
               </div>
 
@@ -1297,6 +1308,7 @@ export default function Community() {
                         const newGroup = {
                           ...savedGroup,
                           icon: "⚔️",
+                          photo: groupConfig.photo || null,
                           description: groupConfig.goal,
                           participants: selectedInvitees.size + 1,
                           city: groupConfig.location,
@@ -1316,9 +1328,16 @@ export default function Community() {
                         setGroupPhotoFile(null);
                         setSelectedInvitees(new Set());
                         setGroupStep("config");
+
+                        // Navigate directly to the new group detail view
+                        setSelectedGroupForView(newGroup);
+                        setActiveGroupViewTab("check-ins");
+                        setGroupCheckIns([]);
+                        setGroupParticipants([]);
+
                         toast({
                           title: "Grupo criado!",
-                          description: `"${groupConfig.name}" foi criado com sucesso.`,
+                          description: `"${newGroup.name}" foi criado com sucesso.`,
                         });
                       } catch (err: any) {
                         const errorMessage = err?.message || (typeof err === 'string' ? err : JSON.stringify(err)) || "Tente novamente";
