@@ -217,6 +217,21 @@ export default function Goals() {
   const [completedDietIds, setCompletedDietIds] = React.useState<Set<string>>(new Set());
   const [completedHabitIds, setCompletedHabitIds] = React.useState<Set<string>>(new Set());
 
+  // Collapsed section state for Rotinas tab (stores type codes of collapsed sections)
+  const [collapsedSections, setCollapsedSections] = React.useState<Set<number>>(new Set());
+
+  const handleToggleSection = React.useCallback((sType: number) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(sType)) {
+        next.delete(sType);
+      } else {
+        next.add(sType);
+      }
+      return next;
+    });
+  }, []);
+
   const REST_TIME_OPTIONS = [10, 20, 30, 40, 50, 60, 90, 120]; // in seconds
 
   // General state
@@ -1004,10 +1019,8 @@ export default function Goals() {
     try {
       const itemIds = Array.from(selectedItems);
 
-      // Create a routine record if a name is provided
-      if (routineName.trim()) {
-        await createRoutineDb(user.id, selectedRoutineType, routineName.trim());
-      }
+      // Always create a routine record so items appear in the routines tab
+      await createRoutineDb(user.id, selectedRoutineType, routineName.trim() || undefined);
 
       if (selectedRoutineType === 1) {
         // Save workouts
@@ -1316,7 +1329,7 @@ export default function Goals() {
         </TabsContent>
 
         {/* Rotinas Tab */}
-        <TabsContent value="rotinas" className="space-y-4 fade-in px-2">
+        <TabsContent value="rotinas" className="space-y-4 fade-in px-2 overflow-x-hidden">
           {/* Daily Check-in Block */}
           <Card className={`border-2 ${
             dailyCheckInDone
@@ -1377,73 +1390,53 @@ export default function Goals() {
             </CardContent>
           </Card>
 
-          {routines.length > 0 ? (
+          {(userWorkouts.length > 0 || userDiets.length > 0 || userHabits.length > 0) ? (
             <div className="space-y-4">
-              {/* Render named routines first, then group unnamed by type */}
+              {/* Group items by name directly from user items (no dependency on routines table) */}
               {(() => {
                 const cards: any[] = [];
 
-                // First, render routines with names
-                const namedRoutines = routines.filter((r) => r.name);
-                namedRoutines.forEach((routine) => {
-                  const typeCode = routine.type;
-                  const itemsForType =
-                    typeCode === 1
-                      ? userWorkouts
-                      : typeCode === 2
-                        ? userDiets
-                        : userHabits;
+                // Helper: group items of a type by name
+                const groupItemsByName = (items: any[], typeCode: number, defaultLabel: string) => {
+                  const namedGroups = new Map<string, any[]>();
+                  const unnamedItems: any[] = [];
 
-                  const itemsForRoutine = itemsForType.filter(
-                    (item: any) => item.name === routine.name
-                  );
+                  items.forEach((item) => {
+                    if (item.name) {
+                      const existing = namedGroups.get(item.name) || [];
+                      existing.push(item);
+                      namedGroups.set(item.name, existing);
+                    } else {
+                      unnamedItems.push(item);
+                    }
+                  });
 
-                  if (itemsForRoutine.length > 0) {
+                  // Named groups (each distinct name = one card)
+                  namedGroups.forEach((groupItems, name) => {
                     cards.push({
-                      key: `routine-${routine.id}`,
+                      key: `named-${typeCode}-${name}`,
                       typeCode,
-                      displayLabel: routine.name,
-                      itemsForRoutine,
+                      displayLabel: name,
+                      itemsForRoutine: groupItems,
                       isNamed: true,
                     });
-                  }
-                });
+                  });
 
-                // Then, render unnamed routines grouped by type
-                [1, 2, 3].forEach((typeCode) => {
-                  const unnamedRoutinesOfType = routines.filter(
-                    (r) => r.type === typeCode && !r.name
-                  );
-                  if (unnamedRoutinesOfType.length === 0) return;
-
-                  const typeLabel =
-                    typeCode === 1
-                      ? "Exercícios"
-                      : typeCode === 2
-                        ? "Dietas"
-                        : "Hábitos";
-
-                  const itemsForType =
-                    typeCode === 1
-                      ? userWorkouts
-                      : typeCode === 2
-                        ? userDiets
-                        : userHabits;
-
-                  const itemsForRoutine = itemsForType.filter(
-                    (item: any) => !item.name
-                  );
-
-                  if (itemsForRoutine.length > 0) {
+                  // Unnamed items grouped into one card
+                  if (unnamedItems.length > 0) {
                     cards.push({
-                      key: `type-${typeCode}`,
+                      key: `unnamed-${typeCode}`,
                       typeCode,
-                      displayLabel: typeLabel,
-                      itemsForRoutine,
+                      displayLabel: defaultLabel,
+                      itemsForRoutine: unnamedItems,
                       isNamed: false,
                     });
                   }
-                });
+                };
+
+                groupItemsByName(userWorkouts, 1, "Exercícios");
+                groupItemsByName(userDiets, 2, "Dietas");
+                groupItemsByName(userHabits, 3, "Hábitos");
 
                 // Group cards by section (type)
                 const sectionConfigs = [
@@ -1456,11 +1449,24 @@ export default function Goals() {
                   const sectionCards = cards.filter((c) => c.typeCode === sType);
                   if (sectionCards.length === 0) return [];
 
+                  const isCollapsed = collapsedSections.has(sType);
+
                   const sectionHeader = (
-                    <h3 key={`section-header-${sType}`} className={`text-xs font-semibold uppercase tracking-wider px-1 pt-2 ${sColor}`}>
-                      {sLabel}
-                    </h3>
+                    <button
+                      key={`section-header-${sType}`}
+                      onClick={() => handleToggleSection(sType)}
+                      className={`w-full flex items-center justify-between px-1 pt-2 pb-0.5 ${sColor} group`}
+                    >
+                      <span className="text-xs font-semibold uppercase tracking-wider">{sLabel}</span>
+                      <ChevronDown
+                        className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                          isCollapsed ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
                   );
+
+                  if (isCollapsed) return [sectionHeader];
 
                   const cardElements = sectionCards.map((card) => {
                   const { key, typeCode, displayLabel, itemsForRoutine, isNamed } = card;
@@ -1469,19 +1475,19 @@ export default function Goals() {
                   return (
                     <Card
                       key={key}
-                      className="border-border/60 overflow-hidden"
+                      className="border-border/60 overflow-hidden min-w-0"
                     >
-                      <div className="w-full p-3 flex items-center justify-between hover:bg-muted/30 transition-colors text-left">
+                      <div className="w-full p-3 flex items-center justify-between hover:bg-muted/30 transition-colors text-left min-w-0">
                         <button
                           onClick={() =>
                             setExpandedRoutineId(
                               isExpanded ? null : key,
                             )
                           }
-                        className="flex-1 flex items-center justify-between"
+                        className="flex-1 flex items-center justify-between min-w-0"
                       >
-                          <div className="flex flex-col justify-center items-center flex-1">
-                            <p className="text-sm font-medium">{displayLabel}</p>
+                          <div className="flex flex-col justify-center items-center flex-1 min-w-0 px-1">
+                            <p className="text-sm font-medium truncate w-full text-center">{displayLabel}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">
                               {itemsForRoutine.length > 0
                                 ? `${itemsForRoutine.length} item(ns)`
@@ -1502,18 +1508,22 @@ export default function Goals() {
                               <MoreVertical className="h-4 w-4 text-muted-foreground" />
                             </button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuContent align="end" className="w-44">
                             <DropdownMenuItem
                               onClick={() => {
                                 setAddRoutineModalOpen(true);
-                                setSelectedRoutineType(1); // 1 = Exercises
+                                setSelectedRoutineType(typeCode);
                                 setSelectedItems(new Set());
                                 setSearchQuery("");
                                 setSelectedMuscleGroups(new Set());
                               }}
                             >
                               <Plus className="h-4 w-4 mr-2" />
-                              Adicionar exercícios
+                              {typeCode === 1
+                                ? "Adicionar exercícios"
+                                : typeCode === 2
+                                  ? "Adicionar dietas"
+                                  : "Adicionar hábito"}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => handleDeleteRoutineType(typeCode)}
