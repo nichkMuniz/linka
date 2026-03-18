@@ -487,7 +487,7 @@ export default function Profile() {
   const loadFollowersData = React.useCallback(async () => {
     setIsLoadingFollowers(true);
     try {
-      const data = await getFollowersDb();
+      const data = await getFollowersDb(profileUserId);
       setFollowers(data);
 
       // Load follow status for each follower
@@ -511,7 +511,7 @@ export default function Profile() {
     } finally {
       setIsLoadingFollowers(false);
     }
-  }, []);
+  }, [profileUserId]);
 
   const loadFollowingData = React.useCallback(async () => {
     setIsLoadingFollowers(true);
@@ -2036,7 +2036,7 @@ export default function Profile() {
 
               {/* Message Button */}
               <Button
-                onClick={() => navigate(`/comunidade?user=${profileUserId}`)}
+                onClick={() => navigate("/comunidade")}
                 variant="outline"
                 size="sm"
                 className="rounded-full gap-2"
@@ -3098,24 +3098,26 @@ export default function Profile() {
                       <p className="font-medium truncate">{follower.nickname}</p>
                     </div>
                   </button>
-                  <Button
-                    onClick={(e) => handleToggleFollowInModal(follower.id, e)}
-                    disabled={isTogglingFollow[follower.id] || false}
-                    variant={followerFollowStatus[follower.id] ? "outline" : "default"}
-                    size="sm"
-                    className="flex-shrink-0"
-                  >
-                    {isTogglingFollow[follower.id] ? (
-                      "..."
-                    ) : followerFollowStatus[follower.id] ? (
-                      <>
-                        <Check className="h-4 w-4 mr-1" />
-                        Seguindo
-                      </>
-                    ) : (
-                      "Seguir"
-                    )}
-                  </Button>
+                  {follower.id !== user?.id && (
+                    <Button
+                      onClick={(e) => handleToggleFollowInModal(follower.id, e)}
+                      disabled={isTogglingFollow[follower.id] || false}
+                      variant={followerFollowStatus[follower.id] ? "outline" : "default"}
+                      size="sm"
+                      className="flex-shrink-0"
+                    >
+                      {isTogglingFollow[follower.id] ? (
+                        "..."
+                      ) : followerFollowStatus[follower.id] ? (
+                        <>
+                          <Check className="h-4 w-4 mr-1" />
+                          Seguindo
+                        </>
+                      ) : (
+                        "Seguir"
+                      )}
+                    </Button>
+                  )}
                 </div>
               ))
             ) : (

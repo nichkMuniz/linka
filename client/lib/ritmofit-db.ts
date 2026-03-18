@@ -133,14 +133,19 @@ export async function togglePostIncentiveDb(
 
   if (existing?.id) {
     // Remove the like
-    await supabase.from("likes").delete().eq("id", existing.id);
+    const { error: deleteError } = await supabase
+      .from("likes")
+      .delete()
+      .eq("id", existing.id);
+    if (deleteError) throw deleteError;
   } else {
     // Add the like
-    await supabase.from("likes").insert({
+    const { error: insertError } = await supabase.from("likes").insert({
       post_id: postId,
       user_id: viewer.id,
       type: incentiveType,
     });
+    if (insertError) throw insertError;
 
     // Award 1 point for interacting with a post
     await addPointsDb(1);
@@ -226,16 +231,13 @@ export async function getPostLikeUsersDb(postId: string): Promise<Array<{
     const result = likesData
       .map((like: any) => {
         const profile = profileMap.get(like.user_id);
-        if (!profile) return null;
-
         return {
           userId: like.user_id,
-          userNickname: profile.nickname,
-          userPhoto: profile.photo,
+          userNickname: profile?.nickname ?? "Usuário",
+          userPhoto: profile?.photo ?? null,
           type: like.type,
         };
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== null);
+      });
 
     return result;
   } catch (err: any) {
@@ -260,14 +262,9 @@ export async function addPostCommentDb(postId: string, text: string) {
   const viewer = await getViewer();
   if (!viewer) return;
 
-  const profile = await ensureProfile();
-  const userName = profile?.nickname ?? "Você";
-  const userHandle = profile?.handle ?? "@voce";
-
   const { error } = await supabase.from("comments").insert({
     post_id: postId,
     user_id: viewer.id,
-    user_handle: userHandle,
     text: text.trim(),
   });
 
@@ -296,13 +293,27 @@ export async function getPostCommentsDb(
     return [];
   }
 
-  return (data ?? []).map(
+  const rows = data ?? [];
+  if (rows.length === 0) return [];
+
+  // Batch-fetch nicknames from profiles for all comment authors
+  const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("user_id, nickname")
+    .in("user_id", userIds);
+
+  const profileMap = new Map(
+    (profiles ?? []).map((p: any) => [String(p.user_id), String(p.nickname ?? "Usuário")]),
+  );
+
+  return rows.map(
     (row: any) =>
       ({
         id: String(row.id),
         postId: String(row.post_id),
         userId: String(row.user_id),
-        userName: String(row.user_name ?? "Usuário"),
+        userName: profileMap.get(String(row.user_id)) ?? String(row.user_name ?? "Usuário"),
         userHandle: String(row.user_handle ?? "@user"),
         text: String(row.text ?? ""),
         createdAt: String(row.created_at ?? new Date().toISOString()),
@@ -409,7 +420,7 @@ export async function updateUserGoalDb(
   updates: {
     duration?: number;
     quantity?: number;
-    actual_progress?: number;
+    days_completed?: number;
     perc?: number;
   },
 ) {
@@ -420,8 +431,10 @@ export async function updateUserGoalDb(
   // Copy duration and quantity as-is
   if (updates.duration !== undefined) updateData.duration = updates.duration;
   if (updates.quantity !== undefined) updateData.quantity = updates.quantity;
+  if (updates.days_completed !== undefined)
+    updateData.days_completed = updates.days_completed;
 
-  // For perc: use provided value, or calculate from actual_progress if available
+  // For perc: use provided value, or calculate from days_completed if available
   if (updates.perc !== undefined) {
     updateData.perc = Math.round(updates.perc);
   }
@@ -465,7 +478,7 @@ export type UserGoal = {
   quantity: number;
   type_goal: number;
   perc: number;
-  actual_progress: number;
+  days_completed: number;
 };
 
 export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
@@ -493,6 +506,8 @@ export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
     duration: Number(data.duration ?? 0),
     quantity: Number(data.quantity ?? 0),
     type_goal: Number(data.type ?? 0),
+    perc: 0,
+    days_completed: 0,
   };
 }
 
@@ -537,7 +552,7 @@ export async function getUserGoalsByUserIdDb(
     (row: any) => {
       const quantity = Number(row.quantity ?? 0);
       const perc = Number(row.perc ?? 0);
-      const actual_progress = Math.round((perc / 100) * quantity);
+      const days_completed = Math.round((perc / 100) * quantity);
 
       return {
         id: String(row.id),
@@ -547,7 +562,7 @@ export async function getUserGoalsByUserIdDb(
         quantity,
         type_goal: Number(row.type_goal ?? 0),
         perc,
-        actual_progress,
+        days_completed,
       } satisfies UserGoal;
     },
   );
@@ -591,7 +606,7 @@ export async function getUserGoalByIdDb(
 
   const quantity = Number(data.quantity ?? 0);
   const perc = Number(data.perc ?? 0);
-  const actual_progress = Math.round((perc / 100) * quantity);
+  const days_completed = Math.round((perc / 100) * quantity);
 
   return {
     id: String(data.id),
@@ -601,7 +616,7 @@ export async function getUserGoalByIdDb(
     quantity,
     type_goal: Number(data.type_goal ?? 0),
     perc,
-    actual_progress,
+    days_completed,
   };
 }
 
@@ -662,6 +677,7 @@ export async function incrementGoalProgressDb(
     quantity: Number(data.quantity ?? 0),
     type_goal: Number(data.type_goal ?? 0),
     perc: Number(data.perc ?? Math.round(perc)),
+    days_completed: 0,
   };
 }
 
@@ -805,7 +821,7 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
 
   const { data, error } = await supabase
     .from("workouts")
-    .select("id, name, description, photo")
+    .select("id, name, description, photo, muscle_group")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -820,6 +836,7 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
     photo: row.photo ? String(row.photo) : null,
+    muscle_group: row.muscle_group ? String(row.muscle_group) : null,
   }));
 }
 
@@ -905,6 +922,7 @@ export type Workout = {
   name: string;
   description: string;
   photo: string | null;
+  muscle_group?: string | null;
 };
 
 export type Diet = {
@@ -2647,18 +2665,20 @@ export async function getUnreadMessageCountDb(): Promise<number> {
   }
 }
 
-export async function getFollowersDb(): Promise<SearchUser[]> {
+export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   const viewer = await getViewer();
   if (!viewer) return [];
 
+  const targetUserId = userId ?? viewer.id;
+
   try {
-    // Get all followers of the current user
+    // Get all followers of the target user
     const { data, error } = await supabase
       .from("following")
       .select("user_id")
-      .eq("following_id", viewer.id)
+      .eq("following_id", targetUserId)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -3590,20 +3610,27 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     const incentiveNotifications = notificationsData.filter((n: any) => n.type === 2);
 
     // Fetch follower profiles, post photos, and like data in parallel
-    const requests = [
+    const [profilesResult, postsResult] = await Promise.all([
       supabase
         .from("profiles")
         .select("user_id, nickname, photo")
         .in("user_id", followerIds),
       postIds.length > 0
         ? supabase
-            .from("posts")
-            .select("id, photo")
-            .in("id", postIds)
-        : Promise.resolve({ data: [] }),
-    ];
+          .from("posts")
+          .select("id, photo")
+          .in("id", postIds)
+        : Promise.resolve({ data: [] as any[] }),
+    ]);
+
+    const { data: profiles } = profilesResult as any;
+    const { data: posts } = postsResult as any;
+
+    const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
+    const postMap = new Map((posts ?? []).map((p: any) => [p.id, p]));
 
     // Fetch like types for incentive notifications
+    let likesMap = new Map<string, any>();
     if (incentiveNotifications.length > 0) {
       const likeQueries = incentiveNotifications.map((notif: any) =>
         supabase
@@ -3613,24 +3640,16 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           .eq("user_id", notif.follower_id)
           .maybeSingle()
       );
-      requests.push(Promise.all(likeQueries));
+      const likesResults = await Promise.all(likeQueries);
+      likesMap = new Map(
+        likesResults
+          .map((r: any, idx: number) => [
+            incentiveNotifications[idx]?.follower_id,
+            r.data?.type,
+          ])
+          .filter(([_, type]: any) => type !== undefined)
+      );
     }
-
-    const results = await Promise.all(requests);
-    const { data: profiles } = results[0] as any;
-    const { data: posts } = results[1] as any;
-    const likesResults = results[2] as any;
-
-    const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
-    const postMap = new Map((posts ?? []).map((p: any) => [p.id, p]));
-    const likesMap = new Map(
-      likesResults
-        ?.map((r: any, idx: number) => [
-          incentiveNotifications[idx]?.follower_id,
-          r.data?.type,
-        ])
-        .filter(([_, type]: any) => type !== undefined) || []
-    );
 
     // Transform notifications table records to NotificationItem format
     const notifications: NotificationItem[] = notificationsData

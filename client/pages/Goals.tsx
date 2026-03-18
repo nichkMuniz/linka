@@ -31,6 +31,7 @@ import {
   saveHabitHistoryDb,
   updateRoutineGoalDb,
   hasCompletedRoutineToday,
+  getRoutineTypeName,
   type ProgrammedGoal,
   type Workout,
   type Diet,
@@ -187,6 +188,29 @@ export default function Goals() {
   const [weekCheckIns, setWeekCheckIns] = React.useState<Set<number>>(new Set()); // 0=dom, 1=seg, etc
   const [routineCompletedTodayStatus, setRoutineCompletedTodayStatus] = React.useState(false);
   const [badgesModalOpen, setBadgesModalOpen] = React.useState(false);
+  const [hasNewBadge, setHasNewBadge] = React.useState(false);
+  const lastSeenBadgeCountRef = React.useRef<number | null>(null);
+
+  const getBadgeCount = (size: number) =>
+    [1, 3, 5, 7].filter((t) => size >= t).length;
+
+  React.useEffect(() => {
+    if (!user) return;
+    const storageKey = `ritmofit_badges_seen_${user.id}`;
+    const currentBadgeCount = getBadgeCount(weekCheckIns.size);
+
+    if (lastSeenBadgeCountRef.current === null) {
+      const stored = localStorage.getItem(storageKey);
+      const storedCount = stored ? parseInt(stored, 10) : 0;
+      lastSeenBadgeCountRef.current = currentBadgeCount;
+      if (currentBadgeCount > storedCount) {
+        setHasNewBadge(true);
+      }
+    } else if (currentBadgeCount > lastSeenBadgeCountRef.current) {
+      setHasNewBadge(true);
+      lastSeenBadgeCountRef.current = currentBadgeCount;
+    }
+  }, [weekCheckIns.size, user?.id]);
 
   // Available goals accordion state
   const [availableGoalsOpen, setAvailableGoalsOpen] = React.useState(false);
@@ -206,12 +230,15 @@ export default function Goals() {
 
   // Routine selection for goal card state
   const [goalRoutineModalOpen, setGoalRoutineModalOpen] = React.useState(false);
+  const [goalRoutineModalMode, setGoalRoutineModalMode] = React.useState<"link" | "view">("link");
   const [selectedGoalForRoutines, setSelectedGoalForRoutines] = React.useState<any>(null);
   const [goalRoutineSelection, setGoalRoutineSelection] = React.useState<Set<string>>(new Set());
   const [routineSearchQuery, setRoutineSearchQuery] = React.useState("");
   const [goalRoutineMuscleGroups, setGoalRoutineMuscleGroups] = React.useState<
     Set<string>
   >(new Set());
+  const [openRoutineTypes, setOpenRoutineTypes] = React.useState<Set<number>>(new Set());
+  const [openRoutineItems, setOpenRoutineItems] = React.useState<Set<string>>(new Set());
 
   // Completion tracking for Rotinas tab items
   const [completedDietIds, setCompletedDietIds] = React.useState<Set<string>>(new Set());
@@ -295,7 +322,7 @@ export default function Goals() {
             getUserWorkoutsDb(user.id),
             getUserDietsDb(user.id),
             getUserHabitsDb(user.id),
-            getUserGoalsDb(user.id),
+            getUserGoalsDb(),
           ]);
           setRoutines(routinesData);
           setUserWorkouts(userWorkoutsData);
@@ -303,7 +330,7 @@ export default function Goals() {
           setUserHabits(userHabitsData);
           setUserGoals(userGoalsData);
 
-          }
+        }
       } catch (err: any) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         console.error("Erro ao carregar dados:", errorMessage);
@@ -457,8 +484,11 @@ export default function Goals() {
     setSelectedMuscleGroups(new Set());
   };
 
+  const [isAddingFromWorkout, setIsAddingFromWorkout] = React.useState(false);
+
   const handleAddExerciseFromWorkout = () => {
     // When called from workout modal, automatically select exercises type and pre-check existing items
+    setIsAddingFromWorkout(true);
     setAddRoutineModalOpen(true);
     setSelectedRoutineType(1); // 1 = Exercises
     const existingWorkoutIds = new Set(userWorkouts.map((w) => w.workout_id));
@@ -640,21 +670,21 @@ export default function Goals() {
         setWeekCheckIns(newWeekCheckIns);
 
         // Update goal progress - increment by 1 and recalculate percentage
-        const newProgress = goal.actual_progress + 1;
+        const newProgress = goal.days_completed + 1;
         const newPercentage = Math.min(100, (newProgress / goal.quantity) * 100);
 
         await updateUserGoalDb(goal.id, {
-          actual_progress: newProgress,
+          days_completed: newProgress,
           perc: newPercentage,
         });
 
         // Refresh user goals
-        const updatedGoals = await getUserGoalsDb(user.id);
+        const updatedGoals = await getUserGoalsDb();
         setUserGoals(updatedGoals);
 
         toast({
           title: "Check-in realizado!",
-          description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${goal.nameGoal}".`,
+          description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${goal.description}".`,
         });
       } catch (err: any) {
         const errorMsg = err?.message || "Tente novamente.";
@@ -717,21 +747,21 @@ export default function Goals() {
       setWeekCheckIns(newWeekCheckIns);
 
       // Update goal progress - increment by 1 and recalculate percentage
-      const newProgress = selectedCheckInGoal.actual_progress + 1;
+      const newProgress = selectedCheckInGoal.days_completed + 1;
       const newPercentage = Math.min(100, (newProgress / selectedCheckInGoal.quantity) * 100);
 
       await updateUserGoalDb(selectedCheckInGoal.id, {
-        actual_progress: newProgress,
+        days_completed: newProgress,
         perc: newPercentage,
       });
 
       // Refresh user goals
-      const updatedGoals = await getUserGoalsDb(user.id);
+      const updatedGoals = await getUserGoalsDb();
       setUserGoals(updatedGoals);
 
       toast({
         title: "Check-in realizado!",
-        description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${selectedCheckInGoal.nameGoal}".`,
+        description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${selectedCheckInGoal.description}".`,
       });
     } catch (err: any) {
       const errorMsg = err?.message || "Tente novamente.";
@@ -802,7 +832,6 @@ export default function Goals() {
           kg: 0,
           reps: 0,
           completed: false,
-          time_rest: 30,
         },
       ],
     });
@@ -935,6 +964,23 @@ export default function Goals() {
     setFinishWorkoutConfirmOpen(true);
   };
 
+  const performAutoCheckIn = async () => {
+    if (!user || dailyCheckInDone) return;
+    try {
+      await createCheckInDb(user.id);
+      setDailyCheckInDone(true);
+      setRoutineCompletedTodayStatus(true);
+      const dayOfWeek = new Date().getDay();
+      setWeekCheckIns((prev) => new Set(prev).add(dayOfWeek));
+      toast({
+        title: "Check-in automático realizado! ✓",
+        description: "Sua rotina foi concluída e o check-in do dia foi registrado.",
+      });
+    } catch (err) {
+      console.error("Auto check-in failed:", err);
+    }
+  };
+
   const handleConfirmFinishWorkout = async () => {
     if (!user) return;
 
@@ -1013,6 +1059,8 @@ export default function Goals() {
       setUserWorkouts(userWorkoutsData);
       setUserDiets(userDietsData);
       setUserHabits(userHabitsData);
+
+      await performAutoCheckIn();
     } catch (err: any) {
       console.error("Error finishing workout:", err);
       toast({
@@ -1071,7 +1119,7 @@ export default function Goals() {
       const itemIds = Array.from(selectedItems);
 
       // Always create a routine record so items appear in the routines tab
-      await createRoutineDb(user.id, selectedRoutineType, routineName.trim() || undefined);
+      await createRoutineDb(user.id, selectedRoutineType as RoutineTypeCode, routineName.trim() || undefined);
 
       if (selectedRoutineType === 1) {
         // Save workouts
@@ -1164,15 +1212,32 @@ export default function Goals() {
         </div>
 
         {/* Badges Icon */}
-        <Button
-          onClick={() => setBadgesModalOpen(true)}
-          variant="outline"
-          size="icon"
-          className="rounded-full"
-          title="Ver insignias"
-        >
-          <span className="text-lg">🏆</span>
-        </Button>
+        <div className="relative">
+          <Button
+            onClick={() => {
+              setBadgesModalOpen(true);
+              setHasNewBadge(false);
+              if (user) {
+                localStorage.setItem(
+                  `ritmofit_badges_seen_${user.id}`,
+                  String(getBadgeCount(weekCheckIns.size)),
+                );
+              }
+            }}
+            variant="outline"
+            size="icon"
+            className={`rounded-full transition-all ${hasNewBadge ? "animate-pulse border-yellow-500 shadow-md shadow-yellow-500/30" : ""}`}
+            title="Ver insignias"
+          >
+            <span className="text-lg">🏆</span>
+          </Button>
+          {hasNewBadge && (
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+            </span>
+          )}
+        </div>
       </div>
 
       <Tabs defaultValue="rotinas" className="w-full">
@@ -1246,6 +1311,9 @@ export default function Goals() {
                                   const linkedRoutines = routines.filter(
                                     (r) => r.goal_id && String(r.goal_id) === String(goal.id)
                                   );
+                                  const linkedGroupCount = new Set(
+                                    linkedRoutines.map((r) => `${r.type}::${r.name || r.type}`)
+                                  ).size;
                                   return (
                                     <Button
                                       type="button"
@@ -1253,13 +1321,17 @@ export default function Goals() {
                                       variant="outline"
                                       className="flex-1 rounded-full text-xs h-8"
                                       onClick={() => {
+                                        const mode = linkedRoutines.length > 0 ? "view" : "link";
+                                        setGoalRoutineModalMode(mode);
                                         setGoalRoutineModalOpen(true);
                                         setSelectedGoalForRoutines(goal);
                                         setGoalRoutineSelection(new Set());
+                                        setOpenRoutineTypes(new Set());
+                                        setOpenRoutineItems(new Set());
                                       }}
                                     >
-                                      {linkedRoutines.length > 0
-                                        ? `Ver Rotinas (${linkedRoutines.length})`
+                                      {linkedGroupCount > 0
+                                        ? `Ver Rotinas (${linkedGroupCount})`
                                         : "Vincular Rotina"}
                                     </Button>
                                   );
@@ -1273,11 +1345,12 @@ export default function Goals() {
                                     setEditingGoal({
                                       id: userGoal?.id || goal.id,
                                       goal_id: goal.id,
-                                      user_id: user?.id || "",
                                       description: goal.description,
                                       duration: duration,
                                       quantity: quantity,
-                                      type: goal.type,
+                                      type_goal: goal.type ?? 0,
+                                      perc: userGoal?.perc ?? 0,
+                                      days_completed: userGoal?.days_completed ?? 0,
                                     });
                                     setEditGoalDuration(duration);
                                     setEditGoalQuantity(quantity);
@@ -1383,11 +1456,10 @@ export default function Goals() {
         {/* Rotinas Tab */}
         <TabsContent value="rotinas" className="space-y-4 fade-in px-2">
           {/* Daily Check-in Block */}
-          <Card className={`border-2 ${
-            dailyCheckInDone
+          <Card className={`border-2 ${dailyCheckInDone
               ? "border-green-500/50 bg-green-500/5"
               : "border-brand/30 bg-brand/5"
-          }`}>
+            }`}>
             <CardContent className="pt-6 pb-6">
               <div className="space-y-4">
                 {/* Title and Description */}
@@ -1407,11 +1479,10 @@ export default function Goals() {
                   {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"].map((day, index) => (
                     <div
                       key={index}
-                      className={`flex flex-col items-center justify-center aspect-square rounded-lg transition-all ${
-                        weekCheckIns.has(index)
+                      className={`flex flex-col items-center justify-center aspect-square rounded-lg transition-all ${weekCheckIns.has(index)
                           ? "bg-brand text-white font-bold"
                           : "bg-muted text-muted-foreground"
-                      }`}
+                        }`}
                     >
                       <span className="text-[10px] font-medium">{day}</span>
                     </div>
@@ -1511,9 +1582,8 @@ export default function Goals() {
                     >
                       <span className="text-xs font-semibold uppercase tracking-wider">{sLabel}</span>
                       <ChevronDown
-                        className={`h-3.5 w-3.5 transition-transform duration-200 ${
-                          isCollapsed ? "rotate-180" : ""
-                        }`}
+                        className={`h-3.5 w-3.5 transition-transform duration-200 ${isCollapsed ? "rotate-180" : ""
+                          }`}
                       />
                     </button>
                   );
@@ -1521,252 +1591,255 @@ export default function Goals() {
                   if (isCollapsed) return [sectionHeader];
 
                   const cardElements = sectionCards.map((card) => {
-                  const { key, typeCode, displayLabel, itemsForRoutine, isNamed } = card;
-                  const isExpanded = expandedRoutineId === key;
+                    const { key, typeCode, displayLabel, itemsForRoutine, isNamed } = card;
+                    const isExpanded = expandedRoutineId === key;
 
-                  return (
-                    <Card
-                      key={key}
-                      className="border-border/60 overflow-hidden min-w-0"
-                    >
-                      <div className="w-full p-3 flex items-center justify-between hover:bg-muted/30 transition-colors text-left min-w-0">
-                        <button
-                          onClick={() =>
-                            setExpandedRoutineId(
-                              isExpanded ? null : key,
-                            )
-                          }
-                        className="flex-1 flex items-center justify-between min-w-0"
+                    return (
+                      <Card
+                        key={key}
+                        className="border-border/60 overflow-hidden min-w-0"
                       >
-                          <div className="flex flex-col justify-center items-center flex-1 min-w-0 px-1">
-                            <p className="text-sm font-medium truncate w-full text-center">{displayLabel}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {itemsForRoutine.length > 0
-                                ? `${itemsForRoutine.length} item(ns)`
-                                : "Sem itens"}
-                            </p>
-                          </div>
-                          {isExpanded ? (
-                            <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                          ) : (
-                            <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                          )}
-                        </button>
-
-                        {/* Dropdown menu for routine actions */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button className="ml-2 p-2 hover:bg-muted/50 rounded transition-colors flex-shrink-0">
-                              <MoreVertical className="h-4 w-4 text-muted-foreground" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setAddRoutineModalOpen(true);
-                                setSelectedRoutineType(typeCode);
-                                setSelectedItems(new Set());
-                                setSearchQuery("");
-                                setSelectedMuscleGroups(new Set());
-                                // Pre-fill routine name when adding to an existing named routine
-                                setRoutineName(isNamed ? displayLabel : "");
-                                setAddToRoutineCardName(isNamed ? displayLabel : null);
-                              }}
-                            >
-                              <Plus className="h-4 w-4 mr-2" />
-                              {typeCode === 1
-                                ? "Adicionar exercícios"
-                                : typeCode === 2
-                                  ? "Adicionar dietas"
-                                  : "Adicionar hábito"}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleDeleteRoutineType(typeCode, isNamed ? displayLabel : null)}
-                              className="text-red-500"
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Excluir rotina
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-
-                        {/* Play button for exercises */}
-                        {typeCode === 1 && itemsForRoutine.length > 0 && (
+                        <div className="w-full p-3 flex items-center justify-between hover:bg-muted/30 transition-colors text-left min-w-0">
                           <button
-                            onClick={() => {
-                              // Use "__unnamed__" for routines without a name
-                              setSelectedRoutineName(isNamed ? displayLabel : "__unnamed__");
-                              setWorkoutModalOpen(true);
-                            }}
-                            className="ml-2 p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors"
+                            onClick={() =>
+                              setExpandedRoutineId(
+                                isExpanded ? null : key,
+                              )
+                            }
+                            className="flex-1 flex items-center justify-between min-w-0"
                           >
-                            <Play className="h-5 w-5 text-brand" />
+                            <div className="flex flex-col justify-center items-center flex-1 min-w-0 px-1">
+                              <p className="text-sm font-medium truncate w-full text-center">{displayLabel}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {itemsForRoutine.length > 0
+                                  ? `${itemsForRoutine.length} item(ns)`
+                                  : "Sem itens"}
+                              </p>
+                            </div>
+                            {isExpanded ? (
+                              <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                            )}
                           </button>
-                        )}
-                      </div>
 
-                      {/* Expanded content */}
-                      {isExpanded && (
-                        <div className="border-t border-border/60 bg-muted/20 p-2.5 space-y-1.5">
-                          {itemsForRoutine.length > 0 ? (
-                            itemsForRoutine.map((item: any) => (
-                            <div
-                              key={item.id}
-                              className="space-y-1.5"
+                          {/* Dropdown menu for routine actions */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button className="ml-2 p-2 hover:bg-muted/50 rounded transition-colors flex-shrink-0">
+                                <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setAddRoutineModalOpen(true);
+                                  setSelectedRoutineType(typeCode);
+                                  setSelectedItems(new Set());
+                                  setSearchQuery("");
+                                  setSelectedMuscleGroups(new Set());
+                                  // Pre-fill routine name when adding to an existing named routine
+                                  setRoutineName(isNamed ? displayLabel : "");
+                                  setAddToRoutineCardName(isNamed ? displayLabel : null);
+                                }}
+                              >
+                                <Plus className="h-4 w-4 mr-2" />
+                                {typeCode === 1
+                                  ? "Adicionar exercícios"
+                                  : typeCode === 2
+                                    ? "Adicionar dietas"
+                                    : "Adicionar hábito"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleDeleteRoutineType(typeCode, isNamed ? displayLabel : null)}
+                                className="text-red-500"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Excluir rotina
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+
+                          {/* Play button for exercises */}
+                          {typeCode === 1 && itemsForRoutine.length > 0 && (
+                            <button
+                              onClick={() => {
+                                // Use "__unnamed__" for routines without a name
+                                setSelectedRoutineName(isNamed ? displayLabel : "__unnamed__");
+                                setWorkoutModalOpen(true);
+                              }}
+                              className="ml-2 p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors"
                             >
-                              <div className="flex items-start gap-2.5 rounded-lg">
-                                {/* Mark as completed checkbox for diets (left side) */}
-                                {typeCode === 2 && (
-                                  <button
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const isCompleting = !completedDietIds.has(item.id);
-                                      const newCompletedIds = new Set(completedDietIds);
-                                      if (isCompleting) {
-                                        newCompletedIds.add(item.id);
-                                      } else {
-                                        newCompletedIds.delete(item.id);
-                                      }
-                                      setCompletedDietIds(newCompletedIds);
-                                      try {
-                                        await toggleUserDietCompletionDb(item.id, isCompleting);
-                                        if (isCompleting && user) {
-                                          await saveDietHistoryDb(
-                                            user.id,
-                                            Number(item.diet_id),
-                                            item.quantity ?? null,
-                                            item.calories ?? null
-                                          );
-                                        }
-                                        toast({
-                                          title: isCompleting ? "Dieta concluída!" : "Dieta desmarcada",
-                                        });
-                                      } catch (err) {
-                                        toast({
-                                          title: "Erro ao atualizar status da dieta",
-                                          variant: "destructive",
-                                        });
-                                      }
-                                    }}
-                                    className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${
-                                      completedDietIds.has(item.id)
-                                        ? "bg-green-500/20 text-green-700"
-                                        : "bg-muted text-muted-foreground hover:bg-muted/80"
-                                    }`}
-                                  >
-                                    {completedDietIds.has(item.id) ? "✓" : "○"}
-                                  </button>
-                                )}
-
-                                {typeCode === 3 && (
-                                  <button
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const isCompleting = !completedHabitIds.has(item.id);
-                                      const newCompletedIds = new Set(completedHabitIds);
-                                      if (isCompleting) {
-                                        newCompletedIds.add(item.id);
-                                      } else {
-                                        newCompletedIds.delete(item.id);
-                                      }
-                                      setCompletedHabitIds(newCompletedIds);
-                                      try {
-                                        await toggleUserHabitCompletionDb(item.id, isCompleting);
-                                        if (isCompleting && user) {
-                                          await saveHabitHistoryDb(
-                                            user.id,
-                                            Number(item.habit_id),
-                                            item.quantity ?? null,
-                                            item.frequency ?? null
-                                          );
-                                        }
-                                        toast({
-                                          title: isCompleting ? "Hábito concluído!" : "Hábito desmarcado",
-                                        });
-                                      } catch (err) {
-                                        toast({
-                                          title: "Erro ao atualizar status do hábito",
-                                          variant: "destructive",
-                                        });
-                                      }
-                                    }}
-                                    className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${
-                                      completedHabitIds.has(item.id)
-                                        ? "bg-green-500/20 text-green-700"
-                                        : "bg-muted text-muted-foreground hover:bg-muted/80"
-                                    }`}
-                                  >
-                                    {completedHabitIds.has(item.id) ? "✓" : "○"}
-                                  </button>
-                                )}
-
-                                {/* Clickable item - only for exercises (typeCode === 1) */}
-                                <button
-                                  onClick={() => {
-                                    if (typeCode === 1) {
-                                      handleOpenWorkoutHistory({
-                                        id: item.workout_id,
-                                        name: item.workoutName,
-                                        description: item.workoutDescription || undefined,
-                                        photo: item.workoutPhoto || undefined,
-                                      } as any);
-                                    }
-                                  }}
-                                  className={`flex-1 flex items-start p-2 rounded-lg transition-colors ${
-                                    typeCode === 1 ? "hover:bg-muted/50 cursor-pointer" : ""
-                                  }`}
-                                  disabled={typeCode !== 1}
-                                >
-                                  <div className="flex-1 min-w-0 text-left">
-                                    <p className="text-sm font-medium truncate">
-                                      {typeCode === 1
-                                        ? item.workoutName
-                                        : typeCode === 2
-                                          ? item.dietName
-                                          : item.habitName}
-                                    </p>
-                                    {(item.workoutDescription ||
-                                      item.dietDescription ||
-                                      item.habitDescription) && (
-                                        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                                          {typeCode === 1
-                                            ? item.workoutDescription
-                                            : typeCode === 2
-                                              ? item.dietDescription
-                                              : item.habitDescription}
-                                        </p>
-                                      )}
-                                    {typeCode === 2 && item.dietCalories && (
-                                      <p className="text-xs text-muted-foreground mt-1">
-                                        {item.dietCalories} cal
-                                      </p>
-                                    )}
-                                  </div>
-                                </button>
-
-                                {/* Delete button */}
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteExercise(item.id);
-                                  }}
-                                  className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
-                                  title="Remover exercício"
-                                >
-                                  <Trash2 className="h-4 w-4 text-red-500" />
-                                </button>
-                              </div>
-                              </div>
-                            ))
-                          ) : (
-                            <p className="text-xs text-muted-foreground text-center py-2">
-                              Nenhum item adicionado
-                            </p>
+                              <Play className="h-5 w-5 text-brand" />
+                            </button>
                           )}
                         </div>
-                      )}
-                    </Card>
-                  );
+
+                        {/* Expanded content */}
+                        {isExpanded && (
+                          <div className="border-t border-border/60 bg-muted/20 p-2.5 space-y-1.5">
+                            {itemsForRoutine.length > 0 ? (
+                              itemsForRoutine.map((item: any) => (
+                                <div
+                                  key={item.id}
+                                  className="space-y-1.5"
+                                >
+                                  <div className="flex items-start gap-2.5 rounded-lg">
+                                    {/* Mark as completed checkbox for diets (left side) */}
+                                    {typeCode === 2 && (
+                                      <button
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          const isCompleting = !completedDietIds.has(item.id);
+                                          const newCompletedIds = new Set(completedDietIds);
+                                          if (isCompleting) {
+                                            newCompletedIds.add(item.id);
+                                          } else {
+                                            newCompletedIds.delete(item.id);
+                                          }
+                                          setCompletedDietIds(newCompletedIds);
+                                          try {
+                                            await toggleUserDietCompletionDb(item.id, isCompleting);
+                                            if (isCompleting && user) {
+                                              await saveDietHistoryDb(
+                                                user.id,
+                                                Number(item.diet_id),
+                                                item.quantity ?? null,
+                                                item.calories ?? null
+                                              );
+                                              await performAutoCheckIn();
+                                            }
+                                            if (!isCompleting) {
+                                              toast({
+                                                title: "Dieta desmarcada",
+                                              });
+                                            }
+                                          } catch (err) {
+                                            toast({
+                                              title: "Erro ao atualizar status da dieta",
+                                              variant: "destructive",
+                                            });
+                                          }
+                                        }}
+                                        className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${completedDietIds.has(item.id)
+                                            ? "bg-green-500/20 text-green-700"
+                                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                                          }`}
+                                      >
+                                        {completedDietIds.has(item.id) ? "✓" : "○"}
+                                      </button>
+                                    )}
+
+                                    {typeCode === 3 && (
+                                      <button
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          const isCompleting = !completedHabitIds.has(item.id);
+                                          const newCompletedIds = new Set(completedHabitIds);
+                                          if (isCompleting) {
+                                            newCompletedIds.add(item.id);
+                                          } else {
+                                            newCompletedIds.delete(item.id);
+                                          }
+                                          setCompletedHabitIds(newCompletedIds);
+                                          try {
+                                            await toggleUserHabitCompletionDb(item.id, isCompleting);
+                                            if (isCompleting && user) {
+                                              await saveHabitHistoryDb(
+                                                user.id,
+                                                Number(item.habit_id),
+                                                item.quantity ?? null,
+                                                item.frequency ?? null
+                                              );
+                                              await performAutoCheckIn();
+                                            }
+                                            if (!isCompleting) {
+                                              toast({
+                                                title: "Hábito desmarcado",
+                                              });
+                                            }
+                                          } catch (err) {
+                                            toast({
+                                              title: "Erro ao atualizar status do hábito",
+                                              variant: "destructive",
+                                            });
+                                          }
+                                        }}
+                                        className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${completedHabitIds.has(item.id)
+                                            ? "bg-green-500/20 text-green-700"
+                                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                                          }`}
+                                      >
+                                        {completedHabitIds.has(item.id) ? "✓" : "○"}
+                                      </button>
+                                    )}
+
+                                    {/* Clickable item - only for exercises (typeCode === 1) */}
+                                    <button
+                                      onClick={() => {
+                                        if (typeCode === 1) {
+                                          handleOpenWorkoutHistory({
+                                            id: item.workout_id,
+                                            name: item.workoutName,
+                                            description: item.workoutDescription || undefined,
+                                            photo: item.workoutPhoto || undefined,
+                                          } as any);
+                                        }
+                                      }}
+                                      className={`flex-1 flex items-start p-2 rounded-lg transition-colors ${typeCode === 1 ? "hover:bg-muted/50 cursor-pointer" : ""
+                                        }`}
+                                      disabled={typeCode !== 1}
+                                    >
+                                      <div className="flex-1 min-w-0 text-left">
+                                        <p className="text-sm font-medium truncate">
+                                          {typeCode === 1
+                                            ? item.workoutName
+                                            : typeCode === 2
+                                              ? item.dietName
+                                              : item.habitName}
+                                        </p>
+                                        {(item.workoutDescription ||
+                                          item.dietDescription ||
+                                          item.habitDescription) && (
+                                            <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                              {typeCode === 1
+                                                ? item.workoutDescription
+                                                : typeCode === 2
+                                                  ? item.dietDescription
+                                                  : item.habitDescription}
+                                            </p>
+                                          )}
+                                        {typeCode === 2 && item.dietCalories && (
+                                          <p className="text-xs text-muted-foreground mt-1">
+                                            {item.dietCalories} cal
+                                          </p>
+                                        )}
+                                      </div>
+                                    </button>
+
+                                    {/* Delete button */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteExercise(item.id);
+                                      }}
+                                      className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
+                                      title="Remover exercício"
+                                    >
+                                      <Trash2 className="h-4 w-4 text-red-500" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-xs text-muted-foreground text-center py-2">
+                                Nenhum item adicionado
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </Card>
+                    );
                   });
 
                   return [sectionHeader, ...cardElements];
@@ -1789,7 +1862,7 @@ export default function Goals() {
             <div className="flex justify-center pt-12 pb-12">
               <div className="text-center space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Nenhuma rotina adicionada ainda
+                  Crie uma nova Rotina
                 </p>
                 <Button
                   onClick={handleAddRoutineClick}
@@ -1806,7 +1879,7 @@ export default function Goals() {
       </Tabs>
 
       {/* Add Routine Drawer Modal */}
-      <Drawer open={addRoutineModalOpen} onOpenChange={setAddRoutineModalOpen}>
+      <Drawer open={addRoutineModalOpen} onOpenChange={(open) => { setAddRoutineModalOpen(open); if (!open) setIsAddingFromWorkout(false); }}>
         <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Adicionar Rotina</DrawerTitle>
@@ -1823,37 +1896,45 @@ export default function Goals() {
 
             {/* Type Selection */}
             {selectedRoutineType === null ? (
-              <div className="space-y-3">
-                <div className="grid gap-2">
-                  <Label htmlFor="routine_name" className="text-sm font-medium">Nome da Rotina (Opcional)</Label>
+              <div className="space-y-5">
+                {/* Nome da rotina — destacado */}
+                <div className="rounded-xl border-2 border-brand/40 bg-brand/5 p-4 space-y-2">
+                  <Label htmlFor="routine_name" className="text-sm font-semibold text-brand">
+                    Nome da Rotina (opcional)
+                  </Label>
                   <Input
                     id="routine_name"
                     type="text"
                     value={routineName}
                     onChange={(e) => setRoutineName(e.target.value)}
-                    placeholder="Ex: Treino de Peito"
-                    className="h-9"
+                    className="h-10 border-brand/30 focus:border-brand bg-background"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Dê um nome para identificar sua rotina, ex: "Treino de Peito"
+                  </p>
                 </div>
-                <p className="text-sm font-medium">Selecione o tipo:</p>
-                <div className="grid grid-cols-1 gap-2">
-                  {[1, 2, 3].map((typeCode) => {
-                    const typeLabel =
-                      typeCode === 1
-                        ? "Exercícios"
-                        : typeCode === 2
-                          ? "Dietas"
-                          : "Hábitos";
-                    return (
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-muted-foreground">Selecione o tipo:</p>
+                  <div className="grid grid-cols-1 gap-2">
+                    {[
+                      { code: 1, label: "Exercícios", emoji: "🏋️", desc: "Treinos e séries de musculação" },
+                      { code: 2, label: "Dietas", emoji: "🥗", desc: "Planos alimentares e refeições" },
+                      { code: 3, label: "Hábitos", emoji: "✅", desc: "Rotinas diárias e objetivos" },
+                    ].map(({ code, label, emoji, desc }) => (
                       <button
-                        key={typeCode}
-                        onClick={() => setSelectedRoutineType(typeCode)}
-                        className="p-4 border border-border/60 rounded-lg hover:bg-muted/50 transition-colors text-left"
+                        key={code}
+                        onClick={() => { setSelectedRoutineType(code); setSearchQuery(""); }}
+                        className="p-4 border border-border/60 rounded-lg hover:bg-muted/50 hover:border-border transition-colors text-left flex items-center gap-3"
                       >
-                        <p className="font-semibold text-sm">{typeLabel}</p>
+                        <span className="text-2xl">{emoji}</span>
+                        <div>
+                          <p className="font-semibold text-sm">{label}</p>
+                          <p className="text-xs text-muted-foreground">{desc}</p>
+                        </div>
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -1868,18 +1949,34 @@ export default function Goals() {
                           ? "Dietas"
                           : "Hábitos"}
                     </p>
-                    <button
-                      onClick={() => {
-                        setSelectedRoutineType(null);
-                        setSelectedItems(new Set());
-                        setSearchQuery("");
-                        setSelectedMuscleGroups(new Set());
-                      }}
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      Voltar
-                    </button>
+                    {!isAddingFromWorkout && (
+                      <button
+                        onClick={() => {
+                          setSelectedRoutineType(null);
+                          setSelectedItems(new Set());
+                          setSearchQuery("");
+                          setSelectedMuscleGroups(new Set());
+                        }}
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        Voltar
+                      </button>
+                    )}
                   </div>
+
+                  {/* Search for Diets and Habits */}
+                  {(selectedRoutineType === 2 || selectedRoutineType === 3) && (
+                    <div className="relative shrink-0">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        placeholder={selectedRoutineType === 2 ? "Buscar dieta..." : "Buscar hábito..."}
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-10 h-9"
+                      />
+                    </div>
+                  )}
 
                   {/* Search and Filter for Exercises */}
                   {selectedRoutineType === 1 && (
@@ -1913,8 +2010,8 @@ export default function Goals() {
                                   handleToggleMuscleGroup(muscleGroup)
                                 }
                                 className={`px-3 py-1.5 text-xs rounded-full border transition-all ${selectedMuscleGroups.has(muscleGroup)
-                                    ? "border-brand bg-brand/20 text-brand"
-                                    : "border-border/60 text-muted-foreground hover:border-border/80"
+                                  ? "border-brand bg-brand/20 text-brand"
+                                  : "border-border/60 text-muted-foreground hover:border-border/80"
                                   }`}
                               >
                                 {muscleGroup}
@@ -1939,13 +2036,12 @@ export default function Goals() {
                           <button
                             key={workout.id}
                             onClick={() => handleSelectItem(workout.id)}
-                            className={`w-full p-3 rounded-lg border transition-all text-left ${
-                              isNewSelection
+                            className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
                                 ? "border-brand bg-brand/10"
                                 : isAlreadySelected
                                   ? "border-green-500/40 bg-green-500/5"
                                   : "border-border/60 hover:border-border/80"
-                            }`}
+                              }`}
                           >
                             {/* Exercise Info */}
                             <div className="flex items-start justify-between gap-4">
@@ -1983,7 +2079,7 @@ export default function Goals() {
                       })}
 
                     {selectedRoutineType === 2 &&
-                      diets.map((diet) => {
+                      diets.filter((d) => d.name.toLowerCase().includes(searchQuery.toLowerCase())).map((diet) => {
                         const isAlreadyInRoutine = userDiets.some(
                           (ud) =>
                             ud.diet_id === diet.id &&
@@ -1996,13 +2092,12 @@ export default function Goals() {
                           <button
                             key={diet.id}
                             onClick={() => handleSelectItem(diet.id)}
-                            className={`w-full p-3 rounded-lg border transition-all text-left ${
-                              isNewSelection
+                            className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
                                 ? "border-brand bg-brand/10"
                                 : isAlreadyInRoutine
                                   ? "border-green-500/40 bg-green-500/5"
                                   : "border-border/60 hover:border-border/80"
-                            }`}
+                              }`}
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -2016,7 +2111,7 @@ export default function Goals() {
                               <input
                                 type="checkbox"
                                 checked={isNewSelection}
-                                onChange={() => {}}
+                                onChange={() => { }}
                                 className="h-4 w-4 flex-shrink-0"
                               />
                             </div>
@@ -2031,7 +2126,7 @@ export default function Goals() {
                       })}
 
                     {selectedRoutineType === 3 &&
-                      habits.map((habit) => {
+                      habits.filter((h) => h.name.toLowerCase().includes(searchQuery.toLowerCase())).map((habit) => {
                         const isAlreadyInRoutine = userHabits.some(
                           (uh) =>
                             uh.habit_id === habit.id &&
@@ -2044,13 +2139,12 @@ export default function Goals() {
                           <button
                             key={habit.id}
                             onClick={() => handleSelectItem(habit.id)}
-                            className={`w-full p-3 rounded-lg border transition-all text-left ${
-                              isNewSelection
+                            className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
                                 ? "border-brand bg-brand/10"
                                 : isAlreadyInRoutine
                                   ? "border-green-500/40 bg-green-500/5"
                                   : "border-border/60 hover:border-border/80"
-                            }`}
+                              }`}
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -2064,7 +2158,7 @@ export default function Goals() {
                               <input
                                 type="checkbox"
                                 checked={isNewSelection}
-                                onChange={() => {}}
+                                onChange={() => { }}
                                 className="h-4 w-4 flex-shrink-0"
                               />
                             </div>
@@ -2190,163 +2284,162 @@ export default function Goals() {
                   return workout.name === selectedRoutineName;
                 })
                 .map((workout) => {
-                const series = workoutSeries[workout.workout_id] || [];
-                return (
-                  <div key={workout.id} className="px-4 py-3">
-                    <div className="bg-card border border-brand/20 rounded-lg p-3 mb-3">
-                    {/* Exercise Header */}
-                    <button
-                      onClick={() => handleOpenWorkoutHistory({
-                        id: workout.workout_id,
-                        name: workout.workoutName,
-                        description: workout.workoutDescription || undefined,
-                        photo: workout.workoutPhoto || undefined,
-                      })}
-                      className="flex items-center gap-3 mb-2 hover:opacity-80 transition-opacity w-full"
-                    >
-                      <h3 className="text-sm font-semibold text-brand">
-                        {workout.workoutName}
-                      </h3>
-                      <MoreVertical className="h-4 w-4 text-muted-foreground ml-auto flex-shrink-0" />
-                    </button>
+                  const series = workoutSeries[workout.workout_id] || [];
+                  return (
+                    <div key={workout.id} className="px-4 py-3">
+                      <div className="bg-card border border-brand/20 rounded-lg p-3 mb-3">
+                        {/* Exercise Header */}
+                        <button
+                          onClick={() => handleOpenWorkoutHistory({
+                            id: workout.workout_id,
+                            name: workout.workoutName,
+                            description: workout.workoutDescription || undefined,
+                            photo: workout.workoutPhoto || undefined,
+                          })}
+                          className="flex items-center gap-3 mb-2 hover:opacity-80 transition-opacity w-full"
+                        >
+                          <h3 className="text-sm font-semibold text-brand">
+                            {workout.workoutName}
+                          </h3>
+                          <MoreVertical className="h-4 w-4 text-muted-foreground ml-auto flex-shrink-0" />
+                        </button>
 
-                    {/* Notes */}
-                    <div className="mb-2">
-                      <input
-                        type="text"
-                        placeholder="Adicionar notas aqui..."
-                        className="w-full text-xs text-muted-foreground bg-transparent border-0 placeholder:text-muted-foreground/60 focus:outline-none"
-                      />
-                    </div>
+                        {/* Notes */}
+                        <div className="mb-2">
+                          <input
+                            type="text"
+                            placeholder="Adicionar notas aqui..."
+                            className="w-full text-xs text-muted-foreground bg-transparent border-0 placeholder:text-muted-foreground/60 focus:outline-none"
+                          />
+                        </div>
 
-                    {/* Rest Time Selector */}
-                    <div className="flex items-center gap-2 mb-2">
-                      <Clock className="h-4 w-4 text-brand flex-shrink-0" />
-                      <span className="text-xs font-medium text-brand">Descanso:</span>
-                      <select
-                        value={workoutExerciseRestTimes[workout.workout_id] || ""}
-                        onChange={(e) =>
-                          handleSetExerciseRestTime(workout.workout_id, parseInt(e.target.value))
-                        }
-                        className="text-xs font-medium text-foreground bg-background border border-brand/40 rounded px-2 py-1 focus:border-brand focus:outline-none cursor-pointer hover:border-brand/60 transition-colors"
-                      >
-                        <option value="">Padrão</option>
-                        {REST_TIME_OPTIONS.map((time) => (
-                          <option key={time} value={time}>
-                            {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Table Header */}
-                    <div className="grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 mb-1 py-1 text-xs font-semibold text-muted-foreground border-b border-border/20">
-                      <div>SÉRIE</div>
-                      <div>ANTERIOR</div>
-                      <div className="text-center">KG</div>
-                      <div className="text-center">REPS</div>
-                      <div className="text-center">✓</div>
-                    </div>
-
-                    {/* Series Rows */}
-                    <div className="space-y-0">
-                      {series.map((s, index) => {
-                        const previousRecord = workoutHistoriesMap[workout.workout_id]?.[index];
-                        return (
-                          <div
-                            key={index}
-                            className={`group relative grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 items-center py-1.5 rounded hover:bg-muted/20 transition-colors ${
-                              s.completed ? "opacity-50" : ""
-                            }`}
+                        {/* Rest Time Selector */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock className="h-4 w-4 text-brand flex-shrink-0" />
+                          <span className="text-xs font-medium text-brand">Descanso:</span>
+                          <select
+                            value={workoutExerciseRestTimes[workout.workout_id] || ""}
+                            onChange={(e) =>
+                              handleSetExerciseRestTime(workout.workout_id, parseInt(e.target.value))
+                            }
+                            className="text-xs font-medium text-foreground bg-background border border-brand/40 rounded px-2 py-1 focus:border-brand focus:outline-none cursor-pointer hover:border-brand/60 transition-colors"
                           >
-                            {/* Series Number */}
-                            <div className="font-bold text-center text-xs">
-                              {index + 1}
-                            </div>
+                            <option value="">Desativado</option>
+                            {REST_TIME_OPTIONS.map((time) => (
+                              <option key={time} value={time}>
+                                {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                            {/* Previous Record */}
-                            <div className="text-xs text-muted-foreground">
-                              {previousRecord
-                                ? `${Math.round((previousRecord.kilos || 0) * 10) / 10}kg × ${previousRecord.volume || 0}`
-                                : "—"}
-                            </div>
+                        {/* Table Header */}
+                        <div className="grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 mb-1 py-1 text-xs font-semibold text-muted-foreground border-b border-border/20">
+                          <div>SÉRIE</div>
+                          <div>ANTERIOR</div>
+                          <div className="text-center">KG</div>
+                          <div className="text-center">REPS</div>
+                          <div className="text-center">✓</div>
+                        </div>
 
-                            {/* KG Input */}
-                            <input
-                              type="number"
-                              step="0.5"
-                              value={s.kg === 0 ? "" : s.kg}
-                              onChange={(e) =>
-                                handleUpdateSerie(
-                                  workout.workout_id,
-                                  index,
-                                  "kg",
-                                  e.target.value,
-                                )
-                              }
-                              placeholder="0"
-                              className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
-                            />
-
-                            {/* REPS Input */}
-                            <input
-                              type="number"
-                              value={s.reps === 0 ? "" : s.reps}
-                              onChange={(e) =>
-                                handleUpdateSerie(
-                                  workout.workout_id,
-                                  index,
-                                  "reps",
-                                  e.target.value,
-                                )
-                              }
-                              placeholder="0"
-                              className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
-                            />
-
-                            {/* Checkbox */}
-                            <div className="relative flex items-center justify-center">
-                              <button
-                                onClick={() =>
-                                  handleToggleSerieCompleted(
-                                    workout.workout_id,
-                                    index,
-                                  )
-                                }
-                                className="h-6 w-6 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors"
+                        {/* Series Rows */}
+                        <div className="space-y-0">
+                          {series.map((s, index) => {
+                            const previousRecord = workoutHistoriesMap[workout.workout_id]?.[index];
+                            return (
+                              <div
+                                key={index}
+                                className={`group relative grid grid-cols-[40px_1fr_60px_60px_32px_28px] gap-2 items-center py-1.5 rounded hover:bg-muted/20 transition-colors ${s.completed ? "opacity-50" : ""
+                                  }`}
                               >
-                                {s.completed ? (
-                                  <CheckCircle2 className="h-4 w-4 text-brand" />
-                                ) : (
-                                  <Circle className="h-4 w-4 text-muted-foreground" />
-                                )}
-                              </button>
-                              <button
-                                onClick={() => handleDeleteSerie(workout.workout_id, index)}
-                                className="absolute opacity-0 group-hover:opacity-100 transition-opacity -right-2 h-6 w-6 rounded-full bg-destructive/80 hover:bg-destructive flex items-center justify-center flex-shrink-0"
-                                title="Deletar série"
-                                aria-label="Deletar série"
-                              >
-                                <Trash2 className="h-3 w-3 text-white" />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                                {/* Series Number */}
+                                <div className="font-bold text-center text-xs">
+                                  {index + 1}
+                                </div>
 
-                      {/* Add Series Button */}
-                      <button
-                        onClick={() => handleAddSerie(workout.workout_id)}
-                        className="w-full mt-2 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded flex items-center justify-center gap-2"
-                      >
-                        <Plus className="h-3 w-3" />
-                        Adicionar Série
-                      </button>
+                                {/* Previous Record */}
+                                <div className="text-xs text-muted-foreground">
+                                  {previousRecord
+                                    ? `${Math.round((previousRecord.kilos || 0) * 10) / 10}kg × ${previousRecord.volume || 0}`
+                                    : "—"}
+                                </div>
+
+                                {/* KG Input */}
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  value={s.kg === 0 ? "" : s.kg}
+                                  onChange={(e) =>
+                                    handleUpdateSerie(
+                                      workout.workout_id,
+                                      index,
+                                      "kg",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="0"
+                                  className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
+                                />
+
+                                {/* REPS Input */}
+                                <input
+                                  type="number"
+                                  value={s.reps === 0 ? "" : s.reps}
+                                  onChange={(e) =>
+                                    handleUpdateSerie(
+                                      workout.workout_id,
+                                      index,
+                                      "reps",
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="0"
+                                  className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
+                                />
+
+                                {/* Checkbox */}
+                                <button
+                                  onClick={() =>
+                                    handleToggleSerieCompleted(
+                                      workout.workout_id,
+                                      index,
+                                    )
+                                  }
+                                  className="h-6 w-6 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors mx-auto"
+                                >
+                                  {s.completed ? (
+                                    <CheckCircle2 className="h-4 w-4 text-brand" />
+                                  ) : (
+                                    <Circle className="h-4 w-4 text-muted-foreground" />
+                                  )}
+                                </button>
+
+                                {/* Delete Serie */}
+                                <button
+                                  onClick={() => handleDeleteSerie(workout.workout_id, index)}
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 rounded-full bg-destructive/80 hover:bg-destructive flex items-center justify-center mx-auto"
+                                  title="Deletar série"
+                                  aria-label="Deletar série"
+                                >
+                                  <Trash2 className="h-3 w-3 text-white" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Add Series Button */}
+                        <button
+                          onClick={() => handleAddSerie(workout.workout_id)}
+                          className="w-full mt-2 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded flex items-center justify-center gap-2"
+                        >
+                          <Plus className="h-3 w-3" />
+                          Adicionar Série
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
@@ -2462,7 +2555,7 @@ export default function Goals() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Quantidade (qtd)</label>
+                  <label className="text-sm font-medium">Frequência (dias)</label>
                   <input
                     type="number"
                     value={editGoalQuantity === 0 ? "" : editGoalQuantity}
@@ -2478,22 +2571,21 @@ export default function Goals() {
                       if (!user || !editingGoal) return;
                       setIsUpdatingGoal(true);
                       try {
+                        const currentActualProgress = editingGoal.days_completed ?? 0;
+                        const newPerc = editGoalQuantity > 0
+                          ? Math.min(100, Math.round((currentActualProgress / editGoalQuantity) * 100))
+                          : 0;
+
                         await updateUserGoalDb(editingGoal.id, {
                           duration: editGoalDuration,
                           quantity: editGoalQuantity,
+                          days_completed: currentActualProgress,
+                          perc: newPerc,
                         });
 
-                        // Update local user goals state
-                        const updatedUserGoals = userGoals.map((goal) =>
-                          goal.id === editingGoal.id
-                            ? {
-                                ...goal,
-                                duration: editGoalDuration,
-                                quantity: editGoalQuantity,
-                              }
-                            : goal,
-                        );
-                        setUserGoals(updatedUserGoals);
+                        // Re-fetch from DB to confirm changes were persisted
+                        const freshUserGoals = await getUserGoalsDb();
+                        setUserGoals(freshUserGoals);
 
                         toast({
                           title: "Meta atualizada!",
@@ -2528,15 +2620,13 @@ export default function Goals() {
                       try {
                         await deleteUserGoalDb(editingGoal.id);
 
-                        // Remove from local user goals state
-                        setUserGoals(userGoals.filter((goal) => goal.id !== editingGoal.id));
+                        // Re-fetch goals from DB to ensure UI reflects the deletion
+                        const updatedGoals = await getUserGoalsDb();
+                        setUserGoals(updatedGoals);
 
                         // Remove from selected goals
                         setSelectedGoalIds(
-                          selectedGoalIds.filter((id) => {
-                            const goal = userGoals.find((g) => g.id === id);
-                            return goal?.goal_id !== editingGoal.goal_id;
-                          })
+                          selectedGoalIds.filter((id) => id !== editingGoal.id)
                         );
 
                         toast({
@@ -2632,11 +2722,10 @@ export default function Goals() {
             <div className="space-y-3 pb-8">
               {/* 1 Day - Iniciante */}
               <div
-                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${
-                  weekCheckIns.size >= 1
+                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${weekCheckIns.size >= 1
                     ? "bg-gradient-to-r from-yellow-500/20 to-yellow-500/5 border border-yellow-500/40 shadow-lg shadow-yellow-500/10"
                     : "bg-muted/40 border border-border/40 opacity-60"
-                }`}
+                  }`}
               >
                 <div className="p-4 flex items-start gap-4">
                   <div className={`text-4xl transition-transform ${weekCheckIns.size >= 1 ? "scale-110" : ""}`}>
@@ -2667,11 +2756,10 @@ export default function Goals() {
 
               {/* 3 Days - Sequência */}
               <div
-                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${
-                  weekCheckIns.size >= 3
+                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${weekCheckIns.size >= 3
                     ? "bg-gradient-to-r from-blue-500/20 to-blue-500/5 border border-blue-500/40 shadow-lg shadow-blue-500/10"
                     : "bg-muted/40 border border-border/40 opacity-60"
-                }`}
+                  }`}
               >
                 <div className="p-4 flex items-start gap-4">
                   <div className={`text-4xl transition-transform ${weekCheckIns.size >= 3 ? "scale-110" : ""}`}>
@@ -2702,11 +2790,10 @@ export default function Goals() {
 
               {/* 5 Days - Campeão */}
               <div
-                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${
-                  weekCheckIns.size >= 5
+                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${weekCheckIns.size >= 5
                     ? "bg-gradient-to-r from-green-500/20 to-green-500/5 border border-green-500/40 shadow-lg shadow-green-500/10"
                     : "bg-muted/40 border border-border/40 opacity-60"
-                }`}
+                  }`}
               >
                 <div className="p-4 flex items-start gap-4">
                   <div className={`text-4xl transition-transform ${weekCheckIns.size >= 5 ? "scale-110" : ""}`}>
@@ -2737,11 +2824,10 @@ export default function Goals() {
 
               {/* 7 Days - Lendário */}
               <div
-                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${
-                  weekCheckIns.size === 7
+                className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${weekCheckIns.size === 7
                     ? "bg-gradient-to-r from-purple-500/20 to-purple-500/5 border border-purple-500/40 shadow-lg shadow-purple-500/10"
                     : "bg-muted/40 border border-border/40 opacity-60"
-                }`}
+                  }`}
               >
                 <div className="p-4 flex items-start gap-4">
                   <div className={`text-4xl transition-transform ${weekCheckIns.size === 7 ? "scale-110 animate-pulse" : ""}`}>
@@ -2911,11 +2997,10 @@ export default function Goals() {
                     setSelectedCheckInGoal(goal);
                     handleConfirmCheckInGoal();
                   }}
-                  className={`w-full p-4 rounded-lg border-2 transition-all text-left space-y-3 ${
-                    selectedCheckInGoal?.id === goal.id
+                  className={`w-full p-4 rounded-lg border-2 transition-all text-left space-y-3 ${selectedCheckInGoal?.id === goal.id
                       ? "border-brand bg-brand/10"
                       : "border-border/60 hover:border-border/80 hover:bg-muted/30"
-                  }`}
+                    }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
@@ -2932,10 +3017,10 @@ export default function Goals() {
                     <Progress value={goal.perc} className="h-2" />
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">
-                        {goal.actual_progress} de {goal.quantity}
+                        {goal.days_completed} de {goal.quantity}
                       </span>
                       <span className="font-medium text-foreground">
-                        {goal.quantity - goal.actual_progress} para concluir
+                        {goal.quantity - goal.days_completed} para concluir
                       </span>
                     </div>
                   </div>
@@ -2956,191 +3041,283 @@ export default function Goals() {
         <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
-              Vincular Rotinas a "{selectedGoalForRoutines?.description}"
+              {goalRoutineModalMode === "view"
+                ? `Rotinas Vinculadas — "${selectedGoalForRoutines?.description}"`
+                : `Vincular Rotinas — "${selectedGoalForRoutines?.description}"`}
             </DrawerTitle>
           </DrawerHeader>
 
-          {/* Search Input */}
-          <div className="px-4 py-3 border-b border-border/60">
-            <Input
-              placeholder="Buscar rotina..."
-              value={routineSearchQuery}
-              onChange={(e) => setRoutineSearchQuery(e.target.value)}
-              className="h-9 rounded-full text-sm"
-            />
-          </div>
+          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-3 pt-4">
+            {(() => {
+              const TYPES = [
+                { code: 1, label: "Exercícios", emoji: "🏋️" },
+                { code: 2, label: "Dietas", emoji: "🥗" },
+                { code: 3, label: "Hábitos", emoji: "✅" },
+              ];
 
-          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
-            {/* Exercises Section */}
-            {userWorkouts.length > 0 && (
-              <div className="space-y-3">
-                <p className="text-sm font-semibold">Exercícios ({userWorkouts.length})</p>
-                <div className="space-y-2">
-                  {userWorkouts
-                    .filter((workout) =>
-                      workout.workoutName
-                        ?.toLowerCase()
-                        .includes(routineSearchQuery.toLowerCase())
-                    )
-                    .map((workout) => (
-                      <button
-                        key={workout.id}
-                        onClick={() => {
-                          const newSelection = new Set(goalRoutineSelection);
-                          if (newSelection.has(workout.id)) {
-                            newSelection.delete(workout.id);
-                          } else {
-                            newSelection.add(workout.id);
-                          }
-                          setGoalRoutineSelection(newSelection);
-                        }}
-                        className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
-                          goalRoutineSelection.has(workout.id)
-                            ? "border-brand bg-brand/10"
-                            : "border-border/60 hover:border-border/80"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0">
-                            <span className="text-sm font-medium">{workout.workoutName}</span>
-                          </div>
-                          <div className="shrink-0 mt-0.5">
-                            {goalRoutineSelection.has(workout.id) ? (
-                              <Check className="h-5 w-5 text-brand" />
-                            ) : (
-                              <div className="h-5 w-5 border-2 border-border rounded" />
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                </div>
-              </div>
-            )}
+              const goalId = selectedGoalForRoutines
+                ? String(selectedGoalForRoutines.id)
+                : null;
 
-            {/* Diets Section */}
-            {userDiets.length > 0 && (
-              <div className="space-y-3">
-                <p className="text-sm font-semibold">Dietas ({userDiets.length})</p>
-                <div className="space-y-2">
-                  {userDiets
-                    .filter((diet) =>
-                      diet.dietName?.toLowerCase().includes(routineSearchQuery.toLowerCase())
-                    )
-                    .map((diet) => (
-                      <button
-                        key={diet.id}
-                        onClick={() => {
-                          const newSelection = new Set(goalRoutineSelection);
-                          if (newSelection.has(diet.id)) {
-                            newSelection.delete(diet.id);
-                          } else {
-                            newSelection.add(diet.id);
-                          }
-                          setGoalRoutineSelection(newSelection);
-                        }}
-                        className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
-                          goalRoutineSelection.has(diet.id)
-                            ? "border-brand bg-brand/10"
-                            : "border-border/60 hover:border-border/80"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <span className="text-sm font-medium flex-1">{diet.dietName}</span>
-                          <div className="shrink-0 mt-0.5">
-                            {goalRoutineSelection.has(diet.id) ? (
-                              <Check className="h-5 w-5 text-brand" />
-                            ) : (
-                              <div className="h-5 w-5 border-2 border-border rounded" />
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                </div>
-              </div>
-            )}
+              const displayRoutines =
+                goalRoutineModalMode === "view"
+                  ? routines.filter(
+                    (r) => r.goal_id && goalId && String(r.goal_id) === goalId,
+                  )
+                  : routines;
 
-            {/* Habits Section */}
-            {userHabits.length > 0 && (
-              <div className="space-y-3">
-                <p className="text-sm font-semibold">Hábitos ({userHabits.length})</p>
-                <div className="space-y-2">
-                  {userHabits
-                    .filter((habit) =>
-                      habit.habitName?.toLowerCase().includes(routineSearchQuery.toLowerCase())
-                    )
-                    .map((habit) => (
-                      <button
-                        key={habit.id}
-                        onClick={() => {
-                          const newSelection = new Set(goalRoutineSelection);
-                          if (newSelection.has(habit.id)) {
-                            newSelection.delete(habit.id);
-                          } else {
-                            newSelection.add(habit.id);
-                          }
-                          setGoalRoutineSelection(newSelection);
-                        }}
-                        className={`w-full p-3 rounded-lg border-2 transition-all text-left ${
-                          goalRoutineSelection.has(habit.id)
-                            ? "border-brand bg-brand/10"
-                            : "border-border/60 hover:border-border/80"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <span className="text-sm font-medium flex-1">{habit.habitName}</span>
-                          <div className="shrink-0 mt-0.5">
-                            {goalRoutineSelection.has(habit.id) ? (
-                              <Check className="h-5 w-5 text-brand" />
-                            ) : (
-                              <div className="h-5 w-5 border-2 border-border rounded" />
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                </div>
-              </div>
-            )}
+              if (displayRoutines.length === 0) {
+                return (
+                  <div className="text-center py-10 text-sm text-muted-foreground">
+                    {goalRoutineModalMode === "view"
+                      ? "Nenhuma rotina vinculada a esta meta."
+                      : "Nenhuma rotina disponível para vincular."}
+                  </div>
+                );
+              }
 
-            {userWorkouts.length === 0 && userDiets.length === 0 && userHabits.length === 0 && (
-              <div className="text-center py-6 text-sm text-muted-foreground">
-                Nenhuma rotina disponível para vincular
-              </div>
-            )}
+              return TYPES.map(({ code, label, emoji }) => {
+                const typeRoutines = displayRoutines.filter((r) => r.type === code);
+                if (typeRoutines.length === 0) return null;
 
-            {/* Confirm Button */}
-            {goalRoutineSelection.size > 0 && (
+                // Group routines by name — deduplicate, show one row per unique name
+                const nameGroupMap = typeRoutines.reduce(
+                  (acc, r) => {
+                    const key = r.name || label;
+                    if (!acc[key]) acc[key] = [];
+                    acc[key].push(r);
+                    return acc;
+                  },
+                  {} as Record<string, typeof typeRoutines>,
+                );
+                const nameGroups = Object.entries(nameGroupMap);
+
+                const isTypeOpen = openRoutineTypes.has(code);
+
+                return (
+                  <div key={code} className="rounded-xl border border-border/60 overflow-hidden">
+                    {/* Type Header (dropdown trigger) */}
+                    <button
+                      className="w-full flex items-center justify-between px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors"
+                      onClick={() => {
+                        const next = new Set(openRoutineTypes);
+                        if (next.has(code)) next.delete(code);
+                        else next.add(code);
+                        setOpenRoutineTypes(next);
+                      }}
+                    >
+                      <span className="flex items-center gap-2 text-sm font-semibold">
+                        <span>{emoji}</span>
+                        {label}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          ({nameGroups.length})
+                        </span>
+                      </span>
+                      <ChevronDown
+                        className={`h-4 w-4 text-muted-foreground transition-transform ${isTypeOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+
+                    {/* Grouped routines list */}
+                    {isTypeOpen && (
+                      <div className="divide-y divide-border/40">
+                        {nameGroups.map(([groupName, groupRoutines]) => {
+                          const groupKey = `${code}::${groupName}`;
+                          const groupIds = groupRoutines.map((r) => r.id);
+                          const isGroupOpen = openRoutineItems.has(groupKey);
+                          const isSelected = groupIds.some((id) =>
+                            goalRoutineSelection.has(id),
+                          );
+
+                          // Sub-items from related table filtered by group name
+                          const subItems =
+                            code === 1
+                              ? userWorkouts.filter(
+                                (w) => w.name && w.name === groupName,
+                              )
+                              : code === 2
+                                ? userDiets.filter(
+                                  (d) => d.name && d.name === groupName,
+                                )
+                                : userHabits.filter(
+                                  (h) => h.name && h.name === groupName,
+                                );
+
+                          return (
+                            <div key={groupKey}>
+                              {/* Group row */}
+                              <div className="flex items-center px-4 py-3 gap-3">
+                                {goalRoutineModalMode === "link" && (
+                                  <button
+                                    onClick={() => {
+                                      const next = new Set(goalRoutineSelection);
+                                      if (isSelected) {
+                                        groupIds.forEach((id) => next.delete(id));
+                                      } else {
+                                        groupIds.forEach((id) => next.add(id));
+                                      }
+                                      setGoalRoutineSelection(next);
+                                    }}
+                                    className={`shrink-0 h-5 w-5 rounded border-2 flex items-center justify-center transition-colors ${isSelected
+                                        ? "border-brand bg-brand"
+                                        : "border-border"
+                                      }`}
+                                  >
+                                    {isSelected && (
+                                      <Check className="h-3 w-3 text-white" />
+                                    )}
+                                  </button>
+                                )}
+                                <button
+                                  className="flex-1 flex items-center justify-between text-left"
+                                  onClick={() => {
+                                    const next = new Set(openRoutineItems);
+                                    if (next.has(groupKey)) next.delete(groupKey);
+                                    else next.add(groupKey);
+                                    setOpenRoutineItems(next);
+                                  }}
+                                >
+                                  <div>
+                                    <p className="text-sm font-medium">{groupName}</p>
+                                    {subItems.length > 0 && (
+                                      <p className="text-xs text-muted-foreground">
+                                        {subItems.length} item(s)
+                                      </p>
+                                    )}
+                                  </div>
+                                  {subItems.length > 0 && (
+                                    <ChevronDown
+                                      className={`h-4 w-4 text-muted-foreground transition-transform shrink-0 ${isGroupOpen ? "rotate-180" : ""}`}
+                                    />
+                                  )}
+                                </button>
+                                {goalRoutineModalMode === "view" && (
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        for (const id of groupIds) {
+                                          await updateRoutineGoalDb(id, null);
+                                        }
+                                        setRoutines((prev) =>
+                                          prev.map((r) =>
+                                            groupIds.includes(r.id)
+                                              ? { ...r, goal_id: null }
+                                              : r,
+                                          ),
+                                        );
+                                        toast({
+                                          title: "Rotina desvinculada",
+                                          description: `"${groupName}" foi desvinculada da meta.`,
+                                        });
+                                      } catch {
+                                        toast({
+                                          title: "Erro ao desvincular rotina",
+                                          variant: "destructive",
+                                        });
+                                      }
+                                    }}
+                                    className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                    title="Desvincular rotina"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Sub-items dropdown */}
+                              {isGroupOpen && subItems.length > 0 && (
+                                <div className="bg-muted/20 border-t border-border/40 px-4 py-2 space-y-1">
+                                  {subItems.map((item) => {
+                                    const itemName =
+                                      code === 1
+                                        ? (item as typeof userWorkouts[0]).workoutName
+                                        : code === 2
+                                          ? (item as typeof userDiets[0]).dietName
+                                          : (item as typeof userHabits[0]).habitName;
+                                    return (
+                                      <div
+                                        key={item.id}
+                                        className="flex items-center gap-2 py-1.5 text-sm text-muted-foreground"
+                                      >
+                                        <span className="h-1.5 w-1.5 rounded-full bg-brand shrink-0" />
+                                        {itemName}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
+
+            {/* Link mode: "Vincular" button + option to switch to link mode from view */}
+            {goalRoutineModalMode === "view" && (
               <Button
-                className="w-full rounded-full mt-4"
-                onClick={async () => {
-                  try {
-                    if (selectedGoalForRoutines && user) {
-                      for (const routineId of Array.from(goalRoutineSelection)) {
-                        await updateRoutineGoalDb(routineId, String(selectedGoalForRoutines.id));
-                      }
-                    }
-                    toast({
-                      title: "Rotinas Vinculadas!",
-                      description: `${goalRoutineSelection.size} rotina(s) vinculada(s) com sucesso.`,
-                    });
-                    setGoalRoutineModalOpen(false);
-                    setGoalRoutineSelection(new Set());
-                    setSelectedGoalForRoutines(null);
-                    setRoutineSearchQuery("");
-                    setGoalRoutineMuscleGroups(new Set());
-                  } catch (err) {
-                    toast({
-                      title: "Erro ao vincular rotinas",
-                      variant: "destructive",
-                    });
-                  }
+                variant="outline"
+                className="w-full rounded-full mt-2"
+                onClick={() => {
+                  setGoalRoutineModalMode("link");
+                  setGoalRoutineSelection(new Set());
+                  setOpenRoutineTypes(new Set());
+                  setOpenRoutineItems(new Set());
                 }}
               >
-                Confirmar Seleção
+                + Vincular mais rotinas
               </Button>
             )}
+
+            {goalRoutineModalMode === "link" && goalRoutineSelection.size > 0 && (() => {
+              // Count unique group names selected (not individual IDs)
+              const selectedNames = new Set(
+                routines
+                  .filter((r) => goalRoutineSelection.has(r.id))
+                  .map((r) => `${r.type}::${r.name || getRoutineTypeName(r.type)}`),
+              );
+              const groupCount = selectedNames.size;
+              return (
+                <Button
+                  className="w-full rounded-full mt-2"
+                  onClick={async () => {
+                    try {
+                      if (selectedGoalForRoutines && user) {
+                        const goalId = String(selectedGoalForRoutines.id);
+                        for (const routineId of Array.from(goalRoutineSelection)) {
+                          await updateRoutineGoalDb(routineId, goalId);
+                        }
+                        setRoutines((prev) =>
+                          prev.map((r) =>
+                            goalRoutineSelection.has(r.id) ? { ...r, goal_id: goalId } : r,
+                          ),
+                        );
+                      }
+                      toast({
+                        title: "Rotinas Vinculadas!",
+                        description: `${goalRoutineSelection.size} rotina(s) vinculada(s) com sucesso.`,
+                      });
+                      setGoalRoutineModalOpen(false);
+                      setGoalRoutineSelection(new Set());
+                      setSelectedGoalForRoutines(null);
+                      setGoalRoutineMuscleGroups(new Set());
+                      setOpenRoutineTypes(new Set());
+                      setOpenRoutineItems(new Set());
+                    } catch (err) {
+                      toast({
+                        title: "Erro ao vincular rotinas",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                >
+                  Confirmar Seleção ({groupCount} rotina{groupCount !== 1 ? "s" : ""})
+                </Button>
+              );
+            })()}
           </div>
         </DrawerContent>
       </Drawer>

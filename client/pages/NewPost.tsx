@@ -572,8 +572,12 @@ export default function NewPost() {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <div className="flex h-10 items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
-                    Nenhuma meta criada. Crie uma meta em Metas.
+                  <div
+                    className="flex h-10 cursor-pointer items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground hover:bg-muted transition-colors"
+                    onClick={() => navigate("/metas")}
+                  >
+                    Nenhuma meta criada.{" "}
+                    <span className="ml-1 text-primary underline">Criar meta</span>
                   </div>
                 )}
               </div>

@@ -5,10 +5,10 @@ import {
   togglePostIncentiveDb,
   getUserProfileDb,
   getUserGoalsByUserIdDb,
-  getUserGoalByIdDb,
   getFollowingIdsDb,
   type PostWithLikes,
   type PostIncentiveType,
+  type UserGoal,
 } from "@/lib/ritmofit-db";
 
 export type PostWithStats = PostWithLikes & {
@@ -78,10 +78,10 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
       const hasActivity = totalLikes > 0 || (commentCount ?? 0) > 0;
 
       // Get the post's specific user goal if user_goal_id is set
-      // Otherwise, fall back to the first goal of the user
+      // Use the already-fetched userGoals to avoid RLS issues when reading other users' goals
       let userGoal = undefined;
       if (post.user_goal_id) {
-        const specificGoal = await getUserGoalByIdDb(post.user_goal_id);
+        const specificGoal = userGoals.find((g) => g.id === post.user_goal_id);
         if (specificGoal) {
           userGoal = {
             id: specificGoal.id,
@@ -91,22 +91,9 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
             duration: specificGoal.duration,
             quantity: specificGoal.quantity,
             type_goal: specificGoal.type_goal,
-            actual_progress: specificGoal.actual_progress,
+            actual_progress: specificGoal.days_completed,
           };
         }
-      } else if (userGoals.length > 0) {
-        // Fallback: use first user goal if no specific goal is linked to post
-        const goal = userGoals[0];
-        userGoal = {
-          id: goal.id,
-          goal_id: goal.goal_id,
-          description: goal.description,
-          perc: goal.perc,
-          duration: goal.duration,
-          quantity: goal.quantity,
-          type_goal: goal.type_goal,
-          actual_progress: goal.actual_progress,
-        };
       }
 
       return {
