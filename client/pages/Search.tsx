@@ -5,136 +5,225 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   searchUsersDb,
-  searchUserWorkoutsDb,
-  searchUserDietsDb,
+  searchRoutinesDb,
   getAllUsersDb,
   followUserDb,
   unfollowUserDb,
   isFollowingDb,
+  getRoutineWorkoutsDb,
+  getRoutineDietsDb,
+  copyRoutineToUserDb,
   type SearchUser,
-  type SearchWorkout,
-  type SearchDiet,
+  type RoutineResult,
+  type RoutineItemRow,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
-import { UserPlus, UserCheck } from "lucide-react";
+import { UserPlus, UserCheck, ChevronDown, ChevronUp, Copy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useLanguage } from "@/lib/language-context";
+
+type RoutineCardProps = {
+  routine: RoutineResult;
+  isExpanded: boolean;
+  isLoadingItems: boolean;
+  items: RoutineItemRow[];
+  isCopying: boolean;
+  isOwn: boolean;
+  loadingText: string;
+  onToggleExpand: (routine: RoutineResult) => void;
+  onCopy: (routine: RoutineResult) => void;
+  onNavigate: (userId: string) => void;
+};
+
+function RoutineCard({
+  routine,
+  isExpanded,
+  isLoadingItems,
+  items,
+  isCopying,
+  isOwn,
+  loadingText,
+  onToggleExpand,
+  onCopy,
+  onNavigate,
+}: RoutineCardProps) {
+  return (
+    <Card className="border-border/60">
+      <CardContent className="p-4">
+        {/* Routine name — prominent */}
+        <p className="font-semibold text-sm mb-2">{routine.routineName}</p>
+
+        {/* User info row + action buttons */}
+        <div className="flex items-center gap-2">
+          {/* Small user avatar + name */}
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            {routine.userPhoto ? (
+              <img
+                src={routine.userPhoto}
+                alt={routine.userNickname}
+                className="h-5 w-5 rounded-full object-cover flex-shrink-0"
+              />
+            ) : (
+              <div className="h-5 w-5 rounded-full bg-muted flex-shrink-0" />
+            )}
+            <button
+              onClick={() => onNavigate(routine.userId)}
+              className="text-xs text-muted-foreground hover:text-brand transition-colors truncate"
+            >
+              {routine.userNickname}
+            </button>
+          </div>
+
+          {/* Copy button */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-full h-7 px-2.5 gap-1 text-xs flex-shrink-0"
+            onClick={() => onCopy(routine)}
+            disabled={isCopying || isOwn}
+          >
+            <Copy className="h-3 w-3" />
+            {isCopying ? "Copiando..." : "Copiar"}
+          </Button>
+
+          {/* Expand toggle */}
+          <button
+            onClick={() => onToggleExpand(routine)}
+            className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 p-1"
+            aria-label="Ver itens"
+          >
+            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        </div>
+
+        {/* Dropdown items */}
+        {isExpanded && (
+          <div className="mt-3 border-t border-border/40 pt-3 space-y-1">
+            {isLoadingItems ? (
+              <p className="text-xs text-muted-foreground text-center py-2">{loadingText}</p>
+            ) : items.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-2">Nenhum item encontrado</p>
+            ) : (
+              items.map((item) => (
+                <div key={item.id} className="flex items-center gap-2 py-1 px-2 rounded-md bg-muted/30">
+                  <span className="text-xs font-medium flex-1 truncate">{item.itemName}</span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function Search() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [activeTab, setActiveTab] = React.useState("people");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [allUsers, setAllUsers] = React.useState<SearchUser[]>([]);
   const [searchUsers, setSearchUsers] = React.useState<SearchUser[]>([]);
-  const [searchWorkouts, setSearchWorkouts] = React.useState<SearchWorkout[]>(
-    [],
-  );
-  const [searchDiets, setSearchDiets] = React.useState<SearchDiet[]>([]);
+  const [searchWorkouts, setSearchWorkouts] = React.useState<RoutineResult[]>([]);
+  const [allWorkouts, setAllWorkouts] = React.useState<RoutineResult[]>([]);
+  const [searchDiets, setSearchDiets] = React.useState<RoutineResult[]>([]);
+  const [allDiets, setAllDiets] = React.useState<RoutineResult[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
-  const [followingIds, setFollowingIds] = React.useState<Set<string>>(
-    new Set(),
-  );
+  const [followingIds, setFollowingIds] = React.useState<Set<string>>(new Set());
   const [isFollowingLoading, setIsFollowingLoading] = React.useState(false);
 
-  // Load all users on mount and when people tab is active
+  // Expanded dropdown state: key = "userId::routineName"
+  const [expandedKeys, setExpandedKeys] = React.useState<Set<string>>(new Set());
+  // Cached items per userId
+  const [itemsCache, setItemsCache] = React.useState<Map<string, RoutineItemRow[]>>(new Map());
+  const [itemsLoading, setItemsLoading] = React.useState<Set<string>>(new Set());
+  const [copyingKeys, setCopyingKeys] = React.useState<Set<string>>(new Set());
+
+  // Load all users on mount
   React.useEffect(() => {
-    const loadAllUsers = async () => {
-      if (!user) return;
-      setIsLoading(true);
-      try {
-        const users = await getAllUsersDb(user.id);
+    if (!user) return;
+    setIsLoading(true);
+    getAllUsersDb(user.id)
+      .then(async (users) => {
         setAllUsers(users);
         setSearchUsers(users);
-
-        // Check following status for all users
-        const followingIdsList = new Set<string>();
+        const ids = new Set<string>();
         for (const u of users) {
-          const isFollowing = await isFollowingDb(u.id);
-          if (isFollowing) {
-            followingIdsList.add(u.id);
-          }
+          if (await isFollowingDb(u.id)) ids.add(u.id);
         }
-        setFollowingIds(followingIdsList);
+        setFollowingIds(ids);
+      })
+      .catch((err) => console.error("Error loading users:", err))
+      .finally(() => setIsLoading(false));
+  }, [user]);
+
+  // Load all routines when switching to workouts/diets tabs
+  React.useEffect(() => {
+    if (activeTab === "workouts" && allWorkouts.length === 0) {
+      setIsLoading(true);
+      searchRoutinesDb("", 1, user?.id)
+        .then((data) => { setAllWorkouts(data); setSearchWorkouts(data); })
+        .catch((err) => console.error("Error loading workouts:", err))
+        .finally(() => setIsLoading(false));
+    } else if (activeTab === "diets" && allDiets.length === 0) {
+      setIsLoading(true);
+      searchRoutinesDb("", 2, user?.id)
+        .then((data) => { setAllDiets(data); setSearchDiets(data); })
+        .catch((err) => console.error("Error loading diets:", err))
+        .finally(() => setIsLoading(false));
+    }
+  }, [activeTab]);
+
+  const handleSearch = React.useCallback(
+    async (query: string) => {
+      setSearchQuery(query);
+      if (!query.trim()) {
+        if (activeTab === "people") setSearchUsers(allUsers);
+        else if (activeTab === "workouts") setSearchWorkouts(allWorkouts);
+        else if (activeTab === "diets") setSearchDiets(allDiets);
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        if (activeTab === "people") {
+          const users = await searchUsersDb(query);
+          setSearchUsers(users);
+        } else if (activeTab === "workouts") {
+          const workouts = await searchRoutinesDb(query, 1, user?.id);
+          setSearchWorkouts(workouts);
+        } else if (activeTab === "diets") {
+          const diets = await searchRoutinesDb(query, 2, user?.id);
+          setSearchDiets(diets);
+        }
       } catch (err) {
-        console.error("Error loading all users:", err);
+        console.error("Error searching:", err);
       } finally {
         setIsLoading(false);
       }
-    };
-
-    loadAllUsers();
-  }, [user]);
-
-  const handleSearch = React.useCallback(async (query: string) => {
-    setSearchQuery(query);
-    if (!query.trim()) {
-      if (activeTab === "people") {
-        setSearchUsers(allUsers);
-      } else {
-        setSearchWorkouts([]);
-        setSearchDiets([]);
-      }
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      if (activeTab === "people") {
-        const users = await searchUsersDb(query);
-        setSearchUsers(users);
-      } else if (activeTab === "workouts") {
-        const workouts = await searchUserWorkoutsDb(query);
-        setSearchWorkouts(workouts);
-      } else if (activeTab === "diets") {
-        const diets = await searchUserDietsDb(query);
-        setSearchDiets(diets);
-      }
-    } catch (err) {
-      console.error("Error searching:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeTab, allUsers]);
+    },
+    [activeTab, allUsers, allWorkouts, allDiets],
+  );
 
   const handleToggleFollow = React.useCallback(
     async (userId: string) => {
       if (!user) return;
-
       setIsFollowingLoading(true);
       try {
         const isCurrentlyFollowing = followingIds.has(userId);
-
         if (isCurrentlyFollowing) {
-          const success = await unfollowUserDb(userId);
-          if (success) {
-            setFollowingIds((prev) => {
-              const newSet = new Set(prev);
-              newSet.delete(userId);
-              return newSet;
-            });
-            toast({
-              title: "Deixou de seguir",
-              description: "Você deixou de seguir este usuário.",
-            });
-          }
+          await unfollowUserDb(userId);
+          setFollowingIds((prev) => { const s = new Set(prev); s.delete(userId); return s; });
+          toast({ title: "Deixou de seguir", description: "Você deixou de seguir este usuário." });
         } else {
-          const success = await followUserDb(userId);
-          if (success) {
-            setFollowingIds((prev) => new Set(prev).add(userId));
-            toast({
-              title: "Seguindo!",
-              description: "Você começou a seguir este usuário.",
-            });
-          }
+          await followUserDb(userId);
+          setFollowingIds((prev) => new Set(prev).add(userId));
+          toast({ title: "Seguindo!", description: "Você começou a seguir este usuário." });
         }
       } catch (err: any) {
-        console.error("Error toggling follow:", err);
-        toast({
-          title: "Erro",
-          description: err.message || "Tente novamente.",
-          variant: "destructive",
-        });
+        toast({ title: "Erro", description: err.message || "Tente novamente.", variant: "destructive" });
       } finally {
         setIsFollowingLoading(false);
       }
@@ -142,58 +231,93 @@ export default function Search() {
     [followingIds, user],
   );
 
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    setSearchQuery("");
+    if (tab === "people") setSearchUsers(allUsers);
+    else if (tab === "workouts") setSearchWorkouts(allWorkouts);
+    else if (tab === "diets") setSearchDiets(allDiets);
+  };
+
+  const handleToggleExpand = React.useCallback(
+    async (routine: RoutineResult) => {
+      const key = `${routine.userId}::${routine.routineName}`;
+      const isExpanded = expandedKeys.has(key);
+
+      if (isExpanded) {
+        setExpandedKeys((prev) => { const s = new Set(prev); s.delete(key); return s; });
+        return;
+      }
+
+      setExpandedKeys((prev) => new Set(prev).add(key));
+
+      if (!itemsCache.has(key)) {
+        setItemsLoading((prev) => new Set(prev).add(key));
+        try {
+          const items = routine.routineType === 1
+            ? await getRoutineWorkoutsDb(routine.userId, routine.routineName)
+            : await getRoutineDietsDb(routine.userId, routine.routineName);
+          setItemsCache((prev) => new Map(prev).set(key, items));
+        } catch {
+          setItemsCache((prev) => new Map(prev).set(key, []));
+        } finally {
+          setItemsLoading((prev) => { const s = new Set(prev); s.delete(key); return s; });
+        }
+      }
+    },
+    [expandedKeys, itemsCache],
+  );
+
+  const handleCopy = React.useCallback(
+    async (routine: RoutineResult) => {
+      if (!user) return;
+      const key = `${routine.userId}::${routine.routineName}`;
+      setCopyingKeys((prev) => new Set(prev).add(key));
+      try {
+        await copyRoutineToUserDb(routine.userId, user.id, routine.routineType as 1 | 2, routine.routineName);
+        toast({
+          title: routine.routineType === 1 ? "Treino copiado!" : "Dieta copiada!",
+          description: `"${routine.routineName}" foi adicionado(a) à sua conta.`,
+        });
+      } catch (err: any) {
+        toast({ title: "Erro ao copiar", description: err.message || "Tente novamente.", variant: "destructive" });
+      } finally {
+        setCopyingKeys((prev) => { const s = new Set(prev); s.delete(key); return s; });
+      }
+    },
+    [user],
+  );
+
   return (
     <div className="space-y-4">
       <Input
-        placeholder="Buscar pessoas, treinos, dietas..."
+        placeholder={t("search_placeholder")}
         value={searchQuery}
         onChange={(e) => handleSearch(e.target.value)}
         className="rounded-full"
         autoFocus
       />
 
-      <Tabs
-        defaultValue="people"
-        value={activeTab}
-        onValueChange={setActiveTab}
-        className="w-full"
-      >
+      <Tabs defaultValue="people" value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="people">Pessoas</TabsTrigger>
-          <TabsTrigger value="workouts">Treinos</TabsTrigger>
-          <TabsTrigger value="diets">Dietas</TabsTrigger>
+          <TabsTrigger value="people">{t("search_people")}</TabsTrigger>
+          <TabsTrigger value="workouts">{t("search_workouts")}</TabsTrigger>
+          <TabsTrigger value="diets">{t("search_diets")}</TabsTrigger>
         </TabsList>
 
+        {/* People */}
         <TabsContent value="people" className="space-y-3">
-          {isLoading && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Carregando...
-            </div>
-          )}
-          {!isLoading && searchUsers.length === 0 && !searchQuery && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Nenhuma pessoa encontrada.
-            </div>
-          )}
-          {!isLoading && searchUsers.length === 0 && searchQuery && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Nenhuma pessoa encontrada.
-            </div>
+          {isLoading && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
+          {!isLoading && searchUsers.length === 0 && (
+            <div className="text-center py-6 text-sm text-muted-foreground">{t("search_no_people")}</div>
           )}
           {searchUsers.map((u) => (
-            <Card
-              key={u.id}
-              className="border-border/60 hover:bg-muted/50 transition-colors"
-            >
+            <Card key={u.id} className="border-border/60 hover:bg-muted/50 transition-colors">
               <CardContent className="p-4">
                 <div className="flex items-start gap-3 justify-between">
                   <div className="flex items-start gap-3 flex-1">
                     {u.photo ? (
-                      <img
-                        src={u.photo}
-                        alt={u.nickname}
-                        className="h-12 w-12 rounded-full object-cover flex-shrink-0"
-                      />
+                      <img src={u.photo} alt={u.nickname} className="h-12 w-12 rounded-full object-cover flex-shrink-0" />
                     ) : (
                       <div className="h-12 w-12 rounded-full bg-muted flex-shrink-0" />
                     )}
@@ -204,32 +328,20 @@ export default function Search() {
                       >
                         {u.nickname}
                       </button>
-                      {u.bio && (
-                        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                          {u.bio}
-                        </p>
-                      )}
+                      {u.bio && <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{u.bio}</p>}
                     </div>
                   </div>
                   <Button
                     size="sm"
-                    variant={
-                      followingIds.has(u.id) ? "secondary" : "default"
-                    }
+                    variant={followingIds.has(u.id) ? "secondary" : "default"}
                     className="shrink-0 rounded-full gap-2"
                     onClick={() => handleToggleFollow(u.id)}
                     disabled={isFollowingLoading}
                   >
                     {followingIds.has(u.id) ? (
-                      <>
-                        <UserCheck className="h-4 w-4" />
-                        Seguindo
-                      </>
+                      <><UserCheck className="h-4 w-4" />{t("search_following")}</>
                     ) : (
-                      <>
-                        <UserPlus className="h-4 w-4" />
-                        Seguir
-                      </>
+                      <><UserPlus className="h-4 w-4" />{t("search_follow")}</>
                     )}
                   </Button>
                 </div>
@@ -238,140 +350,53 @@ export default function Search() {
           ))}
         </TabsContent>
 
+        {/* Workouts */}
         <TabsContent value="workouts" className="space-y-3">
-          {isLoading && (
+          {isLoading && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
+          {!isLoading && searchWorkouts.length === 0 && (
             <div className="text-center py-6 text-sm text-muted-foreground">
-              Buscando...
+              {t("search_no_workouts")}
             </div>
           )}
-          {!isLoading && searchWorkouts.length === 0 && searchQuery && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Nenhum treino encontrado.
-            </div>
-          )}
-          {!isLoading && searchWorkouts.length === 0 && !searchQuery && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Digite para buscar treinos.
-            </div>
-          )}
-          {searchWorkouts.map((workout) => (
-            <Card
-              key={workout.userWorkoutId}
-              className="border-border/60 hover:bg-muted/50 transition-colors"
-            >
-              <CardContent className="p-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {workout.userPhoto ? (
-                        <img
-                          src={workout.userPhoto}
-                          alt={workout.userName}
-                          className="h-8 w-8 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="h-8 w-8 rounded-full bg-muted" />
-                      )}
-                      <p className="text-xs font-medium text-muted-foreground">
-                        {workout.userName}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    {workout.workoutPhoto ? (
-                      <img
-                        src={workout.workoutPhoto}
-                        alt={workout.workoutName}
-                        className="h-12 w-12 rounded object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="h-12 w-12 rounded bg-muted flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm">
-                        {workout.workoutName}
-                      </p>
-                      {workout.workoutDescription && (
-                        <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                          {workout.workoutDescription}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          {searchWorkouts.map((routine) => (
+            <RoutineCard
+              key={`${routine.userId}-${routine.routineName}`}
+              routine={routine}
+              isExpanded={expandedKeys.has(`${routine.userId}::${routine.routineName}`)}
+              isLoadingItems={itemsLoading.has(`${routine.userId}::${routine.routineName}`)}
+              items={itemsCache.get(`${routine.userId}::${routine.routineName}`) ?? []}
+              isCopying={copyingKeys.has(`${routine.userId}::${routine.routineName}`)}
+              isOwn={routine.userId === user?.id}
+              loadingText={t("loading")}
+              onToggleExpand={handleToggleExpand}
+              onCopy={handleCopy}
+              onNavigate={(id) => navigate(`/usuario/${id}`)}
+            />
           ))}
         </TabsContent>
 
+        {/* Diets */}
         <TabsContent value="diets" className="space-y-3">
-          {isLoading && (
+          {isLoading && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
+          {!isLoading && searchDiets.length === 0 && (
             <div className="text-center py-6 text-sm text-muted-foreground">
-              Buscando...
+              {t("search_no_diets")}
             </div>
           )}
-          {!isLoading && searchDiets.length === 0 && searchQuery && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Nenhuma dieta encontrada.
-            </div>
-          )}
-          {!isLoading && searchDiets.length === 0 && !searchQuery && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Digite para buscar dietas.
-            </div>
-          )}
-          {searchDiets.map((diet) => (
-            <Card
-              key={diet.userDietId}
-              className="border-border/60 hover:bg-muted/50 transition-colors"
-            >
-              <CardContent className="p-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {diet.userPhoto ? (
-                        <img
-                          src={diet.userPhoto}
-                          alt={diet.userName}
-                          className="h-8 w-8 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="h-8 w-8 rounded-full bg-muted" />
-                      )}
-                      <p className="text-xs font-medium text-muted-foreground">
-                        {diet.userName}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    {diet.dietPhoto ? (
-                      <img
-                        src={diet.dietPhoto}
-                        alt={diet.dietName}
-                        className="h-12 w-12 rounded object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="h-12 w-12 rounded bg-muted flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm">{diet.dietName}</p>
-                      <div className="flex gap-2 items-center mt-1">
-                        {diet.dietCalories && (
-                          <p className="text-xs font-medium text-brand">
-                            {diet.dietCalories} cal
-                          </p>
-                        )}
-                        {diet.dietDescription && (
-                          <p className="text-xs text-muted-foreground line-clamp-1">
-                            {diet.dietDescription}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          {searchDiets.map((routine) => (
+            <RoutineCard
+              key={`${routine.userId}-${routine.routineName}`}
+              routine={routine}
+              isExpanded={expandedKeys.has(`${routine.userId}::${routine.routineName}`)}
+              isLoadingItems={itemsLoading.has(`${routine.userId}::${routine.routineName}`)}
+              items={itemsCache.get(`${routine.userId}::${routine.routineName}`) ?? []}
+              isCopying={copyingKeys.has(`${routine.userId}::${routine.routineName}`)}
+              isOwn={routine.userId === user?.id}
+              loadingText={t("loading")}
+              onToggleExpand={handleToggleExpand}
+              onCopy={handleCopy}
+              onNavigate={(id) => navigate(`/usuario/${id}`)}
+            />
           ))}
         </TabsContent>
       </Tabs>

@@ -15,6 +15,7 @@ import {
 
 import { AppLayout } from "@/components/app-layout";
 import { ThemeProvider } from "@/components/theme-provider";
+import { LanguageProvider } from "@/lib/language-context";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -42,7 +43,7 @@ function AuthLoadingScreen() {
   return (
     <div className="grid min-h-dvh place-items-center bg-background p-6">
       <div className="text-center">
-        <div className="text-lg font-semibold tracking-tight">Linka</div>
+        <img src="/logo.png" alt="LinKa" className="h-12 mx-auto" />
         <div className="mt-1 text-sm text-muted-foreground">Carregando…</div>
       </div>
     </div>
@@ -121,6 +122,7 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <LanguageProvider>
       <ThemeProvider>
         <TooltipProvider>
           <Toaster />
@@ -160,6 +162,7 @@ const App = () => {
           </BrowserRouter>
         </TooltipProvider>
       </ThemeProvider>
+      </LanguageProvider>
     </QueryClientProvider>
   );
 };

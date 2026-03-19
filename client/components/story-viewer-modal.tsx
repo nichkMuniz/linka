@@ -25,7 +25,7 @@ import {
   type StoryComment,
   type FlowViewer,
 } from "@/lib/ritmofit-db";
-import { X, ChevronRight, ChevronLeft, Send, Trash2, Eye } from "lucide-react";
+import { X, ChevronLeft, Send, Trash2, Eye } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
@@ -345,8 +345,11 @@ export function StoryViewerModal({
               </div>
             </div>
 
-            {/* Media - Full Screen */}
-            <div className="flex-1 flex items-center justify-center relative">
+            {/* Media - Full Screen (tap anywhere to go next) */}
+            <div
+              className="flex-1 flex items-center justify-center relative cursor-pointer"
+              onClick={hasNextStory ? onNextStory : undefined}
+            >
               {isVideo ? (
                 <video src={story.media_url} className="w-full h-full object-cover" autoPlay />
               ) : (
@@ -356,32 +359,18 @@ export function StoryViewerModal({
               {/* Left tap zone - previous story */}
               {hasPrevStory && (
                 <button
-                  onClick={onPrevStory}
-                  className="absolute left-0 top-0 bottom-0 w-1/3 z-20 flex items-center justify-start pl-3"
+                  onClick={(e) => { e.stopPropagation(); onPrevStory?.(); }}
+                  className="absolute left-0 top-0 bottom-0 w-1/4 z-20"
                   aria-label="Story anterior"
-                >
-                  <div className="bg-white/20 hover:bg-white/30 p-2 rounded-full transition-colors">
-                    <ChevronLeft className="h-6 w-6 text-white" />
-                  </div>
-                </button>
+                />
               )}
 
-              {/* Right tap zone - next story */}
-              {hasNextStory && (
-                <button
-                  onClick={onNextStory}
-                  className="absolute right-0 top-0 bottom-0 w-1/3 z-20 flex items-center justify-end pr-3"
-                  aria-label="Próximo story"
-                >
-                  <div className="bg-white/20 hover:bg-white/30 p-2 rounded-full transition-colors">
-                    <ChevronRight className="h-6 w-6 text-white" />
-                  </div>
-                </button>
-              )}
-
-              {/* Incentive Buttons - Right Side */}
-              <div className="absolute right-4 bottom-20 flex flex-col gap-2 z-30">
-                {!isOwner && ([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+              {/* Incentive Buttons - Right Side (visible to all viewers) */}
+              <div
+                className="absolute right-4 bottom-20 flex flex-col gap-2 z-30"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
                   <PostIncentiveButton
                     key={type}
                     type={type}

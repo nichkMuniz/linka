@@ -15,6 +15,7 @@ import {
   getUserExerciseRoutinesDb,
   getUserProfileDb,
   addMembersToGroupDb,
+  leaveGroupDb,
   updateGroupCheckInDb,
   deleteGroupCheckInDb,
   deleteGroupDb,
@@ -49,6 +50,8 @@ import {
 } from "@/components/ui/select";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { LoadingSpinner } from "@/components/animated-loading";
+import { useLayoutMode } from "@/hooks/useLayoutMode";
+import { useLanguage } from "@/lib/language-context";
 
 type ViewMode = "conversations" | "conversation";
 
@@ -56,6 +59,8 @@ export default function Community() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { layoutMode } = useLayoutMode();
+  const { t } = useLanguage();
 
   const [activeTab, setActiveTab] = React.useState("messages");
   const [viewMode, setViewMode] = React.useState<ViewMode>("conversations");
@@ -85,6 +90,8 @@ export default function Community() {
   const [selectedInvitees, setSelectedInvitees] = React.useState<Set<string>>(new Set());
   const [userCreatedGroups, setUserCreatedGroups] = React.useState<any[]>([]);
   const [availableGroups, setAvailableGroups] = React.useState<any[]>([]);
+  const [joinedGroupIds, setJoinedGroupIds] = React.useState<Set<string>>(new Set());
+  const [joiningGroupId, setJoiningGroupId] = React.useState<string | null>(null);
   const [selectedGroupForView, setSelectedGroupForView] = React.useState<any>(null);
   const [groupCheckIns, setGroupCheckIns] = React.useState<GroupCheckIn[]>([]);
   const [groupParticipants, setGroupParticipants] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null }>>([]);
@@ -150,31 +157,44 @@ export default function Community() {
         const nickname = userProfile?.nickname || user.email?.split("@")[0] || "Usuário";
         setUserNickname(nickname);
 
-        // Load user groups
+        // Load user groups + all other groups
         const [createdGroups, availGroups] = await Promise.all([
           getUserCreatedDuelGroupsDb(user.id),
           getAvailableDuelGroupsDb(user.id),
         ]);
-        setUserCreatedGroups(
-          createdGroups.map((group) => ({
-            ...group,
-            icon: "⚔️",
-            description: group.goal,
-            participants: 1,
-            city: group.location,
-            isOfficial: false,
-          }))
+
+        const toGroupCard = (group: any) => ({
+          ...group,
+          icon: "⚔️",
+          description: group.goal,
+          participants: 1,
+          city: group.location,
+          isOfficial: false,
+        });
+
+        setUserCreatedGroups(createdGroups.map(toGroupCard));
+
+        // Enrich available groups with creator profile and membership status
+        const enrichedAvailGroups = await Promise.all(
+          availGroups.map(async (group: any) => {
+            const [creatorProfile, participants] = await Promise.all([
+              getUserProfileDb(group.createdBy),
+              getGroupParticipantsDb(group.id),
+            ]);
+            return {
+              ...toGroupCard(group),
+              creatorNickname: creatorProfile?.nickname || "Usuário",
+              creatorPhoto: creatorProfile?.photo || null,
+              participants: participants.length,
+              isAlreadyMember: participants.some((p: any) => p.userId === user.id),
+            };
+          })
         );
-        setAvailableGroups(
-          availGroups.map((group) => ({
-            ...group,
-            icon: "⚔️",
-            description: group.goal,
-            participants: 1,
-            city: group.location,
-            isOfficial: false,
-          }))
+        const alreadyJoined = new Set(
+          enrichedAvailGroups.filter((g) => g.isAlreadyMember).map((g) => g.id)
         );
+        setJoinedGroupIds(alreadyJoined);
+        setAvailableGroups(enrichedAvailGroups);
       } catch (err: any) {
         console.error("Error loading user groups:", err);
       }
@@ -297,8 +317,12 @@ export default function Community() {
   }
 
   if (activeTab === "messages" && viewMode === "conversation" && selectedConversation) {
+    const bottomClass = layoutMode === "novo"
+      ? "bottom-0"
+      : "bottom-[calc(4.25rem+env(safe-area-inset-bottom))]";
+
     return (
-      <div className="fixed top-0 left-0 right-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] bg-background flex flex-col z-50">
+      <div className={`fixed top-0 left-0 right-0 ${bottomClass} bg-background flex flex-col z-[60]`}>
         {/* Header */}
         <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3">
           <button
@@ -307,7 +331,10 @@ export default function Community() {
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <div className="flex-1 flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => navigate(`/usuario/${selectedConversation.userId}`)}
+            className="flex-1 flex items-center gap-3 min-w-0 hover:opacity-80 transition-opacity text-left"
+          >
             {selectedConversation.userPhoto && (
               <img
                 src={selectedConversation.userPhoto}
@@ -320,7 +347,7 @@ export default function Community() {
                 {selectedConversation.userNickname}
               </p>
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Messages */}
@@ -377,7 +404,7 @@ export default function Community() {
         {/* Input */}
         <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2">
           <Input
-            placeholder="Envie uma mensagem..."
+            placeholder={t("community_type_message")}
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
             onKeyPress={(e) => {
@@ -417,9 +444,9 @@ export default function Community() {
       <div className="flex-shrink-0 border-b border-border/60 px-4 pt-4">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-3 rounded-lg">
-            <TabsTrigger value="messages">Mensagens</TabsTrigger>
-            <TabsTrigger value="duels">Duelos</TabsTrigger>
-            <TabsTrigger value="ranking">Ranking</TabsTrigger>
+            <TabsTrigger value="messages">{t("community_messages")}</TabsTrigger>
+            <TabsTrigger value="duels">{t("community_duels")}</TabsTrigger>
+            <TabsTrigger value="ranking">{t("community_ranking")}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -429,7 +456,7 @@ export default function Community() {
         <>
           {/* Header */}
           <div className="flex-shrink-0 px-4 pt-4 pb-0">
-            <h1 className="text-2xl font-bold tracking-tight">Mensagens</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("community_messages")}</h1>
           </div>
 
           {/* Search Bar */}
@@ -793,7 +820,7 @@ export default function Community() {
         <>
           {/* Header */}
           <div className="flex-shrink-0 px-4 pt-4 pb-0 flex items-center justify-start">
-            <h1 className="text-2xl font-bold tracking-tight">Duelos</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("community_duels")}</h1>
           </div>
 
           {/* Duels Grid */}
@@ -801,7 +828,7 @@ export default function Community() {
             {/* User Created Groups Section */}
             {userCreatedGroups.length > 0 && (
               <div>
-                <h2 className="text-sm font-semibold text-brand mb-3">Meus Grupos</h2>
+                <h2 className="text-sm font-semibold text-brand mb-3">{t("duels_my_groups")}</h2>
                 <div className="grid grid-cols-2 gap-3">
                   {userCreatedGroups.map((group) => (
                     <Card
@@ -843,7 +870,7 @@ export default function Community() {
                             }
                           }}
                         >
-                          Ver Grupo
+                          {t("duels_view")}
                         </Button>
                       </CardContent>
                     </Card>
@@ -852,10 +879,14 @@ export default function Community() {
               </div>
             )}
 
-            {/* Available Groups Section */}
-            {availableGroups.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-muted-foreground mb-3">Grupos Disponíveis</h2>
+            {/* All Groups Section */}
+            <div>
+              <h2 className="text-sm font-semibold text-muted-foreground mb-3">{t("duels_all_groups")}</h2>
+              {availableGroups.length === 0 ? (
+                <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
+                  <p className="text-xs text-muted-foreground">{t("duels_no_groups")}</p>
+                </div>
+              ) : (
                 <div className="grid grid-cols-2 gap-3">
                   {availableGroups.map((group) => (
                     <Card
@@ -869,37 +900,91 @@ export default function Community() {
                             <p className="font-semibold text-xs line-clamp-2">{group.name}</p>
                           </div>
                         </div>
-                        <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{group.description}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{group.description}</p>
+                        {/* Creator info */}
+                        <div className="flex items-center gap-1.5 mb-3">
+                          {group.creatorPhoto ? (
+                            <img
+                              src={group.creatorPhoto}
+                              alt={group.creatorNickname}
+                              className="h-5 w-5 rounded-full object-cover flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                              <span className="text-[9px] font-semibold text-muted-foreground">
+                                {group.creatorNickname?.[0]?.toUpperCase() || "?"}
+                              </span>
+                            </div>
+                          )}
+                          <span className="text-xs text-muted-foreground truncate">
+                            por <span className="font-medium">{group.creatorNickname}</span>
+                          </span>
+                        </div>
                         <div className="space-y-2 mb-3 flex-1">
                           <div className="flex items-center justify-between">
                             <span className="text-xs text-muted-foreground">👥 {group.participants}</span>
                             <span className="text-xs text-muted-foreground">📍 {group.city}</span>
                           </div>
                         </div>
-                        <Button
-                          size="sm"
-                          className="w-full rounded-full text-xs h-8"
-                          onClick={() => {
-                            toast({
-                              title: "Participando!",
-                              description: `Você agora faz parte de "${group.name}"`,
-                            });
-                          }}
-                        >
-                          Participar
-                        </Button>
+                        <div className="flex flex-col gap-1.5">
+                          {joinedGroupIds.has(group.id) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="w-full rounded-full text-xs h-8"
+                              onClick={async () => {
+                                setSelectedGroupForView(group);
+                                setActiveGroupViewTab("check-ins");
+                                try {
+                                  const [checkIns, participants] = await Promise.all([
+                                    getGroupCheckInsDb(group.id),
+                                    getGroupParticipantsDb(group.id),
+                                  ]);
+                                  setGroupCheckIns(checkIns);
+                                  setGroupParticipants(participants);
+                                } catch (err: any) {
+                                  console.error("Error loading group data:", err);
+                                }
+                              }}
+                            >
+                              {t("duels_view")}
+                            </Button>
+                          )}
+                          {!joinedGroupIds.has(group.id) && (
+                            <Button
+                              size="sm"
+                              className="w-full rounded-full text-xs h-8"
+                              disabled={joiningGroupId === group.id}
+                              onClick={async () => {
+                                if (!user) return;
+                                setJoiningGroupId(group.id);
+                                try {
+                                  await addMembersToGroupDb(group.id, [user.id]);
+                                  setJoinedGroupIds((prev) => new Set([...prev, group.id]));
+                                  setAvailableGroups((prev) =>
+                                    prev.map((g) =>
+                                      g.id === group.id
+                                        ? { ...g, participants: g.participants + 1, isAlreadyMember: true }
+                                        : g
+                                    )
+                                  );
+                                } catch (err: any) {
+                                  console.error("Error joining group:", err);
+                                } finally {
+                                  setJoiningGroupId(null);
+                                }
+                              }}
+                            >
+                              {joiningGroupId === group.id ? "Entrando..." : "Solicitar Entrada"}
+                            </Button>
+                          )}
+                        </div>
                       </CardContent>
                     </Card>
                   ))}
                 </div>
-              </div>
-            )}
-
-            {userCreatedGroups.length === 0 && availableGroups.length === 0 && (
-              <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center">
-                <p className="text-sm text-muted-foreground">Nenhum grupo disponível no momento</p>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* Centered Create Group Button at Bottom */}
@@ -914,7 +999,7 @@ export default function Community() {
               className="gap-2 rounded-full px-6 h-12"
             >
               <Plus className="h-4 w-4" />
-              Criar Grupo
+              {t("duels_create")}
             </Button>
           </div>
         </>
@@ -925,14 +1010,14 @@ export default function Community() {
         <>
           {/* Header */}
           <div className="flex-shrink-0 px-4 pt-4 pb-0">
-            <h1 className="text-2xl font-bold tracking-tight">Ranking</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("community_ranking")}</h1>
           </div>
 
           {/* Ranking List */}
           <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3 pt-4">
             {ranking.length > 0 ? (
               <div className="space-y-2">
-                {ranking.map((user, index) => {
+                {ranking.map((rankUser, index) => {
                   const medalEmoji =
                     index === 0
                       ? "🥇"
@@ -942,8 +1027,10 @@ export default function Community() {
                           ? "🥉"
                           : "";
 
+                  const isCurrentUser = rankUser.userId === user?.id;
+
                   return (
-                    <Card key={user.userId} className="border-border/60">
+                    <Card key={rankUser.userId} className={`border-border/60 ${isCurrentUser ? "ring-2 ring-brand" : ""}`}>
                       <CardContent className="p-4">
                         <div className="flex items-center gap-4">
                           <div className="flex-shrink-0 w-12 text-center">
@@ -957,10 +1044,10 @@ export default function Community() {
                           </div>
 
                           <div className="flex items-center gap-3 flex-1">
-                            {user.userPhoto ? (
+                            {rankUser.userPhoto ? (
                               <img
-                                src={user.userPhoto}
-                                alt={user.userNickname}
+                                src={rankUser.userPhoto}
+                                alt={rankUser.userNickname}
                                 className="h-12 w-12 rounded-full object-cover"
                               />
                             ) : (
@@ -969,10 +1056,11 @@ export default function Community() {
 
                             <div className="flex-1">
                               <p className="font-semibold text-sm">
-                                {user.userNickname}
+                                {rankUser.userNickname}
+                                {isCurrentUser && <span className="ml-1 text-xs text-brand">({t("ranking_you")})</span>}
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                Nível {user.level}
+                                {t("ranking_level")} {rankUser.level}
                               </p>
                             </div>
                           </div>
@@ -981,11 +1069,11 @@ export default function Community() {
                             <div className="flex items-center gap-1">
                               <TrendingUp className="h-4 w-4 text-brand" />
                               <span className="font-bold text-brand">
-                                {user.points}
+                                {rankUser.points}
                               </span>
                             </div>
                             <p className="text-xs text-muted-foreground">
-                              pontos
+                              {t("ranking_points")}
                             </p>
                           </div>
                         </div>
@@ -997,9 +1085,9 @@ export default function Community() {
             ) : (
               <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
                 <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                <p className="text-sm font-medium mb-1">{t("ranking_empty")}</p>
                 <p className="text-sm text-muted-foreground">
-                  Nenhum ranking disponível no momento. Comece a ganhar pontos
-                  interagindo no app!
+                  {t("ranking_empty_desc")}
                 </p>
               </div>
             )}
@@ -1352,7 +1440,7 @@ export default function Community() {
                     className="flex-1 rounded-full"
                     disabled={selectedInvitees.size === 0}
                   >
-                    Criar Grupo
+                    {t("duels_create")}
                   </Button>
                 </div>
               </div>
@@ -1658,53 +1746,119 @@ export default function Community() {
 
                 {/* Action Buttons */}
                 <div className="space-y-2 pt-4 border-t border-border/40">
-                  <Button
-                    onClick={() => {
-                      setSelectedMembers(new Set());
-                      setAddMembersSearch("");
-                      setIsAddMembersModalOpen(true);
-                    }}
-                    className="w-full rounded-full gap-2"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Adicionar Membros
-                  </Button>
-
-                  <Button
-                    onClick={async () => {
-                      if (window.confirm("Tem certeza que deseja apagar este grupo? Esta ação é irreversível.")) {
-                        try {
-                          await deleteGroupDb(selectedGroupForView.id);
-                          toast({
-                            title: "Grupo apagado!",
-                            description: "O grupo foi removido com sucesso.",
-                          });
-                          setIsGroupDetailsOpen(false);
-                          setSelectedGroupForView(null);
-                          setGroupCheckIns([]);
-                          // Refresh the group lists
-                          const [createdGroups, availGroups] = await Promise.all([
-                            getUserCreatedDuelGroupsDb(user!.id),
-                            getAvailableDuelGroupsDb(user!.id),
-                          ]);
-                          setUserCreatedGroups(createdGroups.map((group) => ({ ...group })));
-                          setAvailableGroups(availGroups);
-                        } catch (error: any) {
-                          console.error("Error deleting group:", error);
-                          toast({
-                            title: "Erro ao apagar grupo",
-                            description: error?.message || "Tente novamente.",
-                            variant: "destructive",
-                          });
+                  {selectedGroupForView.createdBy === user?.id ? (
+                    <>
+                      <Button
+                        onClick={() => {
+                          setSelectedMembers(new Set());
+                          setAddMembersSearch("");
+                          setIsAddMembersModalOpen(true);
+                        }}
+                        className="w-full rounded-full gap-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Adicionar Membros
+                      </Button>
+                      <Button
+                        onClick={async () => {
+                          if (window.confirm("Tem certeza que deseja apagar este grupo? Esta ação é irreversível.")) {
+                            try {
+                              await deleteGroupDb(selectedGroupForView.id);
+                              toast({
+                                title: "Grupo apagado!",
+                                description: "O grupo foi removido com sucesso.",
+                              });
+                              setIsGroupDetailsOpen(false);
+                              setSelectedGroupForView(null);
+                              setGroupCheckIns([]);
+                              const [createdGroups, availGroups] = await Promise.all([
+                                getUserCreatedDuelGroupsDb(user!.id),
+                                getAvailableDuelGroupsDb(user!.id),
+                              ]);
+                              const toGroupCard = (group: any) => ({
+                                ...group,
+                                icon: "⚔️",
+                                description: group.goal,
+                                participants: 1,
+                                city: group.location,
+                                isOfficial: false,
+                              });
+                              setUserCreatedGroups(createdGroups.map(toGroupCard));
+                              const enriched = await Promise.all(
+                                availGroups.map(async (group: any) => {
+                                  const [creatorProfile, participants] = await Promise.all([
+                                    getUserProfileDb(group.createdBy),
+                                    getGroupParticipantsDb(group.id),
+                                  ]);
+                                  return {
+                                    ...toGroupCard(group),
+                                    creatorNickname: creatorProfile?.nickname || "Usuário",
+                                    creatorPhoto: creatorProfile?.photo || null,
+                                    participants: participants.length,
+                                    isAlreadyMember: participants.some((p: any) => p.userId === user!.id),
+                                  };
+                                })
+                              );
+                              setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
+                              setAvailableGroups(enriched);
+                            } catch (error: any) {
+                              console.error("Error deleting group:", error);
+                              toast({
+                                title: "Erro ao apagar grupo",
+                                description: error?.message || "Tente novamente.",
+                                variant: "destructive",
+                              });
+                            }
+                          }
+                        }}
+                        variant="destructive"
+                        className="w-full rounded-full gap-2"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Apagar Grupo
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      onClick={async () => {
+                        if (window.confirm("Tem certeza que deseja sair deste grupo?")) {
+                          try {
+                            await leaveGroupDb(selectedGroupForView.id);
+                            toast({
+                              title: "Você saiu do grupo!",
+                              description: "Você não é mais participante deste grupo.",
+                            });
+                            setIsGroupDetailsOpen(false);
+                            setSelectedGroupForView(null);
+                            setGroupCheckIns([]);
+                            setJoinedGroupIds((prev) => {
+                              const next = new Set(prev);
+                              next.delete(selectedGroupForView.id);
+                              return next;
+                            });
+                            setAvailableGroups((prev) =>
+                              prev.map((g) =>
+                                g.id === selectedGroupForView.id
+                                  ? { ...g, participants: Math.max(0, g.participants - 1), isAlreadyMember: false }
+                                  : g
+                              )
+                            );
+                          } catch (error: any) {
+                            console.error("Error leaving group:", error);
+                            toast({
+                              title: "Erro ao sair do grupo",
+                              description: error?.message || "Tente novamente.",
+                              variant: "destructive",
+                            });
+                          }
                         }
-                      }
-                    }}
-                    variant="destructive"
-                    className="w-full rounded-full gap-2"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Apagar Grupo
-                  </Button>
+                      }}
+                      variant="outline"
+                      className="w-full rounded-full gap-2"
+                    >
+                      Sair do Grupo
+                    </Button>
+                  )}
                 </div>
               </div>
             )}

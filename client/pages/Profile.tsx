@@ -35,6 +35,7 @@ import {
   getCommercialProfileDb,
   createOrUpdateCommercialProfileDb,
   getWorkoutHistoryDb,
+  getUserActiveStoriesDb,
   type UserProfile,
   type PostWithUser,
   type UserStats,
@@ -48,6 +49,7 @@ import {
   type UserGoal,
   type ReelWithUser,
   type CommercialProfile,
+  type StoryWithUser,
 } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -58,6 +60,7 @@ import { PostLikesModal } from "@/components/post-likes-modal";
 import { PostCommentsDialog } from "@/components/post-comments-dialog";
 import { UserInsignias } from "@/components/user-insignias";
 import { PostCarousel } from "@/components/post-carousel";
+import { StoryViewerModal } from "@/components/story-viewer-modal";
 import {
   Dialog,
   DialogContent,
@@ -72,6 +75,11 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -106,10 +114,12 @@ import {
   BarChart3,
   Grid3X3,
   Film,
+  ChevronDown,
 } from "lucide-react";
 import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTheme } from "next-themes";
+import { useLanguage } from "@/lib/language-context";
 
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
@@ -197,6 +207,9 @@ export default function Profile() {
     React.useState<Routine | null>(null);
   const [linkedGoal, setLinkedGoal] = React.useState<UserGoal | null>(null);
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
+  const [profileStories, setProfileStories] = React.useState<StoryWithUser[]>([]);
+  const [isStoryViewerOpen, setIsStoryViewerOpen] = React.useState(false);
+  const [selectedProfileStory, setSelectedProfileStory] = React.useState<StoryWithUser | null>(null);
   const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
   const [workoutHistoryModalOpen, setWorkoutHistoryModalOpen] = React.useState(false);
   const [selectedWorkoutForHistory, setSelectedWorkoutForHistory] = React.useState<Workout | null>(null);
@@ -241,11 +254,12 @@ export default function Profile() {
 
   // Edit account state
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
+  const [isDangerZoneOpen, setIsDangerZoneOpen] = React.useState(false);
   const [passwordResetEmail, setPasswordResetEmail] = React.useState("");
 
-  // Language state
+  // Language state (backed by global context)
   const [isLanguageOpen, setIsLanguageOpen] = React.useState(false);
-  const [currentLanguage, setCurrentLanguage] = React.useState("pt");
+  const { language: currentLanguage, setLanguage: setCurrentLanguage, t } = useLanguage();
 
   // Notifications state
   const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false);
@@ -311,6 +325,11 @@ export default function Profile() {
       setUserGoals(userGoalsData);
       setReels(reelsData);
       setCommercialProfile(commercialProfileData);
+
+      // Load active flows for this profile
+      if (profileUserId) {
+        getUserActiveStoriesDb(profileUserId).then(setProfileStories).catch(() => {});
+      }
     } catch (err: any) {
       console.error("Error loading profile:", err);
       toast({
@@ -1277,7 +1296,27 @@ export default function Profile() {
             <div className="flex gap-4 flex-1 min-w-0">
               {/* Avatar */}
               <div className="shrink-0 relative">
-                {profile.photo ? (
+                {profileStories.length > 0 ? (
+                  <button
+                    onClick={() => {
+                      setSelectedProfileStory(profileStories[0]);
+                      setIsStoryViewerOpen(true);
+                    }}
+                    className="rounded-full p-[3px] bg-gradient-to-tr from-brand to-brand/60 ring-0 cursor-pointer hover:opacity-90 transition-opacity"
+                    title="Ver flow"
+                  >
+                    {profile.photo ? (
+                      <ImageWithFallback
+                        src={profile.photo}
+                        alt={profile.nickname}
+                        fallback="/placeholder.svg"
+                        className="h-20 w-20 rounded-full object-cover ring-2 ring-background"
+                      />
+                    ) : (
+                      <div className="h-20 w-20 rounded-full bg-muted ring-2 ring-background" />
+                    )}
+                  </button>
+                ) : profile.photo ? (
                   <ImageWithFallback
                     src={profile.photo}
                     alt={profile.nickname}
@@ -1478,26 +1517,35 @@ export default function Profile() {
                               variant="outline"
                               className="w-full rounded-full"
                             >
-                              {isResettingPassword ? "Enviando..." : "Enviar Email de Redefinição"}
+                              {isResettingPassword ? "Enviando..." : "Redefinir Senha"}
                             </Button>
                             <p className="text-xs text-muted-foreground">Você receberá um link para redefinir sua senha</p>
                           </div>
 
-                          {/* Danger Zone */}
+                          {/* Restrição de Conta */}
                           <div className="border-t pt-4">
-                            <h3 className="text-sm font-semibold text-destructive mb-3">Zona de Perigo</h3>
-                            <Button
-                              onClick={() => {
-                                setIsEditDialogOpen(false);
-                                setIsDeleteAccountOpen(true);
-                              }}
-                              variant="destructive"
-                              className="w-full rounded-full gap-2"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Encerrar Conta
-                            </Button>
-                            <p className="text-xs text-muted-foreground mt-2">Esta ação é permanente e não pode ser desfeita</p>
+                            <Collapsible open={isDangerZoneOpen} onOpenChange={setIsDangerZoneOpen}>
+                              <CollapsibleTrigger asChild>
+                                <button className="flex items-center justify-between w-full text-left">
+                                  <h3 className="text-sm font-semibold">Restrição de Conta</h3>
+                                  <ChevronDown className={`h-4 w-4 transition-transform ${isDangerZoneOpen ? "rotate-180" : ""}`} />
+                                </button>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="pt-3 space-y-2">
+                                <Button
+                                  onClick={() => {
+                                    setIsEditDialogOpen(false);
+                                    setIsDeleteAccountOpen(true);
+                                  }}
+                                  variant="destructive"
+                                  className="w-full rounded-full gap-2"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  Encerrar Conta
+                                </Button>
+                                <p className="text-xs text-muted-foreground">Esta ação é permanente e não pode ser desfeita</p>
+                              </CollapsibleContent>
+                            </Collapsible>
                           </div>
 
                           {/* Save Button */}
@@ -1672,34 +1720,27 @@ export default function Profile() {
 
                         <div className="flex-1 overflow-y-auto px-4 pb-4">
                           <div className="space-y-2">
-                          <button
-                            onClick={() => {
-                              setCurrentLanguage("pt");
-                              setIsLanguageOpen(false);
-                            }}
-                            className={`w-full p-3 rounded-lg border text-left transition-colors ${
-                              currentLanguage === "pt"
-                                ? "border-brand bg-brand/10"
-                                : "border-border hover:border-brand/50"
-                            }`}
-                          >
-                            <div className="font-medium">Português (Brasil)</div>
-                            <div className="text-xs text-muted-foreground">pt-BR</div>
-                          </button>
-                          <button
-                            onClick={() => {
-                              setCurrentLanguage("en");
-                              setIsLanguageOpen(false);
-                            }}
-                            className={`w-full p-3 rounded-lg border text-left transition-colors ${
-                              currentLanguage === "en"
-                                ? "border-brand bg-brand/10"
-                                : "border-border hover:border-brand/50"
-                            }`}
-                          >
-                            <div className="font-medium">English</div>
-                            <div className="text-xs text-muted-foreground">en-US</div>
-                          </button>
+                          {(["pt", "en"] as const).map((lang) => (
+                            <button
+                              key={lang}
+                              onClick={() => {
+                                setCurrentLanguage(lang);
+                                setIsLanguageOpen(false);
+                              }}
+                              className={`w-full p-3 rounded-lg border text-left transition-colors ${
+                                currentLanguage === lang
+                                  ? "border-brand bg-brand/10"
+                                  : "border-border hover:border-brand/50"
+                              }`}
+                            >
+                              <div className="font-medium">
+                                {lang === "pt" ? "Português (Brasil)" : "English"}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {lang === "pt" ? "pt-BR" : "en-US"}
+                              </div>
+                            </button>
+                          ))}
                           </div>
                         </div>
                       </DrawerContent>
@@ -3424,6 +3465,31 @@ export default function Profile() {
           </DrawerContent>
         </Drawer>
       )}
+
+      {/* Flow Viewer Modal */}
+      <StoryViewerModal
+        story={selectedProfileStory}
+        stories={profileStories}
+        open={isStoryViewerOpen}
+        onOpenChange={(open) => {
+          setIsStoryViewerOpen(open);
+          if (!open) setSelectedProfileStory(null);
+        }}
+        onNextStory={() => {
+          if (!selectedProfileStory) return;
+          const idx = profileStories.findIndex((s) => s.id === selectedProfileStory.id);
+          if (idx < profileStories.length - 1) {
+            setSelectedProfileStory(profileStories[idx + 1]);
+          } else {
+            setIsStoryViewerOpen(false);
+          }
+        }}
+        onPrevStory={() => {
+          if (!selectedProfileStory) return;
+          const idx = profileStories.findIndex((s) => s.id === selectedProfileStory.id);
+          if (idx > 0) setSelectedProfileStory(profileStories[idx - 1]);
+        }}
+      />
     </div>
   );
 }

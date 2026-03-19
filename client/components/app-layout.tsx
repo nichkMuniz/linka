@@ -16,6 +16,7 @@ import { ImageWithFallback } from "@/components/image-with-fallback";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
+import { useLanguage } from "@/lib/language-context";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -23,14 +24,6 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 };
-
-const navItems: NavItem[] = [
-  { to: "/", label: "Home", icon: Home },
-  { to: "/reels", label: "Clips", icon: Video },
-  { to: "/postar", label: "Nova", icon: PlusSquare },
-  { to: "/metas", label: "Metas", icon: Dumbbell },
-  { to: "/loja", label: "Loja", icon: ShoppingBag },
-];
 
 function isActivePath(currentPath: string, to: string) {
   if (to === "/") return currentPath === "/";
@@ -41,8 +34,17 @@ export function AppLayout() {
   const location = useLocation();
   const { user } = useAuth();
   const { layoutMode } = useLayoutMode();
+  const { t } = useLanguage();
 
-  const desktopNavItems = React.useMemo(() => navItems, []);
+  const navItems: NavItem[] = React.useMemo(() => [
+    { to: "/", label: t("nav_home"), icon: Home },
+    { to: "/reels", label: t("nav_clips"), icon: Video },
+    { to: "/postar", label: t("nav_new"), icon: PlusSquare },
+    { to: "/metas", label: t("nav_goals"), icon: Dumbbell },
+    { to: "/loja", label: t("nav_store"), icon: ShoppingBag },
+  ], [t]);
+
+  const desktopNavItems = navItems;
 
   const [headerHidden, setHeaderHidden] = React.useState(false);
   const [unreadCount, setUnreadCount] = React.useState(0);
@@ -153,7 +155,7 @@ export function AppLayout() {
               ) : (
                 <div className="h-10 w-10 rounded-full bg-muted border-2 border-border/60 flex items-center justify-center">
                   <span className="text-xs font-semibold text-muted-foreground">
-                    Você
+                    {t("nav_you")}
                   </span>
                 </div>
               )}
@@ -179,10 +181,7 @@ export function AppLayout() {
             aria-label="Ir para Home ou Atualizar Feed"
             className="flex items-center justify-center rounded-2xl px-3 py-1 transition hover:bg-muted/50 cursor-pointer"
           >
-            <span className="text-lg font-bold tracking-tight text-foreground">
-              Lin
-              <span className="text-brand">Ka</span>
-            </span>
+            <img src="/logo.png" alt="LinKa" className="h-7" />
           </button>
 
           {/* Right: Search, Notifications and Messages (absolute positioned on desktop) */}

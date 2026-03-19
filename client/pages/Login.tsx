@@ -43,20 +43,8 @@ function formatPhoneDisplay(value: string): string {
 
 function BrandHeader() {
   return (
-    <div className="flex items-center justify-center gap-4">
-      <div className="relative grid h-16 w-16 place-items-center rounded-3xl bg-brand shadow-sm ring-1 ring-brand/30">
-        <div className="grid h-14 w-14 place-items-center rounded-2xl bg-foreground">
-          <span className="text-lg font-extrabold tracking-tight text-white">
-            RF
-          </span>
-        </div>
-        <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-brand-2 ring-2 ring-background" />
-      </div>
-      <div className="leading-tight">
-        <div className="text-2xl font-extrabold tracking-tight text-foreground">
-          Lin<span className="text-brand">Ka</span>
-        </div>
-      </div>
+    <div className="flex items-center justify-center">
+      <img src="/logo-horizontal.png" alt="LinKa" className="h-16" />
     </div>
   );
 }
@@ -310,7 +298,7 @@ export default function Login() {
     setSignupStep(3);
   };
 
-  const handleSignupStep3 = () => {
+  const handleSignupStep3 = async () => {
     if (selectedSegments.size === 0) {
       toast({
         title: "Selecione pelo menos um segmento",
@@ -318,7 +306,67 @@ export default function Login() {
       });
       return;
     }
-    setSignupStep(4);
+
+    if (!hasSupabaseConfig || !supabase) return;
+
+    setBusy(true);
+    try {
+      const trimmedEmail = email.trim();
+      const trimmedPassword = password.trim();
+
+      // Create user auth account
+      const { error: signUpError } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password: trimmedPassword,
+        options: { data: { full_name: displayName } },
+      });
+
+      if (signUpError) {
+        toast({ title: "Não foi possível criar a conta", description: signUpError.message });
+        return;
+      }
+
+      // Sign in after signup
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password: trimmedPassword,
+      });
+
+      if (signInError && !isEmailNotConfirmed(signInError.message)) {
+        toast({ title: "Conta criada, mas não foi possível entrar", description: signInError.message });
+        return;
+      }
+
+      // Upload photo and save bio if provided
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        let photoUrl: string | undefined;
+        if (photoFile) {
+          const extension = photoFile.name.split(".").pop() || "jpg";
+          const filePath = `${authUser.id}/profile-${Date.now()}.${extension}`;
+          const { error: uploadError } = await supabase.storage
+            .from("posts")
+            .upload(filePath, photoFile, { contentType: photoFile.type });
+          if (!uploadError) {
+            const { data: { publicUrl } } = supabase.storage.from("posts").getPublicUrl(filePath);
+            photoUrl = publicUrl;
+          }
+        }
+
+        if (photoUrl || bio.trim()) {
+          await supabase
+            .from("profiles")
+            .update({ ...(photoUrl ? { photo: photoUrl } : {}), ...(bio.trim() ? { bio: bio.trim() } : {}) })
+            .eq("user_id", authUser.id);
+        }
+      }
+
+      setSignupStep(4);
+    } catch {
+      toast({ title: "Falha de conexão", description: "Não foi possível criar sua conta." });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const validateEmailExists = React.useCallback(async (emailToCheck: string): Promise<boolean> => {
@@ -409,62 +457,14 @@ export default function Login() {
     setSelectedSegments(newSegments);
   };
 
-  const handleSignupComplete = async () => {
-    if (!hasSupabaseConfig || !supabase) return;
+  const handleSignupComplete = () => {
+    toast({
+      title: "Conta criada com sucesso!",
+      description: "Bem-vindo ao LinKa!",
+    });
 
-    setBusy(true);
-    try {
-      const trimmedEmail = email.trim();
-      const trimmedPassword = password.trim();
-
-      // Create user auth account
-      const { error: signUpError } = await supabase.auth.signUp({
-        email: trimmedEmail,
-        password: trimmedPassword,
-        options: {
-          data: {
-            full_name: displayName,
-          },
-        },
-      });
-
-      if (signUpError) {
-        toast({
-          title: "Não foi possível criar a conta",
-          description: signUpError.message,
-        });
-        return;
-      }
-
-      // Sign in after signup
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: trimmedEmail,
-        password: trimmedPassword,
-      });
-
-      if (signInError && !isEmailNotConfirmed(signInError.message)) {
-        toast({
-          title: "Conta criada, mas não foi possível entrar",
-          description: signInError.message,
-        });
-        return;
-      }
-
-      toast({
-        title: "Conta criada com sucesso!",
-        description: "Bem-vindo ao LinKa!",
-      });
-
-      if (biometricAvailable) {
-        setShowBiometricSetup(true);
-      }
-    } catch {
-      toast({
-        title: "Falha de conexão",
-        description: "Não foi possível criar sua conta.",
-      });
-    } finally {
-      setBusy(false);
+    if (biometricAvailable) {
+      setShowBiometricSetup(true);
     }
   };
 
@@ -1254,9 +1254,9 @@ export default function Login() {
                           type="button"
                           className="rounded-full flex-1"
                           onClick={handleSignupStep3}
-                          disabled={selectedSegments.size === 0}
+                          disabled={selectedSegments.size === 0 || busy}
                         >
-                          Próximo
+                          {busy ? "Criando..." : "Próximo"}
                         </Button>
                       </div>
                     </div>
@@ -1363,7 +1363,6 @@ export default function Login() {
                           variant="outline"
                           className="rounded-full flex-1"
                           onClick={handleSignupComplete}
-                          disabled={busy}
                         >
                           Pular
                         </Button>
@@ -1371,9 +1370,8 @@ export default function Login() {
                           type="button"
                           className="rounded-full flex-1"
                           onClick={handleSignupComplete}
-                          disabled={busy}
                         >
-                          {busy ? "Criando..." : "Finalizar"}
+                          Finalizar
                         </Button>
                       </div>
                     </div>

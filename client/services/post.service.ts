@@ -4,11 +4,9 @@ import {
   getUserPostLikesDb,
   togglePostIncentiveDb,
   getUserProfileDb,
-  getUserGoalsByUserIdDb,
   getFollowingIdsDb,
   type PostWithLikes,
   type PostIncentiveType,
-  type UserGoal,
 } from "@/lib/ritmofit-db";
 
 export type PostWithStats = PostWithLikes & {
@@ -50,6 +48,33 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
 
   if (error) throw error;
 
+  // Collect all unique user_goal_ids to batch-fetch in one query
+  const goalIds = [...new Set(
+    (data ?? []).map((p: any) => p.user_goal_id).filter(Boolean)
+  )];
+
+  // Batch-fetch user_goals via RPC (bypasses RLS so we can read other users' goals)
+  const goalMap = new Map<string, any>();
+  if (goalIds.length > 0) {
+    const { data: goalsData } = await supabase
+      .rpc("get_user_goals_by_ids", { goal_ids: goalIds.map(Number) });
+
+    if (goalsData?.length) {
+      goalsData.forEach((g: any) => {
+        goalMap.set(String(g.id), {
+          id: String(g.id),
+          goal_id: String(g.goal_id),
+          description: g.description ?? "",
+          perc: Number(g.perc ?? 0),
+          duration: Number(g.duration ?? 0),
+          quantity: Number(g.quantity ?? 0),
+          type_goal: Number(g.type_goal ?? 0),
+          actual_progress: Math.round((Number(g.perc ?? 0) / 100) * Number(g.quantity ?? 0)),
+        });
+      });
+    }
+  }
+
   // Enrich each post with likes, comments, user info, and goal data
   const posts = await Promise.all(
     (data ?? []).map(async (post: any) => {
@@ -58,7 +83,6 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
         userLikes,
         { count: commentCount },
         userProfile,
-        userGoals,
       ] = await Promise.all([
         getPostLikesDb(post.id),
         getUserPostLikesDb(post.id),
@@ -67,34 +91,101 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
           .select("*", { count: "exact", head: true })
           .eq("post_id", post.id),
         getUserProfileDb(post.user_id),
-        getUserGoalsByUserIdDb(post.user_id),
       ]);
 
-      // Check if post has any activity
       const totalLikes = Object.values(likes).reduce(
         (a: number, b: number) => a + b,
         0,
       );
       const hasActivity = totalLikes > 0 || (commentCount ?? 0) > 0;
 
-      // Get the post's specific user goal if user_goal_id is set
-      // Use the already-fetched userGoals to avoid RLS issues when reading other users' goals
-      let userGoal = undefined;
-      if (post.user_goal_id) {
-        const specificGoal = userGoals.find((g) => g.id === post.user_goal_id);
-        if (specificGoal) {
-          userGoal = {
-            id: specificGoal.id,
-            goal_id: specificGoal.goal_id,
-            description: specificGoal.description,
-            perc: specificGoal.perc,
-            duration: specificGoal.duration,
-            quantity: specificGoal.quantity,
-            type_goal: specificGoal.type_goal,
-            actual_progress: specificGoal.days_completed,
-          };
-        }
-      }
+      const userGoal = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
+
+      return {
+        ...post,
+        likes,
+        userLikes,
+        commentCount: commentCount ?? 0,
+        hasActivity,
+        userNickname: userProfile?.nickname || "Usuário",
+        userPhoto: userProfile?.photo || null,
+        userGoal,
+      };
+    }),
+  );
+
+  return posts;
+};
+
+export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
+  if (!hasSupabaseConfig || !supabase)
+    throw new Error("Supabase não configurado");
+
+  const currentUser = await getUserSafe();
+  if (!currentUser) throw new Error("Usuário não autenticado");
+
+  const followingIds = await getFollowingIdsDb();
+
+  // Exclude current user and followed users
+  const excludedIds = [currentUser.id, ...followingIds];
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select("*")
+    .not("user_id", "in", `(${excludedIds.join(",")})`)
+    .order("created_at", { ascending: false })
+    .limit(30);
+
+  if (error) throw error;
+
+  const goalIds = [...new Set(
+    (data ?? []).map((p: any) => p.user_goal_id).filter(Boolean)
+  )];
+
+  const goalMap = new Map<string, any>();
+  if (goalIds.length > 0) {
+    const { data: goalsData } = await supabase
+      .rpc("get_user_goals_by_ids", { goal_ids: goalIds.map(Number) });
+
+    if (goalsData?.length) {
+      goalsData.forEach((g: any) => {
+        goalMap.set(String(g.id), {
+          id: String(g.id),
+          goal_id: String(g.goal_id),
+          description: g.description ?? "",
+          perc: Number(g.perc ?? 0),
+          duration: Number(g.duration ?? 0),
+          quantity: Number(g.quantity ?? 0),
+          type_goal: Number(g.type_goal ?? 0),
+          actual_progress: Math.round((Number(g.perc ?? 0) / 100) * Number(g.quantity ?? 0)),
+        });
+      });
+    }
+  }
+
+  const posts = await Promise.all(
+    (data ?? []).map(async (post: any) => {
+      const [
+        likes,
+        userLikes,
+        { count: commentCount },
+        userProfile,
+      ] = await Promise.all([
+        getPostLikesDb(post.id),
+        getUserPostLikesDb(post.id),
+        supabase
+          .from("comments")
+          .select("*", { count: "exact", head: true })
+          .eq("post_id", post.id),
+        getUserProfileDb(post.user_id),
+      ]);
+
+      const totalLikes = Object.values(likes).reduce(
+        (a: number, b: number) => a + b,
+        0,
+      );
+      const hasActivity = totalLikes > 0 || (commentCount ?? 0) > 0;
+      const userGoal = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
 
       return {
         ...post,

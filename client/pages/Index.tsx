@@ -1,5 +1,5 @@
 import * as React from "react";
-import { getFeedPosts, togglePostLike } from "../services/post.service";
+import { getFeedPosts, getDiscoverPosts, togglePostLike } from "../services/post.service";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Drawer,
@@ -23,8 +23,10 @@ import {
   incrementGoalProgressDb,
   getRoutinesByGoalIdDb,
   getActiveStoriesDb,
+  getUserProfileDb,
   createStoryDb,
   deleteOldStoriesDb,
+  getFlowViewersDb,
   createUserGoalDb,
   getUserGoalsDb,
   deletePostDb,
@@ -74,6 +76,8 @@ export default function Index() {
   const [storyViewerOpen, setStoryViewerOpen] = React.useState(false);
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
+  const [ownerHasViewedFlow, setOwnerHasViewedFlow] = React.useState(false);
+  const [flowViewCount, setFlowViewCount] = React.useState<number | undefined>(undefined);
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "post" | null>(
     null,
@@ -90,6 +94,11 @@ export default function Index() {
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [userGoals, setUserGoals] = React.useState<any[]>([]);
   const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
+  const [feedMode, setFeedMode] = React.useState<"following" | "discover">("following");
+  const [discoverPosts, setDiscoverPosts] = React.useState<PostWithStats[]>([]);
+  const [discoverLoading, setDiscoverLoading] = React.useState(false);
+  const [discoverLoaded, setDiscoverLoaded] = React.useState(false);
+  const [tabBarHidden, setTabBarHidden] = React.useState(false);
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [selectedPostForLikes, setSelectedPostForLikes] = React.useState<PostWithStats | null>(null);
   const [postLikes, setPostLikes] = React.useState<Array<{
@@ -109,10 +118,22 @@ export default function Index() {
         setPosts(postsData);
         setStories(storiesData);
 
-        // Get current user's photo
+        // Get current user's photo — from profile directly, fallback to story
         const userStory = storiesData.find((s: StoryWithUser) => s.user_id === user?.id);
-        if (userStory?.userPhoto) {
-          setCurrentUserPhoto(userStory.userPhoto);
+        if (user?.id) {
+          getUserProfileDb(user.id)
+            .then((profile) => {
+              if (profile?.photo) setCurrentUserPhoto(profile.photo);
+              else if (userStory?.userPhoto) setCurrentUserPhoto(userStory.userPhoto);
+            })
+            .catch(() => {
+              if (userStory?.userPhoto) setCurrentUserPhoto(userStory.userPhoto);
+            });
+        }
+        if (userStory) {
+          getFlowViewersDb(userStory.id)
+            .then((viewers) => setFlowViewCount(viewers.length))
+            .catch(() => {});
         }
 
         // Clean up old stories in background
@@ -129,6 +150,28 @@ export default function Index() {
         setLoading(false);
       }
     })();
+  }, []);
+
+  // Sync tab bar visibility with header scroll behavior
+  React.useEffect(() => {
+    let lastY = window.scrollY;
+    let ticking = false;
+
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(() => {
+        const y = window.scrollY;
+        const delta = y - lastY;
+        if (y > 96 && delta > 10) setTabBarHidden(true);
+        if (delta < -10) setTabBarHidden(false);
+        lastY = y;
+        ticking = false;
+      });
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   // Load unread comment counts for user's own posts
@@ -212,6 +255,8 @@ export default function Index() {
             userPhoto: null,
           };
           setStories((prev) => [enrichedStory, ...prev]);
+          setOwnerHasViewedFlow(false);
+          setFlowViewCount(0);
         }
       } catch (err: any) {
         console.error("Error creating story:", err);
@@ -226,7 +271,11 @@ export default function Index() {
   const handleStoryClick = React.useCallback((story: StoryWithUser) => {
     setSelectedStory(story);
     setStoryViewerOpen(true);
-  }, []);
+    // Mark as viewed so the green dot turns gray for the owner
+    if (story.user_id === user?.id) {
+      setOwnerHasViewedFlow(true);
+    }
+  }, [user?.id]);
 
   const handleSkipStory = React.useCallback(() => {
     if (!selectedStory) return;
@@ -524,6 +573,25 @@ export default function Index() {
     }
   }, [reportType, reportedPost, reportReason]);
 
+  const handleSwitchToDiscover = React.useCallback(async () => {
+    setFeedMode("discover");
+    if (discoverLoaded) return;
+    setDiscoverLoading(true);
+    try {
+      const data = await getDiscoverPosts();
+      setDiscoverPosts(data);
+      setDiscoverLoaded(true);
+    } catch (err: any) {
+      console.error("Erro ao carregar posts de descoberta:", err);
+      toast({
+        title: "Erro ao carregar posts",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setDiscoverLoading(false);
+    }
+  }, [discoverLoaded]);
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
@@ -543,17 +611,53 @@ export default function Index() {
           onStoryClick={handleStoryClick}
           currentUserId={user?.id || ""}
           currentUserPhoto={currentUserPhoto}
-          isOwnerViewing={storyViewerOpen && selectedStory?.user_id === user?.id}
+          isOwnerViewing={ownerHasViewedFlow}
+          viewCount={flowViewCount}
         />
+      </div>
+
+      {/* Feed Mode Toggle */}
+      <div className={`sticky top-16 z-40 bg-background/90 backdrop-blur border-b border-border/60 px-4 py-2 flex gap-2 transition-transform duration-200 ${tabBarHidden ? "-translate-y-[calc(100%+4rem)] pointer-events-none" : "translate-y-0"}`}>
+        <button
+          onClick={() => setFeedMode("following")}
+          className={`flex-1 rounded-full py-1.5 text-sm font-medium transition-colors ${
+            feedMode === "following"
+              ? "bg-foreground text-background"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Seguindo
+        </button>
+        <button
+          onClick={handleSwitchToDiscover}
+          className={`flex-1 rounded-full py-1.5 text-sm font-medium transition-colors ${
+            feedMode === "discover"
+              ? "bg-foreground text-background"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Descobrir
+        </button>
       </div>
 
       {/* Feed Content */}
       <div>
         <div className="grid w-full gap-3 p-4">
-          {posts.length ? (
-            posts.map((post) => (
+          {feedMode === "discover" ? (
+            discoverLoading ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-3">
+                <LoadingSpinner className="h-8 w-8" />
+                <p className="text-sm text-muted-foreground">Buscando novos posts...</p>
+              </div>
+            ) : discoverPosts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
+                <p className="text-sm font-medium">Nenhum post novo por aqui</p>
+                <p className="text-xs text-muted-foreground">Siga mais pessoas para ver posts aqui ou volte depois.</p>
+              </div>
+            ) : (
+              discoverPosts.map((post) => (
               <Card
-                key={post.id}
+                key={`discover-${post.id}`}
                 className="border-border/60 relative overflow-hidden fade-in"
               >
                 <CardContent className="space-y-3 p-0">
@@ -711,15 +815,180 @@ export default function Index() {
                 </CardContent>
               </Card>
             ))
+            )
           ) : (
-            <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Comece agora a acompanhar as rotinas de seus amigos
-              </p>
-              <a href="/buscar">
-                <Button className="rounded-full">Buscar</Button>
-              </a>
-            </div>
+            /* Following mode */
+            posts.length ? (
+              posts.map((post) => (
+                <Card
+                  key={post.id}
+                  className="border-border/60 relative overflow-hidden fade-in"
+                >
+                  <CardContent className="space-y-3 p-0">
+                    {/* Image Container with User Info Overlay */}
+                    <div className="relative">
+                      {post.photos && post.photos.length > 0 ? (
+                        <PostCarousel photos={post.photos} alt="Post" />
+                      ) : (
+                        <ImageWithFallback
+                          src={post.photo}
+                          alt="Post"
+                          fallback="/placeholder.svg"
+                          className="w-full object-cover rounded-lg"
+                        />
+                      )}
+
+                      {/* User Info Overlay - Bottom Left */}
+                      <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
+                        <button
+                          onClick={() => navigate(`/usuario/${post.user_id}`)}
+                          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                        >
+                          {post.userPhoto ? (
+                            <ImageWithFallback
+                              src={post.userPhoto}
+                              alt={post.userNickname}
+                              fallback="/placeholder.svg"
+                              className="h-8 w-8 rounded-full object-cover border border-white/30"
+                            />
+                          ) : (
+                            <div className="h-8 w-8 rounded-full bg-white/30" />
+                          )}
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-medium text-white drop-shadow-sm">
+                              {post.userNickname}
+                            </span>
+                            <UserInsignias userId={post.user_id} maxBadges={2} />
+                          </div>
+                        </button>
+                        {/* Menu Button */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-white hover:bg-white/20"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-40">
+                            {user?.id === post.user_id ? (
+                              <DropdownMenuItem
+                                onClick={() => handleDeletePost(post)}
+                                className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Excluir post
+                              </DropdownMenuItem>
+                            ) : (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => handleReportUser(post)}
+                                >
+                                  <Flag className="h-4 w-4 mr-2" />
+                                  Denunciar usuário
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleReportPost(post)}
+                                >
+                                  <Flag className="h-4 w-4 mr-2" />
+                                  Denunciar post
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+
+                    {/* Incentive Icons - Below User Info, Above Description */}
+                    <div className="flex items-center justify-between gap-4 px-4 pt-3 border-t border-border/60">
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                        {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                          <PostIncentiveButton
+                            key={type}
+                            type={type}
+                            isActive={post.userLikes.includes(type)}
+                            onClick={() => handleToggleLike(post.id, type)}
+                            loading={togglingPostId === post.id}
+                          />
+                        ))}
+                      </div>
+                      <PostCommentsDialog
+                        postId={post.id}
+                        commentCount={post.commentCount}
+                        hasActivity={post.hasActivity}
+                        isPostOwner={post.user_id === user?.id}
+                        hasUnreadComments={
+                          (unreadCommentsByPost[post.id] ?? 0) > 0
+                        }
+                      />
+                    </div>
+
+                    {/* Likes Label */}
+                    {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 && (
+                      <button
+                        onClick={() => handleOpenLikesModal(post)}
+                        className="px-4 py-1 text-left text-sm text-foreground/70 hover:text-foreground transition-colors"
+                      >
+                        <span className="font-medium">
+                          {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} Incentivos
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Post Content */}
+                    <div className="px-4 pt-1 pb-4 space-y-3">
+                      {post.description && (
+                        <p className="text-sm leading-relaxed">
+                          {post.description}
+                        </p>
+                      )}
+
+                      {/* Goal Progress Bar */}
+                      {post.userGoal && (
+                        <button
+                          onClick={() => openGoalModal(post)}
+                          className="w-full space-y-3 pt-3 text-left hover:opacity-80 transition-opacity rounded-lg p-3 bg-muted/30 hover:bg-muted/50"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-semibold text-foreground">
+                              {post.userGoal.description}
+                            </span>
+                            <span className="text-sm font-bold text-brand">
+                              {Math.round(post.userGoal.perc)}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-muted rounded-full h-4 overflow-hidden">
+                            <div
+                              className="bg-brand h-full rounded-full transition-all duration-300"
+                              style={{
+                                width: `${post.userGoal.perc}%`,
+                              }}
+                            />
+                          </div>
+                        </button>
+                      )}
+
+                      <p className="text-xs text-muted-foreground pt-1">
+                        {formatTimeAgo(post.created_at)}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Comece agora a acompanhar as rotinas de seus amigos
+                </p>
+                <a href="/buscar">
+                  <Button className="rounded-full">Buscar</Button>
+                </a>
+              </div>
+            )
           )}
         </div>
       </div>

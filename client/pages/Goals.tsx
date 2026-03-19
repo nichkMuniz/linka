@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import {
   getProgrammedGoalsDb,
   createUserGoalDb,
+  createCustomGoalAndSelectDb,
+  createCustomWorkoutDb,
   updateUserGoalDb,
   deleteUserGoalDb,
   getUserSelectedGoalIdsDb,
@@ -101,10 +103,12 @@ import {
 } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
 import { LoadingSpinner } from "@/components/animated-loading";
+import { useLanguage } from "@/lib/language-context";
 
 export default function Goals() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { t } = useLanguage();
 
   // Metas tab state
   const [goals, setGoals] = React.useState<ProgrammedGoal[]>([]);
@@ -214,6 +218,21 @@ export default function Goals() {
 
   // Available goals accordion state
   const [availableGoalsOpen, setAvailableGoalsOpen] = React.useState(false);
+
+  // Create custom workout drawer state
+  const [createWorkoutDrawerOpen, setCreateWorkoutDrawerOpen] = React.useState(false);
+  const [newWorkoutName, setNewWorkoutName] = React.useState("");
+  const [newWorkoutDescription, setNewWorkoutDescription] = React.useState("");
+  const [newWorkoutMuscleGroup, setNewWorkoutMuscleGroup] = React.useState("");
+  const [isCreatingWorkout, setIsCreatingWorkout] = React.useState(false);
+
+  // Create custom goal drawer state
+  const [createGoalDrawerOpen, setCreateGoalDrawerOpen] = React.useState(false);
+  const [newGoalDescription, setNewGoalDescription] = React.useState("");
+  const [newGoalType, setNewGoalType] = React.useState<1 | 2 | 3>(1);
+  const [newGoalDuration, setNewGoalDuration] = React.useState(30);
+  const [newGoalQuantity, setNewGoalQuantity] = React.useState(1);
+  const [isCreatingGoal, setIsCreatingGoal] = React.useState(false);
 
   // Workout history modal state
   const [workoutHistoryModalOpen, setWorkoutHistoryModalOpen] = React.useState(false);
@@ -473,6 +492,77 @@ export default function Goals() {
       });
     } finally {
       setSelectingGoalId(null);
+    }
+  };
+
+  const handleCreateCustomWorkout = async () => {
+    if (!newWorkoutName.trim()) {
+      toast({ title: "Nome obrigatório", description: "Informe o nome do exercício.", variant: "destructive" });
+      return;
+    }
+
+    setIsCreatingWorkout(true);
+    try {
+      const newWorkout = await createCustomWorkoutDb(
+        newWorkoutName.trim(),
+        newWorkoutDescription.trim(),
+        newWorkoutMuscleGroup.trim(),
+      );
+
+      // Add to local workouts list and auto-select it
+      setWorkouts((prev) => [newWorkout, ...prev]);
+      setSelectedItems((prev) => new Set([...prev, newWorkout.id]));
+
+      toast({ title: "Exercício criado!", description: newWorkoutName.trim() });
+      setCreateWorkoutDrawerOpen(false);
+      setNewWorkoutName("");
+      setNewWorkoutDescription("");
+      setNewWorkoutMuscleGroup("");
+    } catch (err: any) {
+      toast({ title: "Erro ao criar exercício", description: err?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setIsCreatingWorkout(false);
+    }
+  };
+
+  const handleCreateCustomGoal = async () => {
+    if (!user) return;
+    if (!newGoalDescription.trim()) {
+      toast({ title: "Descrição obrigatória", description: "Informe uma descrição para a meta.", variant: "destructive" });
+      return;
+    }
+
+    setIsCreatingGoal(true);
+    try {
+      const goalId = await createCustomGoalAndSelectDb(
+        user.id,
+        newGoalDescription.trim(),
+        newGoalType,
+        newGoalDuration,
+        newGoalQuantity,
+      );
+
+      // Add to local goals list and selected ids
+      const newGoal: ProgrammedGoal = {
+        id: goalId,
+        description: newGoalDescription.trim(),
+        type: newGoalType,
+        duration: newGoalDuration,
+        quantity: newGoalQuantity,
+      };
+      setGoals((prev) => [newGoal, ...prev]);
+      setSelectedGoalIds((prev) => [...prev, goalId]);
+
+      toast({ title: "Meta criada!", description: newGoalDescription.trim() });
+      setCreateGoalDrawerOpen(false);
+      setNewGoalDescription("");
+      setNewGoalType(1);
+      setNewGoalDuration(30);
+      setNewGoalQuantity(1);
+    } catch (err: any) {
+      toast({ title: "Erro ao criar meta", description: err?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setIsCreatingGoal(false);
     }
   };
 
@@ -1204,7 +1294,7 @@ export default function Goals() {
       <div className="flex items-start justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">
-            Metas e Rotinas
+            {t("goals_title")}
           </h1>
           <p className="text-sm text-muted-foreground">
             Gerencie suas metas e rotinas.
@@ -1443,12 +1533,33 @@ export default function Goals() {
                   </AccordionItem>
                 </Accordion>
               )}
+              {/* Create custom goal button */}
+              <div className="flex justify-center pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full gap-2 text-sm"
+                  onClick={() => setCreateGoalDrawerOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Não encontrei minha meta
+                </Button>
+              </div>
             </>
           ) : (
             <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
               <p className="text-sm text-muted-foreground">
                 Nenhuma meta disponível no momento.
               </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full gap-2 text-sm mt-4"
+                onClick={() => setCreateGoalDrawerOpen(true)}
+              >
+                <Plus className="h-4 w-4" />
+                Criar Meta Personalizada
+              </Button>
             </div>
           )}
         </TabsContent>
@@ -2077,6 +2188,21 @@ export default function Goals() {
                           </button>
                         );
                       })}
+
+                    {selectedRoutineType === 1 && (
+                      <div className="flex justify-center pt-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-full gap-2 text-xs"
+                          onClick={() => setCreateWorkoutDrawerOpen(true)}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Não encontrei meu exercício
+                        </Button>
+                      </div>
+                    )}
 
                     {selectedRoutineType === 2 &&
                       diets.filter((d) => d.name.toLowerCase().includes(searchQuery.toLowerCase())).map((diet) => {
@@ -3318,6 +3444,137 @@ export default function Goals() {
                 </Button>
               );
             })()}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Create Custom Workout Drawer */}
+      <Drawer open={createWorkoutDrawerOpen} onOpenChange={setCreateWorkoutDrawerOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Criar Exercício Personalizado</DrawerTitle>
+          </DrawerHeader>
+          <div className="flex-1 overflow-y-auto px-4 pb-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nome do Exercício *</Label>
+                <Input
+                  placeholder="Ex: Agachamento livre"
+                  value={newWorkoutName}
+                  onChange={(e) => setNewWorkoutName(e.target.value)}
+                  maxLength={100}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Grupo Muscular</Label>
+                <select
+                  value={newWorkoutMuscleGroup}
+                  onChange={(e) => setNewWorkoutMuscleGroup(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm"
+                >
+                  <option value="">Selecione um grupo muscular</option>
+                  {uniqueMuscleGroups.map((group) => (
+                    <option key={group} value={group}>{group}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Descrição</Label>
+                <Input
+                  placeholder="Como executar o exercício..."
+                  value={newWorkoutDescription}
+                  onChange={(e) => setNewWorkoutDescription(e.target.value)}
+                  maxLength={200}
+                />
+              </div>
+
+              <Button
+                onClick={handleCreateCustomWorkout}
+                disabled={isCreatingWorkout || !newWorkoutName.trim()}
+                className="w-full rounded-full"
+              >
+                {isCreatingWorkout ? "Criando..." : "Criar e Adicionar Exercício"}
+              </Button>
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Create Custom Goal Drawer */}
+      <Drawer open={createGoalDrawerOpen} onOpenChange={setCreateGoalDrawerOpen}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Criar Meta Personalizada</DrawerTitle>
+          </DrawerHeader>
+          <div className="flex-1 overflow-y-auto px-4 pb-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Descrição *</Label>
+                <Input
+                  placeholder="Ex: Correr 5km por dia"
+                  value={newGoalDescription}
+                  onChange={(e) => setNewGoalDescription(e.target.value)}
+                  maxLength={120}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Tipo</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { value: 1, label: "Fitness", color: "bg-blue-500/10 text-blue-600 border-blue-300" },
+                    { value: 2, label: "Saúde", color: "bg-emerald-500/10 text-emerald-600 border-emerald-300" },
+                    { value: 3, label: "Hábitos", color: "bg-orange-500/10 text-orange-600 border-orange-300" },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setNewGoalType(opt.value)}
+                      className={`rounded-lg border-2 px-3 py-2 text-xs font-semibold transition-all ${
+                        newGoalType === opt.value
+                          ? opt.color + " border-current"
+                          : "border-border/60 text-muted-foreground"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Duração (dias)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={newGoalDuration}
+                    onChange={(e) => setNewGoalDuration(Math.max(1, Number(e.target.value)))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Frequência (qtd)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={9999}
+                    value={newGoalQuantity}
+                    onChange={(e) => setNewGoalQuantity(Math.max(1, Number(e.target.value)))}
+                  />
+                </div>
+              </div>
+
+              <Button
+                onClick={handleCreateCustomGoal}
+                disabled={isCreatingGoal || !newGoalDescription.trim()}
+                className="w-full rounded-full"
+              >
+                {isCreatingGoal ? "Criando..." : "Criar e Selecionar Meta"}
+              </Button>
+            </div>
           </div>
         </DrawerContent>
       </Drawer>

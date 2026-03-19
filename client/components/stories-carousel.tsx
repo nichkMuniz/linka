@@ -16,6 +16,7 @@ interface StoriesCarouselProps {
   currentUserId: string;
   currentUserPhoto?: string | null;
   isOwnerViewing?: boolean;
+  viewCount?: number;
 }
 
 export function StoriesCarousel({
@@ -25,17 +26,17 @@ export function StoriesCarousel({
   currentUserId,
   currentUserPhoto,
   isOwnerViewing,
+  viewCount,
 }: StoriesCarouselProps) {
-  // Group stories by user and take only the first one per user (most recent)
+  // Group stories by user — always overwrite so the last entry (oldest, since array is newest-first) is stored.
+  // This ensures clicking opens from the first (oldest) story posted.
   const storyMap = new Map<string, StoryWithUser>();
   stories.forEach((story) => {
-    if (!storyMap.has(story.user_id)) {
-      storyMap.set(story.user_id, story);
-    }
+    storyMap.set(story.user_id, story);
   });
 
   const uniqueStories = Array.from(storyMap.values());
-  // Sort by created_at to show newest first
+  // Sort avatars by newest first so most recent activity appears first
   uniqueStories.sort(
     (a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
@@ -74,7 +75,18 @@ export function StoriesCarousel({
                     <div className="h-full w-full bg-muted" />
                   )}
                 </div>
-                <div className={`absolute bottom-0 right-0 h-3 w-3 ${isOwnerViewing ? 'bg-gray-400' : 'bg-green-500'} rounded-full ring-1 ring-background`} />
+                {/* Status dot: gray when owner has viewed, green otherwise */}
+                <div
+                  className={`absolute bottom-0 right-0 h-3 w-3 ${
+                    isOwnerViewing ? "bg-gray-400" : "bg-green-500"
+                  } rounded-full ring-1 ring-background`}
+                />
+                {/* View count badge */}
+                {viewCount !== undefined && viewCount > 0 && (
+                  <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-brand text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 ring-1 ring-background">
+                    {viewCount > 99 ? "99+" : viewCount}
+                  </div>
+                )}
               </div>
               <span className="text-xs text-center truncate max-w-[60px] font-semibold text-brand">
                 Seu flow
@@ -95,19 +107,21 @@ export function StoriesCarousel({
           onClick={onAddStoryClick}
           className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer hover:opacity-80 transition-opacity"
         >
-          <div className="relative h-14 w-14 rounded-full overflow-hidden ring-2 ring-transparent group-hover:ring-brand transition-all">
-            {currentUserPhoto ? (
-              <img
-                src={currentUserPhoto}
-                alt="Seu flow"
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="h-full w-full bg-muted flex items-center justify-center">
-                <Plus className="h-5 w-5" />
-              </div>
-            )}
-            <div className="absolute bottom-0 right-0 h-5 w-5 bg-brand rounded-full flex items-center justify-center ring-1 ring-background">
+          <div className="relative h-14 w-14">
+            <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-transparent group-hover:ring-brand transition-all">
+              {currentUserPhoto ? (
+                <img
+                  src={currentUserPhoto}
+                  alt="Seu flow"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="h-full w-full bg-muted flex items-center justify-center">
+                  <Plus className="h-5 w-5" />
+                </div>
+              )}
+            </div>
+            <div className="absolute bottom-0 right-0 h-5 w-5 bg-brand rounded-full flex items-center justify-center ring-2 ring-background">
               <Plus className="h-3 w-3 text-white" />
             </div>
           </div>
