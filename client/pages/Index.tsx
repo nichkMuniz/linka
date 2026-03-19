@@ -73,6 +73,7 @@ export default function Index() {
     React.useState<StoryWithUser | null>(null);
   const [storyViewerOpen, setStoryViewerOpen] = React.useState(false);
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
+  const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "post" | null>(
     null,
@@ -107,6 +108,12 @@ export default function Index() {
         ]);
         setPosts(postsData);
         setStories(storiesData);
+
+        // Get current user's photo
+        const userStory = storiesData.find((s: StoryWithUser) => s.user_id === user?.id);
+        if (userStory?.userPhoto) {
+          setCurrentUserPhoto(userStory.userPhoto);
+        }
 
         // Clean up old stories in background
         deleteOldStoriesDb().catch((err) =>
@@ -223,13 +230,25 @@ export default function Index() {
 
   const handleSkipStory = React.useCallback(() => {
     if (!selectedStory) return;
-
-    const currentIndex = stories.findIndex((s) => s.id === selectedStory.id);
-    if (currentIndex < stories.length - 1) {
-      const nextStory = stories[currentIndex + 1];
-      setSelectedStory(nextStory);
+    const sortedStories = [...stories].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
+    const currentIndex = sortedStories.findIndex((s) => s.id === selectedStory.id);
+    if (currentIndex < sortedStories.length - 1) {
+      setSelectedStory(sortedStories[currentIndex + 1]);
     } else {
       setStoryViewerOpen(false);
+    }
+  }, [selectedStory, stories]);
+
+  const handlePrevStory = React.useCallback(() => {
+    if (!selectedStory) return;
+    const sortedStories = [...stories].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
+    const currentIndex = sortedStories.findIndex((s) => s.id === selectedStory.id);
+    if (currentIndex > 0) {
+      setSelectedStory(sortedStories[currentIndex - 1]);
     }
   }, [selectedStory, stories]);
 
@@ -523,6 +542,8 @@ export default function Index() {
           onAddStoryClick={handleAddStoryClick}
           onStoryClick={handleStoryClick}
           currentUserId={user?.id || ""}
+          currentUserPhoto={currentUserPhoto}
+          isOwnerViewing={storyViewerOpen && selectedStory?.user_id === user?.id}
         />
       </div>
 
@@ -718,6 +739,7 @@ export default function Index() {
         open={storyViewerOpen}
         onOpenChange={setStoryViewerOpen}
         onNextStory={handleSkipStory}
+        onPrevStory={handlePrevStory}
       />
 
       {/* Goal Progress Modal */}

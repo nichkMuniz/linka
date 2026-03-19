@@ -2247,17 +2247,26 @@ export async function toggleStoryLikeDb(
     .maybeSingle();
 
   if (existing?.id) {
-    // Remove the like
     await supabase.from("story_likes").delete().eq("id", existing.id);
+    // Also remove from flow_likes
+    await supabase
+      .from("flow_likes")
+      .delete()
+      .eq("storys_id", storyId)
+      .eq("user_id", viewer.id)
+      .eq("type", incentiveType);
   } else {
-    // Add the like
     await supabase.from("story_likes").insert({
       story_id: storyId,
       user_id: viewer.id,
       type: incentiveType,
     });
-
-    // Award 1 point for interacting with a story
+    // Also insert into flow_likes
+    await supabase.from("flow_likes").insert({
+      storys_id: storyId,
+      user_id: viewer.id,
+      type: incentiveType,
+    });
     await addPointsDb(1);
   }
 }
@@ -2307,6 +2316,15 @@ export async function getUserStoryLikesDb(
       [1, 2, 3, 4, 5, 6].includes(incentiveType),
     );
 }
+
+export type FlowViewer = {
+  followerId: string;
+  userNickname: string;
+  userPhoto: string | null;
+  hasIncentive: boolean;
+  incentiveType?: number;
+  viewedAt: string;
+};
 
 // Story comments
 export type StoryComment = {
@@ -2406,6 +2424,80 @@ export async function deleteStoryCommentDb(commentId: string): Promise<boolean> 
   } catch (err: any) {
     console.error("Error deleting story comment:", err);
     return false;
+  }
+}
+
+export async function recordFlowViewDb(storyId: string, storyOwnerId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const viewer = await getViewer();
+  if (!viewer || viewer.id === storyOwnerId) return;
+
+  try {
+    await supabase
+      .from("user_view_flow")
+      .upsert(
+        {
+          user_id: storyOwnerId,
+          follower_id: viewer.id,
+          storys_id: storyId,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "follower_id,storys_id" },
+      );
+  } catch (err: any) {
+    console.error("Error recording flow view:", err?.message || err);
+  }
+}
+
+export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  try {
+    const { data: views, error } = await supabase
+      .from("user_view_flow")
+      .select("follower_id, created_at, updated_at")
+      .eq("storys_id", storyId)
+      .order("updated_at", { ascending: false });
+
+    if (error || !views || views.length === 0) return [];
+
+    const followerIds = views.map((v: any) => v.follower_id);
+
+    const [profilesResult, likesResult] = await Promise.all([
+      supabase
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .in("user_id", followerIds),
+      supabase
+        .from("flow_likes")
+        .select("user_id, type")
+        .eq("storys_id", storyId)
+        .in("user_id", followerIds),
+    ]);
+
+    const profileMap = new Map(
+      (profilesResult.data ?? []).map((p: any) => [String(p.user_id), p]),
+    );
+    const likesMap = new Map(
+      (likesResult.data ?? []).map((l: any) => [String(l.user_id), Number(l.type)]),
+    );
+
+    return views.map((view: any) => {
+      const profile = profileMap.get(String(view.follower_id));
+      const incentiveType = likesMap.get(String(view.follower_id));
+      return {
+        followerId: String(view.follower_id),
+        userNickname: profile?.nickname ?? "Usuário",
+        userPhoto: profile?.photo ?? null,
+        hasIncentive: incentiveType !== undefined,
+        incentiveType,
+        viewedAt: String(view.updated_at ?? view.created_at),
+      };
+    });
+  } catch (err: any) {
+    console.error("Error fetching flow viewers:", err?.message || err);
+    return [];
   }
 }
 

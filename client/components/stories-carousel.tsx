@@ -14,6 +14,8 @@ interface StoriesCarouselProps {
   onAddStoryClick: () => void;
   onStoryClick: (story: StoryWithUser) => void;
   currentUserId: string;
+  currentUserPhoto?: string | null;
+  isOwnerViewing?: boolean;
 }
 
 export function StoriesCarousel({
@@ -21,6 +23,8 @@ export function StoriesCarousel({
   onAddStoryClick,
   onStoryClick,
   currentUserId,
+  currentUserPhoto,
+  isOwnerViewing,
 }: StoriesCarouselProps) {
   // Group stories by user and take only the first one per user (most recent)
   const storyMap = new Map<string, StoryWithUser>();
@@ -70,7 +74,7 @@ export function StoriesCarousel({
                     <div className="h-full w-full bg-muted" />
                   )}
                 </div>
-                <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full ring-1 ring-background" />
+                <div className={`absolute bottom-0 right-0 h-3 w-3 ${isOwnerViewing ? 'bg-gray-400' : 'bg-green-500'} rounded-full ring-1 ring-background`} />
               </div>
               <span className="text-xs text-center truncate max-w-[60px] font-semibold text-brand">
                 Seu flow
@@ -91,8 +95,21 @@ export function StoriesCarousel({
           onClick={onAddStoryClick}
           className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer hover:opacity-80 transition-opacity"
         >
-          <div className="relative h-14 w-14 rounded-full bg-muted flex items-center justify-center ring-2 ring-transparent group-hover:ring-brand transition-all">
-            <Plus className="h-5 w-5" />
+          <div className="relative h-14 w-14 rounded-full overflow-hidden ring-2 ring-transparent group-hover:ring-brand transition-all">
+            {currentUserPhoto ? (
+              <img
+                src={currentUserPhoto}
+                alt="Seu flow"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="h-full w-full bg-muted flex items-center justify-center">
+                <Plus className="h-5 w-5" />
+              </div>
+            )}
+            <div className="absolute bottom-0 right-0 h-5 w-5 bg-brand rounded-full flex items-center justify-center ring-1 ring-background">
+              <Plus className="h-3 w-3 text-white" />
+            </div>
           </div>
           <span className="text-xs text-center whitespace-nowrap">
             Seu flow

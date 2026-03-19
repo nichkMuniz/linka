@@ -2,9 +2,14 @@ import * as React from "react";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import {
   getStoryLikesDb,
   getUserStoryLikesDb,
@@ -13,11 +18,14 @@ import {
   addStoryCommentDb,
   deleteStoryCommentDb,
   deleteStoryDb,
+  recordFlowViewDb,
+  getFlowViewersDb,
   type StoryWithUser,
   type PostIncentiveType,
   type StoryComment,
+  type FlowViewer,
 } from "@/lib/ritmofit-db";
-import { X, ChevronRight, Send, Trash2 } from "lucide-react";
+import { X, ChevronRight, ChevronLeft, Send, Trash2, Eye } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
@@ -30,6 +38,7 @@ interface StoryViewerModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onNextStory: () => void;
+  onPrevStory?: () => void;
 }
 
 export function StoryViewerModal({
@@ -38,6 +47,7 @@ export function StoryViewerModal({
   open,
   onOpenChange,
   onNextStory,
+  onPrevStory,
 }: StoryViewerModalProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -50,8 +60,16 @@ export function StoryViewerModal({
   const [timerProgress, setTimerProgress] = React.useState(100);
   const [isTyping, setIsTyping] = React.useState(false);
   const [isDeletingStory, setIsDeletingStory] = React.useState(false);
+  const [viewersModalOpen, setViewersModalOpen] = React.useState(false);
+  const [viewers, setViewers] = React.useState<FlowViewer[]>([]);
+  const [isLoadingViewers, setIsLoadingViewers] = React.useState(false);
   const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
-  const autoCloseTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const isTypingRef = React.useRef(false);
+
+  // Keep isTypingRef in sync with isTyping state
+  React.useEffect(() => {
+    isTypingRef.current = isTyping;
+  }, [isTyping]);
 
   React.useEffect(() => {
     if (!open || !story) return;
@@ -74,28 +92,34 @@ export function StoryViewerModal({
 
     loadStoryData();
 
+    // Record view for non-owners
+    if (user && user.id !== story.user_id) {
+      recordFlowViewDb(story.id, story.user_id).catch((err) =>
+        console.error("Error recording flow view:", err),
+      );
+    }
+
     // Reset timer when story changes
     setTimerProgress(100);
-    setIsTyping(false);
 
     // Clear existing timers
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    if (autoCloseTimeoutRef.current) clearTimeout(autoCloseTimeoutRef.current);
 
-    // Auto-close after 8 seconds (unless typing)
     const STORY_DURATION = 8000;
     const TIMER_INTERVAL = 50;
     let elapsedTime = 0;
 
     const updateTimer = () => {
+      // Pause timer when user is typing
+      if (isTypingRef.current) return;
+
       elapsedTime += TIMER_INTERVAL;
       const progress = Math.max(0, 100 - (elapsedTime / STORY_DURATION) * 100);
       setTimerProgress(progress);
 
-      // Only auto-close if not typing
-      if (!isTyping && elapsedTime >= STORY_DURATION) {
-        onOpenChange(false);
+      if (elapsedTime >= STORY_DURATION) {
         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        onNextStory();
       }
     };
 
@@ -103,9 +127,22 @@ export function StoryViewerModal({
 
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-      if (autoCloseTimeoutRef.current) clearTimeout(autoCloseTimeoutRef.current);
     };
-  }, [open, onOpenChange, story, isTyping]);
+  }, [open, story, user, onNextStory]);
+
+  const handleOpenViewers = React.useCallback(async () => {
+    if (!story) return;
+    setViewersModalOpen(true);
+    setIsLoadingViewers(true);
+    try {
+      const data = await getFlowViewersDb(story.id);
+      setViewers(data);
+    } catch (err) {
+      console.error("Error loading viewers:", err);
+    } finally {
+      setIsLoadingViewers(false);
+    }
+  }, [story]);
 
   const handleToggleLike = React.useCallback(
     async (incentiveType: PostIncentiveType) => {
@@ -115,7 +152,6 @@ export function StoryViewerModal({
       try {
         await toggleStoryLikeDb(story.id, incentiveType);
 
-        // Update local state
         const wasActive = userLikes.includes(incentiveType);
         setUserLikes(
           wasActive
@@ -123,7 +159,6 @@ export function StoryViewerModal({
             : [...userLikes, incentiveType],
         );
 
-        // Update likes count
         setLikes((prev) => {
           const updated = { ...prev };
           const fieldMap: Record<PostIncentiveType, string> = {
@@ -162,10 +197,6 @@ export function StoryViewerModal({
       if (comment) {
         setComments((prev) => [...prev, comment]);
         setNewComment("");
-        toast({
-          title: "Comentário adicionado!",
-          description: "Seu comentário foi compartilhado.",
-        });
       }
     } catch (err: any) {
       console.error("Error adding comment:", err);
@@ -184,16 +215,9 @@ export function StoryViewerModal({
         const success = await deleteStoryCommentDb(commentId);
         if (success) {
           setComments((prev) => prev.filter((c) => c.id !== commentId));
-          toast({
-            title: "Comentário removido",
-          });
         }
       } catch (err: any) {
         console.error("Error deleting comment:", err);
-        toast({
-          title: "Erro ao remover comentário",
-          description: err?.message || "Tente novamente.",
-        });
       }
     },
     [],
@@ -201,29 +225,18 @@ export function StoryViewerModal({
 
   const handleDeleteStory = React.useCallback(async () => {
     if (!story) return;
-
-    if (!confirm("Tem certeza que deseja deletar este story?")) return;
+    if (!confirm("Tem certeza que deseja deletar este flow?")) return;
 
     setIsDeletingStory(true);
     try {
       const success = await deleteStoryDb(story.id);
       if (success) {
         onOpenChange(false);
-        toast({
-          title: "Story deletado",
-          description: "Seu story foi removido.",
-        });
-      } else {
-        toast({
-          title: "Erro ao deletar",
-          description: "Tente novamente.",
-          variant: "destructive",
-        });
+        toast({ title: "Flow deletado", description: "Seu flow foi removido." });
       }
     } catch (err: any) {
-      console.error("Error deleting story:", err);
       toast({
-        title: "Erro ao deletar story",
+        title: "Erro ao deletar flow",
         description: err?.message || "Tente novamente.",
         variant: "destructive",
       });
@@ -238,181 +251,251 @@ export function StoryViewerModal({
     story.media_url?.includes(".mp4") ||
     story.media_url?.includes(".webm") ||
     story.media_url?.includes(".mov") ||
-    (story.media_url?.startsWith("data:") &&
-      story.media_url?.includes("video"));
+    (story.media_url?.startsWith("data:") && story.media_url?.includes("video"));
 
-  // Check if there are more stories to skip to
-  const currentIndex = stories.findIndex((s) => s.id === story?.id);
-  const hasNextStory = currentIndex < stories.length - 1;
+  // Sort stories ascending for in-viewer navigation (oldest first = first posted)
+  const sortedStories = [...stories].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+  const currentIndex = sortedStories.findIndex((s) => s.id === story.id);
+  const hasNextStory = currentIndex < sortedStories.length - 1;
+  const hasPrevStory = currentIndex > 0;
+  const isOwner = user?.id === story.user_id;
+
+  // Progress bar segments: one per story in the sorted list
+  const userStories = sortedStories.filter((s) => s.user_id === story.user_id);
+  const storyIndexInUser = userStories.findIndex((s) => s.id === story.id);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-screen h-screen max-w-none max-h-none p-0 border-0 bg-black">
-        <DialogTitle className="sr-only">Story viewer</DialogTitle>
-        <div className="relative w-full h-full flex flex-col">
-          {/* Header with user info, delete button and close button */}
-          <div className="space-y-2 z-10">
-            {/* Progress Bar */}
-            <div className="h-1 bg-white/10">
-              <div
-                className="h-full bg-white transition-all ease-linear"
-                style={{ width: `${timerProgress}%` }}
-              />
-            </div>
-
-            {/* Header Content */}
-            <div className="flex items-center justify-between p-4 border-b border-white/10">
-              <button
-                onClick={() => {
-                  onOpenChange(false);
-                  navigate(`/usuario/${story.user_id}`);
-                }}
-                className="flex items-center gap-3 hover:opacity-80 transition-opacity flex-1"
-              >
-                {story.userPhoto && (
-                  <img
-                    src={story.userPhoto}
-                    alt={story.userNickname}
-                    className="h-10 w-10 rounded-full object-cover"
-                  />
-                )}
-                <div>
-                  <p className="text-sm font-semibold text-white">
-                    {story.userNickname}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    {formatTimeAgo(story.created_at)}
-                  </p>
-                </div>
-              </button>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {user?.id === story.user_id && (
-                  <button
-                    onClick={handleDeleteStory}
-                    disabled={isDeletingStory}
-                    className="text-white hover:text-red-400 transition-colors disabled:opacity-50"
-                    title="Deletar story"
-                  >
-                    <Trash2 className="h-5 w-5" />
-                  </button>
-                )}
-                <button
-                  onClick={() => onOpenChange(false)}
-                  className="text-white hover:text-gray-300 transition-colors"
-                  title="Fechar"
-                >
-                  <X className="h-6 w-6" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Media - Full Screen */}
-          <div className="flex-1 flex items-center justify-center relative">
-            {isVideo ? (
-              <video
-                src={story.media_url}
-                className="w-full h-full object-cover"
-                autoPlay
-              />
-            ) : (
-              <img
-                src={story.media_url}
-                alt="Story"
-                className="w-full h-full object-cover"
-              />
-            )}
-
-            {/* Skip Button */}
-            {hasNextStory && (
-              <button
-                onClick={onNextStory}
-                className="absolute bottom-4 right-4 bg-white/20 hover:bg-white/30 text-white p-3 rounded-full transition-colors z-20"
-                aria-label="Próximo story"
-              >
-                <ChevronRight className="h-6 w-6" />
-              </button>
-            )}
-
-            {/* Incentive Buttons - Right Side */}
-            <div className="absolute right-4 bottom-20 flex flex-col gap-2 z-20">
-              {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                <PostIncentiveButton
-                  key={type}
-                  type={type}
-                  isActive={userLikes.includes(type)}
-                  onClick={() => handleToggleLike(type)}
-                  loading={togglingLikeId === story.id}
-                />
-              ))}
-            </div>
-
-            {/* Description Overlay */}
-            {story.description && (
-              <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10">
-                <p className="text-sm text-white">{story.description}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Bottom Section - Comments */}
-          <div className="shrink-0 bg-black/90 border-t border-white/10 p-3 space-y-3 max-h-32 flex flex-col z-20">
-            {/* Comments List */}
-            {comments.length > 0 && (
-              <div className="overflow-y-auto flex-1 space-y-2 max-h-20">
-                {comments.map((comment) => (
-                  <div key={comment.id} className="flex items-start gap-2 text-xs">
-                    <div className="flex-1">
-                      <span className="font-semibold text-white">
-                        {comment.userName}
-                      </span>
-                      <span className="text-white/70 ml-2">{comment.text}</span>
-                    </div>
-                    {user?.id === comment.userId && (
-                      <button
-                        onClick={() => handleDeleteComment(comment.id)}
-                        className="text-red-400 hover:text-red-500 shrink-0"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    )}
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="w-screen h-screen max-w-none max-h-none p-0 border-0 bg-black">
+          <DialogTitle className="sr-only">Flow viewer</DialogTitle>
+          <div className="relative w-full h-full flex flex-col">
+            {/* Header */}
+            <div className="space-y-2 z-10">
+              {/* Progress Bar segments */}
+              <div className="flex gap-1 px-2 pt-2">
+                {userStories.map((s, idx) => (
+                  <div key={s.id} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-white transition-none"
+                      style={{
+                        width:
+                          idx < storyIndexInUser
+                            ? "100%"
+                            : idx === storyIndexInUser
+                            ? `${timerProgress}%`
+                            : "0%",
+                      }}
+                    />
                   </div>
                 ))}
               </div>
-            )}
 
-            {/* Comment Input */}
-            {user && (
-              <div className="flex gap-2 items-center bg-white/10 rounded-full px-3 py-1.5">
-                <Input
-                  type="text"
-                  placeholder="Comentário..."
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  onFocus={() => setIsTyping(true)}
-                  onBlur={() => setIsTyping(false)}
-                  onKeyPress={(e) => {
-                    if (e.key === "Enter" && newComment.trim()) {
-                      handleAddComment();
-                    }
-                  }}
-                  className="flex-1 bg-transparent border-0 text-xs text-white placeholder-white/50 focus:outline-none focus-visible:ring-0 h-6"
-                  disabled={isAddingComment}
-                />
+              {/* Header Content */}
+              <div className="flex items-center justify-between px-4 pb-2">
                 <button
-                  onClick={handleAddComment}
-                  disabled={!newComment.trim() || isAddingComment}
-                  className="text-white hover:text-brand disabled:opacity-50 shrink-0"
+                  onClick={() => {
+                    onOpenChange(false);
+                    navigate(`/usuario/${story.user_id}`);
+                  }}
+                  className="flex items-center gap-3 hover:opacity-80 transition-opacity flex-1"
                 >
-                  <Send className="h-3 w-3" />
+                  {story.userPhoto && (
+                    <img
+                      src={story.userPhoto}
+                      alt={story.userNickname}
+                      className="h-10 w-10 rounded-full object-cover"
+                    />
+                  )}
+                  <div>
+                    <p className="text-sm font-semibold text-white">{story.userNickname}</p>
+                    <p className="text-xs text-gray-400">{formatTimeAgo(story.created_at)}</p>
+                  </div>
                 </button>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {isOwner && (
+                    <button
+                      onClick={handleOpenViewers}
+                      className="text-white hover:text-brand transition-colors"
+                      title="Ver quem visualizou"
+                    >
+                      <Eye className="h-5 w-5" />
+                    </button>
+                  )}
+                  {isOwner && (
+                    <button
+                      onClick={handleDeleteStory}
+                      disabled={isDeletingStory}
+                      className="text-white hover:text-red-400 transition-colors disabled:opacity-50"
+                      title="Deletar flow"
+                    >
+                      <Trash2 className="h-5 w-5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => onOpenChange(false)}
+                    className="text-white hover:text-gray-300 transition-colors"
+                  >
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
               </div>
+            </div>
+
+            {/* Media - Full Screen */}
+            <div className="flex-1 flex items-center justify-center relative">
+              {isVideo ? (
+                <video src={story.media_url} className="w-full h-full object-cover" autoPlay />
+              ) : (
+                <img src={story.media_url} alt="Flow" className="w-full h-full object-cover" />
+              )}
+
+              {/* Left tap zone - previous story */}
+              {hasPrevStory && (
+                <button
+                  onClick={onPrevStory}
+                  className="absolute left-0 top-0 bottom-0 w-1/3 z-20 flex items-center justify-start pl-3"
+                  aria-label="Story anterior"
+                >
+                  <div className="bg-white/20 hover:bg-white/30 p-2 rounded-full transition-colors">
+                    <ChevronLeft className="h-6 w-6 text-white" />
+                  </div>
+                </button>
+              )}
+
+              {/* Right tap zone - next story */}
+              {hasNextStory && (
+                <button
+                  onClick={onNextStory}
+                  className="absolute right-0 top-0 bottom-0 w-1/3 z-20 flex items-center justify-end pr-3"
+                  aria-label="Próximo story"
+                >
+                  <div className="bg-white/20 hover:bg-white/30 p-2 rounded-full transition-colors">
+                    <ChevronRight className="h-6 w-6 text-white" />
+                  </div>
+                </button>
+              )}
+
+              {/* Incentive Buttons - Right Side */}
+              <div className="absolute right-4 bottom-20 flex flex-col gap-2 z-30">
+                {!isOwner && ([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                  <PostIncentiveButton
+                    key={type}
+                    type={type}
+                    isActive={userLikes.includes(type)}
+                    onClick={() => handleToggleLike(type)}
+                    loading={togglingLikeId === story.id}
+                  />
+                ))}
+              </div>
+
+              {/* Description Overlay */}
+              {story.description && (
+                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10">
+                  <p className="text-sm text-white">{story.description}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Section - Comments */}
+            <div className="shrink-0 bg-black/90 border-t border-white/10 p-3 space-y-3 max-h-32 flex flex-col z-20">
+              {comments.length > 0 && (
+                <div className="overflow-y-auto flex-1 space-y-2 max-h-20">
+                  {comments.map((comment) => (
+                    <div key={comment.id} className="flex items-start gap-2 text-xs">
+                      <div className="flex-1">
+                        <span className="font-semibold text-white">{comment.userName}</span>
+                        <span className="text-white/70 ml-2">{comment.text}</span>
+                      </div>
+                      {user?.id === comment.userId && (
+                        <button
+                          onClick={() => handleDeleteComment(comment.id)}
+                          className="text-red-400 hover:text-red-500 shrink-0"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {user && (
+                <div className="flex gap-2 items-center bg-white/10 rounded-full px-3 py-1.5">
+                  <Input
+                    type="text"
+                    placeholder="Comentário..."
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    onFocus={() => setIsTyping(true)}
+                    onBlur={() => setIsTyping(false)}
+                    onKeyPress={(e) => {
+                      if (e.key === "Enter" && newComment.trim()) {
+                        handleAddComment();
+                      }
+                    }}
+                    className="flex-1 bg-transparent border-0 text-xs text-white placeholder-white/50 focus:outline-none focus-visible:ring-0 h-6"
+                    disabled={isAddingComment}
+                  />
+                  <button
+                    onClick={handleAddComment}
+                    disabled={!newComment.trim() || isAddingComment}
+                    className="text-white hover:text-brand disabled:opacity-50 shrink-0"
+                  >
+                    <Send className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Viewers Drawer */}
+      <Drawer open={viewersModalOpen} onOpenChange={setViewersModalOpen}>
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle className="flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              Visualizações ({viewers.length})
+            </DrawerTitle>
+          </DrawerHeader>
+          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-3">
+            {isLoadingViewers ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Carregando...</p>
+            ) : viewers.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">
+                Nenhuma visualização ainda
+              </p>
+            ) : (
+              viewers.map((viewer) => (
+                <div key={viewer.followerId} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted transition-colors">
+                  {viewer.userPhoto ? (
+                    <img
+                      src={viewer.userPhoto}
+                      alt={viewer.userNickname}
+                      className="h-10 w-10 rounded-full object-cover flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded-full bg-muted flex-shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{viewer.userNickname}</p>
+                    <p className="text-xs text-muted-foreground">{formatTimeAgo(viewer.viewedAt)}</p>
+                  </div>
+                  {viewer.hasIncentive && (
+                    <span className="text-xs text-brand font-medium shrink-0">Incentivou ✨</span>
+                  )}
+                </div>
+              ))
             )}
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DrawerContent>
+      </Drawer>
+    </>
   );
 }
 

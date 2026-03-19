@@ -127,7 +127,7 @@ export function StoryCreationDialog({
     if (!mediaPreview) {
       toast({
         title: "Erro",
-        description: "Selecione uma mídia para sua story",
+        description: "Selecione uma mídia para seu flow",
         variant: "destructive",
       });
       return;
@@ -144,12 +144,12 @@ export function StoryCreationDialog({
       }
       onOpenChange(false);
       toast({
-        title: "Story criada!",
-        description: "Sua story foi compartilhada com seus seguidores",
+        title: "Flow criado!",
+        description: "Seu flow foi compartilhado com seus seguidores",
       });
     } catch (err: any) {
       toast({
-        title: "Erro ao criar story",
+        title: "Erro ao criar flow",
         description: err?.message || "Tente novamente",
         variant: "destructive",
       });
@@ -179,7 +179,7 @@ export function StoryCreationDialog({
     <Drawer open={open} onOpenChange={handleOpenChange}>
       <DrawerContent className="max-h-[90dvh] flex flex-col">
         <DrawerHeader className="text-center">
-          <DrawerTitle>Criar nova story</DrawerTitle>
+          <DrawerTitle>Criar novo flow</DrawerTitle>
           <DrawerDescription>
             Compartilhe um momento com seus seguidores
           </DrawerDescription>
@@ -303,7 +303,7 @@ export function StoryCreationDialog({
               disabled={!mediaPreview || isSubmitting || isLoading}
               className="w-full rounded-full"
             >
-              {isSubmitting || isLoading ? "Enviando..." : "Compartilhar story"}
+              {isSubmitting || isLoading ? "Enviando..." : "Compartilhar flow"}
             </Button>
           </div>
         </div>
