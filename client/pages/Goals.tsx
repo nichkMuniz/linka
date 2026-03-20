@@ -5,6 +5,7 @@ import {
   createUserGoalDb,
   createCustomGoalAndSelectDb,
   createCustomWorkoutDb,
+  createCustomDietDb,
   updateUserGoalDb,
   deleteUserGoalDb,
   getUserSelectedGoalIdsDb,
@@ -25,6 +26,7 @@ import {
   createCheckInDb,
   getTodayCheckInDb,
   getWeekCheckInsDb,
+  getWorkoutHistoriesBatchDb,
   saveWorkoutHistoryDb,
   getWorkoutHistoryDb,
   toggleUserDietCompletionDb,
@@ -47,6 +49,10 @@ import {
   type WorkoutHistoryRecord,
 } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
+import { fetchExerciseCatalog, type CatalogExercise } from "@/lib/exercise-catalog";
+import { ExerciseImage } from "@/components/exercise-image";
+import { fetchMealCatalog, type CatalogMeal } from "@/lib/diet-catalog";
+import { DietImage } from "@/components/diet-image";
 import {
   Card,
   CardContent,
@@ -128,10 +134,13 @@ export default function Goals() {
   const [selectedMuscleGroups, setSelectedMuscleGroups] = React.useState<
     Set<string>
   >(new Set());
+  const [selectedDietCategories, setSelectedDietCategories] = React.useState<Set<string>>(new Set());
   const [routineName, setRoutineName] = React.useState("");
 
   // Base data for lookups
   const [workouts, setWorkouts] = React.useState<Workout[]>([]);
+  const [catalogExercises, setCatalogExercises] = React.useState<CatalogExercise[]>([]);
+  const [catalogMeals, setCatalogMeals] = React.useState<CatalogMeal[]>([]);
   const [diets, setDiets] = React.useState<Diet[]>([]);
   const [habits, setHabits] = React.useState<Habit[]>([]);
 
@@ -234,6 +243,9 @@ export default function Goals() {
   const [newGoalQuantity, setNewGoalQuantity] = React.useState(1);
   const [isCreatingGoal, setIsCreatingGoal] = React.useState(false);
 
+  // Goal completion celebration modal state
+  const [celebrationGoal, setCelebrationGoal] = React.useState<UserGoal | null>(null);
+
   // Workout history modal state
   const [workoutHistoryModalOpen, setWorkoutHistoryModalOpen] = React.useState(false);
   const [selectedWorkoutForHistory, setSelectedWorkoutForHistory] = React.useState<Workout | null>(null);
@@ -309,47 +321,44 @@ export default function Goals() {
   React.useEffect(() => {
     (async () => {
       try {
-        const [
-          goalsData,
-          selectedIds,
-          workoutsBaseData,
-          dietsBaseData,
-          habitsBaseData,
-        ] = await Promise.all([
-          getProgrammedGoalsDb(),
-          getUserSelectedGoalIdsDb(),
-          getWorkoutsDb(),
-          getDietsDb(),
-          getHabitsDb(),
-        ]);
-        setGoals(goalsData);
-        setSelectedGoalIds(selectedIds);
-        setWorkouts(workoutsBaseData);
-        setDiets(dietsBaseData);
-        setHabits(habitsBaseData);
-
-        // Load routines and linked items if user is logged in
+        // Batch 1 — user's goals and routines: critical, show first
+        const criticalFetches: Promise<any>[] = [getProgrammedGoalsDb(), getUserSelectedGoalIdsDb()];
         if (user) {
-          const [
-            routinesData,
-            userWorkoutsData,
-            userDietsData,
-            userHabitsData,
-            userGoalsData,
-          ] = await Promise.all([
+          criticalFetches.push(
             getUserRoutinesDb(user.id),
             getUserWorkoutsDb(user.id),
             getUserDietsDb(user.id),
             getUserHabitsDb(user.id),
             getUserGoalsDb(),
-          ]);
-          setRoutines(routinesData);
-          setUserWorkouts(userWorkoutsData);
-          setUserDiets(userDietsData);
-          setUserHabits(userHabitsData);
-          setUserGoals(userGoalsData);
-
+          );
         }
+        const criticalResults = await Promise.all(criticalFetches);
+
+        setGoals(criticalResults[0]);
+        setSelectedGoalIds(criticalResults[1]);
+        if (user) {
+          setRoutines(criticalResults[2]);
+          setUserWorkouts(criticalResults[3]);
+          setUserDiets(criticalResults[4]);
+          setUserHabits(criticalResults[5]);
+          setUserGoals(criticalResults[6]);
+        }
+        setLoading(false); // unblock UI immediately after critical data
+
+        // Batch 2 — catalog data (workouts/diets/habits base lists + external APIs): load in background
+        const [workoutsBaseData, dietsBaseData, habitsBaseData, catalogData, mealCatalogData] =
+          await Promise.all([
+            getWorkoutsDb(),
+            getDietsDb(),
+            getHabitsDb(),
+            fetchExerciseCatalog().catch(() => [] as CatalogExercise[]),
+            fetchMealCatalog().catch(() => [] as CatalogMeal[]),
+          ]);
+        setWorkouts(workoutsBaseData);
+        setDiets(dietsBaseData);
+        setHabits(habitsBaseData);
+        setCatalogExercises(catalogData);
+        setCatalogMeals(mealCatalogData);
       } catch (err: any) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         console.error("Erro ao carregar dados:", errorMessage);
@@ -358,32 +367,27 @@ export default function Goals() {
           description: errorMessage || "Tente novamente.",
           variant: "destructive",
         });
-      } finally {
         setLoading(false);
       }
     })();
   }, [user]);
 
-  // Load today's check-in status and week check-ins from database
+  // Load today's check-in status and week check-ins from database (all in parallel)
   React.useEffect(() => {
     if (!user) return;
 
     (async () => {
       try {
-        // Check if user has already done check-in today
-        const todayCheckIn = await getTodayCheckInDb(user.id);
+        const [todayCheckIn, weekCheckInDays, hasCompleted] = await Promise.all([
+          getTodayCheckInDb(user.id),
+          getWeekCheckInsDb(user.id),
+          hasCompletedRoutineToday(user.id),
+        ]);
         setDailyCheckInDone(todayCheckIn !== null);
-
-        // Load week check-ins
-        const weekCheckInDays = await getWeekCheckInsDb(user.id);
         setWeekCheckIns(new Set(weekCheckInDays));
-
-        // Check if user has completed any routine today
-        const hasCompleted = await hasCompletedRoutineToday(user.id);
         setRoutineCompletedTodayStatus(hasCompleted);
       } catch (err) {
         console.error("Error loading check-in data:", err);
-        // Gracefully fallback to empty state
         setDailyCheckInDone(false);
         setWeekCheckIns(new Set());
         setRoutineCompletedTodayStatus(false);
@@ -391,20 +395,15 @@ export default function Goals() {
     })();
   }, [user]);
 
-  // Reload completed routine status when routines change
+  // Reload completed routine status only when the user changes (not on every routine data update)
+  // Completion status is updated optimistically after handleConfirmFinishWorkout/Diet/Habit
   React.useEffect(() => {
     if (!user) return;
 
-    (async () => {
-      try {
-        const hasCompleted = await hasCompletedRoutineToday(user.id);
-        setRoutineCompletedTodayStatus(hasCompleted);
-      } catch (err) {
-        console.error("Error checking routine completion:", err);
-        setRoutineCompletedTodayStatus(false);
-      }
-    })();
-  }, [user, userWorkouts, userDiets, userHabits]);
+    hasCompletedRoutineToday(user.id)
+      .then(setRoutineCompletedTodayStatus)
+      .catch(() => setRoutineCompletedTodayStatus(false));
+  }, [user]);
 
   // Initialize workoutSeries with one series for each exercise when modal opens
   React.useEffect(() => {
@@ -429,20 +428,12 @@ export default function Goals() {
         }));
       }
 
-      // Load workout histories for all exercises
+      // Load workout histories for all exercises in a single batch query
       if (user) {
-        (async () => {
-          const historiesMap: Record<string, WorkoutHistoryRecord[]> = {};
-          for (const workout of userWorkouts) {
-            try {
-              const history = await getWorkoutHistoryDb(user.id, workout.workout_id);
-              historiesMap[workout.workout_id] = history;
-            } catch (err) {
-              historiesMap[workout.workout_id] = [];
-            }
-          }
-          setWorkoutHistoriesMap(historiesMap);
-        })();
+        const workoutIds = userWorkouts.map((w) => w.workout_id).filter(Boolean);
+        getWorkoutHistoriesBatchDb(user.id, workoutIds)
+          .then(setWorkoutHistoriesMap)
+          .catch((err) => console.error("Error loading workout histories:", err));
       }
     }
   }, [workoutModalOpen, userWorkouts]);
@@ -572,6 +563,7 @@ export default function Goals() {
     setSelectedItems(new Set());
     setSearchQuery("");
     setSelectedMuscleGroups(new Set());
+    setSelectedDietCategories(new Set());
   };
 
   const [isAddingFromWorkout, setIsAddingFromWorkout] = React.useState(false);
@@ -585,6 +577,7 @@ export default function Goals() {
     setSelectedItems(existingWorkoutIds);
     setSearchQuery("");
     setSelectedMuscleGroups(new Set());
+    setSelectedDietCategories(new Set());
   };
 
   const handleDeleteExercise = async (userWorkoutId: string) => {
@@ -772,10 +765,15 @@ export default function Goals() {
         const updatedGoals = await getUserGoalsDb();
         setUserGoals(updatedGoals);
 
-        toast({
-          title: "Check-in realizado!",
-          description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${goal.description}".`,
-        });
+        // Check if this check-in completed the goal
+        if (newPercentage >= 100) {
+          setCelebrationGoal({ ...goal, days_completed: newProgress, perc: 100 });
+        } else {
+          toast({
+            title: "Check-in realizado!",
+            description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${goal.description}".`,
+          });
+        }
       } catch (err: any) {
         const errorMsg = err?.message || "Tente novamente.";
         console.error("Error during check-in with goal:", errorMsg);
@@ -849,10 +847,15 @@ export default function Goals() {
       const updatedGoals = await getUserGoalsDb();
       setUserGoals(updatedGoals);
 
-      toast({
-        title: "Check-in realizado!",
-        description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${selectedCheckInGoal.description}".`,
-      });
+      // Check if this check-in completed the goal
+      if (newPercentage >= 100) {
+        setCelebrationGoal({ ...selectedCheckInGoal, days_completed: newProgress, perc: 100 });
+      } else {
+        toast({
+          title: "Check-in realizado!",
+          description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${selectedCheckInGoal.description}".`,
+        });
+      }
     } catch (err: any) {
       const errorMsg = err?.message || "Tente novamente.";
       console.error("Error during check-in (selected goal):", errorMsg);
@@ -866,29 +869,127 @@ export default function Goals() {
     }
   };
 
+  // Unified exercise list: local workouts + catalog (deduped by name)
+  type UnifiedExercise = {
+    key: string;
+    id: string;
+    name: string;
+    description: string;
+    photo: string | null;
+    muscleGroup: string | null;
+    isLocal: boolean;
+    catalogId?: number;
+    catalogImage?: string | null;
+  };
+
+  const unifiedExercises = React.useMemo<UnifiedExercise[]>(() => {
+    const localNames = new Set(workouts.map((w) => w.name.toLowerCase()));
+    const catalogFiltered = catalogExercises.filter(
+      (c) => !localNames.has(c.name.toLowerCase())
+    );
+    return [
+      ...workouts.filter((w) => w.photo).map((w) => ({
+        key: `local-${w.id}`,
+        id: w.id,
+        name: w.name,
+        description: w.description,
+        photo: w.photo,
+        muscleGroup: w.muscle_group || null,
+        isLocal: true,
+      })),
+      ...catalogFiltered.map((c) => ({
+        key: `catalog-${c.id}`,
+        id: `catalog-${c.id}`,
+        name: c.name,
+        description: c.description,
+        photo: c.image,
+        muscleGroup: c.category || null,
+        isLocal: false,
+        catalogId: c.id,
+        catalogImage: c.image,
+      })),
+    ];
+  }, [workouts, catalogExercises]);
+
   // Get unique muscle groups from workouts
   const uniqueMuscleGroups = React.useMemo(() => {
     const groups = new Set<string>();
-    workouts.forEach((workout: any) => {
-      if (workout.muscle_group) {
-        groups.add(workout.muscle_group);
-      }
+    unifiedExercises.forEach((ex) => {
+      if (ex.muscleGroup) groups.add(ex.muscleGroup);
     });
     return Array.from(groups).sort();
-  }, [workouts]);
+  }, [unifiedExercises]);
 
   // Filter workouts based on search and muscle groups
   const filteredWorkouts = React.useMemo(() => {
-    return workouts.filter((workout: any) => {
-      const matchesSearch = workout.name
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase());
+    return unifiedExercises.filter((ex) => {
+      const matchesSearch = ex.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (ex.description && ex.description.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesMuscleGroup =
         selectedMuscleGroups.size === 0 ||
-        selectedMuscleGroups.has(workout.muscle_group);
+        selectedMuscleGroups.has(ex.muscleGroup || "");
       return matchesSearch && matchesMuscleGroup;
     });
-  }, [workouts, searchQuery, selectedMuscleGroups]);
+  }, [unifiedExercises, searchQuery, selectedMuscleGroups]);
+
+  // Unified diet list: local diets + catalog meals
+  type UnifiedDiet = {
+    key: string;
+    id: string;
+    name: string;
+    description: string;
+    photo: string | null;
+    category: string | null;
+    calories: number;
+    isLocal: boolean;
+    catalogId?: number;
+  };
+
+  const unifiedDiets = React.useMemo<UnifiedDiet[]>(() => {
+    const localNames = new Set(diets.map((d) => d.name.toLowerCase()));
+    const catalogFiltered = catalogMeals.filter(
+      (c) => !localNames.has(c.name.toLowerCase())
+    );
+    return [
+      ...diets.filter((d) => d.photo).map((d) => ({
+        key: `local-${d.id}`,
+        id: d.id,
+        name: d.name,
+        description: d.description,
+        photo: d.photo,
+        category: null as string | null,
+        calories: d.calories,
+        isLocal: true,
+      })),
+      ...catalogFiltered.map((c) => ({
+        key: `catalog-${c.id}`,
+        id: `catalog-${c.id}`,
+        name: c.name,
+        description: c.description,
+        photo: c.image,
+        category: c.category || null,
+        calories: 0,
+        isLocal: false,
+        catalogId: c.id,
+      })),
+    ];
+  }, [diets, catalogMeals]);
+
+  const uniqueDietCategories = React.useMemo(() => {
+    const cats = new Set<string>();
+    unifiedDiets.forEach((d) => { if (d.category) cats.add(d.category); });
+    return Array.from(cats).sort();
+  }, [unifiedDiets]);
+
+  const filteredDiets = React.useMemo(() => {
+    return unifiedDiets.filter((d) => {
+      const matchesSearch = d.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCategory =
+        selectedDietCategories.size === 0 ||
+        selectedDietCategories.has(d.category || "");
+      return matchesSearch && matchesCategory;
+    });
+  }, [unifiedDiets, searchQuery, selectedDietCategories]);
 
   const handleSelectItem = (itemId: string) => {
     const newSelected = new Set(selectedItems);
@@ -908,6 +1009,16 @@ export default function Goals() {
       newSelected.add(muscleGroup);
     }
     setSelectedMuscleGroups(newSelected);
+  };
+
+  const handleToggleDietCategory = (category: string) => {
+    const newSelected = new Set(selectedDietCategories);
+    if (newSelected.has(category)) {
+      newSelected.delete(category);
+    } else {
+      newSelected.add(category);
+    }
+    setSelectedDietCategories(newSelected);
   };
 
   const handleAddSerie = (workoutId: string) => {
@@ -1749,6 +1860,7 @@ export default function Goals() {
                                   setSelectedItems(new Set());
                                   setSearchQuery("");
                                   setSelectedMuscleGroups(new Set());
+                                  setSelectedDietCategories(new Set());
                                   // Pre-fill routine name when adding to an existing named routine
                                   setRoutineName(isNamed ? displayLabel : "");
                                   setAddToRoutineCardName(isNamed ? displayLabel : null);
@@ -1826,6 +1938,8 @@ export default function Goals() {
                                               });
                                             }
                                           } catch (err) {
+                                            // Rollback optimistic update
+                                            setCompletedDietIds(completedDietIds);
                                             toast({
                                               title: "Erro ao atualizar status da dieta",
                                               variant: "destructive",
@@ -1870,6 +1984,8 @@ export default function Goals() {
                                               });
                                             }
                                           } catch (err) {
+                                            // Rollback optimistic update
+                                            setCompletedHabitIds(completedHabitIds);
                                             toast({
                                               title: "Erro ao atualizar status do hábito",
                                               variant: "destructive",
@@ -1897,10 +2013,26 @@ export default function Goals() {
                                           } as any);
                                         }
                                       }}
-                                      className={`flex-1 flex items-start p-2 rounded-lg transition-colors ${typeCode === 1 ? "hover:bg-muted/50 cursor-pointer" : ""
+                                      className={`flex-1 flex items-start gap-3 p-2 rounded-lg transition-colors ${typeCode === 1 ? "hover:bg-muted/50 cursor-pointer" : ""
                                         }`}
                                       disabled={typeCode !== 1}
                                     >
+                                      {/* Image thumbnail */}
+                                      {typeCode === 1 && (
+                                        <ExerciseImage
+                                          photo={item.workoutPhoto || null}
+                                          name={item.workoutName || ""}
+                                          muscleGroup={item.muscle_group || null}
+                                          className="h-10 w-10 flex-shrink-0"
+                                        />
+                                      )}
+                                      {typeCode === 2 && (
+                                        <DietImage
+                                          photo={item.dietPhoto || null}
+                                          name={item.dietName || ""}
+                                          className="h-10 w-10 flex-shrink-0"
+                                        />
+                                      )}
                                       <div className="flex-1 min-w-0 text-left">
                                         <p className="text-sm font-medium truncate">
                                           {typeCode === 1
@@ -2067,6 +2199,7 @@ export default function Goals() {
                           setSelectedItems(new Set());
                           setSearchQuery("");
                           setSelectedMuscleGroups(new Set());
+                          setSelectedDietCategories(new Set());
                         }}
                         className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                       >
@@ -2075,17 +2208,66 @@ export default function Goals() {
                     )}
                   </div>
 
-                  {/* Search for Diets and Habits */}
-                  {(selectedRoutineType === 2 || selectedRoutineType === 3) && (
+                  {/* Search for Habits */}
+                  {selectedRoutineType === 3 && (
                     <div className="relative shrink-0">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
                         type="text"
-                        placeholder={selectedRoutineType === 2 ? "Buscar dieta..." : "Buscar hábito..."}
+                        placeholder="Buscar hábito..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="pl-10 h-9"
                       />
+                    </div>
+                  )}
+
+                  {/* Search and Filter for Diets */}
+                  {selectedRoutineType === 2 && (
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          type="text"
+                          placeholder="Buscar dieta..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="pl-10 h-9"
+                        />
+                      </div>
+                      {uniqueDietCategories.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Filter className="h-4 w-4 text-muted-foreground" />
+                            <p className="text-xs font-medium text-muted-foreground">
+                              Filtrar por categoria:
+                            </p>
+                            {selectedDietCategories.size > 0 && (
+                              <button
+                                onClick={() => setSelectedDietCategories(new Set())}
+                                className="text-xs text-muted-foreground hover:text-foreground transition-colors ml-auto"
+                              >
+                                Limpar
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {uniqueDietCategories.map((cat) => (
+                              <button
+                                key={cat}
+                                onClick={() => handleToggleDietCategory(cat)}
+                                className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
+                                  selectedDietCategories.has(cat)
+                                    ? "border-brand bg-brand/20 text-brand"
+                                    : "border-border/60 text-muted-foreground hover:border-border/80"
+                                }`}
+                              >
+                                {cat}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -2137,16 +2319,39 @@ export default function Goals() {
                   {/* Items List */}
                   <div className="space-y-2">
                     {selectedRoutineType === 1 &&
-                      filteredWorkouts.map((workout) => {
+                      filteredWorkouts.map((exercise) => {
                         const isAlreadySelected = userWorkouts.some(
-                          (uw) => uw.workout_id === workout.id
+                          (uw) => uw.workout_id === exercise.id
                         );
-                        const isNewSelection = selectedItems.has(workout.id);
+                        const isNewSelection = selectedItems.has(exercise.id);
 
                         return (
                           <button
-                            key={workout.id}
-                            onClick={() => handleSelectItem(workout.id)}
+                            key={exercise.key}
+                            onClick={async () => {
+                              if (!exercise.isLocal && !selectedItems.has(exercise.id)) {
+                                // Create catalog exercise in DB first
+                                try {
+                                  const created = await createCustomWorkoutDb(
+                                    exercise.name,
+                                    exercise.description,
+                                    exercise.muscleGroup || "",
+                                    exercise.catalogImage,
+                                  );
+                                  exercise.id = created.id;
+                                  exercise.isLocal = true;
+                                  handleSelectItem(created.id);
+                                } catch (err: any) {
+                                  toast({
+                                    title: "Erro ao adicionar exercício",
+                                    description: err?.message || "Tente novamente.",
+                                    variant: "destructive",
+                                  });
+                                }
+                              } else {
+                                handleSelectItem(exercise.id);
+                              }
+                            }}
                             className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
                                 ? "border-brand bg-brand/10"
                                 : isAlreadySelected
@@ -2154,12 +2359,16 @@ export default function Goals() {
                                   : "border-border/60 hover:border-border/80"
                               }`}
                           >
-                            {/* Exercise Info */}
-                            <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                              <ExerciseImage
+                                photo={exercise.photo}
+                                name={exercise.name}
+                                muscleGroup={exercise.muscleGroup}
+                              />
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-sm font-medium">
-                                    {workout.name}
+                                    {exercise.name}
                                   </span>
                                   {isAlreadySelected && !isNewSelection && (
                                     <p className="text-xs text-green-600 dark:text-green-400 font-medium">
@@ -2167,22 +2376,22 @@ export default function Goals() {
                                     </p>
                                   )}
                                 </div>
-                                {workout.description && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    {workout.description}
+                                {exercise.description && (
+                                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                                    {exercise.description}
                                   </p>
                                 )}
-                                {workout.muscle_group && (
-                                  <p className="text-xs text-brand mt-1 font-medium">
-                                    {workout.muscle_group}
-                                  </p>
+                                {exercise.muscleGroup && (
+                                  <span className="inline-block text-[10px] font-medium text-brand bg-brand/10 px-2 py-0.5 rounded-full mt-1">
+                                    {exercise.muscleGroup}
+                                  </span>
                                 )}
                               </div>
                               <input
                                 type="checkbox"
                                 checked={isNewSelection}
                                 onChange={() => { }}
-                                className="h-4 w-4 flex-shrink-0 mt-0.5"
+                                className="h-4 w-4 flex-shrink-0"
                               />
                             </div>
                           </button>
@@ -2205,7 +2414,7 @@ export default function Goals() {
                     )}
 
                     {selectedRoutineType === 2 &&
-                      diets.filter((d) => d.name.toLowerCase().includes(searchQuery.toLowerCase())).map((diet) => {
+                      filteredDiets.map((diet) => {
                         const isAlreadyInRoutine = userDiets.some(
                           (ud) =>
                             ud.diet_id === diet.id &&
@@ -2216,8 +2425,30 @@ export default function Goals() {
                         const isNewSelection = selectedItems.has(diet.id);
                         return (
                           <button
-                            key={diet.id}
-                            onClick={() => handleSelectItem(diet.id)}
+                            key={diet.key}
+                            onClick={async () => {
+                              if (!diet.isLocal && !selectedItems.has(diet.id)) {
+                                try {
+                                  const created = await createCustomDietDb(
+                                    diet.name,
+                                    diet.description,
+                                    diet.photo,
+                                    diet.calories,
+                                  );
+                                  diet.id = created.id;
+                                  diet.isLocal = true;
+                                  handleSelectItem(created.id);
+                                } catch (err: any) {
+                                  toast({
+                                    title: "Erro ao adicionar dieta",
+                                    description: err?.message || "Tente novamente.",
+                                    variant: "destructive",
+                                  });
+                                }
+                              } else {
+                                handleSelectItem(diet.id);
+                              }
+                            }}
                             className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
                                 ? "border-brand bg-brand/10"
                                 : isAlreadyInRoutine
@@ -2225,28 +2456,37 @@ export default function Goals() {
                                   : "border-border/60 hover:border-border/80"
                               }`}
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
-                                <span className="text-sm font-medium truncate">{diet.name}</span>
+                            <div className="flex items-center gap-3">
+                              <DietImage
+                                photo={diet.photo}
+                                name={diet.name}
+                                category={diet.category}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-sm font-medium truncate">{diet.name}</span>
+                                  <input
+                                    type="checkbox"
+                                    checked={isNewSelection}
+                                    onChange={() => { }}
+                                    className="h-4 w-4 flex-shrink-0"
+                                  />
+                                </div>
+                                {diet.category && (
+                                  <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground mt-1">
+                                    {diet.category}
+                                  </span>
+                                )}
                                 {isAlreadyInRoutine && !isNewSelection && (
-                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium flex-shrink-0">
+                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium block mt-1">
                                     ✓ Já adicionado
                                   </span>
                                 )}
+                                {diet.calories > 0 && (
+                                  <p className="text-xs text-muted-foreground mt-1">{diet.calories} cal</p>
+                                )}
                               </div>
-                              <input
-                                type="checkbox"
-                                checked={isNewSelection}
-                                onChange={() => { }}
-                                className="h-4 w-4 flex-shrink-0"
-                              />
                             </div>
-                            {diet.description && (
-                              <p className="text-xs text-muted-foreground mt-1">{diet.description}</p>
-                            )}
-                            {diet.calories && (
-                              <p className="text-xs text-muted-foreground mt-1">{diet.calories} cal</p>
-                            )}
                           </button>
                         );
                       })}
@@ -3578,6 +3818,64 @@ export default function Goals() {
           </div>
         </DrawerContent>
       </Drawer>
+
+      {/* Goal Completion Celebration Modal */}
+      {celebrationGoal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-card border border-border rounded-2xl p-6 space-y-5 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
+            {/* Confetti emoji header */}
+            <div className="text-center space-y-2">
+              <div className="text-5xl animate-bounce">🏆</div>
+              <h2 className="text-xl font-bold">Meta concluída!</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Você completou a meta{" "}
+                <span className="font-semibold text-foreground">
+                  "{celebrationGoal.description}"
+                </span>
+                . Incrível conquista!
+              </p>
+            </div>
+
+            {/* Progress bar at 100% */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{celebrationGoal.quantity} de {celebrationGoal.quantity} dias</span>
+                <span className="font-bold text-brand">100%</span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
+                <div className="bg-brand h-full rounded-full w-full transition-all duration-700" />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-col gap-2">
+              <Button
+                className="w-full rounded-full gap-2"
+                onClick={() => {
+                  const text = `🏆 Completei minha meta no Linka: "${celebrationGoal.description}"! ${celebrationGoal.quantity} dias de dedicação. Baixe o app e junte-se a mim! 💪`;
+                  if (navigator.share) {
+                    navigator.share({ text }).catch(() => {});
+                  } else {
+                    navigator.clipboard.writeText(text).then(() => {
+                      toast({ title: "Copiado!", description: "Texto da conquista copiado para a área de transferência." });
+                    }).catch(() => {});
+                  }
+                  setCelebrationGoal(null);
+                }}
+              >
+                🎉 Compartilhar conquista
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full rounded-full text-muted-foreground"
+                onClick={() => setCelebrationGoal(null)}
+              >
+                Fechar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

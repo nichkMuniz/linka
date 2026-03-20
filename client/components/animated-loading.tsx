@@ -65,3 +65,23 @@ export function LoadingCard({ className = "" }: { className?: string }) {
     </div>
   );
 }
+
+/** Skeleton that mimics a social feed post card */
+export function PostSkeleton({ className = "" }: { className?: string }) {
+  return (
+    <div className={`rounded-lg border border-border/40 bg-card overflow-hidden ${className}`}>
+      {/* Image placeholder */}
+      <div className="w-full aspect-square bg-gradient-to-br from-muted via-muted/60 to-muted animate-pulse" />
+      <div className="p-3 space-y-2">
+        {/* User row */}
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-full bg-muted animate-pulse flex-shrink-0" />
+          <div className="h-3 bg-muted animate-pulse rounded w-24" />
+        </div>
+        {/* Description lines */}
+        <div className="h-3 bg-muted animate-pulse rounded w-full" />
+        <div className="h-3 bg-muted animate-pulse rounded w-2/3" />
+      </div>
+    </div>
+  );
+}

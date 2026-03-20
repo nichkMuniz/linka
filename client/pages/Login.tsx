@@ -23,7 +23,7 @@ import {
   getNetworkStatus,
   checkSupabaseReachability,
 } from "@/lib/network-status";
-import { Fingerprint, Upload, X, Search, Check, ArrowLeft } from "lucide-react";
+import { Fingerprint, Upload, X, Search, Check, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { getAllUsersDb, searchUsersDb, type SearchUser, followUserDb } from "@/lib/ritmofit-db";
 
 function isEmailNotConfirmed(message: string | undefined) {
@@ -98,6 +98,8 @@ export default function Login() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [loadingUsers, setLoadingUsers] = React.useState(false);
   const [step4SearchResults, setStep4SearchResults] = React.useState<SearchUser[]>([]);
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
 
   const canSubmit =
     !busy &&
@@ -866,14 +868,25 @@ export default function Login() {
 
                     <div className="grid gap-2">
                       <Label htmlFor="login_password">Senha</Label>
-                      <Input
-                        id="login_password"
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        autoComplete="current-password"
-                      />
+                      <div className="relative">
+                        <Input
+                          id="login_password"
+                          type={showPassword ? "text" : "password"}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="••••••••"
+                          autoComplete="current-password"
+                          className="pr-10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                        >
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
                       <button
                         type="button"
                         className="text-xs font-semibold text-brand hover:underline text-left"
@@ -919,6 +932,26 @@ export default function Login() {
                 </TabsContent>
 
                 <TabsContent value="signup" className="mt-4">
+                  {/* Step progress indicator */}
+                  {(() => {
+                    const totalSteps = 4;
+                    const step = signupStep === 2.5 ? 2 : Math.ceil(signupStep as number);
+                    return (
+                      <div className="mb-4 space-y-1.5">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Etapa {step} de {totalSteps}</span>
+                          <span>{Math.round((step / totalSteps) * 100)}%</span>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="h-full bg-brand rounded-full transition-all duration-300"
+                            style={{ width: `${(step / totalSteps) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Step 1: Email and Password */}
                   {signupStep === 1 && (
                     <form
@@ -942,27 +975,48 @@ export default function Login() {
 
                       <div className="grid gap-2">
                         <Label htmlFor="signup_password">Senha</Label>
-                        <Input
-                          id="signup_password"
-                          type="password"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="Mínimo 6 caracteres"
-                          autoComplete="new-password"
-                        />
+                        <div className="relative">
+                          <Input
+                            id="signup_password"
+                            type={showPassword ? "text" : "password"}
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="Mínimo 6 caracteres"
+                            autoComplete="new-password"
+                            className="pr-10"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((v) => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                            aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
                       </div>
 
                       <div className="grid gap-2">
                         <Label htmlFor="signup_confirm_password">Confirmar Senha</Label>
-                        <Input
-                          id="signup_confirm_password"
-                          type="password"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          placeholder="Confirme sua senha"
-                          autoComplete="new-password"
-                          className={confirmPassword && password !== confirmPassword ? "border-red-500" : ""}
-                        />
+                        <div className="relative">
+                          <Input
+                            id="signup_confirm_password"
+                            type={showConfirmPassword ? "text" : "password"}
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            placeholder="Confirme sua senha"
+                            autoComplete="new-password"
+                            className={`pr-10 ${confirmPassword && password !== confirmPassword ? "border-red-500" : ""}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmPassword((v) => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                            aria-label={showConfirmPassword ? "Ocultar confirmação" : "Mostrar confirmação"}
+                          >
+                            {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
                         {confirmPassword && password !== confirmPassword && (
                           <p className="text-xs text-red-600">❌ As senhas não conferem</p>
                         )}

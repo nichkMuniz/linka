@@ -4,6 +4,12 @@ import {
   type User,
 } from "@supabase/supabase-js";
 
+// Lazy import to avoid circular dependency — called only at sign-out time
+let _invalidateViewerCache: (() => void) | null = null;
+export function registerViewerCacheInvalidator(fn: () => void) {
+  _invalidateViewerCache = fn;
+}
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -13,7 +19,7 @@ export const supabase: SupabaseClient | null = hasSupabaseConfig
   ? createClient(supabaseUrl as string, supabaseAnonKey as string, {
     auth: {
       persistSession: true,
-      autoRefreshToken: false,
+      autoRefreshToken: true,
       detectSessionInUrl: true,
     },
   })
@@ -55,6 +61,7 @@ export async function resetSupabaseAuth() {
     // ignore
   } finally {
     clearSupabaseAuthStorage();
+    _invalidateViewerCache?.();
   }
 }
 

@@ -112,8 +112,8 @@ export function AppLayout() {
         const delta = y - lastY;
 
         // evita ficar piscando quando está bem no topo
-        const shouldHide = y > 96 && delta > 10;
-        const shouldShow = delta < -10;
+        const shouldHide = y > 96 && delta > 30;
+        const shouldShow = delta < -30;
 
         if (shouldHide) setHeaderHidden(true);
         if (shouldShow) setHeaderHidden(false);

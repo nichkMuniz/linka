@@ -20,7 +20,6 @@ import { PostCommentsDialog } from "@/components/post-comments-dialog";
 import { ImageWithFallback } from "@/components/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import {
-  incrementGoalProgressDb,
   getRoutinesByGoalIdDb,
   getActiveStoriesDb,
   getUserProfileDb,
@@ -35,7 +34,17 @@ import {
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
 import { PostLikesModal } from "@/components/post-likes-modal";
-import { Check, ChevronDown, MoreVertical, Flag, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { ChevronDown, MoreVertical, Flag, Trash2, Share2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,7 +53,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { formatTimeAgo } from "@/lib/utils";
-import { LoadingSpinner } from "@/components/animated-loading";
+import { LoadingSpinner, PostSkeleton } from "@/components/animated-loading";
 import type { PostWithStats } from "../services/post.service";
 import { StoriesCarousel } from "@/components/stories-carousel";
 import { StoryCreationDialog } from "@/components/story-creation-dialog";
@@ -53,7 +62,7 @@ import { PostCarousel } from "@/components/post-carousel";
 import { UserInsignias } from "@/components/user-insignias";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
-import { hasSupabaseConfig, supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 
 export default function Index() {
   const { user } = useAuth();
@@ -68,7 +77,7 @@ export default function Index() {
   const [selectedGoalPost, setSelectedGoalPost] =
     React.useState<PostWithStats | null>(null);
   const [linkedRoutines, setLinkedRoutines] = React.useState<any[]>([]);
-  const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
+
   const [expandedRoutines, setExpandedRoutines] = React.useState(false);
   const [storyCreationOpen, setStoryCreationOpen] = React.useState(false);
   const [selectedStory, setSelectedStory] =
@@ -87,12 +96,8 @@ export default function Index() {
   );
   const [reportReason, setReportReason] = React.useState<string>("");
   const [isSubmittingReport, setIsSubmittingReport] = React.useState(false);
-  const [unreadCommentsByPost, setUnreadCommentsByPost] = React.useState<
-    Record<string, number>
-  >({});
+  const [unreadCommentsByPost] = React.useState<Record<string, number>>({});
   const [isCopyingGoal, setIsCopyingGoal] = React.useState(false);
-  const [isRefreshing, setIsRefreshing] = React.useState(false);
-  const [userGoals, setUserGoals] = React.useState<any[]>([]);
   const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
   const [feedMode, setFeedMode] = React.useState<"following" | "discover">("following");
   const [discoverPosts, setDiscoverPosts] = React.useState<PostWithStats[]>([]);
@@ -107,6 +112,19 @@ export default function Index() {
     userPhoto: string | null;
     type: number;
   }>>([]);
+  const [confirmDialog, setConfirmDialog] = React.useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({ open: false, title: "", description: "", onConfirm: () => {} });
+
+  const showConfirm = React.useCallback(
+    (title: string, description: string, onConfirm: () => void) => {
+      setConfirmDialog({ open: true, title, description, onConfirm });
+    },
+    [],
+  );
 
   React.useEffect(() => {
     (async () => {
@@ -118,22 +136,14 @@ export default function Index() {
         setPosts(postsData);
         setStories(storiesData);
 
-        // Get current user's photo — from profile directly, fallback to story
+        // Get current user's story for flow viewer count (photo is loaded separately in the useEffect below)
         const userStory = storiesData.find((s: StoryWithUser) => s.user_id === user?.id);
-        if (user?.id) {
-          getUserProfileDb(user.id)
-            .then((profile) => {
-              if (profile?.photo) setCurrentUserPhoto(profile.photo);
-              else if (userStory?.userPhoto) setCurrentUserPhoto(userStory.userPhoto);
-            })
-            .catch(() => {
-              if (userStory?.userPhoto) setCurrentUserPhoto(userStory.userPhoto);
-            });
-        }
+        // Fallback: if profile photo not yet loaded, use story photo
+        if (userStory?.userPhoto) setCurrentUserPhoto((prev) => prev || userStory.userPhoto);
         if (userStory) {
           getFlowViewersDb(userStory.id)
             .then((viewers) => setFlowViewCount(viewers.length))
-            .catch(() => {});
+            .catch((err) => console.error("Erro ao carregar visualizações do flow:", err));
         }
 
         // Clean up old stories in background
@@ -152,6 +162,16 @@ export default function Index() {
     })();
   }, []);
 
+  // Load current user's profile photo whenever user becomes available
+  React.useEffect(() => {
+    if (!user?.id) return;
+    getUserProfileDb(user.id)
+      .then((profile) => {
+        if (profile?.photo) setCurrentUserPhoto(profile.photo);
+      })
+      .catch((err) => console.error("Erro ao carregar foto do perfil:", err));
+  }, [user?.id]);
+
   // Sync tab bar visibility with header scroll behavior
   React.useEffect(() => {
     let lastY = window.scrollY;
@@ -163,8 +183,10 @@ export default function Index() {
       window.requestAnimationFrame(() => {
         const y = window.scrollY;
         const delta = y - lastY;
-        if (y > 96 && delta > 10) setTabBarHidden(true);
-        if (delta < -10) setTabBarHidden(false);
+        // 96px = header height; hide tab bar only after user scrolled past it
+        // delta > 30 / < -30 = ignore micro-movements to avoid jitter
+        if (y > 96 && delta > 30) setTabBarHidden(true);
+        if (delta < -30) setTabBarHidden(false);
         lastY = y;
         ticking = false;
       });
@@ -173,47 +195,6 @@ export default function Index() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-
-  // Load unread comment counts for user's own posts
-  React.useEffect(() => {
-    if (!user || posts.length === 0) return;
-
-    const loadUnreadCounts = async () => {
-      const userPosts = posts.filter((p) => p.user_id === user.id);
-      const unreadCounts: Record<string, number> = {};
-
-      setUnreadCommentsByPost(unreadCounts);
-    };
-
-    loadUnreadCounts();
-  }, [user, posts]);
-
-  const refreshFeed = React.useCallback(async () => {
-    if (isRefreshing) return;
-
-    setIsRefreshing(true);
-    try {
-      const [postsData, storiesData] = await Promise.all([
-        getFeedPosts(),
-        getActiveStoriesDb(),
-      ]);
-      setPosts(postsData);
-      setStories(storiesData);
-
-      toast({
-        title: "Feed atualizado!",
-        description: "Novos posts carregados.",
-      });
-    } catch (err: any) {
-      console.error("Erro ao atualizar feed:", err?.message || err);
-      toast({
-        title: "Erro ao atualizar feed",
-        description: err?.message || "Tente novamente.",
-      });
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [isRefreshing]);
 
 
   const handleCreateStory = React.useCallback(
@@ -277,29 +258,37 @@ export default function Index() {
     }
   }, [user?.id]);
 
+  // Use refs to avoid stale closures without making stories/selectedStory deps
+  const storiesRef = React.useRef(stories);
+  const selectedStoryRef = React.useRef(selectedStory);
+  React.useEffect(() => { storiesRef.current = stories; }, [stories]);
+  React.useEffect(() => { selectedStoryRef.current = selectedStory; }, [selectedStory]);
+
   const handleSkipStory = React.useCallback(() => {
-    if (!selectedStory) return;
-    const sortedStories = [...stories].sort(
+    const current = selectedStoryRef.current;
+    if (!current) return;
+    const sortedStories = [...storiesRef.current].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
     );
-    const currentIndex = sortedStories.findIndex((s) => s.id === selectedStory.id);
+    const currentIndex = sortedStories.findIndex((s) => s.id === current.id);
     if (currentIndex < sortedStories.length - 1) {
       setSelectedStory(sortedStories[currentIndex + 1]);
     } else {
       setStoryViewerOpen(false);
     }
-  }, [selectedStory, stories]);
+  }, []);
 
   const handlePrevStory = React.useCallback(() => {
-    if (!selectedStory) return;
-    const sortedStories = [...stories].sort(
+    const current = selectedStoryRef.current;
+    if (!current) return;
+    const sortedStories = [...storiesRef.current].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
     );
-    const currentIndex = sortedStories.findIndex((s) => s.id === selectedStory.id);
+    const currentIndex = sortedStories.findIndex((s) => s.id === current.id);
     if (currentIndex > 0) {
       setSelectedStory(sortedStories[currentIndex - 1]);
     }
-  }, [selectedStory, stories]);
+  }, []);
 
   const handleAddStoryClick = React.useCallback(() => {
     setStoryCreationOpen(true);
@@ -311,17 +300,19 @@ export default function Index() {
     setExpandedRoutines(false);
     setHasAlreadyCopiedGoal(false);
 
-    // Fetch routines linked to this goal
+    // Fetch routines and user goals in parallel
     if (post.userGoal) {
       try {
-        const routines = await getRoutinesByGoalIdDb(post.userGoal.goal_id);
+        const shouldCheckCopy = user && post.user_id !== user.id;
+        const [routines, userGoalsData] = await Promise.all([
+          getRoutinesByGoalIdDb(post.userGoal.goal_id),
+          shouldCheckCopy ? getUserGoalsDb() : Promise.resolve(null),
+        ]);
         setLinkedRoutines(routines);
 
-        // Check if user has already copied this goal
-        if (user && post.user_id !== user.id) {
-          const userGoalsData = await getUserGoalsDb(user.id);
+        if (shouldCheckCopy && userGoalsData) {
           const alreadyCopied = userGoalsData.some(
-            (goal) => goal.goal_id === post.userGoal.goal_id
+            (goal) => goal.goal_id === post.userGoal!.goal_id
           );
           setHasAlreadyCopiedGoal(alreadyCopied);
         }
@@ -331,44 +322,6 @@ export default function Index() {
       }
     }
   }, [user]);
-
-  const handleIncrementGoalProgress = React.useCallback(async () => {
-    if (!selectedGoalPost?.userGoal) return;
-
-    setIsUpdatingGoal(true);
-    try {
-      const updatedGoal = await incrementGoalProgressDb(selectedGoalPost.userGoal.id);
-
-      // Update the post in the list with the correct percentage from the database
-      setPosts((prev) =>
-        prev.map((post) => {
-          if (post.id !== selectedGoalPost.id) return post;
-          if (!post.userGoal || !updatedGoal) return post;
-
-          return {
-            ...post,
-            userGoal: {
-              ...post.userGoal,
-              perc: Math.min(updatedGoal.perc, 100),
-            },
-          };
-        }),
-      );
-
-      toast({
-        title: "Progresso atualizado!",
-        description: "Você avançou na sua meta.",
-      });
-    } catch (err: any) {
-      console.error("Error updating goal progress:", err);
-      toast({
-        title: "Erro ao atualizar progresso",
-        description: err?.message || "Tente novamente.",
-      });
-    } finally {
-      setIsUpdatingGoal(false);
-    }
-  }, [selectedGoalPost?.userGoal?.id, selectedGoalPost?.id]);
 
   const handleCopyGoal = React.useCallback(async () => {
     if (!selectedGoalPost?.userGoal || !user) return;
@@ -460,6 +413,16 @@ export default function Index() {
     [],
   );
 
+  const handleSharePost = React.useCallback((post: PostWithStats) => {
+    const text = `Confira o post de @${post.userNickname} no Linka! 💪${post.description ? `\n"${post.description}"` : ""}`;
+    if (navigator.share) {
+      navigator.share({ text }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(text).catch(() => {});
+      toast({ title: "Copiado!", description: "Link copiado para a área de transferência." });
+    }
+  }, []);
+
   const handleReportUser = React.useCallback((post: PostWithStats) => {
     setReportedPost(post);
     setReportType("user");
@@ -491,7 +454,7 @@ export default function Index() {
   }, []);
 
   const handleDeletePost = React.useCallback(
-    async (post: PostWithStats) => {
+    (post: PostWithStats) => {
       if (!user) {
         toast({
           title: "Erro",
@@ -501,34 +464,26 @@ export default function Index() {
         return;
       }
 
-      // Confirm deletion
-      const confirmed = window.confirm(
-        "Tem certeza que deseja deletar este post? Esta ação não pode ser desfeita.",
+      showConfirm(
+        "Excluir post",
+        "Tem certeza que deseja excluir este post? Esta ação não pode ser desfeita.",
+        async () => {
+          try {
+            await deletePostDb(post.id);
+            setPosts((prev) => prev.filter((p) => p.id !== post.id));
+            toast({ title: "Sucesso", description: "Post deletado com sucesso." });
+          } catch (err: any) {
+            console.error("Error deleting post:", err);
+            toast({
+              title: "Erro ao deletar post",
+              description: err?.message || "Não foi possível deletar o post. Tente novamente.",
+              variant: "destructive",
+            });
+          }
+        },
       );
-      if (!confirmed) return;
-
-      try {
-        const result = await deletePostDb(post.id);
-
-        // Remove post from local state
-        setPosts((prev) => prev.filter((p) => p.id !== post.id));
-
-        toast({
-          title: "Sucesso",
-          description: "Post deletado com sucesso.",
-        });
-      } catch (err: any) {
-        console.error("Error deleting post:", err);
-        console.error("Erro completo:", JSON.stringify(err, null, 2));
-        toast({
-          title: "Erro ao deletar post",
-          description:
-            err?.message || "Não foi possível deletar o post. Tente novamente.",
-          variant: "destructive",
-        });
-      }
     },
-    [user],
+    [user, showConfirm],
   );
 
   const submitReport = React.useCallback(async () => {
@@ -594,9 +549,14 @@ export default function Index() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <LoadingSpinner className="h-12 w-12" />
-        <p className="text-sm text-muted-foreground">Carregando feed...</p>
+      <div className="mx-auto w-full max-w-2xl flex flex-col">
+        {/* Placeholder para o carrossel de stories durante carregamento */}
+        <div className="h-24 bg-background border-b border-border/60 animate-pulse" />
+        <div className="grid w-full gap-3 p-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <PostSkeleton key={i} />
+          ))}
+        </div>
       </div>
     );
   }
@@ -645,10 +605,11 @@ export default function Index() {
         <div className="grid w-full gap-3 p-4">
           {feedMode === "discover" ? (
             discoverLoading ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-3">
-                <LoadingSpinner className="h-8 w-8" />
-                <p className="text-sm text-muted-foreground">Buscando novos posts...</p>
-              </div>
+              <>
+                {[1, 2, 3].map((i) => (
+                  <PostSkeleton key={i} />
+                ))}
+              </>
             ) : discoverPosts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
                 <p className="text-sm font-medium">Nenhum post novo por aqui</p>
@@ -708,7 +669,12 @@ export default function Index() {
                             <MoreVertical className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuItem onClick={() => handleSharePost(post)}>
+                            <Share2 className="h-4 w-4 mr-2" />
+                            Compartilhar
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           {user?.id === post.user_id ? (
                             <DropdownMenuItem
                               onClick={() => handleDeletePost(post)}
@@ -872,7 +838,12 @@ export default function Index() {
                               <MoreVertical className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem onClick={() => handleSharePost(post)}>
+                              <ChevronDown className="h-4 w-4 mr-2 rotate-[-90deg]" />
+                              Compartilhar
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             {user?.id === post.user_id ? (
                               <DropdownMenuItem
                                 onClick={() => handleDeletePost(post)}
@@ -980,13 +951,27 @@ export default function Index() {
                 </Card>
               ))
             ) : (
-              <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Comece agora a acompanhar as rotinas de seus amigos
-                </p>
-                <a href="/buscar">
-                  <Button className="rounded-full">Buscar</Button>
-                </a>
+              <div className="flex flex-col items-center py-16 gap-6 text-center px-4">
+                <div className="w-16 h-16 rounded-full bg-brand/10 flex items-center justify-center">
+                  <span className="text-3xl">🏋️</span>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-base font-semibold">Seu feed está vazio</p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Siga pessoas para ver os treinos delas aqui, ou explore o que está acontecendo na comunidade.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 w-full max-w-xs">
+                  <Button className="rounded-full w-full" onClick={() => navigate("/buscar")}>
+                    Buscar pessoas
+                  </Button>
+                  <Button variant="outline" className="rounded-full w-full" onClick={() => setFeedMode("discover")}>
+                    Explorar posts
+                  </Button>
+                  <Button variant="ghost" className="rounded-full w-full text-sm" onClick={() => navigate("/metas")}>
+                    Configurar minha primeira rotina
+                  </Button>
+                </div>
               </div>
             )
           )}
@@ -1261,6 +1246,28 @@ export default function Index() {
         onOpenChange={setLikesModalOpen}
         likes={postLikes}
       />
+
+      {/* Centralized Confirm Dialog */}
+      <AlertDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmDialog.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmDialog.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDialog.onConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

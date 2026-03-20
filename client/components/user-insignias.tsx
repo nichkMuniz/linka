@@ -4,9 +4,11 @@ import { getWeekCheckInsDb } from "@/lib/ritmofit-db";
 interface UserInsigniasProps {
   userId: string;
   maxBadges?: number;
+  /** When true, shows the streak day count next to the highest badge */
+  showStreak?: boolean;
 }
 
-export function UserInsignias({ userId, maxBadges = 3 }: UserInsigniasProps) {
+export function UserInsignias({ userId, maxBadges = 3, showStreak = false }: UserInsigniasProps) {
   const [weekCheckIns, setWeekCheckIns] = React.useState<number>(0);
   const [loading, setLoading] = React.useState(true);
 
@@ -38,18 +40,26 @@ export function UserInsignias({ userId, maxBadges = 3 }: UserInsigniasProps) {
   if (weekCheckIns === 7) badgeDisplays.push({ emoji: "👑", title: "Lendário", count: 7 });
 
   const displayedBadges = badgeDisplays.slice(0, maxBadges);
+  const topBadge = badgeDisplays[badgeDisplays.length - 1];
 
   return (
-    <div className="flex gap-0.5">
-      {displayedBadges.map((badge) => (
-        <span
-          key={badge.title}
-          className="text-xs"
-          title={badge.title}
-        >
-          {badge.emoji}
+    <div className="flex items-center gap-1">
+      <div className="flex gap-0.5">
+        {displayedBadges.map((badge) => (
+          <span
+            key={badge.title}
+            className="text-xs"
+            title={badge.title}
+          >
+            {badge.emoji}
+          </span>
+        ))}
+      </div>
+      {showStreak && topBadge && (
+        <span className="text-xs font-semibold text-orange-400">
+          {weekCheckIns}d
         </span>
-      ))}
+      )}
     </div>
   );
 }

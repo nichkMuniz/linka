@@ -7,6 +7,8 @@ import {
   getUserRoutinesDb,
   createRoutineDb,
   createUserWorkoutsDb,
+  createCustomWorkoutDb,
+  createCustomDietDb,
   getUserWorkoutsDb,
   getWorkoutsDb,
   getDietsDb,
@@ -15,12 +17,12 @@ import {
   getHabitsDb,
   createUserHabitsDb,
   getUserHabitsDb,
-  ROUTINE_TYPES,
   getRoutineTypeName,
   getGoalByIdDb,
   updateRoutineGoalDb,
   getFollowersDb,
   getFollowingDb,
+  getFollowingStatusBatchDb,
   getUserReelsDb,
   getUserGoalsByUserIdDb,
   deletePostDb,
@@ -52,6 +54,16 @@ import {
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -61,13 +73,16 @@ import { PostCommentsDialog } from "@/components/post-comments-dialog";
 import { UserInsignias } from "@/components/user-insignias";
 import { PostCarousel } from "@/components/post-carousel";
 import { StoryViewerModal } from "@/components/story-viewer-modal";
+import { ExerciseImage } from "@/components/exercise-image";
+import { fetchExerciseCatalog, type CatalogExercise } from "@/lib/exercise-catalog";
+import { fetchMealCatalog, type CatalogMeal } from "@/lib/diet-catalog";
+import { DietImage } from "@/components/diet-image";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Drawer,
@@ -105,7 +120,6 @@ import {
   Sun,
   Trash2,
   Heart,
-  MessageCircle,
   UserPlus,
   MessageSquare,
   Filter,
@@ -115,8 +129,10 @@ import {
   Grid3X3,
   Film,
   ChevronDown,
+  Search,
+  Share2,
 } from "lucide-react";
-import { hasSupabaseConfig, supabase, resetSupabaseAuth } from "@/lib/supabase";
+import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTheme } from "next-themes";
 import { useLanguage } from "@/lib/language-context";
@@ -129,6 +145,21 @@ export default function Profile() {
   const isDark = (resolvedTheme ?? theme) === "dark";
   const { layoutMode, toggleLayoutMode } = useLayoutMode();
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
+
+  // Centralized confirmation dialog state (replaces native confirm())
+  const [confirmDialog, setConfirmDialog] = React.useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({ open: false, title: "", description: "", onConfirm: () => {} });
+
+  const showConfirm = React.useCallback(
+    (title: string, description: string, onConfirm: () => void) => {
+      setConfirmDialog({ open: true, title, description, onConfirm });
+    },
+    []
+  );
 
   // Determine if we're viewing another user's profile
   const isViewingOtherProfile = !!userId && userId !== user?.id;
@@ -159,6 +190,8 @@ export default function Profile() {
     postsCount: 0,
     followersCount: 0,
     followingCount: 0,
+    points: 0,
+    level: 1,
   });
   const [loading, setLoading] = React.useState(true);
   const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
@@ -175,6 +208,8 @@ export default function Profile() {
   >(new Set());
   const [isSavingWorkouts, setIsSavingWorkouts] = React.useState(false);
   const [searchQueryWorkouts, setSearchQueryWorkouts] = React.useState("");
+  const [catalogExercises, setCatalogExercises] = React.useState<CatalogExercise[]>([]);
+  const [catalogMeals, setCatalogMeals] = React.useState<CatalogMeal[]>([]);
   const [selectedMuscleGroups, setSelectedMuscleGroups] = React.useState<
     Set<string>
   >(new Set());
@@ -187,6 +222,7 @@ export default function Profile() {
     new Set(),
   );
   const [isSavingDiets, setIsSavingDiets] = React.useState(false);
+  const [searchQueryDiets, setSearchQueryDiets] = React.useState("");
   const [userDiets, setUserDiets] = React.useState<UserDietWithDetails[]>([]);
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [habitsLoading, setHabitsLoading] = React.useState(false);
@@ -203,8 +239,6 @@ export default function Profile() {
   const [goalIndicatorRoutineId, setGoalIndicatorRoutineId] = React.useState<
     string | null
   >(null);
-  const [goalIndicatorRoutine, setGoalIndicatorRoutine] =
-    React.useState<Routine | null>(null);
   const [linkedGoal, setLinkedGoal] = React.useState<UserGoal | null>(null);
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [profileStories, setProfileStories] = React.useState<StoryWithUser[]>([]);
@@ -247,7 +281,7 @@ export default function Profile() {
   });
   const [isSavingCommercial, setIsSavingCommercial] = React.useState(false);
 
-  // Delete account state
+  // Delete account state (UI trigger not yet implemented)
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = React.useState("");
@@ -255,11 +289,10 @@ export default function Profile() {
   // Edit account state
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
   const [isDangerZoneOpen, setIsDangerZoneOpen] = React.useState(false);
-  const [passwordResetEmail, setPasswordResetEmail] = React.useState("");
 
   // Language state (backed by global context)
   const [isLanguageOpen, setIsLanguageOpen] = React.useState(false);
-  const { language: currentLanguage, setLanguage: setCurrentLanguage, t } = useLanguage();
+  const { language: currentLanguage, setLanguage: setCurrentLanguage } = useLanguage();
 
   // Notifications state
   const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false);
@@ -291,10 +324,19 @@ export default function Profile() {
     if (!profileUserId) return;
 
     try {
+      // Batch 1 — critical above-the-fold data: show immediately
+      const [profileData, statsData, postsData] = await Promise.all([
+        getUserProfileDb(profileUserId),
+        getUserStatsDb(profileUserId),
+        getUserPostsDb(profileUserId),
+      ]);
+      setProfile(profileData);
+      setStats(statsData);
+      setPosts(postsData);
+      setLoading(false); // unblock UI as soon as critical data arrives
+
+      // Batch 2 — below-the-fold tabs: load in background without blocking render
       const [
-        profileData,
-        postsData,
-        statsData,
         routinesData,
         userWorkoutsData,
         userDietsData,
@@ -303,9 +345,6 @@ export default function Profile() {
         reelsData,
         commercialProfileData,
       ] = await Promise.all([
-        getUserProfileDb(profileUserId),
-        getUserPostsDb(profileUserId),
-        getUserStatsDb(profileUserId),
         getUserRoutinesDb(profileUserId),
         getUserWorkoutsDb(profileUserId),
         getUserDietsDb(profileUserId),
@@ -314,10 +353,6 @@ export default function Profile() {
         getUserReelsDb(profileUserId),
         getCommercialProfileDb(profileUserId),
       ]);
-
-      setProfile(profileData);
-      setPosts(postsData);
-      setStats(statsData);
       setRoutines(routinesData);
       setUserWorkouts(userWorkoutsData);
       setUserDiets(userDietsData);
@@ -326,10 +361,8 @@ export default function Profile() {
       setReels(reelsData);
       setCommercialProfile(commercialProfileData);
 
-      // Load active flows for this profile
-      if (profileUserId) {
-        getUserActiveStoriesDb(profileUserId).then(setProfileStories).catch(() => {});
-      }
+      // Batch 3 — stories: fire-and-forget
+      getUserActiveStoriesDb(profileUserId).then(setProfileStories).catch((err) => console.error("Erro ao carregar stories do perfil:", err));
     } catch (err: any) {
       console.error("Error loading profile:", err);
       toast({
@@ -337,7 +370,6 @@ export default function Profile() {
         description: "Tente novamente mais tarde.",
         variant: "destructive",
       });
-    } finally {
       setLoading(false);
     }
   }, [profileUserId]);
@@ -397,36 +429,28 @@ export default function Profile() {
     }
   }, [selectedPost, editPostDescription, editPostGoalId]);
 
-  const handleDeletePost = React.useCallback(async () => {
+  const handleDeletePost = React.useCallback(() => {
     if (!selectedPost) return;
-
-    if (!confirm("Tem certeza que deseja deletar este post?")) return;
-
-    setIsUpdatingPost(true);
-    try {
-      await deletePostDb(selectedPost.id);
-
-      // Update local posts list
-      setPosts((prevPosts) => prevPosts.filter((p) => p.id !== selectedPost.id));
-
-      setIsPostViewerOpen(false);
-      setSelectedPost(null);
-
-      toast({
-        title: "Sucesso!",
-        description: "Post deletado com sucesso.",
-      });
-    } catch (err: any) {
-      console.error("Error deleting post:", err);
-      toast({
-        title: "Erro ao deletar",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUpdatingPost(false);
-    }
-  }, [selectedPost]);
+    showConfirm(
+      "Deletar post",
+      "Tem certeza que deseja deletar este post? Esta ação não pode ser desfeita.",
+      async () => {
+        setIsUpdatingPost(true);
+        try {
+          await deletePostDb(selectedPost.id);
+          setPosts((prevPosts) => prevPosts.filter((p) => p.id !== selectedPost.id));
+          setIsPostViewerOpen(false);
+          setSelectedPost(null);
+          toast({ title: "Sucesso!", description: "Post deletado com sucesso." });
+        } catch (err: any) {
+          console.error("Error deleting post:", err);
+          toast({ title: "Erro ao deletar", description: err?.message || "Tente novamente.", variant: "destructive" });
+        } finally {
+          setIsUpdatingPost(false);
+        }
+      }
+    );
+  }, [selectedPost, showConfirm]);
 
   const handleUpdateReel = React.useCallback(async () => {
     if (!selectedReel) return;
@@ -471,36 +495,28 @@ export default function Profile() {
     }
   }, [selectedReel, editReelDescription]);
 
-  const handleDeleteReel = React.useCallback(async () => {
+  const handleDeleteReel = React.useCallback(() => {
     if (!selectedReel) return;
-
-    if (!confirm("Tem certeza que deseja deletar este reel?")) return;
-
-    setIsUpdatingReel(true);
-    try {
-      await deleteReelDb(selectedReel.id);
-
-      // Update local reels list
-      setReels((prevReels) => prevReels.filter((r) => r.id !== selectedReel.id));
-
-      setIsReelEditorOpen(false);
-      setSelectedReel(null);
-
-      toast({
-        title: "Sucesso!",
-        description: "Reel deletado com sucesso.",
-      });
-    } catch (err: any) {
-      console.error("Error deleting reel:", err);
-      toast({
-        title: "Erro ao deletar",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUpdatingReel(false);
-    }
-  }, [selectedReel]);
+    showConfirm(
+      "Deletar reel",
+      "Tem certeza que deseja deletar este reel? Esta ação não pode ser desfeita.",
+      async () => {
+        setIsUpdatingReel(true);
+        try {
+          await deleteReelDb(selectedReel.id);
+          setReels((prevReels) => prevReels.filter((r) => r.id !== selectedReel.id));
+          setIsReelEditorOpen(false);
+          setSelectedReel(null);
+          toast({ title: "Sucesso!", description: "Reel deletado com sucesso." });
+        } catch (err: any) {
+          console.error("Error deleting reel:", err);
+          toast({ title: "Erro ao deletar", description: err?.message || "Tente novamente.", variant: "destructive" });
+        } finally {
+          setIsUpdatingReel(false);
+        }
+      }
+    );
+  }, [selectedReel, showConfirm]);
 
   // Define callback functions first
   const loadFollowersData = React.useCallback(async () => {
@@ -509,17 +525,9 @@ export default function Profile() {
       const data = await getFollowersDb(profileUserId);
       setFollowers(data);
 
-      // Load follow status for each follower
-      const statusMap: Record<string, boolean> = {};
-      for (const follower of data) {
-        try {
-          const isFollowingThisUser = await isFollowingDb(follower.id);
-          statusMap[follower.id] = isFollowingThisUser;
-        } catch (err) {
-          console.error(`Error checking follow status for ${follower.id}:`, err);
-          statusMap[follower.id] = false;
-        }
-      }
+      // Batch-check follow status for all followers in one query instead of N individual queries
+      const followerIds = data.map((f: any) => f.id).filter(Boolean);
+      const statusMap = await getFollowingStatusBatchDb(followerIds);
       setFollowerFollowStatus(statusMap);
     } catch (err: any) {
       console.error("Error loading followers:", err);
@@ -559,91 +567,81 @@ export default function Profile() {
     }
   }, [isViewingOtherProfile, profileUserId]);
 
-  const handleFollowUnfollow = React.useCallback(async () => {
+  const doFollowUnfollow = React.useCallback(async () => {
     if (!profileUserId) return;
-
-    if (isFollowing) {
-      // Unfollow
-      if (!confirm("Tem certeza que deseja parar de seguir este usuário?")) return;
-    }
-
     setIsFollowingLoading(true);
     try {
       const success = isFollowing
         ? await unfollowUserDb(profileUserId)
         : await followUserDb(profileUserId);
-
       if (success) {
         setIsFollowing(!isFollowing);
         toast({
           title: "Sucesso!",
-          description: isFollowing
-            ? "Você deixou de seguir este usuário."
-            : "Você está seguindo este usuário.",
+          description: isFollowing ? "Você deixou de seguir este usuário." : "Você está seguindo este usuário.",
         });
       } else {
-        toast({
-          title: "Erro",
-          description: "Tente novamente.",
-          variant: "destructive",
-        });
+        toast({ title: "Erro", description: "Tente novamente.", variant: "destructive" });
       }
     } catch (err: any) {
       console.error("Error toggling follow:", err);
-      toast({
-        title: "Erro",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
+      toast({ title: "Erro", description: err?.message || "Tente novamente.", variant: "destructive" });
     } finally {
       setIsFollowingLoading(false);
     }
   }, [profileUserId, isFollowing]);
 
-  const handleToggleFollowInModal = React.useCallback(async (userId: string, e: React.MouseEvent) => {
+  const handleFollowUnfollow = React.useCallback(() => {
+    if (!profileUserId) return;
+    if (isFollowing) {
+      showConfirm(
+        "Deixar de seguir",
+        "Tem certeza que deseja parar de seguir este usuário?",
+        doFollowUnfollow
+      );
+    } else {
+      doFollowUnfollow();
+    }
+  }, [profileUserId, isFollowing, doFollowUnfollow, showConfirm]);
+
+  const handleToggleFollowInModal = React.useCallback((userId: string, e: React.MouseEvent) => {
     e.stopPropagation();
 
     const isCurrentlyFollowing = followerFollowStatus[userId] || false;
 
-    if (isCurrentlyFollowing) {
-      if (!confirm("Tem certeza que deseja parar de seguir este usuário?")) return;
-    }
-
-    setIsTogglingFollow((prev) => ({ ...prev, [userId]: true }));
-    try {
-      const success = isCurrentlyFollowing
-        ? await unfollowUserDb(userId)
-        : await followUserDb(userId);
-
-      if (success) {
-        setFollowerFollowStatus((prev) => ({
-          ...prev,
-          [userId]: !isCurrentlyFollowing,
-        }));
-        toast({
-          title: "Sucesso!",
-          description: isCurrentlyFollowing
-            ? "Você deixou de seguir este usuário."
-            : "Você está seguindo este usuário.",
-        });
-      } else {
-        toast({
-          title: "Erro",
-          description: "Tente novamente.",
-          variant: "destructive",
-        });
+    const doToggle = async () => {
+      setIsTogglingFollow((prev) => ({ ...prev, [userId]: true }));
+      try {
+        const success = isCurrentlyFollowing
+          ? await unfollowUserDb(userId)
+          : await followUserDb(userId);
+        if (success) {
+          setFollowerFollowStatus((prev) => ({ ...prev, [userId]: !isCurrentlyFollowing }));
+          toast({
+            title: "Sucesso!",
+            description: isCurrentlyFollowing ? "Você deixou de seguir este usuário." : "Você está seguindo este usuário.",
+          });
+        } else {
+          toast({ title: "Erro", description: "Tente novamente.", variant: "destructive" });
+        }
+      } catch (err: any) {
+        console.error("Error toggling follow:", err);
+        toast({ title: "Erro", description: err?.message || "Tente novamente.", variant: "destructive" });
+      } finally {
+        setIsTogglingFollow((prev) => ({ ...prev, [userId]: false }));
       }
-    } catch (err: any) {
-      console.error("Error toggling follow:", err);
-      toast({
-        title: "Erro",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsTogglingFollow((prev) => ({ ...prev, [userId]: false }));
+    };
+
+    if (isCurrentlyFollowing) {
+      showConfirm(
+        "Deixar de seguir",
+        "Tem certeza que deseja parar de seguir este usuário?",
+        doToggle
+      );
+    } else {
+      doToggle();
     }
-  }, [followerFollowStatus]);
+  }, [followerFollowStatus, showConfirm]);
 
   const loadCommercialProfile = React.useCallback(async () => {
     if (!user) return;
@@ -748,7 +746,6 @@ export default function Profile() {
 
   const openGoalIndicatorModal = async (routine: Routine) => {
     setGoalIndicatorRoutineId(routine.id);
-    setGoalIndicatorRoutine(routine);
 
     if (routine.goal_id) {
       try {
@@ -968,12 +965,16 @@ export default function Profile() {
   const handleSelectRoutineType = async (type: 1 | 2 | 3) => {
     setSelectedRoutineType(type);
 
-    // If Exercicios is selected, load workouts
+    // If Exercicios is selected, load workouts + catalog
     if (type === 1) {
       setWorkoutsLoading(true);
       try {
-        const workoutsData = await getWorkoutsDb();
+        const [workoutsData, catalogData] = await Promise.all([
+          getWorkoutsDb(),
+          fetchExerciseCatalog().catch(() => [] as CatalogExercise[]),
+        ]);
         setWorkouts(workoutsData);
+        setCatalogExercises(catalogData);
       } catch (err: any) {
         console.error("Error loading workouts:", err);
         toast({
@@ -986,11 +987,15 @@ export default function Profile() {
         setWorkoutsLoading(false);
       }
     } else if (type === 2) {
-      // If Dietas is selected, load diets
+      // If Dietas is selected, load diets + meal catalog
       setDietsLoading(true);
       try {
-        const dietsData = await getDietsDb();
+        const [dietsData, mealCatalogData] = await Promise.all([
+          getDietsDb(),
+          fetchMealCatalog().catch(() => [] as CatalogMeal[]),
+        ]);
         setDiets(dietsData);
+        setCatalogMeals(mealCatalogData);
       } catch (err: any) {
         console.error("Error loading diets:", err);
         toast({
@@ -1032,7 +1037,7 @@ export default function Profile() {
     setSelectedMuscleGroups(newSelected);
   };
 
-  const handleCreateRoutine = async (workoutId?: string) => {
+  const handleCreateRoutine = async () => {
     if (!user || selectedRoutineType === null) return;
 
     setIsCreatingRoutine(true);
@@ -1335,8 +1340,28 @@ export default function Profile() {
                     <h1 className="text-xl font-semibold tracking-tight truncate">
                       {profile.nickname}
                     </h1>
-                    <UserInsignias userId={profileUserId || ""} />
+                    <UserInsignias userId={profileUserId || ""} showStreak />
                   </div>
+
+                  {/* Level + Points badge */}
+                  {stats.points > 0 && (
+                    <div className="flex items-center gap-2 mt-1">
+                      {(() => {
+                        const tier =
+                          stats.points >= 500
+                            ? { label: "Ouro", bg: "bg-yellow-500/20", text: "text-yellow-400", border: "border-yellow-500/40" }
+                            : stats.points >= 200
+                            ? { label: "Prata", bg: "bg-slate-400/20", text: "text-slate-300", border: "border-slate-400/40" }
+                            : { label: "Bronze", bg: "bg-orange-700/20", text: "text-orange-400", border: "border-orange-700/40" };
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${tier.bg} ${tier.text} ${tier.border}`}>
+                            Nível {stats.level} · {tier.label}
+                          </span>
+                        );
+                      })()}
+                      <span className="text-xs text-muted-foreground">{stats.points} pts</span>
+                    </div>
+                  )}
 
                   {/* Stats Row - Horizontal inline */}
                   <div className="flex gap-4 mt-2">
@@ -2085,6 +2110,48 @@ export default function Profile() {
                 <MessageSquare className="h-4 w-4" />
                 Mensagem
               </Button>
+
+              {/* Share Profile Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full gap-2"
+                onClick={() => {
+                  const text = `Confira o perfil de @${profile?.nickname} no Linka! 💪`;
+                  if (navigator.share) {
+                    navigator.share({ text }).catch(() => {});
+                  } else {
+                    navigator.clipboard.writeText(text).catch(() => {});
+                    toast({ title: "Copiado!", description: "Link copiado para a área de transferência." });
+                  }
+                }}
+              >
+                <Share2 className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+
+          {/* Share own profile */}
+          {!isViewingOtherProfile && profile && stats.points > 0 && (
+            <div className="flex justify-center mt-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full gap-2 text-muted-foreground text-xs h-8"
+                onClick={() => {
+                  const tier = stats.points >= 500 ? "Ouro" : stats.points >= 200 ? "Prata" : "Bronze";
+                  const text = `Estou no Linka no nível ${stats.level} (${tier}) com ${stats.points} pontos! 🏋️ Junte-se a mim: @${profile.nickname}`;
+                  if (navigator.share) {
+                    navigator.share({ text }).catch(() => {});
+                  } else {
+                    navigator.clipboard.writeText(text).catch(() => {});
+                    toast({ title: "Copiado!", description: "Texto copiado para a área de transferência." });
+                  }
+                }}
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                Compartilhar perfil
+              </Button>
             </div>
           )}
         </CardContent>
@@ -2255,115 +2322,175 @@ export default function Profile() {
                   />
 
                   {/* Muscle Group Filter */}
-                  {workouts.length > 0 && (
-                    <div className="space-y-2 mb-4">
-                      <div className="flex items-center gap-2">
-                        <Filter className="h-4 w-4 text-muted-foreground" />
-                        <p className="text-xs font-medium text-muted-foreground">
-                          Filtrar por grupo muscular:
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {Array.from(new Set(workouts.map((w) => w.muscle_group).filter(Boolean))).map(
-                          (muscleGroup) => (
-                            <button
-                              key={muscleGroup}
-                              onClick={() => handleToggleMuscleGroup(muscleGroup)}
-                              className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
-                                selectedMuscleGroups.has(muscleGroup)
-                                  ? "border-brand bg-brand/20 text-brand"
-                                  : "border-border/60 text-muted-foreground hover:border-border/80"
-                              }`}
-                            >
-                              {muscleGroup}
-                            </button>
-                          ),
-                        )}
-                      </div>
-                    </div>
-                  )}
+                  {(() => {
+                    // Merge local workouts + catalog into a unified list
+                    const localWorkoutNames = new Set(workouts.map((w) => w.name.toLowerCase()));
+                    const catalogFiltered = catalogExercises.filter(
+                      (c) => !localWorkoutNames.has(c.name.toLowerCase()),
+                    );
 
-                  {workoutsLoading ? (
-                    <div className="text-center py-6 text-sm text-muted-foreground">
-                      Carregando exercícios...
-                    </div>
-                  ) : workouts.length > 0 ? (
-                    <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-                      {workouts
-                        .filter(
-                          (w) =>
-                            (w.name.toLowerCase().includes(searchQueryWorkouts.toLowerCase()) ||
-                              (w.description &&
-                                w.description
-                                  .toLowerCase()
-                                  .includes(searchQueryWorkouts.toLowerCase()))) &&
-                            (selectedMuscleGroups.size === 0 || selectedMuscleGroups.has(w.muscle_group || "")),
-                        )
-                        .map((workout) => {
-                        const isSelected = selectedWorkoutIds.has(workout.id);
-                        return (
-                          <button
-                            key={workout.id}
-                            onClick={() => {
-                              const newSelected = new Set(selectedWorkoutIds);
-                              if (isSelected) {
-                                newSelected.delete(workout.id);
-                              } else {
-                                newSelected.add(workout.id);
-                              }
-                              setSelectedWorkoutIds(newSelected);
-                            }}
-                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${
-                              isSelected
-                                ? "border-brand bg-brand/5"
-                                : "border-border/60 hover:border-border/80 hover:bg-muted/50"
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-start gap-3 flex-1 min-w-0">
-                                {workout.photo ? (
-                                  <img
-                                    src={workout.photo}
-                                    alt={workout.name}
-                                    className="h-16 w-16 rounded object-cover flex-shrink-0"
-                                  />
-                                ) : (
-                                  <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                  <p
-                                    className={`font-medium transition-colors ${
-                                      isSelected
-                                        ? "text-brand"
-                                        : "group-hover:text-brand"
-                                    }`}
-                                  >
-                                    {workout.name}
-                                  </p>
-                                  {workout.description && (
-                                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                                      {workout.description}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="shrink-0 mt-1">
-                                {isSelected ? (
-                                  <Check className="h-5 w-5 text-brand" />
-                                ) : (
-                                  <div className="h-5 w-5 rounded border border-border/60" />
-                                )}
-                              </div>
+                    const unified = [
+                      ...workouts.filter((w) => w.photo).map((w) => ({
+                        key: `local-${w.id}`,
+                        id: w.id,
+                        name: w.name,
+                        description: w.description,
+                        photo: w.photo,
+                        muscleGroup: w.muscle_group || null,
+                        isLocal: true,
+                      })),
+                      ...catalogFiltered.map((c) => ({
+                        key: `catalog-${c.id}`,
+                        id: `catalog-${c.id}`,
+                        name: c.name,
+                        description: c.description,
+                        photo: c.image,
+                        muscleGroup: c.category || null,
+                        isLocal: false,
+                        catalogId: c.id,
+                        catalogImage: c.image,
+                      })),
+                    ];
+
+                    const allMuscleGroups = Array.from(
+                      new Set(unified.map((u) => u.muscleGroup).filter(Boolean)),
+                    ) as string[];
+
+                    const query = searchQueryWorkouts.toLowerCase();
+                    const filtered = unified.filter(
+                      (u) =>
+                        (u.name.toLowerCase().includes(query) ||
+                          (u.description && u.description.toLowerCase().includes(query))) &&
+                        (selectedMuscleGroups.size === 0 ||
+                          selectedMuscleGroups.has(u.muscleGroup || "")),
+                    );
+
+                    return (
+                      <>
+                        {allMuscleGroups.length > 0 && (
+                          <div className="space-y-2 mb-4">
+                            <div className="flex items-center gap-2">
+                              <Filter className="h-4 w-4 text-muted-foreground" />
+                              <p className="text-xs font-medium text-muted-foreground">
+                                Filtrar por grupo muscular:
+                              </p>
                             </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 text-sm text-muted-foreground">
-                      Nenhum exercício disponível.
-                    </div>
-                  )}
+                            <div className="flex flex-wrap gap-2">
+                              {allMuscleGroups.map((muscleGroup) => (
+                                <button
+                                  key={muscleGroup}
+                                  onClick={() => handleToggleMuscleGroup(muscleGroup)}
+                                  className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
+                                    selectedMuscleGroups.has(muscleGroup)
+                                      ? "border-brand bg-brand/20 text-brand"
+                                      : "border-border/60 text-muted-foreground hover:border-border/80"
+                                  }`}
+                                >
+                                  {muscleGroup}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {workoutsLoading ? (
+                          <div className="text-center py-6 text-sm text-muted-foreground">
+                            Carregando exercícios...
+                          </div>
+                        ) : filtered.length > 0 ? (
+                          <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                            {filtered.map((exercise) => {
+                              const isSelected = selectedWorkoutIds.has(exercise.id);
+                              return (
+                                <button
+                                  key={exercise.key}
+                                  onClick={async () => {
+                                    if (!exercise.isLocal && !selectedWorkoutIds.has(exercise.id)) {
+                                      // Create the catalog exercise in the local DB first
+                                      try {
+                                        const created = await createCustomWorkoutDb(
+                                          exercise.name,
+                                          exercise.description,
+                                          exercise.muscleGroup || "",
+                                          exercise.photo,
+                                        );
+                                        // Update unified list to use the new local ID
+                                        exercise.id = created.id;
+                                        exercise.isLocal = true;
+                                        const newSelected = new Set(selectedWorkoutIds);
+                                        newSelected.add(created.id);
+                                        setSelectedWorkoutIds(newSelected);
+                                      } catch (err: any) {
+                                        console.error("Error creating catalog exercise:", err);
+                                        toast({
+                                          title: "Erro ao adicionar exercício",
+                                          description: err?.message || "Tente novamente.",
+                                          variant: "destructive",
+                                        });
+                                      }
+                                    } else {
+                                      const newSelected = new Set(selectedWorkoutIds);
+                                      if (isSelected) {
+                                        newSelected.delete(exercise.id);
+                                      } else {
+                                        newSelected.add(exercise.id);
+                                      }
+                                      setSelectedWorkoutIds(newSelected);
+                                    }
+                                  }}
+                                  className={`w-full p-3 border-2 rounded-lg transition-all text-left group ${
+                                    isSelected
+                                      ? "border-brand bg-brand/5"
+                                      : "border-border/60 hover:border-border/80 hover:bg-muted/50"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <ExerciseImage
+                                      photo={exercise.photo}
+                                      name={exercise.name}
+                                      muscleGroup={exercise.muscleGroup}
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <p
+                                        className={`font-medium text-sm transition-colors ${
+                                          isSelected
+                                            ? "text-brand"
+                                            : "group-hover:text-brand"
+                                        }`}
+                                      >
+                                        {exercise.name}
+                                      </p>
+                                      {exercise.description && (
+                                        <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                                          {exercise.description}
+                                        </p>
+                                      )}
+                                      {exercise.muscleGroup && (
+                                        <span className="inline-block text-[10px] font-medium text-brand bg-brand/10 px-2 py-0.5 rounded-full mt-1">
+                                          {exercise.muscleGroup}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="shrink-0">
+                                      {isSelected ? (
+                                        <Check className="h-5 w-5 text-brand" />
+                                      ) : (
+                                        <div className="h-5 w-5 rounded border border-border/60" />
+                                      )}
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="text-center py-6 text-sm text-muted-foreground">
+                            Nenhum exercício encontrado.
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
 
                   {/* Floating Save Button */}
                   {selectedWorkoutIds.size > 0 && (
@@ -2399,74 +2526,96 @@ export default function Profile() {
                     <div className="text-center py-6 text-sm text-muted-foreground">
                       Carregando dietas...
                     </div>
-                  ) : diets.length > 0 ? (
-                    <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-                      {diets.map((diet) => {
-                        const isSelected = selectedDietIds.has(diet.id);
-                        return (
-                          <button
-                            key={diet.id}
-                            onClick={() => {
-                              const newSelected = new Set(selectedDietIds);
-                              if (isSelected) {
-                                newSelected.delete(diet.id);
-                              } else {
-                                newSelected.add(diet.id);
-                              }
-                              setSelectedDietIds(newSelected);
-                            }}
-                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${
-                              isSelected
-                                ? "border-brand bg-brand/5"
-                                : "border-border/60 hover:border-border/80 hover:bg-muted/50"
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              {diet.photo ? (
-                                <img
-                                  src={diet.photo}
-                                  alt={diet.name}
-                                  className="h-16 w-16 rounded object-cover flex-shrink-0"
-                                />
-                              ) : (
-                                <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <p
-                                  className={`font-medium transition-colors ${
-                                    isSelected
-                                      ? "text-brand"
-                                      : "group-hover:text-brand"
-                                  }`}
-                                >
-                                  {diet.name}
-                                </p>
-                                <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
-                                  {diet.description && (
-                                    <p className="line-clamp-2">
-                                      {diet.description}
-                                    </p>
-                                  )}
-                                  <p className="font-medium text-brand/80">
-                                    {diet.calories} cal
+                  ) : (() => {
+                    const localNames = new Set(diets.map((d) => d.name.toLowerCase()));
+                    const catalogFiltered = catalogMeals.filter((c) => !localNames.has(c.name.toLowerCase()));
+                    const allDiets = [
+                      ...diets.filter((d) => d.photo).map((d) => ({
+                        key: `local-${d.id}`, id: d.id, name: d.name, description: d.description,
+                        photo: d.photo, category: null as string | null, calories: d.calories, isLocal: true,
+                      })),
+                      ...catalogFiltered.map((c) => ({
+                        key: `catalog-${c.id}`, id: `catalog-${c.id}`, name: c.name, description: c.description,
+                        photo: c.image, category: c.category || null, calories: 0, isLocal: false, catalogId: c.id,
+                      })),
+                    ];
+                    const filtered = searchQueryDiets
+                      ? allDiets.filter((d) => d.name.toLowerCase().includes(searchQueryDiets.toLowerCase()))
+                      : allDiets;
+
+                    return filtered.length > 0 ? (
+                      <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                        <div className="relative shrink-0">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            type="text"
+                            placeholder="Buscar dieta..."
+                            value={searchQueryDiets}
+                            onChange={(e) => setSearchQueryDiets(e.target.value)}
+                            className="pl-10 h-9"
+                          />
+                        </div>
+                        {filtered.map((diet) => {
+                          const isSelected = selectedDietIds.has(diet.id);
+                          return (
+                            <button
+                              key={diet.key}
+                              onClick={async () => {
+                                if (!diet.isLocal && !selectedDietIds.has(diet.id)) {
+                                  try {
+                                    const created = await createCustomDietDb(
+                                      diet.name, diet.description, diet.photo, diet.calories,
+                                    );
+                                    diet.id = created.id;
+                                    diet.isLocal = true;
+                                    const newSelected = new Set(selectedDietIds);
+                                    newSelected.add(created.id);
+                                    setSelectedDietIds(newSelected);
+                                  } catch (err: any) {
+                                    toast({ title: "Erro ao adicionar dieta", description: err?.message || "Tente novamente.", variant: "destructive" });
+                                  }
+                                } else {
+                                  const newSelected = new Set(selectedDietIds);
+                                  if (isSelected) newSelected.delete(diet.id);
+                                  else newSelected.add(diet.id);
+                                  setSelectedDietIds(newSelected);
+                                }
+                              }}
+                              className={`w-full p-4 border-2 rounded-lg transition-all text-left group ${
+                                isSelected ? "border-brand bg-brand/5" : "border-border/60 hover:border-border/80 hover:bg-muted/50"
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <DietImage photo={diet.photo} name={diet.name} category={diet.category} className="h-14 w-14" />
+                                <div className="flex-1 min-w-0">
+                                  <p className={`font-medium transition-colors ${isSelected ? "text-brand" : "group-hover:text-brand"}`}>
+                                    {diet.name}
                                   </p>
+                                  {diet.category && (
+                                    <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground mt-1">
+                                      {diet.category}
+                                    </span>
+                                  )}
+                                  {diet.calories > 0 && (
+                                    <p className="text-xs font-medium text-brand/80 mt-1">{diet.calories} cal</p>
+                                  )}
                                 </div>
+                                {isSelected && (
+                                  <div className="shrink-0 mt-1">
+                                    <Check className="h-5 w-5 text-brand" />
+                                  </div>
+                                )}
                               </div>
-                              {isSelected && (
-                                <div className="shrink-0 mt-1">
-                                  <Check className="h-5 w-5 text-brand" />
-                                </div>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 text-sm text-muted-foreground">
-                      Nenhuma dieta disponível.
-                    </div>
-                  )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-center py-6 text-sm text-muted-foreground">
+                        Nenhuma dieta disponível.
+                      </div>
+                    );
+                  })()}
 
                   {/* Floating Save Button */}
                   {selectedDietIds.size > 0 && (
@@ -2625,7 +2774,6 @@ export default function Profile() {
 
                 // Get items based on routine type
                 let itemsOfType: any[] = [];
-                const typeName = getRoutineTypeName(typeCode);
 
                 return (
                   <div
@@ -2666,7 +2814,6 @@ export default function Profile() {
                         onOpenChange={(open) => {
                           if (!open) {
                             setGoalIndicatorRoutineId(null);
-                            setGoalIndicatorRoutine(null);
                             setLinkedGoal(null);
                           }
                         }}
@@ -3490,6 +3637,31 @@ export default function Profile() {
           if (idx > 0) setSelectedProfileStory(profileStories[idx - 1]);
         }}
       />
+
+      {/* Centralized confirmation dialog — replaces all native confirm() calls */}
+      <AlertDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmDialog.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmDialog.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                confirmDialog.onConfirm();
+                setConfirmDialog((prev) => ({ ...prev, open: false }));
+              }}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

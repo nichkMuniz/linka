@@ -132,7 +132,7 @@ export default function Search() {
   const [allDiets, setAllDiets] = React.useState<RoutineResult[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [followingIds, setFollowingIds] = React.useState<Set<string>>(new Set());
-  const [isFollowingLoading, setIsFollowingLoading] = React.useState(false);
+  const [followingLoadingIds, setFollowingLoadingIds] = React.useState<Set<string>>(new Set());
 
   // Expanded dropdown state: key = "userId::routineName"
   const [expandedKeys, setExpandedKeys] = React.useState<Set<string>>(new Set());
@@ -140,6 +140,7 @@ export default function Search() {
   const [itemsCache, setItemsCache] = React.useState<Map<string, RoutineItemRow[]>>(new Map());
   const [itemsLoading, setItemsLoading] = React.useState<Set<string>>(new Set());
   const [copyingKeys, setCopyingKeys] = React.useState<Set<string>>(new Set());
+  const searchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load all users on mount
   React.useEffect(() => {
@@ -149,10 +150,10 @@ export default function Search() {
       .then(async (users) => {
         setAllUsers(users);
         setSearchUsers(users);
+        // Check all follow statuses in parallel instead of sequentially
+        const followResults = await Promise.all(users.map((u) => isFollowingDb(u.id)));
         const ids = new Set<string>();
-        for (const u of users) {
-          if (await isFollowingDb(u.id)) ids.add(u.id);
-        }
+        users.forEach((u, i) => { if (followResults[i]) ids.add(u.id); });
         setFollowingIds(ids);
       })
       .catch((err) => console.error("Error loading users:", err))
@@ -178,7 +179,6 @@ export default function Search() {
 
   const handleSearch = React.useCallback(
     async (query: string) => {
-      setSearchQuery(query);
       if (!query.trim()) {
         if (activeTab === "people") setSearchUsers(allUsers);
         else if (activeTab === "workouts") setSearchWorkouts(allWorkouts);
@@ -209,10 +209,10 @@ export default function Search() {
 
   const handleToggleFollow = React.useCallback(
     async (userId: string) => {
-      if (!user) return;
-      setIsFollowingLoading(true);
+      if (!user || followingLoadingIds.has(userId)) return;
+      setFollowingLoadingIds((prev) => new Set(prev).add(userId));
+      const isCurrentlyFollowing = followingIds.has(userId);
       try {
-        const isCurrentlyFollowing = followingIds.has(userId);
         if (isCurrentlyFollowing) {
           await unfollowUserDb(userId);
           setFollowingIds((prev) => { const s = new Set(prev); s.delete(userId); return s; });
@@ -223,12 +223,18 @@ export default function Search() {
           toast({ title: "Seguindo!", description: "Você começou a seguir este usuário." });
         }
       } catch (err: any) {
+        // Rollback optimistic state
+        if (isCurrentlyFollowing) {
+          setFollowingIds((prev) => new Set(prev).add(userId));
+        } else {
+          setFollowingIds((prev) => { const s = new Set(prev); s.delete(userId); return s; });
+        }
         toast({ title: "Erro", description: err.message || "Tente novamente.", variant: "destructive" });
       } finally {
-        setIsFollowingLoading(false);
+        setFollowingLoadingIds((prev) => { const s = new Set(prev); s.delete(userId); return s; });
       }
     },
-    [followingIds, user],
+    [followingIds, followingLoadingIds, user],
   );
 
   const handleTabChange = (tab: string) => {
@@ -293,7 +299,12 @@ export default function Search() {
       <Input
         placeholder={t("search_placeholder")}
         value={searchQuery}
-        onChange={(e) => handleSearch(e.target.value)}
+        onChange={(e) => {
+          const value = e.target.value;
+          setSearchQuery(value);
+          if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+          searchDebounceRef.current = setTimeout(() => handleSearch(value), 350);
+        }}
         className="rounded-full"
         autoFocus
       />
@@ -336,7 +347,7 @@ export default function Search() {
                     variant={followingIds.has(u.id) ? "secondary" : "default"}
                     className="shrink-0 rounded-full gap-2"
                     onClick={() => handleToggleFollow(u.id)}
-                    disabled={isFollowingLoading}
+                    disabled={followingLoadingIds.has(u.id)}
                   >
                     {followingIds.has(u.id) ? (
                       <><UserCheck className="h-4 w-4" />{t("search_following")}</>

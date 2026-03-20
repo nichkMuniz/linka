@@ -17,12 +17,12 @@ import {
   deleteReelCommentDb,
   followUserDb,
   unfollowUserDb,
-  isFollowingDb,
+  getFollowingStatusBatchDb,
   type ReelWithUser,
   type ReelComment,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { MessageCircle, Send, Trash2, UserPlus, UserCheck } from "lucide-react";
+import { MessageCircle, Send, Trash2, UserPlus, UserCheck, VolumeX, Volume2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { LoadingSpinner } from "@/components/animated-loading";
@@ -51,6 +51,7 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
     Record<string, boolean>
   >({});
   const [showSwipeHint, setShowSwipeHint] = React.useState(true);
+  const [isMuted, setIsMuted] = React.useState(true);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const videoRefsMap = React.useRef<Record<string, HTMLVideoElement>>({});
 
@@ -61,18 +62,12 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
         const reelsData = await getReelsDb();
         setReels(reelsData);
 
-        // Load follow status for each reel creator
-        if (user) {
-          const statuses: Record<string, boolean> = {};
-          for (const reel of reelsData) {
-            try {
-              const isFollowing = await isFollowingDb(reel.user_id);
-              statuses[reel.user_id] = isFollowing;
-            } catch (err) {
-              console.error(`Error checking follow status for ${reel.user_id}:`, err);
-            }
-          }
-          setFollowingStatus(statuses);
+        // Load follow status for all reel creators in a single batch query
+        if (user && reelsData.length > 0) {
+          const uniqueUserIds = [...new Set(reelsData.map((r) => r.user_id))];
+          getFollowingStatusBatchDb(uniqueUserIds)
+            .then(setFollowingStatus)
+            .catch((err) => console.error("Error loading follow statuses:", err));
         }
       } catch (err: any) {
         console.error("Erro ao carregar reels:", err?.message || err);
@@ -103,7 +98,8 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
           setVisibleReelId(reelId);
           const video = videoRefsMap.current[reelId];
           if (video) {
-            video.play().catch(() => {});
+            // AbortError is expected when video is interrupted (e.g. scrolled away) — not a real error
+            video.play().catch((err) => { if (err?.name !== "AbortError") console.error("Erro ao reproduzir vídeo:", err); });
           }
         } else {
           const video = videoRefsMap.current[reelId];
@@ -131,7 +127,7 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
       const firstReelId = reels[0].id;
       const firstVideo = videoRefsMap.current[firstReelId];
       if (firstVideo) {
-        firstVideo.play().catch(() => {});
+        firstVideo.play().catch((err) => { if (err?.name !== "AbortError") console.error("Erro ao reproduzir primeiro vídeo:", err); });
       }
     }
   }, [reels, visibleReelId]);
@@ -335,8 +331,6 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
       >
 
         {reels.map((reel) => {
-          const isVisible = reel.id === visibleReelId;
-
           return (
             <div
               key={reel.id}
@@ -355,10 +349,13 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
               {reel.video_url ? (
                 <video
                   ref={(el) => {
-                    if (el) videoRefsMap.current[reel.id] = el;
+                    if (el) {
+                      videoRefsMap.current[reel.id] = el;
+                      el.muted = isMuted;
+                    }
                   }}
                   src={reel.video_url}
-                  muted
+                  muted={isMuted}
                   loop
                   playsInline
                   className="h-full w-full object-cover"
@@ -371,6 +368,23 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
 
               {/* Gradient Overlay for Better Text Visibility */}
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
+
+              {/* Mute/Unmute button - top right */}
+              <button
+                onClick={() => {
+                  const newMuted = !isMuted;
+                  setIsMuted(newMuted);
+                  Object.values(videoRefsMap.current).forEach((v) => { v.muted = newMuted; });
+                }}
+                className="absolute top-4 right-4 z-20 flex items-center gap-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
+                aria-label={isMuted ? "Ativar som" : "Silenciar"}
+              >
+                {isMuted ? (
+                  <><VolumeX className="h-4 w-4" /><span>Mudo</span></>
+                ) : (
+                  <><Volume2 className="h-4 w-4" /><span>Som</span></>
+                )}
+              </button>
 
               {/* User Info - Top Left */}
               <div className="absolute top-4 left-4 z-10 flex items-center gap-3">
@@ -555,7 +569,7 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
                 placeholder="Adicione um comentário..."
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
-                onKeyPress={(e) => {
+                onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     handleAddComment();

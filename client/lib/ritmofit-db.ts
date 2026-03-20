@@ -1,4 +1,29 @@
-import { getUserSafe, hasSupabaseConfig, supabase } from "@/lib/supabase";
+import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator } from "@/lib/supabase";
+
+// ─── Input validation helpers ────────────────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertUUID(value: string, label: string) {
+  if (!UUID_RE.test(value)) throw new Error(`${label} inválido`);
+}
+
+function assertMaxLength(value: string, max: number, label: string) {
+  if (value.length > max) throw new Error(`${label} muito longo (máximo ${max} caracteres)`);
+}
+
+function assertNotEmpty(value: string, label: string) {
+  if (!value.trim()) throw new Error(`${label} não pode estar vazio`);
+}
+
+// ─── Viewer cache ─────────────────────────────────────────────────────────────
+// Viewer cache: avoids redundant auth.getUser() calls within the same operation burst
+let _viewerCache: { user: import("@supabase/supabase-js").User | null; expiry: number } | null = null;
+const VIEWER_TTL_MS = 5000;
+
+function invalidateViewerCache() {
+  _viewerCache = null;
+}
 
 function cleanHandle(raw: string) {
   const slug = raw
@@ -12,12 +37,24 @@ function cleanHandle(raw: string) {
 async function getViewer() {
   if (!hasSupabaseConfig || !supabase) return null;
 
+  // Return cached viewer if still valid
+  if (_viewerCache && Date.now() < _viewerCache.expiry) {
+    return _viewerCache.user;
+  }
+
   try {
-    return await getUserSafe();
+    const user = await getUserSafe();
+    _viewerCache = { user, expiry: Date.now() + VIEWER_TTL_MS };
+    return user;
   } catch {
     return null;
   }
 }
+
+export { invalidateViewerCache };
+
+// Register the cache invalidator so supabase.ts can clear it on sign-out
+registerViewerCacheInvalidator(invalidateViewerCache);
 
 export type DbProfile = {
   id: string;
@@ -157,24 +194,24 @@ export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
     return { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
   }
 
-  const { data } = await supabase
-    .from("likes")
-    .select("type")
-    .eq("post_id", postId);
+  // Fetch counts per type in parallel — 6 lightweight HEAD requests instead of fetching all rows
+  const [r1, r2, r3, r4, r5, r6] = await Promise.all([
+    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 1),
+    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 2),
+    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 3),
+    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 4),
+    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 5),
+    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 6),
+  ]);
 
-  const stats: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
-
-  (data ?? []).forEach((row: any) => {
-    const incentiveType = Number(row.type) as PostIncentiveType;
-    if (incentiveType === 1) stats.apoio += 1;
-    else if (incentiveType === 2) stats.continua += 1;
-    else if (incentiveType === 3) stats.ganhador += 1;
-    else if (incentiveType === 4) stats.consegueMais += 1;
-    else if (incentiveType === 5) stats.limiteMaior += 1;
-    else if (incentiveType === 6) stats.maisAlgum += 1;
-  });
-
-  return stats;
+  return {
+    apoio: r1.count ?? 0,
+    continua: r2.count ?? 0,
+    ganhador: r3.count ?? 0,
+    consegueMais: r4.count ?? 0,
+    limiteMaior: r5.count ?? 0,
+    maisAlgum: r6.count ?? 0,
+  };
 }
 
 export async function getUserPostLikesDb(
@@ -258,6 +295,10 @@ export type PostComment = {
 
 export async function addPostCommentDb(postId: string, text: string) {
   if (!hasSupabaseConfig || !supabase) return;
+
+  assertUUID(postId, "ID do post");
+  assertNotEmpty(text, "Comentário");
+  assertMaxLength(text.trim(), 500, "Comentário");
 
   const viewer = await getViewer();
   if (!viewer) return;
@@ -398,10 +439,16 @@ export async function createCustomGoalAndSelectDb(
 ): Promise<string> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
 
-  // Insert new goal into goals table
+  assertUUID(userId, "ID do usuário");
+  assertNotEmpty(description, "Descrição da meta");
+  assertMaxLength(description.trim(), 200, "Descrição da meta");
+  if (duration <= 0 || duration > 3650) throw new Error("Duração inválida (1–3650 dias)");
+  if (quantity <= 0 || quantity > 100000) throw new Error("Quantidade inválida");
+
+  // Insert goal and link to user in a sequential but validated chain
   const { data, error } = await supabase
     .from("goals")
-    .insert({ description, type, duration, quantity })
+    .insert({ description: description.trim(), type, duration, quantity })
     .select("id")
     .single();
 
@@ -412,8 +459,13 @@ export async function createCustomGoalAndSelectDb(
 
   const goalId = String(data.id);
 
-  // Link goal to user
-  await createUserGoalDb(goalId, userId, type, duration, quantity);
+  try {
+    await createUserGoalDb(goalId, userId, type, duration, quantity);
+  } catch (linkError) {
+    // Attempt to clean up the orphaned goal if linking fails
+    try { await supabase.from("goals").delete().eq("id", goalId); } catch { /* ignore */ }
+    throw linkError;
+  }
 
   return goalId;
 }
@@ -545,56 +597,54 @@ export async function getUserGoalsByUserIdDb(
 ): Promise<UserGoal[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
+  const mapRows = (rows: any[], descMap: Map<string, string>): UserGoal[] =>
+    rows.map((row: any) => {
+      const quantity = Number(row.quantity ?? 0);
+      const perc = Number(row.perc ?? 0);
+      return {
+        id: String(row.id),
+        goal_id: String(row.goal_id ?? ""),
+        description: descMap.get(String(row.goal_id)) ?? String((row.goals as any)?.description ?? ""),
+        duration: Number(row.duration ?? 0),
+        quantity,
+        type_goal: Number(row.type_goal ?? 0),
+        perc,
+        days_completed: Math.round((perc / 100) * quantity),
+      } satisfies UserGoal;
+    });
+
+  // Try with embedded join first
   const { data, error } = await supabase
+    .from("user_goals")
+    .select("id, goal_id, duration, quantity, type_goal, perc, goals(description)")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (!error) {
+    return mapRows(data ?? [], new Map());
+  }
+
+  // Fallback (any error): fetch without join + manual batch lookup
+  console.warn(`[getUserGoalsByUserIdDb] Join failed (${error.code}), using fallback`);
+  const { data: fallback, error: fbError } = await supabase
     .from("user_goals")
     .select("id, goal_id, duration, quantity, type_goal, perc")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
-  if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    console.error(`Error fetching user goals [${errorCode}]:`, errorMsg);
+  if (fbError) {
+    console.error(`Error fetching user goals [${fbError.code}]:`, fbError.message);
     return [];
   }
 
-  const userGoalsData = data ?? [];
-
-  // Fetch goal descriptions for all goal_ids
-  const goalIds = userGoalsData.map((row) => row.goal_id);
-  const goalsDescriptions: Map<string, string> = new Map();
-
+  const goalIds = (fallback ?? []).map((r: any) => r.goal_id).filter(Boolean);
+  const descMap = new Map<string, string>();
   if (goalIds.length > 0) {
-    const { data: goalsData, error: goalsError } = await supabase
-      .from("goals")
-      .select("id, description")
-      .in("id", goalIds);
-
-    if (!goalsError && goalsData) {
-      goalsData.forEach((goal: any) => {
-        goalsDescriptions.set(String(goal.id), String(goal.description ?? ""));
-      });
-    }
+    const { data: goalsData } = await supabase.from("goals").select("id, description").in("id", goalIds);
+    (goalsData ?? []).forEach((g: any) => descMap.set(String(g.id), String(g.description ?? "")));
   }
 
-  return userGoalsData.map(
-    (row: any) => {
-      const quantity = Number(row.quantity ?? 0);
-      const perc = Number(row.perc ?? 0);
-      const days_completed = Math.round((perc / 100) * quantity);
-
-      return {
-        id: String(row.id),
-        goal_id: String(row.goal_id ?? ""),
-        description: goalsDescriptions.get(String(row.goal_id)) ?? "",
-        duration: Number(row.duration ?? 0),
-        quantity,
-        type_goal: Number(row.type_goal ?? 0),
-        perc,
-        days_completed,
-      } satisfies UserGoal;
-    },
-  );
+  return mapRows(fallback ?? [], descMap);
 }
 
 export async function getUserGoalsDb(): Promise<UserGoal[]> {
@@ -611,42 +661,43 @@ export async function getUserGoalByIdDb(
 ): Promise<UserGoal | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
+  const buildGoal = (row: any, description: string): UserGoal => {
+    const quantity = Number(row.quantity ?? 0);
+    const perc = Number(row.perc ?? 0);
+    return {
+      id: String(row.id),
+      goal_id: String(row.goal_id ?? ""),
+      description,
+      duration: Number(row.duration ?? 0),
+      quantity,
+      type_goal: Number(row.type_goal ?? 0),
+      perc,
+      days_completed: Math.round((perc / 100) * quantity),
+    };
+  };
+
+  // Try with embedded join first
   const { data, error } = await supabase
+    .from("user_goals")
+    .select("id, goal_id, duration, quantity, type_goal, perc, goals(description)")
+    .eq("id", userGoalId)
+    .maybeSingle();
+
+  if (!error) {
+    if (!data) return null;
+    return buildGoal(data, String((data.goals as any)?.description ?? ""));
+  }
+
+  // Fallback (any error): two sequential queries
+  console.warn(`[getUserGoalByIdDb] Join failed (${error.code}), using fallback`);
+  const { data: fb } = await supabase
     .from("user_goals")
     .select("id, goal_id, duration, quantity, type_goal, perc")
     .eq("id", userGoalId)
     .maybeSingle();
-
-  if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    console.error(`Error fetching user goal [${errorCode}]:`, errorMsg);
-    return null;
-  }
-
-  if (!data) return null;
-
-  // Fetch goal description
-  const { data: goalData } = await supabase
-    .from("goals")
-    .select("description")
-    .eq("id", data.goal_id)
-    .maybeSingle();
-
-  const quantity = Number(data.quantity ?? 0);
-  const perc = Number(data.perc ?? 0);
-  const days_completed = Math.round((perc / 100) * quantity);
-
-  return {
-    id: String(data.id),
-    goal_id: String(data.goal_id ?? ""),
-    description: String(goalData?.description ?? ""),
-    duration: Number(data.duration ?? 0),
-    quantity,
-    type_goal: Number(data.type_goal ?? 0),
-    perc,
-    days_completed,
-  };
+  if (!fb) return null;
+  const { data: goalData } = await supabase.from("goals").select("description").eq("id", fb.goal_id).maybeSingle();
+  return buildGoal(fb, String(goalData?.description ?? ""));
 }
 
 export async function incrementGoalProgressDb(
@@ -673,10 +724,10 @@ export async function incrementGoalProgressDb(
 
   const currentDaysCompleted = Number(currentData.days_completed ?? 0);
   const duration = Number(currentData.duration ?? 1);
-  const newDaysCompleted = Math.min(currentDaysCompleted, duration); // Cap at duration
+  const newDaysCompleted = Math.min(currentDaysCompleted + 1, duration); // Increment by 1, cap at duration
 
-  // Calculate percentage for perc field
-  const perc = duration > 0 ? (currentDaysCompleted / duration) * 100 : 0;
+  // Calculate percentage for perc field based on the NEW value
+  const perc = duration > 0 ? (newDaysCompleted / duration) * 100 : 0;
 
   const { data, error } = await supabase
     .from("user_goals")
@@ -706,7 +757,7 @@ export async function incrementGoalProgressDb(
     quantity: Number(data.quantity ?? 0),
     type_goal: Number(data.type_goal ?? 0),
     perc: Number(data.perc ?? Math.round(perc)),
-    days_completed: 0,
+    days_completed: newDaysCompleted,
   };
 }
 
@@ -843,6 +894,8 @@ export type UserStats = {
   postsCount: number;
   followersCount: number;
   followingCount: number;
+  points: number;
+  level: number;
 };
 
 export async function getWorkoutsDb(): Promise<Workout[]> {
@@ -869,16 +922,63 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
   }));
 }
 
+export async function bulkUpsertCatalogWorkoutsDb(
+  exercises: Array<{ name: string; description: string; muscleGroup: string; photo: string | null; wgerId: number }>
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const rows = exercises.map((ex) => ({
+    name: ex.name,
+    description: ex.description,
+    muscle_group: ex.muscleGroup || null,
+    photo: ex.photo || null,
+    wger_id: ex.wgerId,
+  }));
+
+  // Upsert in batches of 100 to avoid request size limits
+  for (let i = 0; i < rows.length; i += 100) {
+    const batch = rows.slice(i, i + 100);
+    await supabase
+      .from("workouts")
+      .upsert(batch, { onConflict: "wger_id", ignoreDuplicates: false });
+  }
+}
+
+export async function getCatalogWorkoutsFromDb(): Promise<Array<{
+  id: string; name: string; description: string; muscleGroup: string; photo: string | null; wgerId: number | null;
+}>> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data } = await supabase
+    .from("workouts")
+    .select("id, name, description, muscle_group, photo, wger_id")
+    .not("wger_id", "is", null)
+    .not("photo", "is", null);
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    description: String(row.description ?? ""),
+    muscleGroup: String(row.muscle_group ?? ""),
+    photo: row.photo ? String(row.photo) : null,
+    wgerId: row.wger_id ? Number(row.wger_id) : null,
+  }));
+}
+
 export async function createCustomWorkoutDb(
   name: string,
   description: string,
   muscleGroup: string,
+  photo?: string | null,
 ): Promise<Workout> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
 
+  const insertData: Record<string, any> = { name, description, muscle_group: muscleGroup || null };
+  if (photo) insertData.photo = photo;
+
   const { data, error } = await supabase
     .from("workouts")
-    .insert({ name, description, muscle_group: muscleGroup || null })
+    .insert(insertData)
     .select("id, name, description, photo, muscle_group")
     .single();
 
@@ -898,56 +998,30 @@ export async function createCustomWorkoutDb(
 
 export async function getUserStatsDb(userId: string): Promise<UserStats> {
   if (!hasSupabaseConfig || !supabase) {
-    return { postsCount: 0, followersCount: 0, followingCount: 0 };
+    return { postsCount: 0, followersCount: 0, followingCount: 0, points: 0, level: 1 };
   }
 
-  let postsRes: any = { count: 0, error: null };
-  let followersRes: any = { count: 0, error: null };
-  let followingRes: any = { count: 0, error: null };
-
-  try {
-    postsRes = await supabase
-      .from("posts")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId);
-  } catch (err) {
-    postsRes = { count: 0, error: err };
-  }
-
-  try {
-    followersRes = await supabase
-      .from("following")
-      .select("id", { count: "exact", head: true })
-      .eq("following_id", userId);
-  } catch (err) {
-    followersRes = { count: 0, error: err };
-  }
-
-  try {
-    followingRes = await supabase
-      .from("following")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId);
-  } catch (err) {
-    followingRes = { count: 0, error: err };
-  }
+  // Run all queries in parallel
+  const [postsRes, followersRes, followingRes, rankingRes] = await Promise.all([
+    supabase.from("posts").select("id", { count: "exact", head: true }).eq("user_id", userId),
+    supabase.from("following").select("id", { count: "exact", head: true }).eq("following_id", userId),
+    supabase.from("following").select("id", { count: "exact", head: true }).eq("user_id", userId),
+    supabase.from("ranking").select("points, level").eq("user_id", userId).single(),
+  ]);
 
   if (postsRes.error) {
-    const errorMsg =
-      postsRes.error instanceof Error
-        ? postsRes.error.message
-        : postsRes.error?.message || postsRes.error?.details || "Unknown error";
-    const errorCode = postsRes.error?.code || "UNKNOWN";
-    console.error(`Error fetching posts stats [${errorCode}]:`, errorMsg);
+    console.error(`Error fetching posts stats:`, postsRes.error?.message);
   }
 
-  // Silently handle follower/following table errors - these tables may not exist yet
-  // Return 0 counts instead of logging errors
+  const points = Number(rankingRes.data?.points ?? 0);
+  const level = Number(rankingRes.data?.level ?? Math.floor(points / 100) + 1);
 
   return {
     postsCount: postsRes.count ?? 0,
     followersCount: followersRes.count ?? 0,
     followingCount: followingRes.count ?? 0,
+    points,
+    level,
   };
 }
 
@@ -1011,6 +1085,80 @@ export async function getDietsDb(): Promise<Diet[]> {
     photo: row.photo ? String(row.photo) : null,
     calories: Number(row.calories ?? 0),
   }));
+}
+
+export async function bulkUpsertCatalogDietsDb(
+  meals: Array<{ name: string; description: string; category: string; photo: string | null; mealdbId: number }>
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const rows = meals.map((m) => ({
+    name: m.name,
+    description: m.description,
+    photo: m.photo || null,
+    calories: 0,
+    mealdb_id: m.mealdbId,
+    category: m.category,
+  }));
+
+  for (let i = 0; i < rows.length; i += 100) {
+    const batch = rows.slice(i, i + 100);
+    await supabase
+      .from("diets")
+      .upsert(batch, { onConflict: "mealdb_id", ignoreDuplicates: false });
+  }
+}
+
+export async function getCatalogDietsFromDb(): Promise<Array<{
+  id: string; name: string; description: string; category: string; photo: string | null; mealdbId: number | null;
+}>> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data } = await supabase
+    .from("diets")
+    .select("id, name, description, photo, category, mealdb_id")
+    .not("mealdb_id", "is", null)
+    .not("photo", "is", null);
+
+  return (data ?? []).map((row: any) => ({
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    description: String(row.description ?? ""),
+    category: String(row.category ?? ""),
+    photo: row.photo ? String(row.photo) : null,
+    mealdbId: row.mealdb_id ? Number(row.mealdb_id) : null,
+  }));
+}
+
+export async function createCustomDietDb(
+  name: string,
+  description: string,
+  photo?: string | null,
+  calories?: number,
+): Promise<Diet> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+
+  const insertData: Record<string, any> = { name, description, calories: calories || 0 };
+  if (photo) insertData.photo = photo;
+
+  const { data, error } = await supabase
+    .from("diets")
+    .insert(insertData)
+    .select("id, name, description, photo, calories")
+    .single();
+
+  if (error) {
+    console.error("Error creating custom diet:", error);
+    throw error;
+  }
+
+  return {
+    id: String(data.id),
+    name: String(data.name),
+    description: String(data.description ?? ""),
+    photo: data.photo ? String(data.photo) : null,
+    calories: Number(data.calories ?? 0),
+  };
 }
 
 export type Habit = {
@@ -2238,6 +2386,8 @@ export async function copyRoutineToUserDb(
 
 export async function getAllUsersDb(
   excludeUserId?: string,
+  limit = 100,
+  offset = 0,
 ): Promise<SearchUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
@@ -2245,7 +2395,8 @@ export async function getAllUsersDb(
     const { data, error } = await supabase
       .from("profiles")
       .select("user_id, nickname, bio, photo")
-      .order("nickname", { ascending: true });
+      .order("nickname", { ascending: true })
+      .range(offset, offset + limit - 1);
 
     if (error) {
       const errorMsg = error?.message || String(error);
@@ -2562,6 +2713,7 @@ export async function toggleStoryLikeDb(
   const viewer = await getViewer();
   if (!viewer) return;
 
+  // Use canonical field: story_id
   const { data: existing } = await supabase
     .from("flow_likes")
     .select("id")
@@ -2571,32 +2723,17 @@ export async function toggleStoryLikeDb(
     .maybeSingle();
 
   if (existing?.id) {
-    await supabase.from("flow_likes").delete().eq("id", existing.id);
-    // Also remove from flow_likes
-    await supabase
-      .from("flow_likes")
-      .delete()
-      .eq("storys_id", storyId)
-      .eq("user_id", viewer.id)
-      .eq("type", incentiveType);
+    const { error } = await supabase.from("flow_likes").delete().eq("id", existing.id);
+    if (error) console.error("Error removing story like:", error);
   } else {
-    const { error: storyLikeError } = await supabase.from("flow_likes").insert({
+    const { error } = await supabase.from("flow_likes").insert({
       story_id: storyId,
       user_id: viewer.id,
       type: incentiveType,
     });
-    if (storyLikeError) {
-      console.error("Error inserting story_like:", storyLikeError);
-    }
-    // Also insert into flow_likes
-    const { error: flowLikeError } = await supabase.from("flow_likes").insert({
-      storys_id: storyId,
-      user_id: viewer.id,
-      type: incentiveType,
-    });
-    if (flowLikeError) {
-      console.error("Error inserting flow_like:", flowLikeError);
-      throw flowLikeError;
+    if (error) {
+      console.error("Error inserting story like:", error);
+      throw error;
     }
     await addPointsDb(1);
   }
@@ -2607,24 +2744,24 @@ export async function getStoryLikesDb(storyId: string): Promise<PostLikeStats> {
     return { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
   }
 
-  const { data } = await supabase
-    .from("flow_likes")
-    .select("type")
-    .eq("story_id", storyId);
+  // Fetch counts per type in parallel — 6 lightweight HEAD requests instead of fetching all rows
+  const [r1, r2, r3, r4, r5, r6] = await Promise.all([
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 1),
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 2),
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 3),
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 4),
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 5),
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 6),
+  ]);
 
-  const stats: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
-
-  (data ?? []).forEach((row: any) => {
-    const incentiveType = Number(row.type) as PostIncentiveType;
-    if (incentiveType === 1) stats.apoio += 1;
-    else if (incentiveType === 2) stats.continua += 1;
-    else if (incentiveType === 3) stats.ganhador += 1;
-    else if (incentiveType === 4) stats.consegueMais += 1;
-    else if (incentiveType === 5) stats.limiteMaior += 1;
-    else if (incentiveType === 6) stats.maisAlgum += 1;
-  });
-
-  return stats;
+  return {
+    apoio: r1.count ?? 0,
+    continua: r2.count ?? 0,
+    ganhador: r3.count ?? 0,
+    consegueMais: r4.count ?? 0,
+    limiteMaior: r5.count ?? 0,
+    maisAlgum: r6.count ?? 0,
+  };
 }
 
 export async function getUserStoryLikesDb(
@@ -2673,13 +2810,14 @@ export async function addStoryCommentDb(
 ): Promise<StoryComment | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
+  assertUUID(storyId, "ID do flow");
+  assertNotEmpty(text, "Comentário");
+  assertMaxLength(text.trim(), 500, "Comentário");
+
   const viewer = await getViewer();
   if (!viewer) return null;
 
   try {
-    const userProfile = await getUserProfileDb(viewer.id);
-    const userName = userProfile?.nickname || "Usuário";
-
     const { data, error } = await supabase
       .from("story_comments")
       .insert({
@@ -2692,11 +2830,18 @@ export async function addStoryCommentDb(
 
     if (error) throw error;
 
+    // Fetch nickname in the same round-trip as the insert result (single query)
+    const { data: profileData } = await supabase
+      .from("profiles")
+      .select("nickname")
+      .eq("user_id", viewer.id)
+      .maybeSingle();
+
     return {
       id: data?.id || "",
       storyId: storyId,
       userId: viewer.id,
-      userName,
+      userName: profileData?.nickname || "Usuário",
       text,
       createdAt: data?.created_at || new Date().toISOString(),
     };
@@ -2720,21 +2865,28 @@ export async function getStoryCommentsDb(
 
     if (error) throw error;
 
-    const enrichedComments = await Promise.all(
-      (data ?? []).map(async (comment: any) => {
-        const userProfile = await getUserProfileDb(comment.user_id);
-        return {
-          id: comment.id,
-          storyId: storyId,
-          userId: comment.user_id,
-          userName: userProfile?.nickname || "Usuário",
-          text: comment.text,
-          createdAt: comment.created_at,
-        };
-      }),
+    const rows = data ?? [];
+    if (rows.length === 0) return [];
+
+    // Batch-fetch all comment authors in a single query to avoid N+1
+    const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("user_id, nickname")
+      .in("user_id", userIds);
+
+    const profileMap = new Map(
+      (profiles ?? []).map((p: any) => [String(p.user_id), String(p.nickname ?? "Usuário")]),
     );
 
-    return enrichedComments;
+    return rows.map((comment: any) => ({
+      id: String(comment.id),
+      storyId: storyId,
+      userId: String(comment.user_id),
+      userName: profileMap.get(String(comment.user_id)) ?? "Usuário",
+      text: String(comment.text ?? ""),
+      createdAt: String(comment.created_at),
+    }));
   } catch (err: any) {
     console.error("Error fetching story comments:", err?.message || err);
     return [];
@@ -2771,10 +2923,10 @@ export async function recordFlowViewDb(storyId: string, storyOwnerId: string): P
         {
           user_id: storyOwnerId,
           follower_id: viewer.id,
-          storys_id: storyId,
+          story_id: storyId,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "follower_id,storys_id" },
+        { onConflict: "follower_id,story_id" },
       );
   } catch (err: any) {
     console.error("Error recording flow view:", err?.message || err);
@@ -2788,7 +2940,7 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
     const { data: views, error } = await supabase
       .from("user_view_flow")
       .select("follower_id, created_at, updated_at")
-      .eq("storys_id", storyId)
+      .eq("story_id", storyId)
       .order("updated_at", { ascending: false });
 
     if (error || !views || views.length === 0) return [];
@@ -2803,7 +2955,7 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
       supabase
         .from("flow_likes")
         .select("user_id, type")
-        .eq("storys_id", storyId)
+        .eq("story_id", storyId)
         .in("user_id", followerIds),
     ]);
 
@@ -2863,6 +3015,10 @@ export async function sendMessageDb(
   text: string,
 ): Promise<Message | null> {
   if (!hasSupabaseConfig || !supabase) return null;
+
+  assertUUID(recipientId, "ID do destinatário");
+  assertNotEmpty(text, "Mensagem");
+  assertMaxLength(text.trim(), 1000, "Mensagem");
 
   const viewer = await getViewer();
   if (!viewer) return null;
@@ -3203,6 +3359,7 @@ export type Reel = {
 export type ReelWithUser = Reel & {
   userNickname: string;
   userPhoto: string | null;
+  commentCount?: number;
 };
 
 export async function getReelsDb(): Promise<ReelWithUser[]> {
@@ -4035,8 +4192,8 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     const { data: profiles } = profilesResult as any;
     const { data: posts } = postsResult as any;
 
-    const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
-    const postMap = new Map((posts ?? []).map((p: any) => [p.id, p]));
+    const profileMap = new Map<string, any>((profiles ?? []).map((p: any) => [p.user_id, p]));
+    const postMap = new Map<string, any>((posts ?? []).map((p: any) => [p.id, p]));
 
     // Fetch like types for incentive notifications
     let likesMap = new Map<string, any>();
@@ -4050,13 +4207,13 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           .maybeSingle()
       );
       const likesResults = await Promise.all(likeQueries);
-      likesMap = new Map(
+      likesMap = new Map<string, any>(
         likesResults
           .map((r: any, idx: number) => [
             incentiveNotifications[idx]?.follower_id,
             r.data?.type,
-          ])
-          .filter(([_, type]: any) => type !== undefined)
+          ] as [string, any])
+          .filter(([_, type]: [string, any]) => type !== undefined)
       );
     }
 
@@ -4887,6 +5044,82 @@ export async function getWorkoutHistoryDb(
   } catch (err: any) {
     console.error("Error fetching workout history:", err);
     return [];
+  }
+}
+
+/**
+ * Batch-fetch workout history for multiple workoutIds in a single query.
+ * Returns a map of workoutId → WorkoutHistoryRecord[]
+ */
+export async function getWorkoutHistoriesBatchDb(
+  userId: string,
+  workoutIds: string[],
+): Promise<Record<string, WorkoutHistoryRecord[]>> {
+  if (!hasSupabaseConfig || !supabase || workoutIds.length === 0) return {};
+
+  try {
+    const { data, error } = await supabase
+      .from("user_workouts_hist")
+      .select("id, user_id, user_workout_id, workout_id, kilos, volume, calories, date_completed, created_at, workouts(name)")
+      .eq("user_id", userId)
+      .in("workout_id", workoutIds)
+      .order("date_completed", { ascending: false });
+
+    if (error) throw error;
+
+    const result: Record<string, WorkoutHistoryRecord[]> = {};
+    workoutIds.forEach((id) => { result[id] = []; });
+
+    (data ?? []).forEach((row: any) => {
+      const wid = String(row.workout_id);
+      if (!result[wid]) result[wid] = [];
+      result[wid].push({
+        id: String(row.id),
+        userId: String(row.user_id),
+        userWorkoutId: row.user_workout_id,
+        workoutId: wid,
+        workoutName: row.workouts?.name || "Exercício",
+        kilos: row.kilos,
+        volume: row.volume,
+        calories: row.calories,
+        dateCompleted: String(row.date_completed),
+        createdAt: String(row.created_at),
+      });
+    });
+
+    return result;
+  } catch (err: any) {
+    console.error("Error fetching workout histories batch:", err);
+    return {};
+  }
+}
+
+/**
+ * Batch-check follow status for multiple user IDs in a single query.
+ * Returns a map of userId → boolean (is current viewer following that user)
+ */
+export async function getFollowingStatusBatchDb(
+  targetUserIds: string[],
+): Promise<Record<string, boolean>> {
+  if (!hasSupabaseConfig || !supabase || targetUserIds.length === 0) return {};
+
+  const viewer = await getViewer();
+  if (!viewer) return Object.fromEntries(targetUserIds.map((id) => [id, false]));
+
+  try {
+    const { data, error } = await supabase
+      .from("following")
+      .select("following_id")
+      .eq("user_id", viewer.id)
+      .in("following_id", targetUserIds);
+
+    if (error) throw error;
+
+    const followingSet = new Set((data ?? []).map((r: any) => String(r.following_id)));
+    return Object.fromEntries(targetUserIds.map((id) => [id, followingSet.has(id)]));
+  } catch (err: any) {
+    console.error("Error batch-checking follow status:", err);
+    return Object.fromEntries(targetUserIds.map((id) => [id, false]));
   }
 }
 

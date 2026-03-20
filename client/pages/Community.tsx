@@ -40,6 +40,16 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -97,6 +107,7 @@ export default function Community() {
   const [groupParticipants, setGroupParticipants] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null }>>([]);
   const [activeGroupViewTab, setActiveGroupViewTab] = React.useState<"check-ins" | "participants">("check-ins");
   const [isAddCheckInModalOpen, setIsAddCheckInModalOpen] = React.useState(false);
+  const [isSubmittingCheckIn, setIsSubmittingCheckIn] = React.useState(false);
   const [checkInForm, setCheckInForm] = React.useState({
     photo: "",
     description: "",
@@ -119,6 +130,19 @@ export default function Community() {
     workoutInfo: "",
     description: "",
   });
+  const [confirmDialog, setConfirmDialog] = React.useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({ open: false, title: "", description: "", onConfirm: () => {} });
+
+  const showConfirm = React.useCallback(
+    (title: string, description: string, onConfirm: () => void) => {
+      setConfirmDialog({ open: true, title, description, onConfirm });
+    },
+    [],
+  );
 
   // Load conversations, following users, and ranking
   React.useEffect(() => {
@@ -201,7 +225,7 @@ export default function Community() {
     };
 
     loadUserData();
-  }, [user?.id, user?.user_metadata]);
+  }, [user?.id]);
 
   // Auto-select conversation from URL parameter
   React.useEffect(() => {
@@ -1546,7 +1570,8 @@ export default function Community() {
 
               <Button
                 onClick={async () => {
-                  if (!user || !selectedGroupForView) return;
+                  if (!user || !selectedGroupForView || isSubmittingCheckIn) return;
+                  setIsSubmittingCheckIn(true);
                   try {
                     // Find the selected exercise routine
                     const selectedRoutine = exerciseRoutines.find((r) => r.id === checkInForm.workoutId);
@@ -1583,10 +1608,12 @@ export default function Community() {
                       description: err.message || "Tente novamente",
                       variant: "destructive",
                     });
+                  } finally {
+                    setIsSubmittingCheckIn(false);
                   }
                 }}
                 className="w-full rounded-full"
-                disabled={!checkInForm.workoutId || !user}
+                disabled={!checkInForm.workoutId || !user || isSubmittingCheckIn}
               >
                 Adicionar Check-in
               </Button>
@@ -1620,14 +1647,15 @@ export default function Community() {
                 <button
                   onClick={() => {
                     if (selectedCheckInForDetail) {
-                      if (window.confirm("Tem certeza que deseja excluir este check-in? Esta ação é irreversível.")) {
-                        setGroupCheckIns(groupCheckIns.filter((c) => c.id !== selectedCheckInForDetail.id));
-                        setIsCheckInDetailOpen(false);
-                        toast({
-                          title: "Check-in excluído!",
-                          description: "O check-in foi removido com sucesso.",
-                        });
-                      }
+                      showConfirm(
+                        "Excluir check-in",
+                        "Tem certeza que deseja excluir este check-in? Esta ação é irreversível.",
+                        () => {
+                          setGroupCheckIns(groupCheckIns.filter((c) => c.id !== selectedCheckInForDetail.id));
+                          setIsCheckInDetailOpen(false);
+                          toast({ title: "Check-in excluído!", description: "O check-in foi removido com sucesso." });
+                        },
+                      );
                     }
                   }}
                   className="p-2 hover:bg-destructive/10 rounded-lg transition-colors"
@@ -1760,56 +1788,53 @@ export default function Community() {
                         Adicionar Membros
                       </Button>
                       <Button
-                        onClick={async () => {
-                          if (window.confirm("Tem certeza que deseja apagar este grupo? Esta ação é irreversível.")) {
-                            try {
-                              await deleteGroupDb(selectedGroupForView.id);
-                              toast({
-                                title: "Grupo apagado!",
-                                description: "O grupo foi removido com sucesso.",
-                              });
-                              setIsGroupDetailsOpen(false);
-                              setSelectedGroupForView(null);
-                              setGroupCheckIns([]);
-                              const [createdGroups, availGroups] = await Promise.all([
-                                getUserCreatedDuelGroupsDb(user!.id),
-                                getAvailableDuelGroupsDb(user!.id),
-                              ]);
-                              const toGroupCard = (group: any) => ({
-                                ...group,
-                                icon: "⚔️",
-                                description: group.goal,
-                                participants: 1,
-                                city: group.location,
-                                isOfficial: false,
-                              });
-                              setUserCreatedGroups(createdGroups.map(toGroupCard));
-                              const enriched = await Promise.all(
-                                availGroups.map(async (group: any) => {
-                                  const [creatorProfile, participants] = await Promise.all([
-                                    getUserProfileDb(group.createdBy),
-                                    getGroupParticipantsDb(group.id),
-                                  ]);
-                                  return {
-                                    ...toGroupCard(group),
-                                    creatorNickname: creatorProfile?.nickname || "Usuário",
-                                    creatorPhoto: creatorProfile?.photo || null,
-                                    participants: participants.length,
-                                    isAlreadyMember: participants.some((p: any) => p.userId === user!.id),
-                                  };
-                                })
-                              );
-                              setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
-                              setAvailableGroups(enriched);
-                            } catch (error: any) {
-                              console.error("Error deleting group:", error);
-                              toast({
-                                title: "Erro ao apagar grupo",
-                                description: error?.message || "Tente novamente.",
-                                variant: "destructive",
-                              });
-                            }
-                          }
+                        onClick={() => {
+                          showConfirm(
+                            "Apagar grupo",
+                            "Tem certeza que deseja apagar este grupo? Esta ação é irreversível.",
+                            async () => {
+                              try {
+                                await deleteGroupDb(selectedGroupForView.id);
+                                toast({ title: "Grupo apagado!", description: "O grupo foi removido com sucesso." });
+                                setIsGroupDetailsOpen(false);
+                                setSelectedGroupForView(null);
+                                setGroupCheckIns([]);
+                                const [createdGroups, availGroups] = await Promise.all([
+                                  getUserCreatedDuelGroupsDb(user!.id),
+                                  getAvailableDuelGroupsDb(user!.id),
+                                ]);
+                                const toGroupCard = (group: any) => ({
+                                  ...group,
+                                  icon: "⚔️",
+                                  description: group.goal,
+                                  participants: 1,
+                                  city: group.location,
+                                  isOfficial: false,
+                                });
+                                setUserCreatedGroups(createdGroups.map(toGroupCard));
+                                const enriched = await Promise.all(
+                                  availGroups.map(async (group: any) => {
+                                    const [creatorProfile, participants] = await Promise.all([
+                                      getUserProfileDb(group.createdBy),
+                                      getGroupParticipantsDb(group.id),
+                                    ]);
+                                    return {
+                                      ...toGroupCard(group),
+                                      creatorNickname: creatorProfile?.nickname || "Usuário",
+                                      creatorPhoto: creatorProfile?.photo || null,
+                                      participants: participants.length,
+                                      isAlreadyMember: participants.some((p: any) => p.userId === user!.id),
+                                    };
+                                  })
+                                );
+                                setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
+                                setAvailableGroups(enriched);
+                              } catch (error: any) {
+                                console.error("Error deleting group:", error);
+                                toast({ title: "Erro ao apagar grupo", description: error?.message || "Tente novamente.", variant: "destructive" });
+                              }
+                            },
+                          );
                         }}
                         variant="destructive"
                         className="w-full rounded-full gap-2"
@@ -1820,8 +1845,8 @@ export default function Community() {
                     </>
                   ) : (
                     <Button
-                      onClick={async () => {
-                        if (window.confirm("Tem certeza que deseja sair deste grupo?")) {
+                      onClick={() => {
+                        showConfirm("Sair do grupo", "Tem certeza que deseja sair deste grupo?", async () => {
                           try {
                             await leaveGroupDb(selectedGroupForView.id);
                             toast({
@@ -1851,7 +1876,7 @@ export default function Community() {
                               variant: "destructive",
                             });
                           }
-                        }
+                        });
                       }}
                       variant="outline"
                       className="w-full rounded-full gap-2"
@@ -2172,6 +2197,28 @@ export default function Community() {
           </div>
         </DrawerContent>
       </Drawer>
+
+      {/* Centralized Confirm Dialog */}
+      <AlertDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmDialog.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmDialog.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDialog.onConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

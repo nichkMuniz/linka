@@ -65,9 +65,9 @@ export function StoriesCarousel({
             <button className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer">
               <div className="relative">
                 <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-brand transition-all">
-                  {userStory.userPhoto ? (
+                  {(currentUserPhoto || userStory.userPhoto) ? (
                     <img
-                      src={userStory.userPhoto}
+                      src={currentUserPhoto || userStory.userPhoto!}
                       alt={userStory.userNickname}
                       className="h-full w-full object-cover"
                     />

@@ -2,7 +2,18 @@ import * as React from "react";
 import { useNavigate } from "react-router-dom";
 import { Heart, MessageCircle, UserPlus, Zap, HeartHandshake, Flame, Trophy, Rocket, Target } from "lucide-react";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
+import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -12,13 +23,14 @@ export default function Notifications() {
   const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [isClearing, setIsClearing] = React.useState(false);
+  const [clearDialogOpen, setClearDialogOpen] = React.useState(false);
 
   React.useEffect(() => {
+    if (!user) return;
+
     const loadNotifications = async () => {
       try {
-        // Mark all notifications as read when page loads
         await markNotificationsAsReadDb();
-
         const data = await getNotificationsDb();
         setNotifications(data);
       } catch (err: any) {
@@ -28,12 +40,30 @@ export default function Notifications() {
       }
     };
 
-    if (user) {
-      loadNotifications();
-      // Refresh notifications every 30 seconds
-      const interval = setInterval(loadNotifications, 30000);
-      return () => clearInterval(interval);
-    }
+    loadNotifications();
+
+    // Subscribe to new notifications via Realtime instead of polling every 30s
+    const channel = supabase
+      ?.channel("notifications-page")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${user.id}`,
+        },
+        async () => {
+          // Re-fetch the full list to stay in sync with read-state
+          const data = await getNotificationsDb();
+          setNotifications(data);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      channel?.unsubscribe();
+    };
   }, [user]);
 
   const getIncentiveTypeName = (type: number): string => {
@@ -133,10 +163,6 @@ export default function Notifications() {
   };
 
   const handleClearNotifications = async () => {
-    if (!window.confirm("Tem certeza que deseja limpar todas as notificações? Esta ação não pode ser desfeita.")) {
-      return;
-    }
-
     setIsClearing(true);
     try {
       const success = await clearNotificationsDb();
@@ -196,7 +222,7 @@ export default function Notifications() {
             {/* Clear Notifications Button */}
             <div className="flex justify-end">
               <Button
-                onClick={handleClearNotifications}
+                onClick={() => setClearDialogOpen(true)}
                 disabled={isClearing}
                 variant="outline"
                 size="sm"
@@ -292,6 +318,25 @@ export default function Notifications() {
           </div>
         )}
       </div>
+      <AlertDialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Limpar notificações</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja limpar todas as notificações? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleClearNotifications}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Limpar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

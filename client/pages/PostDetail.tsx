@@ -64,7 +64,12 @@ export default function PostDetail() {
   }
 
   if (!post) {
-    return null;
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-3 p-6 text-center">
+        <p className="text-lg font-semibold">Post não encontrado</p>
+        <p className="text-sm text-muted-foreground">Este post pode ter sido removido ou você não tem permissão para visualizá-lo.</p>
+      </div>
+    );
   }
 
   return (

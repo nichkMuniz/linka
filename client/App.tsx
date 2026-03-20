@@ -24,18 +24,21 @@ import { FloatingActionMenu } from "@/components/floating-action-menu";
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 
-import Index from "@/pages/Index";
+// Lazy-load heavy pages to split the initial bundle
+const Index        = React.lazy(() => import("@/pages/Index"));
+const NewPost      = React.lazy(() => import("@/pages/NewPost"));
+const Goals        = React.lazy(() => import("@/pages/Goals"));
+const Profile      = React.lazy(() => import("@/pages/Profile"));
+const PostDetail   = React.lazy(() => import("@/pages/PostDetail"));
+const Search       = React.lazy(() => import("@/pages/Search"));
+const Community    = React.lazy(() => import("@/pages/Community"));
+const Notifications = React.lazy(() => import("@/pages/Notifications"));
+const Store        = React.lazy(() => import("@/pages/Store"));
+const ReelsLayout  = React.lazy(() => import("@/components/reels-layout").then((m) => ({ default: m.ReelsLayout })));
+
+// Kept eager — tiny files needed on first paint or error boundaries
 import Login from "@/pages/Login";
-import NewPost from "@/pages/NewPost";
-import Goals from "@/pages/Goals";
-import Profile from "@/pages/Profile";
-import PostDetail from "@/pages/PostDetail";
-import Search from "@/pages/Search";
-import Community from "@/pages/Community";
-import Notifications from "@/pages/Notifications";
-import Store from "@/pages/Store";
 import NotFound from "@/pages/NotFound";
-import { ReelsLayout } from "@/components/reels-layout";
 
 const queryClient = new QueryClient();
 
@@ -66,7 +69,11 @@ function RequireAuth() {
     );
   }
 
-  return <Outlet />;
+  return (
+    <React.Suspense fallback={<AuthLoadingScreen />}>
+      <Outlet />
+    </React.Suspense>
+  );
 }
 
 function GlobalFABContainer() {
