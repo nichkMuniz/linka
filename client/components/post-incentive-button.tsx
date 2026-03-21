@@ -76,7 +76,7 @@ export function PostIncentiveButton({
             whileHover={{ scale: 1.12 }}
             whileTap={{ scale: 0.9 }}
             className={cn(
-              "inline-flex items-center justify-center p-2.5 rounded-full transition-opacity",
+              "inline-flex items-center justify-center p-1.5 rounded-full transition-opacity",
               loading && "opacity-50 cursor-not-allowed",
               "hover:opacity-80 active:scale-95",
             )}
