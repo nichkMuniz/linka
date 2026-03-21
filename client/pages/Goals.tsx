@@ -36,6 +36,7 @@ import {
   updateRoutineGoalDb,
   hasCompletedRoutineToday,
   getRoutineTypeName,
+  createPostDb,
   type ProgrammedGoal,
   type Workout,
   type Diet,
@@ -80,6 +81,13 @@ import {
   Edit2,
   Check,
   Clock,
+  Share2,
+  Flame,
+  Dumbbell,
+  Timer,
+  TrendingUp,
+  Camera,
+  ImageIcon,
 } from "lucide-react";
 import {
   Dialog,
@@ -187,6 +195,18 @@ export default function Goals() {
   const [swipedSeriesId, setSwipedSeriesId] = React.useState<string | null>(null);
   const [finishWorkoutConfirmOpen, setFinishWorkoutConfirmOpen] = React.useState(false);
   const [currentWorkoutIndex, setCurrentWorkoutIndex] = React.useState(0);
+  const [workoutSummaryOpen, setWorkoutSummaryOpen] = React.useState(false);
+  const [workoutSummaryData, setWorkoutSummaryData] = React.useState<{
+    duration: number;
+    totalVolume: number;
+    totalSeries: number;
+    exerciseNames: string[];
+    routineName: string | null;
+  } | null>(null);
+  const [isSharingWorkout, setIsSharingWorkout] = React.useState(false);
+  const [workoutCoverFile, setWorkoutCoverFile] = React.useState<File | null>(null);
+  const [workoutCoverPreview, setWorkoutCoverPreview] = React.useState<string | null>(null);
+  const workoutCanvasRef = React.useRef<HTMLCanvasElement>(null);
 
   // Edit goal modal state
   const [editGoalModalOpen, setEditGoalModalOpen] = React.useState(false);
@@ -316,6 +336,58 @@ export default function Goals() {
       if (interval) clearInterval(interval);
     };
   }, [workoutModalOpen, workoutStartTime]);
+
+  // Draw workout cover on canvas when summary opens
+  React.useEffect(() => {
+    if (!workoutSummaryOpen || !workoutSummaryData) return;
+    const canvas = workoutCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const { duration, totalVolume, totalSeries, exerciseNames, routineName } = workoutSummaryData;
+    const mins = Math.floor(duration / 60);
+    const secs = duration % 60;
+    const durationStr = mins > 0 ? `${mins}m ${secs > 0 ? `${secs}s` : ""}`.trim() : `${secs}s`;
+    // Background
+    const grad = ctx.createLinearGradient(0, 0, 800, 800);
+    grad.addColorStop(0, "#0f172a");
+    grad.addColorStop(1, "#1e3a2f");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 800, 800);
+    // Accent circles
+    ctx.beginPath(); ctx.arc(700, 100, 220, 0, Math.PI * 2); ctx.fillStyle = "rgba(34,197,94,0.08)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(100, 700, 180, 0, Math.PI * 2); ctx.fillStyle = "rgba(34,197,94,0.06)"; ctx.fill();
+    // Emoji
+    ctx.font = "120px serif"; ctx.textAlign = "center";
+    ctx.fillText("💪", 400, 220);
+    // Title
+    ctx.fillStyle = "#ffffff"; ctx.font = "bold 52px system-ui, sans-serif";
+    ctx.fillText("Treino Concluído!", 400, 320);
+    // Routine name
+    if (routineName) { ctx.fillStyle = "#86efac"; ctx.font = "32px system-ui, sans-serif"; ctx.fillText(routineName, 400, 375); }
+    // Divider
+    ctx.strokeStyle = "rgba(34,197,94,0.3)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(100, 420); ctx.lineTo(700, 420); ctx.stroke();
+    // Stats
+    const statsData = [
+      { label: "Duração", value: durationStr },
+      { label: "Volume", value: totalVolume > 0 ? `${totalVolume} kg` : "—" },
+      { label: "Séries", value: String(totalSeries) },
+    ];
+    statsData.forEach((s, i) => {
+      const x = 170 + i * 230;
+      ctx.fillStyle = "#86efac"; ctx.font = "bold 44px system-ui, sans-serif"; ctx.fillText(s.value, x, 510);
+      ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = "24px system-ui, sans-serif"; ctx.fillText(s.label, x, 548);
+    });
+    // Exercises
+    if (exerciseNames.length > 0) {
+      ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.font = "26px system-ui, sans-serif";
+      ctx.fillText(exerciseNames.slice(0, 4).join("  ·  "), 400, 630);
+    }
+    // Branding
+    ctx.fillStyle = "rgba(134,239,172,0.6)"; ctx.font = "bold 28px system-ui, sans-serif"; ctx.fillText("Linka", 400, 720);
+    ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.font = "22px system-ui, sans-serif"; ctx.fillText("#Fitness #Treino", 400, 758);
+  }, [workoutSummaryOpen, workoutSummaryData]);
 
   // Load all data on mount
   React.useEffect(() => {
@@ -1228,38 +1300,52 @@ export default function Goals() {
         }
       }
 
-      const minutes = Math.floor(workoutDuration / 60);
-      const seconds = workoutDuration % 60;
-      const durationText =
-        minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+      // Calculate summary stats from completed series
+      let totalVolume = 0;
+      let totalSeries = 0;
+      const exerciseNames: string[] = [];
+      for (const [workoutId, series] of Object.entries(workoutSeries)) {
+        const completed = series.filter((s) => s.completed);
+        if (completed.length > 0) {
+          totalSeries += completed.length;
+          for (const s of completed) {
+            totalVolume += (s.kg || 0) * (s.reps || 0);
+          }
+          const match = userWorkouts.find((w) => w.workout_id === workoutId);
+          if (match?.workoutName) exerciseNames.push(match.workoutName);
+        }
+      }
 
-      toast({
-        title: "Treino finalizado!",
-        description: `Treino de ${durationText} registrado com sucesso.`,
+      // Show summary screen instead of closing immediately
+      setWorkoutSummaryData({
+        duration: workoutDuration,
+        totalVolume: Math.round(totalVolume * 10) / 10,
+        totalSeries,
+        exerciseNames,
+        routineName: selectedRoutineName === "__unnamed__" ? null : selectedRoutineName,
       });
-
-      // Reset and close
+      setFinishWorkoutConfirmOpen(false);
       setWorkoutModalOpen(false);
-      setSelectedRoutineName(null);
+      setWorkoutSummaryOpen(true);
+
+      // Reset workout state
       setWorkoutSeries({});
       setCurrentWorkoutIndex(0);
       setWorkoutDuration(0);
       setWorkoutStartTime(null);
-      setFinishWorkoutConfirmOpen(false);
 
-      // Refresh workout list to show updated data
-      const [routinesData, userWorkoutsData, userDietsData, userHabitsData] =
-        await Promise.all([
-          getUserRoutinesDb(user.id),
-          getUserWorkoutsDb(user.id),
-          getUserDietsDb(user.id),
-          getUserHabitsDb(user.id),
-        ]);
-
-      setRoutines(routinesData);
-      setUserWorkouts(userWorkoutsData);
-      setUserDiets(userDietsData);
-      setUserHabits(userHabitsData);
+      // Refresh data in background
+      Promise.all([
+        getUserRoutinesDb(user.id),
+        getUserWorkoutsDb(user.id),
+        getUserDietsDb(user.id),
+        getUserHabitsDb(user.id),
+      ]).then(([routinesData, userWorkoutsData, userDietsData, userHabitsData]) => {
+        setRoutines(routinesData);
+        setUserWorkouts(userWorkoutsData);
+        setUserDiets(userDietsData);
+        setUserHabits(userHabitsData);
+      });
 
       await performAutoCheckIn();
     } catch (err: any) {
@@ -3054,6 +3140,204 @@ export default function Goals() {
           </div>
         </DrawerContent>
       </Drawer>
+
+      {/* Workout Summary Screen */}
+      {workoutSummaryOpen && workoutSummaryData && (() => {
+        const mins = Math.floor(workoutSummaryData.duration / 60);
+        const secs = workoutSummaryData.duration % 60;
+        const durationStr = mins > 0 ? `${mins}m ${secs > 0 ? `${secs}s` : ""}`.trim() : `${secs}s`;
+        const routineStr = workoutSummaryData.routineName
+          ? `Treino de ${workoutSummaryData.routineName}`
+          : "Treino concluído";
+
+        const closeSummary = () => {
+          setWorkoutSummaryOpen(false);
+          setWorkoutSummaryData(null);
+          setSelectedRoutineName(null);
+          setWorkoutCoverFile(null);
+          setWorkoutCoverPreview(null);
+        };
+
+        const handlePickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          if (!file.type.startsWith("image/")) {
+            toast({ title: "Selecione uma imagem válida", variant: "destructive" });
+            return;
+          }
+          if (file.size > 10 * 1024 * 1024) {
+            toast({ title: "Imagem muito grande (máx 10MB)", variant: "destructive" });
+            return;
+          }
+          setWorkoutCoverFile(file);
+          const reader = new FileReader();
+          reader.onloadend = () => setWorkoutCoverPreview(reader.result as string);
+          reader.readAsDataURL(file);
+        };
+
+        const handleShare = async () => {
+          if (!workoutSummaryData || !supabase || !user) return;
+          setIsSharingWorkout(true);
+          try {
+            const exerciseList = workoutSummaryData.exerciseNames.length > 0
+              ? `\n🏋️ ${workoutSummaryData.exerciseNames.join(" · ")}`
+              : "";
+            const volumeStr = workoutSummaryData.totalVolume > 0
+              ? `\n📦 Volume: ${workoutSummaryData.totalVolume} kg`
+              : "";
+            const description = `💪 ${routineStr}!\n⏱️ ${durationStr}${volumeStr}\n✅ ${workoutSummaryData.totalSeries} séries${exerciseList}\n\n#Linka #Fitness #Treino`;
+
+            let photoUrl: string | null = null;
+
+            // If user picked a custom photo, upload it
+            if (workoutCoverFile) {
+              const ext = workoutCoverFile.name.split(".").pop() || "jpg";
+              const filePath = `${user.id}/${Date.now()}-workout.${ext}`;
+              const { error: uploadError } = await supabase.storage
+                .from("posts")
+                .upload(filePath, workoutCoverFile, { contentType: workoutCoverFile.type, upsert: false });
+              if (uploadError) throw uploadError;
+              const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+              photoUrl = urlData.publicUrl;
+            } else {
+              // Generate cover image from canvas
+              const canvas = workoutCanvasRef.current;
+              if (canvas) {
+                const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
+                if (blob) {
+                  const filePath = `${user.id}/${Date.now()}-workout-cover.png`;
+                  const { error: uploadError } = await supabase.storage
+                    .from("posts")
+                    .upload(filePath, blob, { contentType: "image/png", upsert: false });
+                  if (!uploadError) {
+                    const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                    photoUrl = urlData.publicUrl;
+                  }
+                }
+              }
+            }
+
+            await createPostDb(photoUrl, description);
+
+            toast({ title: "Postado no feed! 🎉", description: "Seu treino foi compartilhado." });
+            closeSummary();
+          } catch (err: any) {
+            toast({ title: "Erro ao compartilhar", description: err?.message || "Tente novamente.", variant: "destructive" });
+          } finally {
+            setIsSharingWorkout(false);
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 z-[200] flex flex-col bg-background overflow-y-auto">
+            {/* Hidden canvas for cover generation — drawn via useEffect below */}
+            <canvas ref={workoutCanvasRef} width={800} height={800} className="hidden" />
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 pt-12 pb-4 flex-shrink-0">
+              <button onClick={closeSummary} className="p-2 rounded-full hover:bg-muted transition-colors" aria-label="Fechar">
+                <X className="h-5 w-5" />
+              </button>
+              <h1 className="text-base font-bold">Resumo do Treino</h1>
+              <div className="w-9" />
+            </div>
+
+            {/* Cover image preview */}
+            <div className="mx-4 mb-4 relative rounded-2xl overflow-hidden aspect-square bg-gradient-to-br from-slate-900 to-emerald-950 border border-brand/20 flex-shrink-0">
+              {workoutCoverPreview ? (
+                <img src={workoutCoverPreview} alt="Capa do treino" className="w-full h-full object-cover" />
+              ) : (
+                /* Generated cover preview (mirrors canvas) */
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-6 text-center select-none">
+                  <div className="text-6xl">💪</div>
+                  <p className="text-xl font-bold text-white">Treino Concluído!</p>
+                  {workoutSummaryData.routineName && (
+                    <p className="text-sm text-emerald-400">{workoutSummaryData.routineName}</p>
+                  )}
+                  <div className="w-full h-px bg-emerald-500/30 my-1" />
+                  <div className="flex gap-6 text-center">
+                    <div>
+                      <p className="text-lg font-bold text-emerald-400">{durationStr}</p>
+                      <p className="text-xs text-white/50">Duração</p>
+                    </div>
+                    {workoutSummaryData.totalVolume > 0 && (
+                      <div>
+                        <p className="text-lg font-bold text-emerald-400">{workoutSummaryData.totalVolume} kg</p>
+                        <p className="text-xs text-white/50">Volume</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-lg font-bold text-emerald-400">{workoutSummaryData.totalSeries}</p>
+                      <p className="text-xs text-white/50">Séries</p>
+                    </div>
+                  </div>
+                  {workoutSummaryData.exerciseNames.length > 0 && (
+                    <p className="text-xs text-white/60 mt-1">{workoutSummaryData.exerciseNames.slice(0, 3).join("  ·  ")}</p>
+                  )}
+                  <p className="text-xs text-emerald-400/60 mt-2 font-semibold">Linka</p>
+                </div>
+              )}
+
+              {/* Change photo button overlay */}
+              <label className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full cursor-pointer transition-colors">
+                <Camera className="h-3.5 w-3.5" />
+                {workoutCoverPreview ? "Trocar foto" : "Adicionar foto"}
+                <input type="file" accept="image/*" className="hidden" onChange={handlePickPhoto} />
+              </label>
+            </div>
+
+            {/* Stats row */}
+            <div className="mx-4 grid grid-cols-3 gap-2 mb-4">
+              <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3">
+                <Timer className="h-4 w-4 text-brand" />
+                <p className="text-[11px] text-muted-foreground">Duração</p>
+                <p className="text-sm font-bold">{durationStr}</p>
+              </div>
+              <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3">
+                <TrendingUp className="h-4 w-4 text-brand" />
+                <p className="text-[11px] text-muted-foreground">Volume</p>
+                <p className="text-sm font-bold">{workoutSummaryData.totalVolume > 0 ? `${workoutSummaryData.totalVolume} kg` : "—"}</p>
+              </div>
+              <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3">
+                <Flame className="h-4 w-4 text-brand" />
+                <p className="text-[11px] text-muted-foreground">Séries</p>
+                <p className="text-sm font-bold">{workoutSummaryData.totalSeries}</p>
+              </div>
+            </div>
+
+            {/* Exercises */}
+            {workoutSummaryData.exerciseNames.length > 0 && (
+              <div className="mx-4 mb-4 rounded-xl bg-card border border-border/50 p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Dumbbell className="h-4 w-4 text-brand" />
+                  <p className="text-sm font-semibold">Exercícios realizados</p>
+                </div>
+                <div className="space-y-1">
+                  {workoutSummaryData.exerciseNames.map((name, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-brand flex-shrink-0" />
+                      <span>{name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="mx-4 pb-10 space-y-3 mt-2">
+              <Button className="w-full rounded-full gap-2 h-12 text-base" disabled={isSharingWorkout} onClick={handleShare}>
+                {isSharingWorkout
+                  ? "Compartilhando..."
+                  : <><Share2 className="h-5 w-5" /> Compartilhar no Feed</>
+                }
+              </Button>
+              <Button variant="ghost" className="w-full rounded-full h-12 text-base text-muted-foreground" onClick={closeSummary}>
+                Fechar
+              </Button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Badges/Insignias Drawer Modal */}
       <Drawer open={badgesModalOpen} onOpenChange={setBadgesModalOpen}>

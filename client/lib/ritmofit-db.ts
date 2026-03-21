@@ -4415,7 +4415,7 @@ export function subscribeToUnreadNotificationsDb(
 
 // Post Creation Function
 export async function createPostDb(
-  photoUrl: string | string[],
+  photoUrl: string | string[] | null,
   description: string,
   userGoalId?: string | null,
 ): Promise<string> {
@@ -4425,11 +4425,9 @@ export async function createPostDb(
     const viewer = await getViewer();
     if (!viewer) throw new Error("Usuário não autenticado");
 
-    // Handle both single string and array of strings
-    const photos = Array.isArray(photoUrl) ? photoUrl : [photoUrl];
-    // For backward compatibility, store single photo in 'photo' column
-    // and all photos in 'photos' JSON column
-    const firstPhoto = photos[0];
+    // Handle null (text-only post), single string, or array of strings
+    const photos = photoUrl === null ? [] : Array.isArray(photoUrl) ? photoUrl : [photoUrl];
+    const firstPhoto = photos.length > 0 ? photos[0] : null;
     const photosJson = photos.length > 1 ? photos : null;
 
     const { data, error } = await supabase
