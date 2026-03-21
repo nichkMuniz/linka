@@ -76,14 +76,14 @@ export function PostIncentiveButton({
             whileHover={{ scale: 1.12 }}
             whileTap={{ scale: 0.9 }}
             className={cn(
-              "inline-flex shrink-0 items-center justify-center min-h-[44px] min-w-[44px] transition-opacity",
+              "inline-flex items-center justify-center p-2.5 rounded-full transition-opacity",
               loading && "opacity-50 cursor-not-allowed",
-              "hover:opacity-80",
+              "hover:opacity-80 active:scale-95",
             )}
           >
             <Icon
               className={cn(
-                "h-7 w-7 transition-colors",
+                "h-5 w-5 transition-colors",
                 shouldHighlight
                   ? config.iconClassName
                   : "text-muted-foreground",
