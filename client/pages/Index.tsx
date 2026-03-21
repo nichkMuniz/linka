@@ -706,8 +706,8 @@ export default function Index() {
                   </div>
 
                   {/* Incentive Icons - Below User Info, Above Description */}
-                  <div className="flex items-center px-2 pt-2 border-t border-border/60">
-                    <div className="flex flex-1 items-center justify-between">
+                  <div className="flex items-center justify-between px-2 pt-2 border-t border-border/60">
+                    <div className="flex items-center gap-0.5">
                       {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
                         <PostIncentiveButton
                           key={type}
