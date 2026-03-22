@@ -149,6 +149,38 @@ export default function Notifications() {
     });
   };
 
+  const groupNotificationsByDate = (notifs: NotificationItem[]) => {
+    const now = new Date();
+    const todayStr = now.toISOString().split("T")[0];
+    const yesterdayDate = new Date(now);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterdayStr = yesterdayDate.toISOString().split("T")[0];
+    const weekAgo = new Date(now);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const groups: Record<string, NotificationItem[]> = {
+      Hoje: [],
+      Ontem: [],
+      "Esta semana": [],
+      "Mais antigas": [],
+    };
+
+    for (const n of notifs) {
+      const dateStr = new Date(n.createdAt).toISOString().split("T")[0];
+      if (dateStr === todayStr) {
+        groups["Hoje"].push(n);
+      } else if (dateStr === yesterdayStr) {
+        groups["Ontem"].push(n);
+      } else if (new Date(n.createdAt) >= weekAgo) {
+        groups["Esta semana"].push(n);
+      } else {
+        groups["Mais antigas"].push(n);
+      }
+    }
+
+    return groups;
+  };
+
   const handleNotificationClick = (notification: NotificationItem) => {
     // Type 1 (new follower) - navigate to user profile
     if (notification.type === 1) {
@@ -232,88 +264,105 @@ export default function Notifications() {
               </Button>
             </div>
 
-            <div className="space-y-2">
-            {notifications.map((notification) => {
-              const content = getNotificationContent(notification);
-              const isRead = notification.read === true;
-              const incentiveIcon = notification.type === 2 && notification.incentiveType
-                ? getIncentiveIcon(notification.incentiveType)
-                : null;
+            <div className="space-y-4">
+            {(() => {
+              const groups = groupNotificationsByDate(notifications);
+              const groupKeys = ["Hoje", "Ontem", "Esta semana", "Mais antigas"] as const;
+              return groupKeys.map((label) => {
+                const groupNotifs = groups[label];
+                if (groupNotifs.length === 0) return null;
+                return (
+                  <div key={label}>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 mb-2 sticky top-0 bg-background/80 backdrop-blur py-1">
+                      {label}
+                    </p>
+                    <div className="space-y-2">
+                      {groupNotifs.map((notification) => {
+                        const content = getNotificationContent(notification);
+                        const isRead = notification.read === true;
+                        const incentiveIcon = notification.type === 2 && notification.incentiveType
+                          ? getIncentiveIcon(notification.incentiveType)
+                          : null;
 
-              return (
-                <button
-                  key={notification.id}
-                  onClick={() => handleNotificationClick(notification)}
-                  className={`w-full text-left transition-all hover:shadow-md rounded-lg p-4 border ${
-                    isRead
-                      ? "border-transparent bg-transparent hover:bg-muted/30"
-                      : `border ${content.borderColor} ${content.bgColor}`
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    {/* User Avatar */}
-                    <div className="flex-shrink-0">
-                      {notification.userPhoto ? (
-                        <img
-                          src={notification.userPhoto}
-                          alt={notification.userNickname}
-                          className={`h-12 w-12 rounded-full object-cover border ${
-                            isRead
-                              ? "border-border/20 opacity-60"
-                              : "border-border/40"
-                          }`}
-                        />
-                      ) : (
-                        <div className={`h-12 w-12 rounded-full bg-muted ${isRead ? "opacity-40" : ""} border ${isRead ? "border-border/20" : "border-border/40"}`} />
-                      )}
-                    </div>
-
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <div className="flex items-start gap-2 flex-1 min-w-0">
-                          <div className="flex-shrink-0 mt-0.5">
-                            {content.icon}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-xs font-semibold ${isRead ? "text-foreground/50" : "text-foreground/70"}`}>
-                              {content.title}
-                            </p>
-                            <p className={`text-sm font-medium mt-0.5 flex items-center gap-1.5 ${isRead ? "text-foreground/60" : "text-foreground"}`}>
-                              {content.description}
-                              {incentiveIcon && (
-                                <>
-                                  <incentiveIcon.Icon className={`h-4 w-4 ${incentiveIcon.color}`} />
-                                  <span className="text-xs">{getIncentiveTypeName(notification.incentiveType!)}</span>
-                                </>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                        <p className={`text-xs flex-shrink-0 whitespace-nowrap ml-2 ${isRead ? "text-muted-foreground/50" : "text-muted-foreground"}`}>
-                          {formatTimeAgo(notification.createdAt)}
-                        </p>
-                      </div>
-
-                      {/* Post Thumbnail - only for incentive and comment notifications */}
-                      {notification.postPhoto && (notification.type === 2 || notification.type === 3) && (
-                        <div className="mt-3 ml-7">
-                          <img
-                            src={notification.postPhoto}
-                            alt="Post"
-                            className={`h-16 w-16 rounded-md object-cover border ${
+                        return (
+                          <button
+                            key={notification.id}
+                            onClick={() => handleNotificationClick(notification)}
+                            className={`w-full text-left transition-all hover:shadow-md rounded-lg p-4 border ${
                               isRead
-                                ? "border-border/20 opacity-50"
-                                : "border-border/40"
+                                ? "border-transparent bg-transparent hover:bg-muted/30"
+                                : `border ${content.borderColor} ${content.bgColor}`
                             }`}
-                          />
-                        </div>
-                      )}
+                          >
+                            <div className="flex items-start gap-3">
+                              {/* User Avatar */}
+                              <div className="flex-shrink-0">
+                                {notification.userPhoto ? (
+                                  <img
+                                    src={notification.userPhoto}
+                                    alt={notification.userNickname}
+                                    className={`h-12 w-12 rounded-full object-cover border ${
+                                      isRead
+                                        ? "border-border/20 opacity-60"
+                                        : "border-border/40"
+                                    }`}
+                                  />
+                                ) : (
+                                  <div className={`h-12 w-12 rounded-full bg-muted ${isRead ? "opacity-40" : ""} border ${isRead ? "border-border/20" : "border-border/40"}`} />
+                                )}
+                              </div>
+
+                              {/* Content */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <div className="flex items-start gap-2 flex-1 min-w-0">
+                                    <div className="flex-shrink-0 mt-0.5">
+                                      {content.icon}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className={`text-xs font-semibold ${isRead ? "text-foreground/50" : "text-foreground/70"}`}>
+                                        {content.title}
+                                      </p>
+                                      <p className={`text-sm font-medium mt-0.5 flex items-center gap-1.5 ${isRead ? "text-foreground/60" : "text-foreground"}`}>
+                                        {content.description}
+                                        {incentiveIcon && (
+                                          <>
+                                            <incentiveIcon.Icon className={`h-4 w-4 ${incentiveIcon.color}`} />
+                                            <span className="text-xs">{getIncentiveTypeName(notification.incentiveType!)}</span>
+                                          </>
+                                        )}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <p className={`text-xs flex-shrink-0 whitespace-nowrap ml-2 ${isRead ? "text-muted-foreground/50" : "text-muted-foreground"}`}>
+                                    {formatTimeAgo(notification.createdAt)}
+                                  </p>
+                                </div>
+
+                                {/* Post Thumbnail - only for incentive and comment notifications */}
+                                {notification.postPhoto && (notification.type === 2 || notification.type === 3) && (
+                                  <div className="mt-3 ml-7">
+                                    <img
+                                      src={notification.postPhoto}
+                                      alt="Post"
+                                      className={`h-16 w-16 rounded-md object-cover border ${
+                                        isRead
+                                          ? "border-border/20 opacity-50"
+                                          : "border-border/40"
+                                      }`}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
-                </button>
-              );
-            })}
+                );
+              });
+            })()}
             </div>
           </div>
         )}

@@ -194,6 +194,7 @@ export default function Profile() {
     level: 1,
   });
   const [loading, setLoading] = React.useState(true);
+  const [profileError, setProfileError] = React.useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isCreateRoutineOpen, setIsCreateRoutineOpen] = React.useState(false);
@@ -370,6 +371,7 @@ export default function Profile() {
         description: "Tente novamente mais tarde.",
         variant: "destructive",
       });
+      setProfileError(true);
       setLoading(false);
     }
   }, [profileUserId]);
@@ -1278,6 +1280,17 @@ export default function Profile() {
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <LoadingSpinner className="h-12 w-12" />
         <p className="text-sm text-muted-foreground">Carregando perfil...</p>
+      </div>
+    );
+  }
+
+  if (!loading && profileError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3">
+        <p className="text-muted-foreground text-sm">Não foi possível carregar o perfil</p>
+        <Button variant="outline" size="sm" onClick={() => { setProfileError(false); loadProfile(); }}>
+          Tentar novamente
+        </Button>
       </div>
     );
   }

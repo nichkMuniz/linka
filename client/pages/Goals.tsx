@@ -24,6 +24,7 @@ import {
   getUserGoalsDb,
   deleteRoutinesOfTypeDb,
   createCheckInDb,
+  addPointsDb,
   getTodayCheckInDb,
   getWeekCheckInsDb,
   getWorkoutHistoriesBatchDb,
@@ -320,6 +321,7 @@ export default function Goals() {
   const [selectingGoalId, setSelectingGoalId] = React.useState<string | null>(
     null,
   );
+  const [isAddingGoal, setIsAddingGoal] = React.useState(false);
 
   // Timer effect for workout duration
   React.useEffect(() => {
@@ -529,6 +531,8 @@ export default function Goals() {
       return;
     }
 
+    if (isAddingGoal) return;
+    setIsAddingGoal(true);
     setSelectingGoalId(goal.id);
 
     try {
@@ -555,6 +559,7 @@ export default function Goals() {
       });
     } finally {
       setSelectingGoalId(null);
+      setIsAddingGoal(false);
     }
   };
 
@@ -771,6 +776,7 @@ export default function Goals() {
   };
 
   const handleDailyCheckIn = async () => {
+    if (isProcessingCheckIn) return;
     if (!user) {
       toast({
         title: "Erro",
@@ -817,6 +823,12 @@ export default function Goals() {
         // Create check-in in database
         await createCheckInDb(user.id);
         setDailyCheckInDone(true);
+        // Award points for daily check-in
+        try {
+          await addPointsDb(5);
+        } catch (pointsErr) {
+          console.error("Error awarding check-in points:", pointsErr);
+        }
 
         // Update week check-ins
         const dayOfWeek = new Date().getDay();
@@ -826,7 +838,7 @@ export default function Goals() {
 
         // Update goal progress - increment by 1 and recalculate percentage
         const newProgress = goal.days_completed + 1;
-        const newPercentage = Math.min(100, (newProgress / goal.quantity) * 100);
+        const newPercentage = goal.quantity > 0 ? Math.min(100, (newProgress / goal.quantity) * 100) : 0;
 
         await updateUserGoalDb(goal.id, {
           days_completed: newProgress,
@@ -864,6 +876,12 @@ export default function Goals() {
         // Create check-in in database
         const checkIn = await createCheckInDb(user.id);
         setDailyCheckInDone(true);
+        // Award points for daily check-in
+        try {
+          await addPointsDb(5);
+        } catch (pointsErr) {
+          console.error("Error awarding check-in points:", pointsErr);
+        }
 
         // Update week check-ins
         const dayOfWeek = new Date().getDay();
@@ -899,6 +917,12 @@ export default function Goals() {
       // Create check-in in database
       await createCheckInDb(user.id);
       setDailyCheckInDone(true);
+      // Award points for daily check-in
+      try {
+        await addPointsDb(5);
+      } catch (pointsErr) {
+        console.error("Error awarding check-in points:", pointsErr);
+      }
 
       // Update week check-ins
       const dayOfWeek = new Date().getDay();
@@ -908,7 +932,7 @@ export default function Goals() {
 
       // Update goal progress - increment by 1 and recalculate percentage
       const newProgress = selectedCheckInGoal.days_completed + 1;
-      const newPercentage = Math.min(100, (newProgress / selectedCheckInGoal.quantity) * 100);
+      const newPercentage = selectedCheckInGoal.quantity > 0 ? Math.min(100, (newProgress / selectedCheckInGoal.quantity) * 100) : 0;
 
       await updateUserGoalDb(selectedCheckInGoal.id, {
         days_completed: newProgress,
@@ -2820,6 +2844,7 @@ export default function Goals() {
                                 <input
                                   type="number"
                                   step="0.5"
+                                  min="0"
                                   value={s.kg === 0 ? "" : s.kg}
                                   onChange={(e) =>
                                     handleUpdateSerie(
@@ -2836,6 +2861,7 @@ export default function Goals() {
                                 {/* REPS Input */}
                                 <input
                                   type="number"
+                                  min="0"
                                   value={s.reps === 0 ? "" : s.reps}
                                   onChange={(e) =>
                                     handleUpdateSerie(

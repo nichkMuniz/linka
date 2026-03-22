@@ -3369,19 +3369,10 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
   if (!viewer) return [];
 
   try {
-    // Get reels from current user and followed users
-    const followingIds = await getFollowingIdsDb();
-    const userIdsToShow = [viewer.id, ...followingIds];
-
-
-    if (userIdsToShow.length === 0) {
-      return [];
-    }
-
+    // Get all reels from all users (algorithm shows everyone's content)
     const { data: reelsData, error: reelsError } = await supabase
       .from("reels")
       .select("id, user_id, video_url, description, created_at")
-      .in("user_id", userIdsToShow)
       .order("created_at", { ascending: false });
 
     if (reelsError) {
@@ -3821,18 +3812,23 @@ export async function getReelCommentsDb(
 export async function deleteReelCommentDb(commentId: string) {
   if (!hasSupabaseConfig || !supabase) return;
 
+  const viewer = await getViewer();
+  if (!viewer) return;
+
   try {
     const { error } = await supabase
       .from("reel_comments")
       .delete()
-      .eq("id", commentId);
+      .eq("id", commentId)
+      .eq("user_id", viewer.id);
 
     if (error) {
       // Try legacy format if reel_comments table doesn't exist
       const { error: legacyError } = await supabase
         .from("comments")
         .delete()
-        .eq("id", commentId);
+        .eq("id", commentId)
+        .eq("user_id", viewer.id);
 
       if (legacyError) {
         console.error(
@@ -5728,12 +5724,16 @@ export async function getGroupParticipantsDb(
 export async function deleteGroupDb(groupId: string): Promise<void> {
   if (!supabase) throw new Error("Supabase not configured");
 
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Not authenticated");
+
   try {
     // Delete the duel group (cascading deletes should handle participants and check-ins)
     const { error: deleteError } = await supabase
       .from("duel_groups")
       .delete()
-      .eq("id", groupId);
+      .eq("id", groupId)
+      .eq("user_id", viewer.id);
 
     if (deleteError) throw deleteError;
   } catch (error) {

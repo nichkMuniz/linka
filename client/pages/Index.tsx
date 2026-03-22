@@ -73,6 +73,7 @@ export default function Index() {
   const [togglingPostId, setTogglingPostId] = React.useState<string | null>(
     null,
   );
+  const [togglingIncentives, setTogglingIncentives] = React.useState<Set<string>>(new Set());
   const [goalModalOpen, setGoalModalOpen] = React.useState(false);
   const [selectedGoalPost, setSelectedGoalPost] =
     React.useState<PostWithStats | null>(null);
@@ -161,6 +162,20 @@ export default function Index() {
       }
     })();
   }, []);
+
+  // Auto-load discover posts when following feed is empty
+  React.useEffect(() => {
+    if (!loading && posts.length === 0 && feedMode === "following" && !discoverLoaded) {
+      setDiscoverLoading(true);
+      getDiscoverPosts()
+        .then((data) => {
+          setDiscoverPosts(data);
+          setDiscoverLoaded(true);
+        })
+        .catch((err) => console.error("Erro ao pré-carregar posts populares:", err))
+        .finally(() => setDiscoverLoading(false));
+    }
+  }, [loading, posts.length, feedMode, discoverLoaded]);
 
   // Load current user's profile photo whenever user becomes available
   React.useEffect(() => {
@@ -355,12 +370,17 @@ export default function Index() {
 
   const handleToggleLike = React.useCallback(
     async (postId: string, incentiveType: PostIncentiveType) => {
+      const key = `${postId}-${incentiveType}`;
+      if (togglingIncentives.has(key)) return;
+      let previousPosts: PostWithStats[] = [];
       try {
+        setTogglingIncentives((prev) => new Set(prev).add(key));
         setTogglingPostId(postId);
 
-        // Update UI optimistically
-        setPosts((prev) =>
-          prev.map((post) => {
+        // Update UI optimistically, capturing previous state for rollback
+        setPosts((prev) => {
+          previousPosts = prev;
+          return prev.map((post) => {
             if (post.id !== postId) return post;
 
             const wasActive = post.userLikes.includes(incentiveType);
@@ -393,8 +413,8 @@ export default function Index() {
               likes: likesMap,
               userLikes: newUserLikes,
             };
-          }),
-        );
+          });
+        });
 
         await togglePostLike(postId, incentiveType);
       } catch (err: any) {
@@ -403,14 +423,14 @@ export default function Index() {
           title: "Erro ao reagir",
           description: err?.message || "Tente novamente.",
         });
-        // Refetch to restore correct state
-        const data = await getFeedPosts();
-        setPosts(data);
+        // Revert optimistic update on failure
+        if (previousPosts.length > 0) setPosts(previousPosts);
       } finally {
         setTogglingPostId(null);
+        setTogglingIncentives((prev) => { const next = new Set(prev); next.delete(key); return next; });
       }
     },
-    [],
+    [togglingIncentives],
   );
 
   const handleSharePost = React.useCallback((post: PostWithStats) => {
@@ -951,27 +971,71 @@ export default function Index() {
                 </Card>
               ))
             ) : (
-              <div className="flex flex-col items-center py-16 gap-6 text-center px-4">
-                <div className="w-16 h-16 rounded-full bg-brand/10 flex items-center justify-center">
-                  <span className="text-3xl">🏋️</span>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-base font-semibold">Seu feed está vazio</p>
+              <div className="space-y-4">
+                <div className="flex flex-col items-center gap-3 text-center px-4 pt-6 pb-2">
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    Siga pessoas para ver os treinos delas aqui, ou explore o que está acontecendo na comunidade.
+                    Siga pessoas para ver o feed delas. Enquanto isso, confira posts populares:
                   </p>
-                </div>
-                <div className="flex flex-col gap-2 w-full max-w-xs">
-                  <Button className="rounded-full w-full" onClick={() => navigate("/buscar")}>
+                  <Button size="sm" variant="outline" className="rounded-full" onClick={() => navigate("/buscar")}>
                     Buscar pessoas
                   </Button>
-                  <Button variant="outline" className="rounded-full w-full" onClick={() => setFeedMode("discover")}>
-                    Explorar posts
-                  </Button>
-                  <Button variant="ghost" className="rounded-full w-full text-sm" onClick={() => navigate("/metas")}>
-                    Configurar minha primeira rotina
-                  </Button>
                 </div>
+                {discoverLoading ? (
+                  <>
+                    {[1, 2, 3].map((i) => (
+                      <PostSkeleton key={i} />
+                    ))}
+                  </>
+                ) : discoverPosts.length === 0 ? (
+                  <div className="flex flex-col items-center py-8 gap-2 text-center">
+                    <p className="text-sm text-muted-foreground">Nenhum post popular disponível agora.</p>
+                  </div>
+                ) : (
+                  discoverPosts.map((post) => (
+                    <Card
+                      key={`seed-${post.id}`}
+                      className="border-border/60 relative overflow-hidden fade-in"
+                    >
+                      <CardContent className="space-y-3 p-0">
+                        <div className="relative">
+                          {post.photos && post.photos.length > 0 ? (
+                            <PostCarousel photos={post.photos} alt="Post" />
+                          ) : (
+                            <ImageWithFallback
+                              src={post.photo}
+                              alt="Post"
+                              fallback="/placeholder.svg"
+                              className="w-full object-cover rounded-lg"
+                            />
+                          )}
+                          <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
+                            <button
+                              onClick={() => navigate(`/usuario/${post.user_id}`)}
+                              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                            >
+                              {post.userPhoto ? (
+                                <ImageWithFallback
+                                  src={post.userPhoto}
+                                  alt={post.userNickname}
+                                  fallback="/placeholder.svg"
+                                  className="h-8 w-8 rounded-full object-cover border border-white/30"
+                                />
+                              ) : (
+                                <div className="h-8 w-8 rounded-full bg-white/30" />
+                              )}
+                              <span className="text-xs font-medium text-white drop-shadow-sm">
+                                {post.userNickname}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                        {post.description && (
+                          <p className="text-sm px-4 pb-3 text-foreground/80 line-clamp-2">{post.description}</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
               </div>
             )
           )}

@@ -32,6 +32,7 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
   const navigate = useNavigate();
   const [reels, setReels] = React.useState<ReelWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [reelsError, setReelsError] = React.useState(false);
   const [visibleReelId, setVisibleReelId] = React.useState<string | null>(null);
   const [togglingReelId, setTogglingReelId] = React.useState<string | null>(
     null,
@@ -75,6 +76,7 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
           title: "Erro ao carregar reels",
           description: err?.message || "Tente novamente.",
         });
+        setReelsError(true);
       } finally {
         setLoading(false);
       }
@@ -296,11 +298,21 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
     );
   }
 
-  if (reels.length === 0) {
+  if (!loading && reelsError) {
     return (
       <div className="flex items-center justify-center h-full w-full bg-black">
         <p className="text-sm text-muted-foreground">
-          Nenhum clip disponível no momento.
+          Erro ao carregar clips. Tente novamente.
+        </p>
+      </div>
+    );
+  }
+
+  if (!loading && reels.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full w-full bg-black">
+        <p className="text-sm text-muted-foreground">
+          Nenhum clip disponível ainda.
         </p>
       </div>
     );
