@@ -382,7 +382,7 @@ export function AppLayout() {
                 <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative" aria-label="Notificações">
                   <Bell className="h-5 w-5" />
                   {unreadNotificationsCount > 0 && (
-                    <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-white text-xs font-semibold">
+                    <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand text-white text-xs font-semibold">
                       {unreadNotificationsCount > 9 ? "9+" : unreadNotificationsCount}
                     </span>
                   )}
@@ -392,7 +392,7 @@ export function AppLayout() {
                 <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative" aria-label="Comunidade">
                   <Users2 className="h-5 w-5" />
                   {unreadCount > 0 && (
-                    <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-xs font-semibold">
+                    <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand-2 text-white text-xs font-semibold">
                       {unreadCount > 9 ? "9+" : unreadCount}
                     </span>
                   )}
@@ -426,7 +426,9 @@ export function AppLayout() {
                   >
                     <span className={cn(
                       "grid h-11 w-11 place-items-center rounded-2xl ring-1 transition",
-                      active ? "bg-brand text-white ring-brand/30" : "bg-transparent ring-transparent",
+                      active
+                        ? "text-white ring-transparent bg-brand-gradient"
+                        : "bg-transparent ring-transparent",
                     )}>
                       <Icon className="h-6 w-6" />
                     </span>

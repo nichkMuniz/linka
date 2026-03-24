@@ -12,92 +12,98 @@
    * A different format will require also updating the theme in tailwind.config.ts.
   */
   :root {
-    --background: 210 20% 98.5%;
-    --foreground: 222 25% 10%;
+    --background: 214 40% 97%;
+    --foreground: 214 35% 10%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222 30% 12%;
+    --card: 214 30% 99%;
+    --card-foreground: 214 35% 12%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 30% 12%;
+    --popover: 214 30% 99%;
+    --popover-foreground: 214 35% 12%;
 
-    --primary: 210 90% 52%;
+    /* Primary = azul da logo #3A8DFF */
+    --primary: 214 100% 61%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 18% 96%;
-    --secondary-foreground: 222 24% 16%;
+    --secondary: 263 30% 94%;
+    --secondary-foreground: 263 50% 20%;
 
     --muted: 220 16% 95%;
     --muted-foreground: 220 10% 42%;
 
-    --accent: 28 100% 95%;
-    --accent-foreground: 222 25% 12%;
+    /* Accent = laranja da logo #FF8A2A */
+    --accent: 28 100% 92%;
+    --accent-foreground: 28 80% 20%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 100%;
 
     --border: 220 14% 90%;
     --input: 220 14% 90%;
-    --ring: 210 90% 52%;
+    --ring: 214 100% 61%;
 
     --radius: 1rem;
 
-    /* Brand helpers (blue / orange / black) */
-    --brand: 210 90% 52%; /* blue */
-    --brand-2: 24 95% 55%; /* orange */
-    --brand-3: 220 90% 44%; /* deep blue */
+    /* Brand palette — logo gradient: azul → roxo → laranja */
+    --brand: 214 100% 61%;   /* #3A8DFF azul */
+    --brand-2: 28 100% 58%;  /* #FF8A2A laranja */
+    --brand-3: 263 89% 60%;  /* #7B3FF2 roxo */
 
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 222 24% 18%;
-    --sidebar-primary: 210 90% 52%;
+    --sidebar-primary: 214 100% 61%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 18% 96%;
-    --sidebar-accent-foreground: 222 24% 16%;
+    --sidebar-accent: 263 30% 94%;
+    --sidebar-accent-foreground: 263 50% 20%;
     --sidebar-border: 220 14% 90%;
-    --sidebar-ring: 210 90% 52%;
+    --sidebar-ring: 214 100% 61%;
   }
 
   .dark {
-    --background: 222 28% 8%;
+    /* Background azulado profundo inspirado em #3A8DFF — hue 214, saturação média, luminosidade baixa */
+    --background: 214 35% 9%;
     --foreground: 0 0% 98%;
 
-    --card: 222 28% 10%;
+    --card: 214 30% 12%;
     --card-foreground: 0 0% 98%;
 
-    --popover: 222 28% 10%;
+    --popover: 214 30% 12%;
     --popover-foreground: 0 0% 98%;
 
-    --primary: 210 90% 60%;
-    --primary-foreground: 222 25% 10%;
+    /* Primary = azul da logo #3A8DFF (levemente mais brilhante no dark) */
+    --primary: 214 100% 65%;
+    --primary-foreground: 214 35% 9%;
 
-    --secondary: 222 18% 16%;
+    --secondary: 214 25% 18%;
     --secondary-foreground: 0 0% 98%;
 
-    --muted: 222 18% 16%;
-    --muted-foreground: 220 14% 70%;
+    --muted: 214 25% 16%;
+    --muted-foreground: 214 20% 68%;
 
-    --accent: 24 35% 20%;
+    /* Accent = laranja da logo no dark */
+    --accent: 28 50% 22%;
     --accent-foreground: 0 0% 98%;
 
     --destructive: 0 62.8% 35%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 222 18% 20%;
-    --input: 222 18% 20%;
-    --ring: 210 90% 60%;
+    --border: 214 25% 20%;
+    --input: 214 25% 20%;
+    --ring: 214 100% 65%;
 
-    --brand: 210 90% 60%;
-    --brand-2: 24 95% 60%;
-    --brand-3: 220 90% 55%;
+    /* Brand palette dark */
+    --brand: 214 100% 65%;   /* #3A8DFF azul */
+    --brand-2: 28 100% 62%;  /* #FF8A2A laranja */
+    --brand-3: 263 89% 65%;  /* #7B3FF2 roxo */
 
-    --sidebar-background: 222 28% 9%;
+    --sidebar-background: 214 35% 10%;
     --sidebar-foreground: 0 0% 96%;
-    --sidebar-primary: 210 90% 60%;
+    --sidebar-primary: 214 100% 65%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 222 18% 14%;
+    --sidebar-accent: 214 25% 16%;
     --sidebar-accent-foreground: 0 0% 96%;
-    --sidebar-border: 222 18% 18%;
-    --sidebar-ring: 210 90% 60%;
+    --sidebar-border: 214 25% 18%;
+    --sidebar-ring: 214 100% 65%;
   }
 }
 
@@ -123,6 +129,22 @@
 }
 
 @layer utilities {
+  /* Brand gradient — azul #3A8DFF → roxo #7B3FF2 → laranja #FF8A2A */
+  .bg-brand-gradient {
+    background: linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 50%, #FF8A2A 100%);
+  }
+
+  .text-brand-gradient {
+    background: linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 50%, #FF8A2A 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .border-brand-gradient {
+    border-image: linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 50%, #FF8A2A 100%) 1;
+  }
+
   /* Smooth transitions */
   .transition-smooth {
     @apply transition-all duration-300 ease-out;

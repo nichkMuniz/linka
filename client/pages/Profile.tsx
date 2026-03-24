@@ -1334,7 +1334,7 @@ export default function Profile() {
                       setSelectedProfileStory(profileStories[0]);
                       setIsStoryViewerOpen(true);
                     }}
-                    className="rounded-full p-[3px] bg-gradient-to-tr from-brand to-brand/60 ring-0 cursor-pointer hover:opacity-90 transition-opacity"
+                    className="rounded-full p-[3px] bg-brand-gradient ring-0 cursor-pointer hover:opacity-90 transition-opacity"
                     title="Ver flow"
                   >
                     {profile.photo ? (

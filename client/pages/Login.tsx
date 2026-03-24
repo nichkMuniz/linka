@@ -24,6 +24,7 @@ import {
   checkSupabaseReachability,
 } from "@/lib/network-status";
 import { Fingerprint, Upload, X, Search, Check, ArrowLeft, Eye, EyeOff } from "lucide-react";
+import { useTheme } from "next-themes";
 import { getAllUsersDb, searchUsersDb, type SearchUser, followUserDb } from "@/lib/ritmofit-db";
 
 function isEmailNotConfirmed(message: string | undefined) {
@@ -42,9 +43,13 @@ function formatPhoneDisplay(value: string): string {
 }
 
 function BrandHeader() {
+  const { resolvedTheme } = useTheme();
+  const logoSrc = resolvedTheme === "dark"
+    ? "/logo-horizontal-icone-branco.png"
+    : "/logo-horizontal-icone-preto.png";
   return (
     <div className="flex items-center justify-center">
-      <img src="/logo-horizontal.png" alt="LinKa" className="h-16" />
+      <img src={logoSrc} alt="LinKa" className="h-28 w-auto" />
     </div>
   );
 }
@@ -848,13 +853,13 @@ export default function Login() {
                 <TabsList className="grid w-full grid-cols-2 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
                   <TabsTrigger
                     value="login"
-                    className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                    className="rounded-full rounded-full data-[state=active]:bg-brand-gradient data-[state=active]:text-white data-[state=active]:shadow-md"
                   >
                     Entrar
                   </TabsTrigger>
                   <TabsTrigger
                     value="signup"
-                    className="rounded-full data-[state=active]:bg-brand data-[state=active]:text-white data-[state=active]:shadow-md data-[state=active]:ring-1 data-[state=active]:ring-brand/30"
+                    className="rounded-full rounded-full data-[state=active]:bg-brand-gradient data-[state=active]:text-white data-[state=active]:shadow-md"
                   >
                     Criar conta
                   </TabsTrigger>
@@ -1293,17 +1298,15 @@ export default function Login() {
                             key={segment.id}
                             type="button"
                             onClick={() => toggleSegment(segment.id)}
-                            className={`flex items-center gap-3 rounded-lg border-2 p-3 transition-all ${
-                              selectedSegments.has(segment.id)
-                                ? "border-brand bg-brand/10"
-                                : "border-border/60 hover:border-border"
-                            }`}
+                            className={`flex items-center gap-3 rounded-lg border-2 p-3 transition-all ${selectedSegments.has(segment.id)
+                              ? "border-brand bg-brand/10"
+                              : "border-border/60 hover:border-border"
+                              }`}
                           >
-                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                              selectedSegments.has(segment.id)
-                                ? "border-brand bg-brand"
-                                : "border-border/60"
-                            }`}>
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${selectedSegments.has(segment.id)
+                              ? "border-brand bg-brand"
+                              : "border-border/60"
+                              }`}>
                               {selectedSegments.has(segment.id) && (
                                 <Check className="h-3 w-3 text-white" />
                               )}

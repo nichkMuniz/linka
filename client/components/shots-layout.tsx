@@ -204,7 +204,7 @@ export function ShotsLayout() {
                   >
                     <span className={cn(
                       "grid h-11 w-11 place-items-center rounded-2xl ring-1 transition",
-                      active ? "bg-brand text-white ring-brand/30" : "bg-transparent ring-transparent",
+                      active ? "bg-brand-gradient text-white ring-transparent" : "bg-transparent ring-transparent",
                     )}>
                       <Icon className="h-6 w-6" />
                     </span>
