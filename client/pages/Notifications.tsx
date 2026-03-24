@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, MessageCircle, UserPlus, Zap, HeartHandshake, Flame, Trophy, Rocket, Target } from "lucide-react";
+import { Heart, MessageCircle, UserPlus, Zap, HeartHandshake, Flame, Trophy, Rocket, Target, Swords } from "lucide-react";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -119,6 +119,22 @@ export default function Notifications() {
           bgColor: "bg-purple-500/10",
           borderColor: "border-purple-200/50",
         };
+      case 4:
+        return {
+          icon: <Swords className="h-5 w-5 text-orange-500" />,
+          title: "Convite para duelo",
+          description: `${notification.userNickname} te adicionou ao grupo "${notification.groupName ?? "Duelo"}"`,
+          bgColor: "bg-orange-500/10",
+          borderColor: "border-orange-200/50",
+        };
+      case 5:
+        return {
+          icon: <Swords className="h-5 w-5 text-yellow-500" />,
+          title: "Solicitação de entrada",
+          description: `${notification.userNickname} quer entrar no grupo "${notification.groupName ?? "Duelo"}"`,
+          bgColor: "bg-yellow-500/10",
+          borderColor: "border-yellow-200/50",
+        };
       default:
         return {
           icon: <Zap className="h-5 w-5 text-gray-500" />,
@@ -185,6 +201,10 @@ export default function Notifications() {
     // Type 1 (new follower) - navigate to user profile
     if (notification.type === 1) {
       navigate(`/usuario/${notification.userId}`);
+    }
+    // Type 4 (duel invite) or type 5 (join request) - navigate to community
+    else if (notification.type === 4 || notification.type === 5) {
+      navigate("/comunidade");
     }
     // Type 2 and 3 (incentive and comment) - navigate to post
     else if (notification.postId) {

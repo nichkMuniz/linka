@@ -1,5 +1,15 @@
 import * as React from "react";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogTitle,
@@ -25,30 +35,32 @@ import {
   type StoryComment,
   type FlowViewer,
 } from "@/lib/ritmofit-db";
-import { X, ChevronLeft, Send, Trash2, Eye } from "lucide-react";
+import { X, ChevronLeft, Send, Trash2, Eye, Pause, Play } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
 import { toast } from "@/components/ui/use-toast";
 import { Input } from "@/components/ui/input";
 
-interface StoryViewerModalProps {
+interface FlowViewerModalProps {
   story: StoryWithUser | null;
   stories: StoryWithUser[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onNextStory: () => void;
   onPrevStory?: () => void;
+  onDeleted?: () => void;
 }
 
-export function StoryViewerModal({
+export function FlowViewerModal({
   story,
   stories,
   open,
   onOpenChange,
   onNextStory,
   onPrevStory,
-}: StoryViewerModalProps) {
+  onDeleted,
+}: FlowViewerModalProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [likes, setLikes] = React.useState<Record<string, any>>({});
@@ -60,16 +72,29 @@ export function StoryViewerModal({
   const [timerProgress, setTimerProgress] = React.useState(100);
   const [isTyping, setIsTyping] = React.useState(false);
   const [isDeletingStory, setIsDeletingStory] = React.useState(false);
+  const [commentToDelete, setCommentToDelete] = React.useState<string | null>(null);
   const [viewersModalOpen, setViewersModalOpen] = React.useState(false);
   const [viewers, setViewers] = React.useState<FlowViewer[]>([]);
   const [isLoadingViewers, setIsLoadingViewers] = React.useState(false);
+  const [isPaused, setIsPaused] = React.useState(false);
+  const showCommentInput = true;
   const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = React.useRef(false);
+  const isPausedRef = React.useRef(false);
+  const onNextStoryRef = React.useRef(onNextStory);
 
-  // Keep isTypingRef in sync with isTyping state
+  // Keep refs in sync
   React.useEffect(() => {
     isTypingRef.current = isTyping;
   }, [isTyping]);
+
+  React.useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
+
+  React.useEffect(() => {
+    onNextStoryRef.current = onNextStory;
+  }, [onNextStory]);
 
   React.useEffect(() => {
     if (!open || !story) return;
@@ -99,8 +124,10 @@ export function StoryViewerModal({
       );
     }
 
-    // Reset timer when story changes
+    // Reset timer & pause state when story changes
     setTimerProgress(100);
+    setIsPaused(false);
+    isPausedRef.current = false;
 
     // Clear existing timers
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
@@ -110,8 +137,8 @@ export function StoryViewerModal({
     let elapsedTime = 0;
 
     const updateTimer = () => {
-      // Pause timer when user is typing
-      if (isTypingRef.current) return;
+      // Pause timer when user is typing or paused
+      if (isTypingRef.current || isPausedRef.current) return;
 
       elapsedTime += TIMER_INTERVAL;
       const progress = Math.max(0, 100 - (elapsedTime / STORY_DURATION) * 100);
@@ -119,7 +146,7 @@ export function StoryViewerModal({
 
       if (elapsedTime >= STORY_DURATION) {
         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-        onNextStory();
+        onNextStoryRef.current();
       }
     };
 
@@ -128,7 +155,11 @@ export function StoryViewerModal({
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
-  }, [open, story, user, onNextStory]);
+  }, [open, story?.id, user]);
+
+  const handleTogglePause = React.useCallback(() => {
+    setIsPaused((prev) => !prev);
+  }, []);
 
   const handleOpenViewers = React.useCallback(async () => {
     if (!story) return;
@@ -233,6 +264,7 @@ export function StoryViewerModal({
       if (success) {
         onOpenChange(false);
         toast({ title: "Flow deletado", description: "Seu flow foi removido." });
+        onDeleted?.();
       }
     } catch (err: any) {
       toast({
@@ -269,7 +301,9 @@ export function StoryViewerModal({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-screen h-screen max-w-none max-h-none p-0 border-0 bg-black">
+        <DialogContent
+          className="w-screen h-screen max-w-none max-h-none p-0 border-0 bg-black [&>button]:hidden"
+        >
           <DialogTitle className="sr-only">Flow viewer</DialogTitle>
           <div className="relative w-full h-full flex flex-col">
             {/* Header */}
@@ -316,9 +350,17 @@ export function StoryViewerModal({
                 </button>
 
                 <div className="flex items-center gap-2 shrink-0">
+                  {/* Pause/Play button */}
+                  <button
+                    onClick={handleTogglePause}
+                    className="text-white hover:text-brand transition-colors"
+                    title={isPaused ? "Retomar" : "Pausar"}
+                  >
+                    {isPaused ? <Play className="h-5 w-5" /> : <Pause className="h-5 w-5" />}
+                  </button>
                   {isOwner && (
                     <button
-                      onClick={handleOpenViewers}
+                      onClick={() => { setIsPaused(true); handleOpenViewers(); }}
                       className="text-white hover:text-brand transition-colors"
                       title="Ver quem visualizou"
                     >
@@ -345,11 +387,8 @@ export function StoryViewerModal({
               </div>
             </div>
 
-            {/* Media - Full Screen (tap anywhere to go next) */}
-            <div
-              className="flex-1 flex items-center justify-center relative cursor-pointer"
-              onClick={hasNextStory ? onNextStory : undefined}
-            >
+            {/* Media - Full Screen */}
+            <div className="flex-1 flex items-center justify-center relative">
               {isVideo ? (
                 <video src={story.media_url} className="w-full h-full object-cover" autoPlay />
               ) : (
@@ -365,7 +404,32 @@ export function StoryViewerModal({
                 />
               )}
 
-              {/* Incentive Buttons - Right Side (visible to all viewers) */}
+              {/* Center tap zone - pause/resume */}
+              <button
+                className="absolute left-1/4 right-1/4 top-0 bottom-0 z-20"
+                onClick={handleTogglePause}
+                aria-label={isPaused ? "Retomar" : "Pausar"}
+              />
+
+              {/* Right tap zone - next story */}
+              {hasNextStory && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onNextStory(); }}
+                  className="absolute right-0 top-0 bottom-0 w-1/4 z-20"
+                  aria-label="Próximo story"
+                />
+              )}
+
+              {/* Paused indicator */}
+              {isPaused && (
+                <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+                  <div className="bg-black/40 rounded-full p-4">
+                    <Play className="h-10 w-10 text-white" />
+                  </div>
+                </div>
+              )}
+
+              {/* Incentive Buttons + Comment icon - Right Side */}
               <div
                 className="absolute right-4 bottom-20 flex flex-col gap-2 z-30"
                 onClick={(e) => e.stopPropagation()}
@@ -383,62 +447,64 @@ export function StoryViewerModal({
 
               {/* Description Overlay */}
               {story.description && (
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10">
+                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10 pointer-events-none">
                   <p className="text-sm text-white">{story.description}</p>
                 </div>
               )}
             </div>
 
             {/* Bottom Section - Comments */}
-            <div className="shrink-0 bg-black/90 border-t border-white/10 p-3 space-y-3 max-h-32 flex flex-col z-20">
-              {comments.length > 0 && (
-                <div className="overflow-y-auto flex-1 space-y-2 max-h-20">
-                  {comments.map((comment) => (
-                    <div key={comment.id} className="flex items-start gap-2 text-xs">
-                      <div className="flex-1">
-                        <span className="font-semibold text-white">{comment.userName}</span>
-                        <span className="text-white/70 ml-2">{comment.text}</span>
+            {showCommentInput && (
+              <div className="shrink-0 bg-black/90 border-t border-white/10 p-3 space-y-3 max-h-40 flex flex-col z-20">
+                {comments.length > 0 && (
+                  <div className="overflow-y-auto flex-1 space-y-2 max-h-24">
+                    {comments.map((comment) => (
+                      <div key={comment.id} className="flex items-start gap-2 text-xs">
+                        <div className="flex-1">
+                          <span className="font-semibold text-white">{comment.userName}</span>
+                          <span className="text-white/70 ml-2">{comment.text}</span>
+                        </div>
+                        {user?.id === comment.userId && (
+                          <button
+                            onClick={() => setCommentToDelete(comment.id)}
+                            className="text-red-400 hover:text-red-500 shrink-0"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
                       </div>
-                      {user?.id === comment.userId && (
-                        <button
-                          onClick={() => handleDeleteComment(comment.id)}
-                          className="text-red-400 hover:text-red-500 shrink-0"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
 
-              {user && (
-                <div className="flex gap-2 items-center bg-white/10 rounded-full px-3 py-1.5">
-                  <Input
-                    type="text"
-                    placeholder="Comentário..."
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    onFocus={() => setIsTyping(true)}
-                    onBlur={() => setIsTyping(false)}
-                    onKeyPress={(e) => {
-                      if (e.key === "Enter" && newComment.trim()) {
-                        handleAddComment();
-                      }
-                    }}
-                    className="flex-1 bg-transparent border-0 text-xs text-white placeholder-white/50 focus:outline-none focus-visible:ring-0 h-6"
-                    disabled={isAddingComment}
-                  />
-                  <button
-                    onClick={handleAddComment}
-                    disabled={!newComment.trim() || isAddingComment}
-                    className="text-white hover:text-brand disabled:opacity-50 shrink-0"
-                  >
-                    <Send className="h-3 w-3" />
-                  </button>
-                </div>
-              )}
-            </div>
+                {user && (
+                  <div className="flex gap-2 items-center bg-white/10 rounded-full px-3 py-1.5">
+                    <Input
+                      type="text"
+                      placeholder="Comentário..."
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      onFocus={() => setIsTyping(true)}
+                      onBlur={() => setIsTyping(false)}
+                      onKeyPress={(e) => {
+                        if (e.key === "Enter" && newComment.trim()) {
+                          handleAddComment();
+                        }
+                      }}
+                      className="flex-1 bg-transparent border-0 text-xs text-white placeholder-white/50 focus:outline-none focus-visible:ring-0 h-6"
+                      disabled={isAddingComment}
+                    />
+                    <button
+                      onClick={handleAddComment}
+                      disabled={!newComment.trim() || isAddingComment}
+                      className="text-white hover:text-brand disabled:opacity-50 shrink-0"
+                    >
+                      <Send className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -484,6 +550,30 @@ export function StoryViewerModal({
           </div>
         </DrawerContent>
       </Drawer>
+
+      {/* Comment delete confirmation */}
+      <AlertDialog open={!!commentToDelete} onOpenChange={(open) => { if (!open) setCommentToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apagar comentário</AlertDialogTitle>
+            <AlertDialogDescription>Tem certeza que deseja apagar este comentário?</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async (e) => {
+                e.preventDefault();
+                const id = commentToDelete!;
+                setCommentToDelete(null);
+                await handleDeleteComment(id);
+              }}
+            >
+              Sim, apagar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

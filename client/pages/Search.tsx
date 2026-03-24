@@ -9,7 +9,7 @@ import {
   getAllUsersDb,
   followUserDb,
   unfollowUserDb,
-  isFollowingDb,
+  getFollowingIdsDb,
   getRoutineWorkoutsDb,
   getRoutineDietsDb,
   copyRoutineToUserDb,
@@ -146,15 +146,11 @@ export default function Search() {
   React.useEffect(() => {
     if (!user) return;
     setIsLoading(true);
-    getAllUsersDb(user.id)
-      .then(async (users) => {
+    Promise.all([getAllUsersDb(user.id), getFollowingIdsDb()])
+      .then(([users, followingIdsList]) => {
         setAllUsers(users);
         setSearchUsers(users);
-        // Check all follow statuses in parallel instead of sequentially
-        const followResults = await Promise.all(users.map((u) => isFollowingDb(u.id)));
-        const ids = new Set<string>();
-        users.forEach((u, i) => { if (followResults[i]) ids.add(u.id); });
-        setFollowingIds(ids);
+        setFollowingIds(new Set(followingIdsList));
       })
       .catch((err) => console.error("Error loading users:", err))
       .finally(() => setIsLoading(false));

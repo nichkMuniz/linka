@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Plus } from "lucide-react";
 
-interface StoriesCarouselProps {
+interface FlowCarouselProps {
   stories: StoryWithUser[];
   onAddStoryClick: () => void;
   onStoryClick: (story: StoryWithUser) => void;
@@ -19,7 +19,7 @@ interface StoriesCarouselProps {
   viewCount?: number;
 }
 
-export function StoriesCarousel({
+export function FlowCarousel({
   stories,
   onAddStoryClick,
   onStoryClick,
@@ -27,7 +27,7 @@ export function StoriesCarousel({
   currentUserPhoto,
   isOwnerViewing,
   viewCount,
-}: StoriesCarouselProps) {
+}: FlowCarouselProps) {
   // Group stories by user — always overwrite so the last entry (oldest, since array is newest-first) is stored.
   // This ensures clicking opens from the first (oldest) story posted.
   const storyMap = new Map<string, StoryWithUser>();

@@ -11,19 +11,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { Upload, X, Camera, Image } from "lucide-react";
 
-interface StoryCreationDialogProps {
+interface FlowCreationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreateStory: (mediaUrl: string, description: string) => Promise<void>;
   isLoading?: boolean;
 }
 
-export function StoryCreationDialog({
+export function FlowCreationDialog({
   open,
   onOpenChange,
   onCreateStory,
   isLoading = false,
-}: StoryCreationDialogProps) {
+}: FlowCreationDialogProps) {
   const [mediaPreview, setMediaPreview] = React.useState<string | null>(null);
   const [description, setDescription] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);

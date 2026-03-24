@@ -356,10 +356,21 @@ export default function Login() {
         }
 
         if (photoUrl || bio.trim()) {
-          await supabase
+          // Try update first; if the profile row doesn't exist yet (trigger delay), use upsert
+          const { error: updateErr } = await supabase
             .from("profiles")
             .update({ ...(photoUrl ? { photo: photoUrl } : {}), ...(bio.trim() ? { bio: bio.trim() } : {}) })
             .eq("user_id", authUser.id);
+          if (updateErr) {
+            await supabase
+              .from("profiles")
+              .upsert({ user_id: authUser.id, ...(photoUrl ? { photo: photoUrl } : {}), ...(bio.trim() ? { bio: bio.trim() } : {}) }, { onConflict: "user_id" });
+          }
+        }
+
+        // Persist selected segments to localStorage for feed personalization
+        if (selectedSegments.size > 0) {
+          localStorage.setItem("user_fitness_segments", JSON.stringify([...selectedSegments]));
         }
       }
 
@@ -464,6 +475,9 @@ export default function Login() {
       title: "Conta criada com sucesso!",
       description: "Bem-vindo ao LinKa!",
     });
+
+    // Flag: new user should land on Descobrir tab
+    localStorage.setItem("new_user_open_discover", "1");
 
     if (biometricAvailable) {
       setShowBiometricSetup(true);
@@ -983,7 +997,7 @@ export default function Login() {
                             onChange={(e) => setPassword(e.target.value)}
                             placeholder="Mínimo 6 caracteres"
                             autoComplete="new-password"
-                            className="pr-10"
+                            className="pr-10 [&::-ms-reveal]:hidden [&::-webkit-credentials-auto-fill-button]:hidden"
                           />
                           <button
                             type="button"
@@ -1006,7 +1020,7 @@ export default function Login() {
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             placeholder="Confirme sua senha"
                             autoComplete="new-password"
-                            className={`pr-10 ${confirmPassword && password !== confirmPassword ? "border-red-500" : ""}`}
+                            className={`pr-10 [&::-ms-reveal]:hidden [&::-webkit-credentials-auto-fill-button]:hidden ${confirmPassword && password !== confirmPassword ? "border-red-500" : ""}`}
                           />
                           <button
                             type="button"
@@ -1052,57 +1066,41 @@ export default function Login() {
                       </div>
 
                       <div className="grid gap-2">
-                        <Label>Foto de perfil</Label>
-                        <div className="grid gap-2">
-                          {photoPreview && (
-                            <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-border/60">
-                              <img
-                                src={photoPreview}
-                                alt="Preview"
-                                className="w-full h-full object-cover"
-                              />
+                        <Label>Foto de perfil <span className="text-xs text-muted-foreground font-normal">(opcional)</span></Label>
+                        <div className="flex items-center gap-3">
+                          {photoPreview ? (
+                            <div className="relative w-16 h-16 rounded-full overflow-hidden border-2 border-border/60 shrink-0">
+                              <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setPhotoFile(null);
-                                  setPhotoPreview("");
-                                }}
-                                className="absolute top-1 right-1 bg-black/40 hover:bg-black/60 text-white p-1 rounded"
+                                onClick={() => { setPhotoFile(null); setPhotoPreview(""); }}
+                                className="absolute top-0.5 right-0.5 bg-black/50 text-white p-0.5 rounded-full"
                               >
                                 <X className="h-3 w-3" />
                               </button>
                             </div>
+                          ) : (
+                            <div className="w-16 h-16 rounded-full bg-muted border-2 border-dashed border-border/60 flex items-center justify-center shrink-0">
+                              <Upload className="h-5 w-5 text-muted-foreground" />
+                            </div>
                           )}
-                          <label className="relative">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="rounded-full w-full"
-                              asChild
-                            >
-                              <span>
-                                <Upload className="h-4 w-4 mr-2" />
-                                {photoFile ? "Mudar foto" : "Adicionar foto"}
-                              </span>
+                          <label className="relative flex-1">
+                            <Button type="button" variant="outline" className="rounded-full w-full" asChild>
+                              <span>{photoFile ? "Mudar foto" : "Adicionar foto"}</span>
                             </Button>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={handlePhotoChange}
-                              className="hidden"
-                            />
+                            <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
                           </label>
                         </div>
                       </div>
 
                       <div className="grid gap-2">
-                        <Label htmlFor="signup_bio">Bio (opcional)</Label>
+                        <Label htmlFor="signup_bio">Bio <span className="text-xs text-muted-foreground font-normal">(opcional)</span></Label>
                         <Textarea
                           id="signup_bio"
                           value={bio}
                           onChange={(e) => setBio(e.target.value)}
                           placeholder="Conte um pouco sobre você..."
-                          className="min-h-20"
+                          className="min-h-16 resize-none"
                         />
                       </div>
 
@@ -1140,6 +1138,21 @@ export default function Login() {
                           Próximo
                         </Button>
                       </div>
+
+                      {/* Skip option */}
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground text-center transition-colors"
+                        onClick={() => {
+                          if (!displayName.trim()) {
+                            toast({ title: "Nome obrigatório", description: "Por favor, informe seu nome.", variant: "destructive" });
+                            return;
+                          }
+                          setSignupStep(3);
+                        }}
+                      >
+                        Personalizar foto e bio depois →
+                      </button>
                     </div>
                   )}
 
@@ -1268,6 +1281,11 @@ export default function Login() {
                   {/* Step 3: Select Segments */}
                   {signupStep === 3 && (
                     <div className="grid gap-3">
+
+                      <div className="text-center space-y-1 mb-1">
+                        <h3 className="font-semibold text-sm">Qual é o seu objetivo?</h3>
+                        <p className="text-xs text-muted-foreground">Selecione um ou mais que se encaixam no seu foco atual</p>
+                      </div>
 
                       <div className="grid gap-2">
                         {FITNESS_SEGMENTS.map((segment) => (

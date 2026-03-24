@@ -398,6 +398,7 @@ export type ProgrammedGoal = {
   duration: number; // in days
   quantity: number;
   type: number;
+  created_by_user?: number | null; // 1 = user-created, null = default
 };
 
 export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
@@ -408,7 +409,7 @@ export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
 
   const { data, error } = await supabase
     .from("goals")
-    .select("id, description, duration, quantity, type")
+    .select("id, description, duration, quantity, type, created_by_user")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -426,6 +427,7 @@ export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
         duration: Number(row.duration ?? 0),
         quantity: Number(row.quantity ?? 0),
         type: Number(row.type ?? ""),
+        created_by_user: row.created_by_user != null ? Number(row.created_by_user) : null,
       }) satisfies ProgrammedGoal,
   );
 }
@@ -448,7 +450,7 @@ export async function createCustomGoalAndSelectDb(
   // Insert goal and link to user in a sequential but validated chain
   const { data, error } = await supabase
     .from("goals")
-    .insert({ description: description.trim(), type, duration, quantity })
+    .insert({ description: description.trim(), type, duration, quantity, created_by_user: 1 })
     .select("id")
     .single();
 
@@ -1308,6 +1310,104 @@ export async function deleteRoutinesOfTypeDb(
   }
 }
 
+// Get items for a specific routine (by userId + routineName + type) — works for other users via workouts/diets/habits catalog join
+export async function getRoutineItemsForViewDb(
+  userId: string,
+  type: number,
+  routineName: string | undefined,
+): Promise<Array<{ id: string; workoutName?: string; dietName?: string; habitName?: string }>> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  try {
+    if (type === 1) {
+      // Step 1: get user_workouts rows (no join — FK points to user_workouts_hist not workouts)
+      const query = supabase
+        .from("user_workouts")
+        .select("id, workout_id, name")
+        .eq("user_id", userId);
+      const { data, error } = routineName
+        ? await query.eq("name", routineName)
+        : await query.is("name", null);
+      if (error || !data || data.length === 0) return [];
+
+      // Step 2: fetch workout names from workouts table
+      const workoutIds = [...new Set(data.map((r: any) => r.workout_id).filter(Boolean))];
+      const { data: workoutsData } = workoutIds.length > 0
+        ? await supabase.from("workouts").select("id, name").in("id", workoutIds)
+        : { data: [] };
+      const nameMap = new Map((workoutsData ?? []).map((w: any) => [String(w.id), String(w.name)]));
+
+      const seen = new Set<string>();
+      return data.filter((r: any) => {
+        const k = r.workout_id ?? r.id;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      }).map((r: any) => ({
+        id: String(r.id),
+        workoutName: nameMap.get(String(r.workout_id)) || "Exercício",
+      }));
+
+    } else if (type === 2) {
+      const query = supabase
+        .from("user_diets")
+        .select("id, diet_id, name")
+        .eq("user_id", userId);
+      const { data, error } = routineName
+        ? await query.eq("name", routineName)
+        : await query.is("name", null);
+      if (error || !data || data.length === 0) return [];
+
+      const dietIds = [...new Set(data.map((r: any) => r.diet_id).filter(Boolean))];
+      const { data: dietsData } = dietIds.length > 0
+        ? await supabase.from("diets").select("id, name").in("id", dietIds)
+        : { data: [] };
+      const nameMap = new Map((dietsData ?? []).map((d: any) => [String(d.id), String(d.name)]));
+
+      const seen = new Set<string>();
+      return data.filter((r: any) => {
+        const k = r.diet_id ?? r.id;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      }).map((r: any) => ({
+        id: String(r.id),
+        dietName: nameMap.get(String(r.diet_id)) || "Dieta",
+      }));
+
+    } else {
+      const query = supabase
+        .from("user_habits")
+        .select("id, habit_id, name")
+        .eq("user_id", userId);
+      const { data, error } = routineName
+        ? await query.eq("name", routineName)
+        : await query.is("name", null);
+      if (error || !data || data.length === 0) return [];
+
+      const habitIds = [...new Set(data.map((r: any) => r.habit_id).filter(Boolean))];
+      const { data: habitsData } = habitIds.length > 0
+        ? await supabase.from("habits").select("id, name").in("id", habitIds)
+        : { data: [] };
+      const nameMap = new Map((habitsData ?? []).map((h: any) => [String(h.id), String(h.name)]));
+
+      const seen = new Set<string>();
+      return data.filter((r: any) => {
+        const k = r.habit_id ?? r.id;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      }).map((r: any) => ({
+        id: String(r.id),
+        habitName: nameMap.get(String(r.habit_id)) || "Hábito",
+      }));
+    }
+  } catch (err) {
+    console.error("Error fetching routine items for view:", err);
+    return [];
+  }
+}
+
 export async function getRoutinesByGoalIdDb(
   goalId: string,
 ): Promise<Routine[]> {
@@ -1365,17 +1465,21 @@ export async function getUserExerciseRoutinesDb(userId: string): Promise<Exercis
 
     const result: ExerciseRoutine[] = [];
     let hasUnnamed = false;
+    const seenNames = new Set<string>();
 
     for (const routine of routines) {
       if (routine.name) {
-        // Named routines appear individually
-        result.push({
-          id: String(routine.id ?? ""),
-          routineId: String(routine.id ?? ""),
-          userId: String(routine.user_id ?? ""),
-          exerciseName: String(routine.name),
-          exercisePhoto: null,
-        });
+        // Named routines — deduplicate by name
+        if (!seenNames.has(routine.name)) {
+          seenNames.add(routine.name);
+          result.push({
+            id: String(routine.id ?? ""),
+            routineId: String(routine.id ?? ""),
+            userId: String(routine.user_id ?? ""),
+            exerciseName: String(routine.name),
+            exercisePhoto: null,
+          });
+        }
       } else {
         hasUnnamed = true;
       }
@@ -1478,6 +1582,7 @@ export type UserWorkoutWithDetails = {
   workoutPhoto?: string | null;
   workoutDescription?: string;
   muscle_group?: string | null;
+  created_at?: string | null;
 };
 
 export async function getUserWorkoutsDb(
@@ -1488,7 +1593,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, volume, reps, calories, duration, time_rest, name, workouts(name, photo, description, muscle_group)",
+      "id, workout_id, user_id, volume, reps, calories, duration, time_rest, name, created_at, workouts(name, photo, description, muscle_group)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -1511,7 +1616,7 @@ export async function getUserWorkoutsDb(
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_workouts")
         .select(
-          "id, workout_id, user_id, volume, reps, calories, duration, time_rest, name",
+          "id, workout_id, user_id, volume, reps, calories, duration, time_rest, name, created_at",
         )
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
@@ -1552,6 +1657,7 @@ export async function getUserWorkoutsDb(
             workoutPhoto: workoutDetails?.photo || null,
             workoutDescription: workoutDetails?.description || undefined,
             muscle_group: workoutDetails?.muscle_group || null,
+            created_at: row.created_at ? String(row.created_at) : null,
           };
         });
       } else if (errorFallback) {
@@ -1582,6 +1688,7 @@ export async function getUserWorkoutsDb(
     workoutPhoto: (row.workouts as any)?.photo || null,
     workoutDescription: (row.workouts as any)?.description || undefined,
     muscle_group: (row.workouts as any)?.muscle_group || null,
+    created_at: row.created_at ? String(row.created_at) : null,
   }));
 }
 
@@ -1646,6 +1753,8 @@ export type UserDietWithDetails = {
   dietPhoto?: string | null;
   dietDescription?: string;
   dietCalories?: number;
+  is_completed?: boolean | null;
+  completed_at?: string | null;
 };
 
 export async function getUserDietsDb(
@@ -1715,6 +1824,8 @@ export async function getUserDietsDb(
             dietPhoto: dietDetails?.photo || null,
             dietDescription: dietDetails?.description || undefined,
             dietCalories: dietDetails?.calories || 0,
+            is_completed: false,
+            completed_at: null,
           };
         });
       } else if (errorFallback) {
@@ -1742,6 +1853,8 @@ export async function getUserDietsDb(
     dietPhoto: (row.diets as any)?.photo || null,
     dietDescription: (row.diets as any)?.description || undefined,
     dietCalories: (row.diets as any)?.calories || 0,
+    is_completed: false,
+    completed_at: null,
   }));
 }
 
@@ -1795,6 +1908,8 @@ export type UserHabitWithDetails = {
   habitName?: string;
   habitPhoto?: string | null;
   habitDescription?: string;
+  is_completed?: boolean | null;
+  completed_at?: string | null;
 };
 
 export async function getUserHabitsDb(
@@ -1859,6 +1974,8 @@ export async function getUserHabitsDb(
             habitName: habitDetails?.name || "Hábito desconhecido",
             habitPhoto: habitDetails?.photo || null,
             habitDescription: habitDetails?.description || undefined,
+            is_completed: false,
+            completed_at: null,
           };
         });
       } else if (errorFallback) {
@@ -1883,6 +2000,8 @@ export async function getUserHabitsDb(
     habitName: (row.habits as any)?.name || "Hábito desconhecido",
     habitPhoto: (row.habits as any)?.photo || null,
     habitDescription: (row.habits as any)?.description || undefined,
+    is_completed: false,
+    completed_at: null,
   }));
 }
 
@@ -2538,7 +2657,7 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
     const userIdsToShow = [viewer.id, ...followingIds];
 
     const { data, error } = await supabase
-      .from("storys")
+      .from("flow")
       .select("*")
       .in("user_id", userIdsToShow)
       .gte("created_at", twentyFourHoursAgo)
@@ -2572,6 +2691,8 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
       const profile = profileMap.get(story.user_id) ?? { nickname: "Usuário", photo: null };
       return {
         ...story,
+        id: String(story.id),
+        user_id: String(story.user_id),
         userNickname: profile.nickname,
         userPhoto: profile.photo,
       };
@@ -2589,7 +2710,7 @@ export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithU
 
   try {
     const { data, error } = await supabase
-      .from("storys")
+      .from("flow")
       .select("*")
       .eq("user_id", userId)
       .gte("created_at", twentyFourHoursAgo)
@@ -2607,6 +2728,8 @@ export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithU
 
     return data.map((story: any) => ({
       ...story,
+      id: String(story.id),
+      user_id: String(story.user_id),
       userNickname: profile?.nickname ?? "Usuário",
       userPhoto: profile?.photo ?? null,
     }));
@@ -2627,7 +2750,7 @@ export async function createStoryDb(
 
   try {
     const { data, error } = await supabase
-      .from("storys")
+      .from("flow")
       .insert({
         user_id: viewer.id,
         description,
@@ -2643,7 +2766,7 @@ export async function createStoryDb(
       return null;
     }
 
-    return data;
+    return data ? { ...data, id: String(data.id), user_id: String(data.user_id) } : null;
   } catch (err: any) {
     console.error("Error creating story:", err);
     return null;
@@ -2651,30 +2774,10 @@ export async function createStoryDb(
 }
 
 export async function deleteOldStoriesDb(): Promise<boolean> {
-  if (!hasSupabaseConfig || !supabase) return false;
-
-  try {
-    const twentyFourHoursAgo = new Date(
-      Date.now() - 24 * 60 * 60 * 1000,
-    ).toISOString();
-
-    const { error } = await supabase
-      .from("storys")
-      .delete()
-      .lt("created_at", twentyFourHoursAgo);
-
-    if (error) {
-      const errorMsg = error?.message || String(error);
-      const errorCode = error?.code || "UNKNOWN";
-      console.error(`Error deleting old stories [${errorCode}]:`, errorMsg);
-      return false;
-    }
-
-    return true;
-  } catch (err: any) {
-    console.error("Error deleting old stories:", err);
-    return false;
-  }
+  // Flows are no longer auto-deleted after 24h — they are only hidden from
+  // the active feed by the created_at filter in getActiveStoriesDb.
+  // Manual deletion happens via deleteStoryDb only.
+  return true;
 }
 
 export async function deleteStoryDb(storyId: string): Promise<boolean> {
@@ -2684,11 +2787,24 @@ export async function deleteStoryDb(storyId: string): Promise<boolean> {
   if (!viewer) return false;
 
   try {
-    // Only allow deleting own stories
+    // Cast to number in case PK is bigint — string comparison may not match
+    const numericId = Number(storyId);
+    const idValue = Number.isFinite(numericId) ? numericId : storyId;
+
+    // Delete dependencies first to avoid FK violations
+    // Try both numeric and string forms to handle bigint vs text FK columns
+    const { error: e1 } = await supabase.from("flow_likes").delete().eq("flow_id", idValue);
+    if (e1) { const { error: e1b } = await supabase.from("flow_likes").delete().eq("flow_id", String(storyId)); if (e1b) console.error("flow_likes delete error:", e1b.message); }
+    const { error: e2 } = await supabase.from("flow_comments").delete().eq("flow_id", idValue);
+    if (e2) { const { error: e2b } = await supabase.from("flow_comments").delete().eq("flow_id", String(storyId)); if (e2b) console.error("flow_comments delete error:", e2b.message); }
+    const { error: e3 } = await supabase.from("user_view_flow").delete().eq("flow_id", idValue);
+    if (e3) { const { error: e3b } = await supabase.from("user_view_flow").delete().eq("flow_id", String(storyId)); if (e3b) console.error("user_view_flow delete error:", e3b.message); }
+
+    // Only allow deleting own flow
     const { error } = await supabase
-      .from("storys")
+      .from("flow")
       .delete()
-      .eq("id", storyId)
+      .eq("id", idValue)
       .eq("user_id", viewer.id);
 
     if (error) {
@@ -2713,11 +2829,14 @@ export async function toggleStoryLikeDb(
   const viewer = await getViewer();
   if (!viewer) return;
 
-  // Use canonical field: story_id
+  // Cast to number in case PK is bigint
+  const numericId = Number(storyId);
+  const idValue = Number.isFinite(numericId) ? numericId : storyId;
+
   const { data: existing } = await supabase
     .from("flow_likes")
     .select("id")
-    .eq("story_id", storyId)
+    .eq("flow_id", idValue)
     .eq("user_id", viewer.id)
     .eq("type", incentiveType)
     .maybeSingle();
@@ -2727,7 +2846,7 @@ export async function toggleStoryLikeDb(
     if (error) console.error("Error removing story like:", error);
   } else {
     const { error } = await supabase.from("flow_likes").insert({
-      story_id: storyId,
+      flow_id: idValue,
       user_id: viewer.id,
       type: incentiveType,
     });
@@ -2744,14 +2863,16 @@ export async function getStoryLikesDb(storyId: string): Promise<PostLikeStats> {
     return { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
   }
 
+  const numId = Number(storyId);
+  const idVal = Number.isFinite(numId) ? numId : storyId;
   // Fetch counts per type in parallel — 6 lightweight HEAD requests instead of fetching all rows
   const [r1, r2, r3, r4, r5, r6] = await Promise.all([
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 1),
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 2),
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 3),
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 4),
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 5),
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("story_id", storyId).eq("type", 6),
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 1),
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 2),
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 3),
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 4),
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 5),
+    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 6),
   ]);
 
   return {
@@ -2772,10 +2893,12 @@ export async function getUserStoryLikesDb(
   const viewer = await getViewer();
   if (!viewer) return [];
 
+  const numId2 = Number(storyId);
+  const idVal2 = Number.isFinite(numId2) ? numId2 : storyId;
   const { data } = await supabase
     .from("flow_likes")
     .select("type")
-    .eq("story_id", storyId)
+    .eq("flow_id", idVal2)
     .eq("user_id", viewer.id);
 
   return (data ?? [])
@@ -2810,7 +2933,6 @@ export async function addStoryCommentDb(
 ): Promise<StoryComment | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
-  assertUUID(storyId, "ID do flow");
   assertNotEmpty(text, "Comentário");
   assertMaxLength(text.trim(), 500, "Comentário");
 
@@ -2818,10 +2940,12 @@ export async function addStoryCommentDb(
   if (!viewer) return null;
 
   try {
+    const numIdC = Number(storyId);
+    const idValC = Number.isFinite(numIdC) ? numIdC : storyId;
     const { data, error } = await supabase
-      .from("story_comments")
+      .from("flow_comments")
       .insert({
-        story_id: storyId,
+        flow_id: idValC,
         user_id: viewer.id,
         text,
       })
@@ -2857,10 +2981,12 @@ export async function getStoryCommentsDb(
   if (!hasSupabaseConfig || !supabase) return [];
 
   try {
+    const numIdG = Number(storyId);
+    const idValG = Number.isFinite(numIdG) ? numIdG : storyId;
     const { data, error } = await supabase
-      .from("story_comments")
+      .from("flow_comments")
       .select("*")
-      .eq("story_id", storyId)
+      .eq("flow_id", idValG)
       .order("created_at", { ascending: true });
 
     if (error) throw error;
@@ -2897,10 +3023,12 @@ export async function deleteStoryCommentDb(commentId: string): Promise<boolean> 
   if (!hasSupabaseConfig || !supabase) return false;
 
   try {
+    const numIdDel = Number(commentId);
+    const idValDel = Number.isFinite(numIdDel) ? numIdDel : commentId;
     const { error } = await supabase
-      .from("story_comments")
+      .from("flow_comments")
       .delete()
-      .eq("id", commentId);
+      .eq("id", idValDel);
 
     if (error) throw error;
     return true;
@@ -2923,10 +3051,10 @@ export async function recordFlowViewDb(storyId: string, storyOwnerId: string): P
         {
           user_id: storyOwnerId,
           follower_id: viewer.id,
-          story_id: storyId,
+          flow_id: storyId,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "follower_id,story_id" },
+        { onConflict: "follower_id,flow_id" },
       );
   } catch (err: any) {
     console.error("Error recording flow view:", err?.message || err);
@@ -2940,7 +3068,7 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
     const { data: views, error } = await supabase
       .from("user_view_flow")
       .select("follower_id, created_at, updated_at")
-      .eq("story_id", storyId)
+      .eq("flow_id", storyId)
       .order("updated_at", { ascending: false });
 
     if (error || !views || views.length === 0) return [];
@@ -2955,7 +3083,7 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
       supabase
         .from("flow_likes")
         .select("user_id, type")
-        .eq("story_id", storyId)
+        .eq("flow_id", storyId)
         .in("user_id", followerIds),
     ]);
 
@@ -3346,7 +3474,7 @@ export async function getFollowingDb(
   }
 }
 
-export type Reel = {
+export type Shot = {
   id: string;
   user_id: string;
   video_url: string;
@@ -3356,38 +3484,38 @@ export type Reel = {
   userLikes: PostIncentiveType[];
 };
 
-export type ReelWithUser = Reel & {
+export type ShotWithUser = Shot & {
   userNickname: string;
   userPhoto: string | null;
   commentCount?: number;
 };
 
-export async function getReelsDb(): Promise<ReelWithUser[]> {
+export async function getShotsDb(): Promise<ShotWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   const viewer = await getViewer();
   if (!viewer) return [];
 
   try {
-    // Get all reels from all users (algorithm shows everyone's content)
-    const { data: reelsData, error: reelsError } = await supabase
-      .from("reels")
+    // Get all shots from all users (algorithm shows everyone's content)
+    const { data: shotsData, error: shotsError } = await supabase
+      .from("shots")
       .select("id, user_id, video_url, description, created_at")
       .order("created_at", { ascending: false });
 
-    if (reelsError) {
-      console.error("[getReelsDb] Error fetching reels:", reelsError);
+    if (shotsError) {
+      console.error("[getShotsDb] Error fetching shots:", shotsError);
       return [];
     }
 
 
-    if (!reelsData || reelsData.length === 0) {
+    if (!shotsData || shotsData.length === 0) {
       return [];
     }
 
     // Get all unique user IDs to batch fetch profiles
     const uniqueUserIds = [
-      ...new Set((reelsData ?? []).map((r: any) => String(r.user_id))),
+      ...new Set((shotsData ?? []).map((r: any) => String(r.user_id))),
     ];
 
     let profiles: any[] = [];
@@ -3398,7 +3526,7 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
         .in("user_id", uniqueUserIds);
 
       if (profilesError) {
-        console.error("[getReelsDb] Error fetching profiles:", profilesError);
+        console.error("[getShotsDb] Error fetching profiles:", profilesError);
       } else {
         profiles = profilesData ?? [];
       }
@@ -3412,31 +3540,31 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
       ]),
     );
 
-    // Get all likes for these reels in one query
-    const reelIds = (reelsData ?? []).map((r: any) => String(r.id));
+    // Get all likes for these shots in one query
+    const shotIds = (shotsData ?? []).map((r: any) => String(r.id));
 
     let allLikes: any[] = [];
-    if (reelIds.length > 0) {
+    if (shotIds.length > 0) {
       const { data: likesData, error: likesError } = await supabase
-        .from("reel_likes")
-        .select("reel_id, type, user_id")
-        .in("reel_id", reelIds);
+        .from("shots_likes")
+        .select("shots_id, type, user_id")
+        .in("shots_id", shotIds);
 
       if (likesError) {
         console.error(
-          "[getReelsDb] Error fetching likes:",
+          "[getShotsDb] Error fetching likes:",
           likesError?.message || JSON.stringify(likesError),
         );
-        // Try legacy format if reel_likes table doesn't exist
+        // Try legacy format if shots_likes table doesn't exist
         const { data: legacyLikes, error: legacyError } = await supabase
           .from("likes")
           .select("post_id, type, user_id")
-          .in("post_id", reelIds);
+          .in("post_id", shotIds);
 
         if (!legacyError && legacyLikes) {
           allLikes = (legacyLikes ?? []).map((like: any) => ({
             ...like,
-            reel_id: like.post_id,
+            shots_id: like.post_id,
           }));
         }
       } else {
@@ -3451,15 +3579,15 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
     >();
 
     (allLikes ?? []).forEach((like: any) => {
-      const reelId = String(like.reel_id);
-      if (!likesMap.has(reelId)) {
-        likesMap.set(reelId, {
+      const shotId = String(like.shots_id);
+      if (!likesMap.has(shotId)) {
+        likesMap.set(shotId, {
           likes: { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 },
           userLikes: [],
         });
       }
 
-      const entry = likesMap.get(reelId)!;
+      const entry = likesMap.get(shotId)!;
       const type = Number(like.type) as PostIncentiveType;
 
       if (type === 1) entry.likes.apoio += 1;
@@ -3474,24 +3602,24 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
       }
     });
 
-    // Build final reel objects
-    const reelsWithUserData: ReelWithUser[] = (reelsData ?? []).map(
-      (reel: any) => {
-        const userProfile = profileMap.get(String(reel.user_id)) || {
+    // Build final shot objects
+    const shotsWithUserData: ShotWithUser[] = (shotsData ?? []).map(
+      (shot: any) => {
+        const userProfile = profileMap.get(String(shot.user_id)) || {
           nickname: "Usuário",
           photo: null,
         };
-        const likeData = likesMap.get(String(reel.id)) || {
+        const likeData = likesMap.get(String(shot.id)) || {
           likes: { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 },
           userLikes: [],
         };
 
         return {
-          id: String(reel.id ?? ""),
-          user_id: String(reel.user_id ?? ""),
-          video_url: String(reel.video_url ?? ""),
-          description: String(reel.description ?? ""),
-          created_at: String(reel.created_at ?? new Date().toISOString()),
+          id: String(shot.id ?? ""),
+          user_id: String(shot.user_id ?? ""),
+          video_url: String(shot.video_url ?? ""),
+          description: String(shot.description ?? ""),
+          created_at: String(shot.created_at ?? new Date().toISOString()),
           likes: likeData.likes,
           userLikes: likeData.userLikes,
           userNickname: String(userProfile.nickname ?? "Usuário"),
@@ -3500,18 +3628,18 @@ export async function getReelsDb(): Promise<ReelWithUser[]> {
       },
     );
 
-    return reelsWithUserData;
+    return shotsWithUserData;
   } catch (err: any) {
-    console.error("Error getting reels:", err?.message || JSON.stringify(err));
+    console.error("Error getting shots:", err?.message || JSON.stringify(err));
     return [];
   }
 }
 
-export async function createReelDb(
+export async function createShotDb(
   videoUrl: string,
   description: string,
   userGoalId: string | null = null,
-): Promise<Reel | null> {
+): Promise<Shot | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
   const viewer = await getViewer();
@@ -3519,7 +3647,7 @@ export async function createReelDb(
 
   try {
     const { data, error } = await supabase
-      .from("reels")
+      .from("shots")
       .insert({
         user_id: viewer.id,
         video_url: videoUrl,
@@ -3531,24 +3659,24 @@ export async function createReelDb(
     if (error) {
       const errorMsg = error?.message || String(error);
       const errorCode = error?.code || "UNKNOWN";
-      console.error(`Error creating reel [${errorCode}]:`, errorMsg);
+      console.error(`Error creating shot [${errorCode}]:`, errorMsg);
       return null;
     }
 
     if (data) {
-      // Award 5 points for creating a reel
+      // Award 5 points for creating a shot
       await addPointsDb(5);
     }
 
     return data || null;
   } catch (err: any) {
-    console.error("Error creating reel:", err);
+    console.error("Error creating shot:", err);
     return null;
   }
 }
 
-export async function updateReelDb(
-  reelId: string,
+export async function updateShotDb(
+  shotId: string,
   description: string,
 ): Promise<boolean> {
   if (!hasSupabaseConfig || !supabase) return false;
@@ -3558,26 +3686,26 @@ export async function updateReelDb(
 
   try {
     const { error } = await supabase
-      .from("reels")
+      .from("shots")
       .update({
         description: description.trim(),
       })
-      .eq("id", reelId)
+      .eq("id", shotId)
       .eq("user_id", viewer.id);
 
     if (error) {
-      console.error("Error updating reel:", error);
+      console.error("Error updating shot:", error);
       return false;
     }
 
     return true;
   } catch (err: any) {
-    console.error("Error updating reel:", err);
+    console.error("Error updating shot:", err);
     return false;
   }
 }
 
-export async function deleteReelDb(reelId: string): Promise<boolean> {
+export async function deleteShotDb(shotId: string): Promise<boolean> {
   if (!hasSupabaseConfig || !supabase) return false;
 
   const viewer = await getViewer();
@@ -3585,26 +3713,27 @@ export async function deleteReelDb(reelId: string): Promise<boolean> {
 
   try {
     const { error } = await supabase
-      .from("reels")
+      .from("shots")
       .delete()
-      .eq("id", reelId)
+      .eq("id", shotId)
       .eq("user_id", viewer.id);
 
     if (error) {
-      console.error("Error deleting reel:", error);
+      console.error("Error deleting shot:", error);
       return false;
     }
 
     return true;
   } catch (err: any) {
-    console.error("Error deleting reel:", err);
+    console.error("Error deleting shot:", err);
     return false;
   }
 }
 
-export async function toggleReelIncentiveDb(
-  reelId: string,
+export async function toggleShotIncentiveDb(
+  shotId: string,
   incentiveType: PostIncentiveType,
+  shotOwnerId?: string,
 ) {
   if (!hasSupabaseConfig || !supabase) return;
 
@@ -3613,19 +3742,19 @@ export async function toggleReelIncentiveDb(
 
   try {
     let { data: existing, error: checkError } = await supabase
-      .from("reel_likes")
+      .from("shots_likes")
       .select("id")
-      .eq("reel_id", reelId)
+      .eq("shots_id", shotId)
       .eq("user_id", viewer.id)
       .eq("type", incentiveType)
       .maybeSingle();
 
-    // If reel_likes table doesn't exist, try legacy likes table
+    // If shots_likes table doesn't exist, try legacy likes table
     if (checkError) {
       const { data: legacyExisting } = await supabase
         .from("likes")
         .select("id")
-        .eq("post_id", reelId)
+        .eq("post_id", shotId)
         .eq("user_id", viewer.id)
         .eq("type", incentiveType)
         .maybeSingle();
@@ -3635,47 +3764,61 @@ export async function toggleReelIncentiveDb(
 
     if (existing?.id) {
       // Remove the like
-      const tableName = checkError ? "likes" : "reel_likes";
+      const tableName = checkError ? "likes" : "shots_likes";
       await supabase.from(tableName).delete().eq("id", existing.id);
     } else {
-      // Add the like - try reel_likes first, then legacy likes
+      // Add the like
       let insertError = null;
-      const { error: reelLikeError } = await supabase
-        .from("reel_likes")
+      const { error: shotLikeError } = await supabase
+        .from("shots_likes")
         .insert({
-          reel_id: reelId,
+          shots_id: shotId,
           user_id: viewer.id,
           type: incentiveType,
         });
 
-      if (reelLikeError) {
+      if (shotLikeError) {
         // Try legacy format
         const { error: legacyInsertError } = await supabase
           .from("likes")
           .insert({
-            post_id: reelId,
+            post_id: shotId,
             user_id: viewer.id,
             type: incentiveType,
           });
         insertError = legacyInsertError;
       }
 
-      if (!reelLikeError || !insertError) {
-        // Award 1 point for interacting with a reel
+      if (!shotLikeError || !insertError) {
+        // Award 1 point for interacting with a shot
         await addPointsDb(1);
+
+        // Notify shot owner (type 2 = incentive), skip if owner is self
+        if (shotOwnerId && shotOwnerId !== viewer.id) {
+          const { error: notifError } = await supabase.from("notifications").insert({
+            user_id: shotOwnerId,
+            follower_id: viewer.id,
+            type: 2,
+            post_id: shotId,
+            read: false,
+          });
+          if (notifError) {
+            console.error("Error inserting shot incentive notification:", notifError);
+          }
+        }
       }
     }
   } catch (err: any) {
     console.error(
-      "Error toggling reel incentive:",
+      "Error toggling shot incentive:",
       err?.message || JSON.stringify(err),
     );
   }
 }
 
-export type ReelComment = {
+export type ShotComment = {
   id: string;
-  reelId: string;
+  shotId: string;
   userId: string;
   userName: string;
   userHandle: string;
@@ -3683,7 +3826,7 @@ export type ReelComment = {
   createdAt: string;
 };
 
-export async function addReelCommentDb(reelId: string, text: string) {
+export async function addShotCommentDb(shotId: string, text: string, shotOwnerId?: string) {
   if (!hasSupabaseConfig || !supabase) return;
 
   const viewer = await getViewer();
@@ -3693,17 +3836,17 @@ export async function addReelCommentDb(reelId: string, text: string) {
   const userHandle = profile?.handle ?? "@voce";
 
   try {
-    const { error } = await supabase.from("reel_comments").insert({
-      reel_id: reelId,
+    const { error } = await supabase.from("shots_comments").insert({
+      shots_id: shotId,
       user_id: viewer.id,
       user_handle: userHandle,
       text: text.trim(),
     });
 
     if (error) {
-      // Try legacy format if reel_comments table doesn't exist
+      // Try legacy format if shots_comments table doesn't exist
       const { error: legacyError } = await supabase.from("comments").insert({
-        post_id: reelId,
+        post_id: shotId,
         user_id: viewer.id,
         user_handle: userHandle,
         text: text.trim(),
@@ -3711,51 +3854,65 @@ export async function addReelCommentDb(reelId: string, text: string) {
 
       if (legacyError) {
         console.error(
-          "Error adding reel comment:",
+          "Error adding shot comment:",
           legacyError?.message || JSON.stringify(legacyError),
         );
         throw legacyError;
       }
     }
 
-    // Award 1 point for commenting on a reel
+    // Award 1 point for commenting on a shot
     await addPointsDb(1);
+
+    // Notify shot owner (type 3 = comment), skip if owner is self
+    if (shotOwnerId && shotOwnerId !== viewer.id) {
+      const { error: notifError } = await supabase.from("notifications").insert({
+        user_id: shotOwnerId,
+        follower_id: viewer.id,
+        type: 3,
+        post_id: shotId,
+        read: false,
+      });
+      if (notifError) {
+        console.error("Error inserting shot comment notification:", notifError);
+      }
+    }
   } catch (err: any) {
     console.error(
-      "Error adding reel comment:",
+      "Error adding shot comment:",
       err?.message || JSON.stringify(err),
     );
     throw err;
   }
 }
 
-export async function getReelCommentsDb(
-  reelId: string,
-): Promise<ReelComment[]> {
+export async function getShotCommentsDb(
+  shotId: string,
+): Promise<ShotComment[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   try {
     const { data, error } = await supabase
-      .from("reel_comments")
+      .from("shots_comments")
       .select("*")
-      .eq("reel_id", reelId)
+      .eq("shots_id", shotId)
       .order("created_at", { ascending: true });
 
     if (error) {
       console.error(
-        "Error fetching reel comments:",
+        "Error fetching shot comments:",
         error?.message || JSON.stringify(error),
       );
-      // Try legacy format if reel_comments table doesn't exist
+      // Try legacy format if shots_comments table doesn't exist
       const { data: legacyData, error: legacyError } = await supabase
         .from("comments")
         .select("*")
-        .eq("post_id", reelId)
+        .eq("post_id", shotId)
         .order("created_at", { ascending: true });
 
       if (legacyError) {
         console.error(
-          "Error fetching reel comments (legacy):",
+          "Error fetching shot comments (legacy):",
           legacyError?.message || JSON.stringify(legacyError),
         );
         return [];
@@ -3765,13 +3922,13 @@ export async function getReelCommentsDb(
         (row: any) =>
           ({
             id: String(row.id),
-            reelId: String(row.post_id),
+            shotId: String(row.post_id),
             userId: String(row.user_id),
             userName: String(row.user_name ?? "Usuário"),
             userHandle: String(row.user_handle ?? "@user"),
             text: String(row.text ?? ""),
             createdAt: String(row.created_at ?? new Date().toISOString()),
-          }) satisfies ReelComment,
+          }) satisfies ShotComment,
       );
     }
 
@@ -3793,23 +3950,23 @@ export async function getReelCommentsDb(
 
     return commentList.map((row: any) => ({
       id: String(row.id),
-      reelId: String(row.reel_id),
+      shotId: String(row.shots_id),
       userId: String(row.user_id),
       userName: profileMap.get(String(row.user_id)) ?? String(row.user_name ?? "Usuário"),
       userHandle: String(row.user_handle ?? "@user"),
       text: String(row.text ?? ""),
       createdAt: String(row.created_at ?? new Date().toISOString()),
-    }) satisfies ReelComment);
+    }) satisfies ShotComment);
   } catch (err: any) {
     console.error(
-      "Error getting reel comments:",
+      "Error getting shot comments:",
       err?.message || JSON.stringify(err),
     );
     return [];
   }
 }
 
-export async function deleteReelCommentDb(commentId: string) {
+export async function deleteShotCommentDb(commentId: string) {
   if (!hasSupabaseConfig || !supabase) return;
 
   const viewer = await getViewer();
@@ -3817,13 +3974,13 @@ export async function deleteReelCommentDb(commentId: string) {
 
   try {
     const { error } = await supabase
-      .from("reel_comments")
+      .from("shots_comments")
       .delete()
       .eq("id", commentId)
       .eq("user_id", viewer.id);
 
     if (error) {
-      // Try legacy format if reel_comments table doesn't exist
+      // Try legacy format if shots_comments table doesn't exist
       const { error: legacyError } = await supabase
         .from("comments")
         .delete()
@@ -3832,7 +3989,7 @@ export async function deleteReelCommentDb(commentId: string) {
 
       if (legacyError) {
         console.error(
-          "Error deleting reel comment:",
+          "Error deleting shot comment:",
           legacyError?.message || JSON.stringify(legacyError),
         );
         throw legacyError;
@@ -3840,7 +3997,7 @@ export async function deleteReelCommentDb(commentId: string) {
     }
   } catch (err: any) {
     console.error(
-      "Error deleting reel comment:",
+      "Error deleting shot comment:",
       err?.message || JSON.stringify(err),
     );
     throw err;
@@ -3910,29 +4067,20 @@ export async function addPointsDb(points: number): Promise<void> {
 export async function getRankingDb(): Promise<RankingUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
-  const viewer = await getViewer();
-  if (!viewer) return [];
-
   try {
-    // Get current user's following IDs to build the comparison group
-    const followingIds = await getFollowingIdsDb();
-    const userIdsToShow = [viewer.id, ...followingIds];
-
-    // Read directly from the ranking table for user + following
+    // Read points directly from the ranking table (all users, no date filter)
     const { data: rankingData, error } = await supabase
       .from("ranking")
-      .select("user_id, points, level")
-      .in("user_id", userIdsToShow)
+      .select("user_id, points")
       .order("points", { ascending: false });
 
     if (error) {
-      console.error("Error fetching ranking:", error);
+      console.error("Error fetching ranking table:", error);
       return [];
     }
 
     if (!rankingData || rankingData.length === 0) return [];
 
-    // Get profiles for these users
     const userIds = rankingData.map((r: any) => String(r.user_id));
     const { data: profiles } = await supabase
       .from("profiles")
@@ -3947,13 +4095,15 @@ export async function getRankingDb(): Promise<RankingUser[]> {
     );
 
     return rankingData.map((r: any) => {
-      const profile = profileMap.get(String(r.user_id)) || { nickname: "Usuário", photo: null };
+      const uid = String(r.user_id);
+      const points = Number(r.points) || 0;
+      const profile = profileMap.get(uid) || { nickname: "Usuário", photo: null };
       return {
-        userId: String(r.user_id),
+        userId: uid,
         userNickname: String(profile.nickname),
         userPhoto: profile.photo ? String(profile.photo) : null,
-        points: Number(r.points),
-        level: Number(r.level),
+        points,
+        level: Math.floor(points / 7) + 1,
       };
     });
   } catch (err: any) {
@@ -4122,13 +4272,14 @@ export async function saveWorkoutSeriesDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3; // 1 = new follower, 2 = incentive, 3 = comment
+  type: 1 | 2 | 3 | 4 | 5; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request
   userId: string;
   userNickname: string;
   userPhoto: string | null;
   postId?: string;
   postPhoto?: string;
   incentiveType?: number; // For type 2 (incentive): 1=apoio, 2=continua, 3=ganhador, 4=consegueMais, 5=limiteMaior, 6=maisAlgum
+  groupName?: string; // For type 4 (duel invite)
   createdAt: string;
   read?: boolean; // Whether the notification has been read
 };
@@ -4168,11 +4319,12 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
 
     // Get all follower IDs and post IDs to fetch related data
     const followerIds = [...new Set(notificationsData.map((n: any) => n.follower_id))];
-    const postIds = [...new Set(notificationsData.map((n: any) => n.post_id).filter(Boolean))];
+    const postIds = [...new Set(notificationsData.filter((n: any) => n.type !== 4 && n.type !== 5).map((n: any) => n.post_id).filter(Boolean))];
+    const groupIds = [...new Set(notificationsData.filter((n: any) => n.type === 4 || n.type === 5).map((n: any) => n.post_id).filter(Boolean))];
     const incentiveNotifications = notificationsData.filter((n: any) => n.type === 2);
 
-    // Fetch follower profiles, post photos, and like data in parallel
-    const [profilesResult, postsResult] = await Promise.all([
+    // Fetch follower profiles, post photos, group names, and like data in parallel
+    const [profilesResult, postsResult, groupsResult] = await Promise.all([
       supabase
         .from("profiles")
         .select("user_id, nickname, photo")
@@ -4183,13 +4335,21 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           .select("id, photo")
           .in("id", postIds)
         : Promise.resolve({ data: [] as any[] }),
+      groupIds.length > 0
+        ? supabase
+          .from("duel_groups")
+          .select("id, name")
+          .in("id", groupIds)
+        : Promise.resolve({ data: [] as any[] }),
     ]);
 
     const { data: profiles } = profilesResult as any;
     const { data: posts } = postsResult as any;
+    const { data: groups } = groupsResult as any;
 
     const profileMap = new Map<string, any>((profiles ?? []).map((p: any) => [p.user_id, p]));
     const postMap = new Map<string, any>((posts ?? []).map((p: any) => [p.id, p]));
+    const groupMap = new Map<string, any>((groups ?? []).map((g: any) => [g.id, g]));
 
     // Fetch like types for incentive notifications
     let likesMap = new Map<string, any>();
@@ -4234,13 +4394,19 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           notification.incentiveType = likesMap.get(notif.follower_id);
         }
 
-        // Add post-related fields if available
-        if (notif.post_id) {
+        // Add post-related fields for non-duel notifications
+        if (notif.post_id && notif.type !== 4 && notif.type !== 5) {
           notification.postId = notif.post_id;
           const post = postMap.get(notif.post_id);
           if (post) {
             notification.postPhoto = post.photo;
           }
+        }
+
+        // Add group name for duel invite/join-request notifications (type 4 and 5)
+        if ((notif.type === 4 || notif.type === 5) && notif.post_id) {
+          const group = groupMap.get(notif.post_id);
+          notification.groupName = group?.name ?? "Duelo";
         }
 
         return notification;
@@ -4577,22 +4743,22 @@ export async function updatePostDb(
   }
 }
 
-export async function getUserReelsDb(userId: string): Promise<ReelWithUser[]> {
+export async function getUserShotsDb(userId: string): Promise<ShotWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   try {
-    const { data: reelsData, error: reelsError } = await supabase
-      .from("reels")
+    const { data: shotsData, error: shotsError } = await supabase
+      .from("shots")
       .select("id, user_id, video_url, description, created_at")
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
-    if (reelsError) {
-      console.error("Error fetching user reels:", reelsError);
+    if (shotsError) {
+      console.error("Error fetching user shots:", shotsError);
       return [];
     }
 
-    if (!reelsData || reelsData.length === 0) {
+    if (!shotsData || shotsData.length === 0) {
       return [];
     }
 
@@ -4608,21 +4774,21 @@ export async function getUserReelsDb(userId: string): Promise<ReelWithUser[]> {
       return [];
     }
 
-    // Get all likes for these reels
-    const reelIds = (reelsData ?? []).map((r: any) => String(r.id));
+    // Get all likes for these shots
+    const shotIds = (shotsData ?? []).map((r: any) => String(r.id));
     let allLikes: any[] = [];
-    if (reelIds.length > 0) {
+    if (shotIds.length > 0) {
       const { data: likesData, error: likesError } = await supabase
-        .from("reel_likes")
-        .select("reel_id, type, user_id")
-        .in("reel_id", reelIds);
+        .from("shots_likes")
+        .select("shots_id, type, user_id")
+        .in("shots_id", shotIds);
 
       if (likesError) {
         // Try legacy format
         const { data: legacyLikes } = await supabase
           .from("likes")
           .select("post_id, type, user_id")
-          .in("post_id", reelIds);
+          .in("post_id", shotIds);
         allLikes = legacyLikes ?? [];
       } else {
         allLikes = likesData ?? [];
@@ -4631,19 +4797,19 @@ export async function getUserReelsDb(userId: string): Promise<ReelWithUser[]> {
 
     // Get comment counts
     const { data: commentsData, error: commentsError } = await supabase
-      .from("reel_comments")
-      .select("reel_id")
-      .in("reel_id", reelIds);
+      .from("shots_comments")
+      .select("shots_id")
+      .in("shots_id", shotIds);
 
     const commentMap = new Map<string, number>();
     if (!commentsError && commentsData) {
       commentsData.forEach((c: any) => {
-        commentMap.set(c.reel_id, (commentMap.get(c.reel_id) ?? 0) + 1);
+        commentMap.set(c.shots_id, (commentMap.get(c.shots_id) ?? 0) + 1);
       });
     }
 
-    // Transform to ReelWithUser format
-    const reelsWithUserData: ReelWithUser[] = (reelsData ?? []).map((reel: any) => {
+    // Transform to ShotWithUser format
+    const shotsWithUserData: ShotWithUser[] = (shotsData ?? []).map((shot: any) => {
       const likes = {
         apoio: 0,
         continua: 0,
@@ -4654,8 +4820,8 @@ export async function getUserReelsDb(userId: string): Promise<ReelWithUser[]> {
       };
 
       allLikes.forEach((like: any) => {
-        const reelIdStr = String(like.reel_id || like.post_id);
-        if (reelIdStr === String(reel.id)) {
+        const shotIdStr = String(like.shots_id || like.post_id);
+        if (shotIdStr === String(shot.id)) {
           const typeMap: Record<number, keyof typeof likes> = {
             1: "apoio",
             2: "continua",
@@ -4670,18 +4836,18 @@ export async function getUserReelsDb(userId: string): Promise<ReelWithUser[]> {
       });
 
       return {
-        ...reel,
+        ...shot,
         userNickname: profileData?.nickname || "Usuário",
         userPhoto: profileData?.photo || null,
         likes,
         userLikes: [],
-        commentCount: commentMap.get(reel.id) ?? 0,
+        commentCount: commentMap.get(shot.id) ?? 0,
       };
     });
 
-    return reelsWithUserData;
+    return shotsWithUserData;
   } catch (err: any) {
-    console.error("Error getting user reels:", err);
+    console.error("Error getting user shots:", err);
     return [];
   }
 }
@@ -5235,6 +5401,7 @@ export type DuelGroup = {
   location: string;
   goal: string;
   icon: string;
+  photo?: string | null;
   createdAt: string;
   updatedAt?: string;
   endDate?: string;
@@ -5282,18 +5449,32 @@ export async function createDuelGroupDb(
     if (groupError) throw groupError;
     if (!groupData) throw new Error("Failed to create group");
 
-    // Add the creator as a participant
-    const participantsToAdd = [createdBy, ...members];
+    // Add the creator as accepted participant, invited members as pending
+    const rows = [
+      { group_id: groupData.id, user_id: createdBy, status: "accepted" },
+      ...members.map((userId) => ({ group_id: groupData.id, user_id: userId, status: "pending" })),
+    ];
     const { error: participantsError } = await supabase
       .from("duel_group_participants")
-      .insert(
-        participantsToAdd.map((userId) => ({
-          group_id: groupData.id,
-          user_id: userId,
-        }))
-      );
+      .insert(rows);
 
     if (participantsError) throw participantsError;
+
+    // Send duel invite notification to each invited member
+    if (members.length > 0) {
+      const { error: notifError } = await supabase.from("notifications").insert(
+        members.map((userId) => ({
+          user_id: userId,
+          follower_id: createdBy,
+          type: 4,
+          post_id: groupData.id,
+          read: false,
+        }))
+      );
+      if (notifError) {
+        console.error("Error inserting duel invite notifications:", notifError);
+      }
+    }
 
     return {
       id: groupData.id,
@@ -5334,6 +5515,7 @@ export async function getDuelGroupDb(groupId: string): Promise<DuelGroup | null>
       location: data.location,
       goal: data.goal,
       icon: data.icon,
+      photo: data.photo || null,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
       endDate: data.end_date,
@@ -5364,6 +5546,7 @@ export async function getUserCreatedDuelGroupsDb(userId: string): Promise<DuelGr
       location: group.location,
       goal: group.goal,
       icon: group.icon,
+      photo: group.photo || null,
       createdAt: group.created_at,
       updatedAt: group.updated_at,
       endDate: group.end_date,
@@ -5394,6 +5577,7 @@ export async function getAvailableDuelGroupsDb(userId: string): Promise<DuelGrou
       location: group.location,
       goal: group.goal,
       icon: group.icon,
+      photo: group.photo || null,
       createdAt: group.created_at,
       updatedAt: group.updated_at,
       endDate: group.end_date,
@@ -5434,6 +5618,7 @@ export async function getFollowingGroupsDb(): Promise<DuelGroup[]> {
       location: group.location,
       goal: group.goal,
       icon: group.icon,
+      photo: group.photo || null,
       createdAt: group.created_at,
       updatedAt: group.updated_at,
       endDate: group.end_date,
@@ -5469,6 +5654,7 @@ export async function getUserDuelGroupsDb(userId: string): Promise<DuelGroup[]> 
       location: group.location,
       goal: group.goal,
       icon: group.icon,
+      photo: group.photo || null,
       createdAt: group.created_at,
       updatedAt: group.updated_at,
       endDate: group.end_date,
@@ -5477,6 +5663,25 @@ export async function getUserDuelGroupsDb(userId: string): Promise<DuelGroup[]> 
     console.error("Error getting user groups:", error);
     return [];
   }
+}
+
+// Upload group cover photo and persist URL to DB
+export async function updateGroupPhotoDb(groupId: string, file: File): Promise<string> {
+  if (!supabase) throw new Error("Supabase not configured");
+  const ext = file.name.split(".").pop() ?? "jpg";
+  const path = `group-covers/${groupId}/cover.${ext}`;
+  const { error: uploadError } = await supabase.storage
+    .from("posts")
+    .upload(path, file, { upsert: true, contentType: file.type });
+  if (uploadError) throw uploadError;
+  const { data: urlData } = supabase.storage.from("posts").getPublicUrl(path);
+  const photoUrl = urlData.publicUrl;
+  const { error: updateError } = await supabase
+    .from("duel_groups")
+    .update({ photo: photoUrl })
+    .eq("id", groupId);
+  if (updateError) throw updateError;
+  return photoUrl;
 }
 
 // Add check-in to group
@@ -5624,6 +5829,8 @@ export async function addMembersToGroupDb(
 ): Promise<void> {
   if (!supabase) throw new Error("Supabase not configured");
 
+  const viewer = await getViewer();
+
   try {
     // Get existing participants
     const { data: existingParticipants, error: fetchError } = await supabase
@@ -5640,13 +5847,14 @@ export async function addMembersToGroupDb(
 
     if (newMembers.length === 0) return;
 
-    // Add new members
+    // Add new members with pending status
     const { error: insertError } = await supabase
       .from("duel_group_participants")
       .insert(
         newMembers.map((userId) => ({
           group_id: groupId,
           user_id: userId,
+          status: "pending",
         }))
       );
 
@@ -5673,6 +5881,98 @@ export async function leaveGroupDb(groupId: string): Promise<void> {
   if (error) throw error;
 }
 
+// Get pending group invites for the current user
+export async function getPendingInvitesDb(): Promise<Array<{ groupId: string; groupName: string; groupGoal: string; groupLocation: string }>> {
+  if (!supabase) return [];
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("duel_group_participants")
+      .select("group_id, status")
+      .eq("user_id", viewer.id)
+      .eq("status", "pending");
+
+    if (error) {
+      console.error("getPendingInvitesDb error (status column may not exist in DB):", error);
+      return [];
+    }
+    if (!data || data.length === 0) return [];
+
+    const groupIds = data.map((r: any) => r.group_id);
+    const { data: groups, error: groupsError } = await supabase
+      .from("duel_groups")
+      .select("id, name, goal, location")
+      .in("id", groupIds);
+
+    if (groupsError) {
+      console.error("getPendingInvitesDb groups error:", groupsError);
+      return [];
+    }
+    if (!groups) return [];
+
+    return groups.map((g: any) => ({
+      groupId: String(g.id),
+      groupName: String(g.name),
+      groupGoal: String(g.goal || ""),
+      groupLocation: String(g.location || ""),
+    }));
+  } catch (err) {
+    console.error("Error fetching pending invites:", err);
+    return [];
+  }
+}
+
+// Accept a pending group invite
+export async function acceptGroupInviteDb(groupId: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase not configured");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+
+  const { error } = await supabase
+    .from("duel_group_participants")
+    .update({ status: "accepted" })
+    .eq("group_id", groupId)
+    .eq("user_id", viewer.id);
+
+  if (error) throw error;
+}
+
+// Send a join-request notification to the group creator (type 5 = join request)
+export async function sendGroupJoinRequestNotificationDb(groupId: string, creatorId: string): Promise<void> {
+  if (!supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const { error } = await supabase.from("notifications").insert({
+    user_id: creatorId,
+    follower_id: viewer.id,
+    type: 5,
+    post_id: groupId,
+    read: false,
+  });
+  if (error) {
+    console.error("Error sending join request notification:", error);
+  }
+}
+
+// Decline (delete) a pending group invite
+export async function declineGroupInviteDb(groupId: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase not configured");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+
+  const { error } = await supabase
+    .from("duel_group_participants")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("user_id", viewer.id)
+    .eq("status", "pending");
+
+  if (error) throw error;
+}
+
 // Get all participants of a duel group with their user details
 export async function getGroupParticipantsDb(
   groupId: string
@@ -5680,11 +5980,12 @@ export async function getGroupParticipantsDb(
   if (!supabase) return [];
 
   try {
-    // Get participants from duel_group_participants table, then get their user details
+    // Get accepted participants from duel_group_participants table, then get their user details
     const { data: participants, error: fetchError } = await supabase
       .from("duel_group_participants")
       .select("user_id")
-      .eq("group_id", groupId);
+      .eq("group_id", groupId)
+      .or("status.eq.accepted,status.is.null");
 
     if (fetchError) {
       const errorMsg = fetchError?.message || JSON.stringify(fetchError);
@@ -5728,16 +6029,53 @@ export async function deleteGroupDb(groupId: string): Promise<void> {
   if (!viewer) throw new Error("Not authenticated");
 
   try {
-    // Delete the duel group (cascading deletes should handle participants and check-ins)
+    // Delete related rows first to avoid FK constraint violations
+    await supabase.from("duel_check_ins").delete().eq("group_id", groupId);
+    await supabase.from("duel_group_participants").delete().eq("group_id", groupId);
+
     const { error: deleteError } = await supabase
       .from("duel_groups")
       .delete()
       .eq("id", groupId)
-      .eq("user_id", viewer.id);
+      .eq("created_by", viewer.id);
 
     if (deleteError) throw deleteError;
   } catch (error) {
     console.error("Error deleting group:", error);
     throw error;
+  }
+}
+
+// ─── Access Session Tracking ────────────────────────────────────────────────
+
+export async function recordAccessSessionDb(userId: string, durationSeconds: number): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  try {
+    await supabase.from("access_sessions").insert({
+      user_id: userId,
+      duration_seconds: durationSeconds,
+      session_date: new Date().toISOString().split("T")[0],
+    });
+  } catch (err) {
+    console.error("Error recording access session:", err);
+  }
+}
+
+export async function getAccessSessionsDb(userId: string, days: number = 30): Promise<{ session_date: string; duration_seconds: number; created_at: string }[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  try {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const { data, error } = await supabase
+      .from("access_sessions")
+      .select("session_date, duration_seconds, created_at")
+      .eq("user_id", userId)
+      .gte("session_date", since.toISOString().split("T")[0])
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return data ?? [];
+  } catch (err) {
+    console.error("Error fetching access sessions:", err);
+    return [];
   }
 }

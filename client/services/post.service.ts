@@ -200,6 +200,45 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
     }),
   );
 
+  // Sort by engagement score (likes + comments) so new users see popular content first
+  const userSegments: string[] = (() => {
+    try {
+      const stored = localStorage.getItem("user_fitness_segments");
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  })();
+
+  const SEGMENT_KEYWORDS: Record<string, string[]> = {
+    fitness: ["treino", "academia", "musculação", "musculo", "weight", "gym"],
+    cardio: ["corrida", "cardio", "run", "maratona", "bike", "ciclismo"],
+    diets: ["dieta", "nutrição", "alimentação", "comida", "receita", "proteina"],
+    habits: ["hábito", "mindfulness", "meditação", "rotina", "habito"],
+    yoga: ["yoga", "flexibilidade", "alongamento", "pilates"],
+    sports: ["esporte", "futebol", "basquete", "natação", "sport"],
+  };
+
+  const getSegmentScore = (post: PostWithStats): number => {
+    if (userSegments.length === 0) return 0;
+    const desc = (post.description || "").toLowerCase();
+    let score = 0;
+    for (const seg of userSegments) {
+      const keywords = SEGMENT_KEYWORDS[seg] || [];
+      if (keywords.some((kw) => desc.includes(kw))) score += 2;
+    }
+    return score;
+  };
+
+  const getEngagementScore = (post: PostWithStats): number => {
+    const totalLikes = Object.values(post.likes || {}).reduce((a: number, b: number) => a + b, 0);
+    return totalLikes + (post.commentCount || 0);
+  };
+
+  posts.sort((a, b) => {
+    const segDiff = getSegmentScore(b) - getSegmentScore(a);
+    if (segDiff !== 0) return segDiff;
+    return getEngagementScore(b) - getEngagementScore(a);
+  });
+
   return posts;
 };
 

@@ -34,7 +34,7 @@ const Search       = React.lazy(() => import("@/pages/Search"));
 const Community    = React.lazy(() => import("@/pages/Community"));
 const Notifications = React.lazy(() => import("@/pages/Notifications"));
 const Store        = React.lazy(() => import("@/pages/Store"));
-const ReelsLayout  = React.lazy(() => import("@/components/reels-layout").then((m) => ({ default: m.ReelsLayout })));
+const ShotsLayout  = React.lazy(() => import("@/components/shots-layout").then((m) => ({ default: m.ShotsLayout })));
 
 // Kept eager — tiny files needed on first paint or error boundaries
 import Login from "@/pages/Login";
@@ -140,8 +140,8 @@ const App = () => {
               <Route path="/login" element={<Login />} />
 
               <Route element={<RequireAuth />}>
-                {/* Reels with custom footer layout */}
-                <Route path="/reels" element={<ReelsLayout />} />
+                {/* Shots with custom footer layout */}
+                <Route path="/shots" element={<ShotsLayout />} />
 
                 <Route element={<AppLayout />}>
                   <Route path="/" element={<Index />} />

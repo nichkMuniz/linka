@@ -23,12 +23,12 @@ import {
   getFollowersDb,
   getFollowingDb,
   getFollowingStatusBatchDb,
-  getUserReelsDb,
+  getUserShotsDb,
   getUserGoalsByUserIdDb,
   deletePostDb,
   updatePostDb,
-  deleteReelDb,
-  updateReelDb,
+  deleteShotDb,
+  updateShotDb,
   getPostLikeUsersDb,
   getPostCommentsDb,
   followUserDb,
@@ -49,7 +49,7 @@ import {
   type UserDietWithDetails,
   type UserHabitWithDetails,
   type UserGoal,
-  type ReelWithUser,
+  type ShotWithUser,
   type CommercialProfile,
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
@@ -72,7 +72,7 @@ import { PostLikesModal } from "@/components/post-likes-modal";
 import { PostCommentsDialog } from "@/components/post-comments-dialog";
 import { UserInsignias } from "@/components/user-insignias";
 import { PostCarousel } from "@/components/post-carousel";
-import { StoryViewerModal } from "@/components/story-viewer-modal";
+import { FlowViewerModal } from "@/components/flow-viewer-modal";
 import { ExerciseImage } from "@/components/exercise-image";
 import { fetchExerciseCatalog, type CatalogExercise } from "@/lib/exercise-catalog";
 import { fetchMealCatalog, type CatalogMeal } from "@/lib/diet-catalog";
@@ -167,7 +167,7 @@ export default function Profile() {
 
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [posts, setPosts] = React.useState<PostWithUser[]>([]);
-  const [reels, setReels] = React.useState<ReelWithUser[]>([]);
+  const [shots, setShots] = React.useState<ShotWithUser[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
   const [selectedPost, setSelectedPost] = React.useState<PostWithUser | null>(null);
   const [isPostViewerOpen, setIsPostViewerOpen] = React.useState(false);
@@ -179,11 +179,11 @@ export default function Profile() {
   const [postComments, setPostComments] = React.useState<any[]>([]);
   const [isLoadingPostData, setIsLoadingPostData] = React.useState(false);
   const [isLikesModalOpen, setIsLikesModalOpen] = React.useState(false);
-  const [selectedReel, setSelectedReel] = React.useState<ReelWithUser | null>(null);
-  const [isReelEditorOpen, setIsReelEditorOpen] = React.useState(false);
-  const [isEditingReel, setIsEditingReel] = React.useState(false);
-  const [editReelDescription, setEditReelDescription] = React.useState("");
-  const [isUpdatingReel, setIsUpdatingReel] = React.useState(false);
+  const [selectedShot, setSelectedShot] = React.useState<ShotWithUser | null>(null);
+  const [isShotEditorOpen, setIsShotEditorOpen] = React.useState(false);
+  const [isEditingShot, setIsEditingShot] = React.useState(false);
+  const [editShotDescription, setEditShotDescription] = React.useState("");
+  const [isUpdatingShot, setIsUpdatingShot] = React.useState(false);
   const [isFollowing, setIsFollowing] = React.useState(false);
   const [isFollowingLoading, setIsFollowingLoading] = React.useState(false);
   const [stats, setStats] = React.useState<UserStats>({
@@ -271,6 +271,7 @@ export default function Profile() {
 
   // Commercial profile state
   const [isCommercialProfileOpen, setIsCommercialProfileOpen] = React.useState(false);
+  const [isCommercialDashboardOpen, setIsCommercialDashboardOpen] = React.useState(false);
   const [commercialProfile, setCommercialProfile] = React.useState<CommercialProfile | null>(null);
   const [commercialFormData, setCommercialFormData] = React.useState({
     business_segment: "",
@@ -307,7 +308,10 @@ export default function Profile() {
 
   // Time Management state
   const [isTimeManagementOpen, setIsTimeManagementOpen] = React.useState(false);
-  const [dailyUsageLimit, setDailyUsageLimit] = React.useState(0);
+  const [dailyUsageLimit, setDailyUsageLimit] = React.useState(() => {
+    const stored = localStorage.getItem("ritmofit_daily_limit_minutes");
+    return stored ? parseInt(stored, 10) : 0;
+  });
   const [usageDataLast7Days] = React.useState([
     { day: "Seg", minutes: 45 },
     { day: "Ter", minutes: 60 },
@@ -343,7 +347,7 @@ export default function Profile() {
         userDietsData,
         userHabitsData,
         userGoalsData,
-        reelsData,
+        shotsData,
         commercialProfileData,
       ] = await Promise.all([
         getUserRoutinesDb(profileUserId),
@@ -351,7 +355,7 @@ export default function Profile() {
         getUserDietsDb(profileUserId),
         getUserHabitsDb(profileUserId),
         getUserGoalsByUserIdDb(profileUserId),
-        getUserReelsDb(profileUserId),
+        getUserShotsDb(profileUserId),
         getCommercialProfileDb(profileUserId),
       ]);
       setRoutines(routinesData);
@@ -359,8 +363,18 @@ export default function Profile() {
       setUserDiets(userDietsData);
       setUserHabits(userHabitsData);
       setUserGoals(userGoalsData);
-      setReels(reelsData);
+      setShots(shotsData);
       setCommercialProfile(commercialProfileData);
+      if (commercialProfileData) {
+        setCommercialFormData({
+          business_segment: commercialProfileData.business_segment || "",
+          business_name: commercialProfileData.business_name || "",
+          business_description: commercialProfileData.business_description || "",
+          business_phone: commercialProfileData.business_phone || "",
+          business_email: commercialProfileData.business_email || "",
+          business_website: commercialProfileData.business_website || "",
+        });
+      }
 
       // Batch 3 — stories: fire-and-forget
       getUserActiveStoriesDb(profileUserId).then(setProfileStories).catch((err) => console.error("Erro ao carregar stories do perfil:", err));
@@ -454,29 +468,29 @@ export default function Profile() {
     );
   }, [selectedPost, showConfirm]);
 
-  const handleUpdateReel = React.useCallback(async () => {
-    if (!selectedReel) return;
+  const handleUpdateShot = React.useCallback(async () => {
+    if (!selectedShot) return;
 
-    setIsUpdatingReel(true);
+    setIsUpdatingShot(true);
     try {
-      const success = await updateReelDb(selectedReel.id, editReelDescription);
+      const success = await updateShotDb(selectedShot.id, editShotDescription);
 
       if (success) {
-        // Update local reels list
-        setReels((prevReels) =>
-          prevReels.map((r) =>
-            r.id === selectedReel.id
-              ? { ...r, description: editReelDescription }
+        // Update local shots list
+        setShots((prevShots) =>
+          prevShots.map((r) =>
+            r.id === selectedShot.id
+              ? { ...r, description: editShotDescription }
               : r
           )
         );
 
-        setIsReelEditorOpen(false);
-        setSelectedReel(null);
+        setIsShotEditorOpen(false);
+        setSelectedShot(null);
 
         toast({
           title: "Sucesso!",
-          description: "Reel atualizado com sucesso.",
+          description: "Shot atualizado com sucesso.",
         });
       } else {
         toast({
@@ -486,39 +500,39 @@ export default function Profile() {
         });
       }
     } catch (err: any) {
-      console.error("Error updating reel:", err);
+      console.error("Error updating shot:", err);
       toast({
         title: "Erro ao atualizar",
         description: err?.message || "Tente novamente.",
         variant: "destructive",
       });
     } finally {
-      setIsUpdatingReel(false);
+      setIsUpdatingShot(false);
     }
-  }, [selectedReel, editReelDescription]);
+  }, [selectedShot, editShotDescription]);
 
-  const handleDeleteReel = React.useCallback(() => {
-    if (!selectedReel) return;
+  const handleDeleteShot = React.useCallback(() => {
+    if (!selectedShot) return;
     showConfirm(
-      "Deletar reel",
-      "Tem certeza que deseja deletar este reel? Esta ação não pode ser desfeita.",
+      "Deletar shot",
+      "Tem certeza que deseja deletar este shot? Esta ação não pode ser desfeita.",
       async () => {
-        setIsUpdatingReel(true);
+        setIsUpdatingShot(true);
         try {
-          await deleteReelDb(selectedReel.id);
-          setReels((prevReels) => prevReels.filter((r) => r.id !== selectedReel.id));
-          setIsReelEditorOpen(false);
-          setSelectedReel(null);
-          toast({ title: "Sucesso!", description: "Reel deletado com sucesso." });
+          await deleteShotDb(selectedShot.id);
+          setShots((prevShots) => prevShots.filter((r) => r.id !== selectedShot.id));
+          setIsShotEditorOpen(false);
+          setSelectedShot(null);
+          toast({ title: "Sucesso!", description: "Shot deletado com sucesso." });
         } catch (err: any) {
-          console.error("Error deleting reel:", err);
+          console.error("Error deleting shot:", err);
           toast({ title: "Erro ao deletar", description: err?.message || "Tente novamente.", variant: "destructive" });
         } finally {
-          setIsUpdatingReel(false);
+          setIsUpdatingShot(false);
         }
       }
     );
-  }, [selectedReel, showConfirm]);
+  }, [selectedShot, showConfirm]);
 
   // Define callback functions first
   const loadFollowersData = React.useCallback(async () => {
@@ -1361,14 +1375,16 @@ export default function Profile() {
                     <div className="flex items-center gap-2 mt-1">
                       {(() => {
                         const tier =
-                          stats.points >= 500
-                            ? { label: "Ouro", bg: "bg-yellow-500/20", text: "text-yellow-400", border: "border-yellow-500/40" }
+                          stats.points >= 1000
+                            ? { label: "Elite", icon: "💎", bg: "bg-cyan-500/20", text: "text-cyan-300", border: "border-cyan-500/40" }
+                            : stats.points >= 500
+                            ? { label: "Ouro", icon: "🥇", bg: "bg-yellow-500/20", text: "text-yellow-400", border: "border-yellow-500/40" }
                             : stats.points >= 200
-                            ? { label: "Prata", bg: "bg-slate-400/20", text: "text-slate-300", border: "border-slate-400/40" }
-                            : { label: "Bronze", bg: "bg-orange-700/20", text: "text-orange-400", border: "border-orange-700/40" };
+                            ? { label: "Prata", icon: "🥈", bg: "bg-slate-400/20", text: "text-slate-300", border: "border-slate-400/40" }
+                            : { label: "Bronze", icon: "🥉", bg: "bg-orange-700/20", text: "text-orange-400", border: "border-orange-700/40" };
                         return (
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${tier.bg} ${tier.text} ${tier.border}`}>
-                            Nível {stats.level} · {tier.label}
+                            {tier.icon} Nível {stats.level} · {tier.label}
                           </span>
                         );
                       })()}
@@ -1449,7 +1465,10 @@ export default function Profile() {
                       </Button>
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
-                        <DrawerHeader className="shrink-0">
+                        <DrawerHeader className="shrink-0 flex items-center gap-2">
+                          <button onClick={() => setIsEditDialogOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                            <ArrowLeft className="h-5 w-5" />
+                          </button>
                           <DrawerTitle>Editar Perfil</DrawerTitle>
                         </DrawerHeader>
 
@@ -1599,6 +1618,17 @@ export default function Profile() {
                       </DrawerContent>
                     </Drawer>
 
+                    {commercialProfile && (
+                      <Button
+                        onClick={() => setIsCommercialDashboardOpen(true)}
+                        variant="outline"
+                        className="gap-2 justify-between"
+                      >
+                        <span>Gerenciar Perfil Comercial</span>
+                        <BarChart3 className="h-4 w-4" />
+                      </Button>
+                    )}
+
                     <Drawer
                       open={isCommercialProfileOpen}
                       onOpenChange={setIsCommercialProfileOpen}
@@ -1614,7 +1644,12 @@ export default function Profile() {
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
-                          <DrawerTitle>Configurar Perfil Comercial</DrawerTitle>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => setIsCommercialProfileOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                              <ArrowLeft className="h-5 w-5" />
+                            </button>
+                            <DrawerTitle>Configurar Perfil Comercial</DrawerTitle>
+                          </div>
                         </DrawerHeader>
 
                         <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -1753,7 +1788,12 @@ export default function Profile() {
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
-                          <DrawerTitle>Selecione o Idioma</DrawerTitle>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => setIsLanguageOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                              <ArrowLeft className="h-5 w-5" />
+                            </button>
+                            <DrawerTitle>Selecione o Idioma</DrawerTitle>
+                          </div>
                         </DrawerHeader>
 
                         <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -1764,6 +1804,7 @@ export default function Profile() {
                               onClick={() => {
                                 setCurrentLanguage(lang);
                                 setIsLanguageOpen(false);
+                                setTimeout(() => window.location.reload(), 300);
                               }}
                               className={`w-full p-3 rounded-lg border text-left transition-colors ${
                                 currentLanguage === lang
@@ -1800,7 +1841,12 @@ export default function Profile() {
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
-                          <DrawerTitle>Configurar Notificações</DrawerTitle>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => setIsNotificationsOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                              <ArrowLeft className="h-5 w-5" />
+                            </button>
+                            <DrawerTitle>Configurar Notificações</DrawerTitle>
+                          </div>
                         </DrawerHeader>
 
                         <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -1922,7 +1968,12 @@ export default function Profile() {
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
-                          <DrawerTitle>Gerenciamento de Tempo</DrawerTitle>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => setIsTimeManagementOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                              <ArrowLeft className="h-5 w-5" />
+                            </button>
+                            <DrawerTitle>Gerenciamento de Tempo</DrawerTitle>
+                          </div>
                         </DrawerHeader>
 
                         <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -1968,9 +2019,16 @@ export default function Profile() {
 
                           <Button
                             onClick={() => {
+                              if (dailyUsageLimit > 0) {
+                                localStorage.setItem("ritmofit_daily_limit_minutes", String(dailyUsageLimit));
+                                localStorage.setItem("ritmofit_daily_limit_date", new Date().toDateString());
+                              } else {
+                                localStorage.removeItem("ritmofit_daily_limit_minutes");
+                                localStorage.removeItem("ritmofit_daily_limit_date");
+                              }
                               toast({
                                 title: "Limite salvo",
-                                description: `Limite diário de ${dailyUsageLimit || "sem"} minutos foi definido`,
+                                description: dailyUsageLimit > 0 ? `Limite de ${dailyUsageLimit} min/dia ativado` : "Limite removido",
                               });
                               setIsTimeManagementOpen(false);
                             }}
@@ -1999,7 +2057,12 @@ export default function Profile() {
 
                       <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
-                          <DrawerTitle>Personalização</DrawerTitle>
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => setIsPersonalizationOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                              <ArrowLeft className="h-5 w-5" />
+                            </button>
+                            <DrawerTitle>Personalização</DrawerTitle>
+                          </div>
                         </DrawerHeader>
 
                         <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -2059,9 +2122,22 @@ export default function Profile() {
               {commercialProfile && (
                 <div className="flex flex-col gap-1 p-2 rounded-lg bg-muted/20 border border-brand/20">
                   <div className="flex items-center gap-2">
-                    <div className="text-sm font-medium text-brand">
-                      🏪 {commercialProfile.business_name}
-                    </div>
+                    {commercialProfile.business_phone ? (
+                      <a
+                        href={`https://wa.me/55${commercialProfile.business_phone.replace(/\D/g, "")}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-brand hover:underline flex items-center gap-1"
+                        title="Entrar em contato via WhatsApp"
+                      >
+                        <span>💬</span>
+                        {commercialProfile.business_name}
+                      </a>
+                    ) : (
+                      <div className="text-sm font-medium text-brand">
+                        🏪 {commercialProfile.business_name}
+                      </div>
+                    )}
                     {commercialProfile.business_segment && (
                       <div className="text-xs px-2 py-0.5 rounded bg-brand/20 text-brand font-medium">
                         {commercialProfile.business_segment === "academia" && "Academia / Fitness"}
@@ -2115,7 +2191,7 @@ export default function Profile() {
 
               {/* Message Button */}
               <Button
-                onClick={() => navigate("/comunidade")}
+                onClick={() => navigate(`/comunidade?user=${profileUserId}`)}
                 variant="outline"
                 size="sm"
                 className="rounded-full gap-2"
@@ -2152,7 +2228,7 @@ export default function Profile() {
                 size="sm"
                 className="rounded-full gap-2 text-muted-foreground text-xs h-8"
                 onClick={() => {
-                  const tier = stats.points >= 500 ? "Ouro" : stats.points >= 200 ? "Prata" : "Bronze";
+                  const tier = stats.points >= 1000 ? "Elite" : stats.points >= 500 ? "Ouro" : stats.points >= 200 ? "Prata" : "Bronze";
                   const text = `Estou no Linka no nível ${stats.level} (${tier}) com ${stats.points} pontos! 🏋️ Junte-se a mim: @${profile.nickname}`;
                   if (navigator.share) {
                     navigator.share({ text }).catch(() => {});
@@ -2170,16 +2246,16 @@ export default function Profile() {
         </CardContent>
       </Card>
 
-      {/* Posts, Reels and Routines Tabs */}
+      {/* Posts, Shots and Routines Tabs */}
       <Tabs defaultValue="posts" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="posts" className="flex items-center gap-1.5">
             <Grid3X3 className="h-4 w-4" />
             Posts ({stats.postsCount})
           </TabsTrigger>
-          <TabsTrigger value="reels" className="flex items-center gap-1.5">
+          <TabsTrigger value="shots" className="flex items-center gap-1.5">
             <Film className="h-4 w-4" />
-            Shots ({reels.length})
+            Shots ({shots.length})
           </TabsTrigger>
         </TabsList>
 
@@ -2218,21 +2294,21 @@ export default function Profile() {
           )}
         </TabsContent>
 
-        {/* Reels Tab */}
-        <TabsContent value="reels" className="space-y-4 fade-in">
-          {reels.length > 0 ? (
+        {/* Shots Tab */}
+        <TabsContent value="shots" className="space-y-4 fade-in">
+          {shots.length > 0 ? (
             <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-              {reels.map((reel) => (
+              {shots.map((shot) => (
                 <div
-                  key={reel.id}
+                  key={shot.id}
                   className="group relative aspect-square overflow-hidden rounded-lg bg-black border border-border/60 hover:border-border/80 transition-all"
                 >
                   <button
-                    onClick={() => navigate(`/reels`)}
+                    onClick={() => navigate(`/shots`)}
                     className="w-full h-full cursor-pointer"
                   >
                     <video
-                      src={reel.video_url}
+                      src={shot.video_url}
                       className="h-full w-full object-cover group-hover:scale-110 transition-transform"
                     />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
@@ -2242,9 +2318,9 @@ export default function Profile() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedReel(reel);
-                        setEditReelDescription(reel.description);
-                        setIsReelEditorOpen(true);
+                        setSelectedShot(shot);
+                        setEditShotDescription(shot.description);
+                        setIsShotEditorOpen(true);
                       }}
                       className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg bg-black/50 hover:bg-black/70"
                     >
@@ -2257,7 +2333,7 @@ export default function Profile() {
           ) : (
             <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
               <p className="text-sm text-muted-foreground">
-                Nenhum reel ainda.
+                Nenhum shot ainda.
               </p>
             </div>
           )}
@@ -3394,33 +3470,33 @@ export default function Profile() {
         </DrawerContent>
       </Drawer>
 
-      {/* Reel Editor Drawer */}
-      <Drawer open={isReelEditorOpen} onOpenChange={setIsReelEditorOpen}>
+      {/* Shot Editor Drawer */}
+      <Drawer open={isShotEditorOpen} onOpenChange={setIsShotEditorOpen}>
         <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
-              {isEditingReel ? "Editar Reel" : "Opções do Reel"}
+              {isEditingShot ? "Editar Shot" : "Opções do Shot"}
             </DrawerTitle>
           </DrawerHeader>
 
-          {selectedReel && (
+          {selectedShot && (
             <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
-              {/* Reel Video Preview */}
+              {/* Shot Video Preview */}
               <div className="relative aspect-square overflow-hidden rounded-lg bg-black border border-border/60">
                 <video
-                  src={selectedReel.video_url}
+                  src={selectedShot.video_url}
                   className="w-full h-full object-cover"
                   controls
                 />
               </div>
 
               {/* Description */}
-              {isEditingReel ? (
+              {isEditingShot ? (
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Descrição</label>
                   <Textarea
-                    value={editReelDescription}
-                    onChange={(e) => setEditReelDescription(e.target.value)}
+                    value={editShotDescription}
+                    onChange={(e) => setEditShotDescription(e.target.value)}
                     className="resize-none"
                     rows={4}
                   />
@@ -3430,18 +3506,18 @@ export default function Profile() {
                   <label className="text-xs font-medium text-muted-foreground">
                     Descrição
                   </label>
-                  <p className="text-sm mt-1">{selectedReel.description}</p>
+                  <p className="text-sm mt-1">{selectedShot.description}</p>
                 </div>
               )}
 
               {/* Action Buttons */}
               <div className="flex gap-2 pt-4">
-                {!isEditingReel ? (
+                {!isEditingShot ? (
                   <>
                     <Button
                       variant="outline"
                       className="flex-1"
-                      onClick={() => setIsEditingReel(true)}
+                      onClick={() => setIsEditingShot(true)}
                     >
                       <Edit2 className="h-4 w-4 mr-2" />
                       Editar
@@ -3449,8 +3525,8 @@ export default function Profile() {
                     <Button
                       variant="destructive"
                       className="flex-1"
-                      onClick={handleDeleteReel}
-                      disabled={isUpdatingReel}
+                      onClick={handleDeleteShot}
+                      disabled={isUpdatingShot}
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
                       Deletar
@@ -3462,19 +3538,19 @@ export default function Profile() {
                       variant="outline"
                       className="flex-1"
                       onClick={() => {
-                        setIsEditingReel(false);
-                        setEditReelDescription(selectedReel.description);
+                        setIsEditingShot(false);
+                        setEditShotDescription(selectedShot.description);
                       }}
-                      disabled={isUpdatingReel}
+                      disabled={isUpdatingShot}
                     >
                       Cancelar
                     </Button>
                     <Button
                       className="flex-1"
-                      onClick={handleUpdateReel}
-                      disabled={isUpdatingReel}
+                      onClick={handleUpdateShot}
+                      disabled={isUpdatingShot}
                     >
-                      {isUpdatingReel ? "Salvando..." : "Salvar"}
+                      {isUpdatingShot ? "Salvando..." : "Salvar"}
                     </Button>
                   </>
                 )}
@@ -3627,7 +3703,7 @@ export default function Profile() {
       )}
 
       {/* Flow Viewer Modal */}
-      <StoryViewerModal
+      <FlowViewerModal
         story={selectedProfileStory}
         stories={profileStories}
         open={isStoryViewerOpen}
@@ -3651,30 +3727,170 @@ export default function Profile() {
         }}
       />
 
-      {/* Centralized confirmation dialog — replaces all native confirm() calls */}
-      <AlertDialog
+      {/* Delete Account Confirmation Dialog */}
+      <AlertDialog open={isDeleteAccountOpen} onOpenChange={(open) => { setIsDeleteAccountOpen(open); if (!open) setDeleteConfirmText(""); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive">⚠️ Encerrar Conta</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <span className="block">Esta ação é <strong>permanente e irreversível</strong>. Todos os seus dados, treinos, histórico e publicações serão deletados.</span>
+              <span className="block">Para confirmar, digite <strong>DELETAR CONTA</strong> no campo abaixo:</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <input
+            type="text"
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder="DELETAR CONTA"
+            className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-destructive focus:outline-none bg-background"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteConfirmText("")}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDeleteAccount}
+              disabled={isDeleting || deleteConfirmText !== "DELETAR CONTA"}
+            >
+              {isDeleting ? "Deletando..." : "Encerrar Conta"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Centralized confirmation drawer — replaces all native confirm() calls */}
+      <Drawer
         open={confirmDialog.open}
         onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{confirmDialog.title}</AlertDialogTitle>
-            <AlertDialogDescription>{confirmDialog.description}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        <DrawerContent className="modal-enter">
+          <DrawerHeader>
+            <DrawerTitle>{confirmDialog.title}</DrawerTitle>
+            <p className="text-sm text-muted-foreground mt-1">{confirmDialog.description}</p>
+          </DrawerHeader>
+          <div className="flex flex-col gap-3 px-4 pb-6">
+            <Button
+              className="w-full rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
                 confirmDialog.onConfirm();
                 setConfirmDialog((prev) => ({ ...prev, open: false }));
               }}
             >
               Confirmar
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full rounded-full"
+              onClick={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
+            >
+              Cancelar
+            </Button>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Commercial Dashboard Drawer */}
+      <Drawer open={isCommercialDashboardOpen} onOpenChange={setIsCommercialDashboardOpen}>
+        <DrawerContent className="max-h-[92dvh] flex flex-col modal-enter">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>🏪 {commercialProfile?.business_name || "Perfil Comercial"}</DrawerTitle>
+          </DrawerHeader>
+          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-5">
+            {/* Segment badge */}
+            {commercialProfile?.business_segment && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs px-2.5 py-1 rounded-full bg-brand/20 text-brand font-medium">
+                  {commercialProfile.business_segment === "academia" && "Academia / Fitness"}
+                  {commercialProfile.business_segment === "personal_trainer" && "Personal Trainer"}
+                  {commercialProfile.business_segment === "nutricao" && "Nutrição / Nutricionista"}
+                  {commercialProfile.business_segment === "psicologia" && "Psicologia / Coaching"}
+                  {commercialProfile.business_segment === "outros" && "Outros"}
+                </span>
+              </div>
+            )}
+
+            {/* Key metrics */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
+                <p className="text-2xl font-bold text-foreground">{stats.followersCount}</p>
+                <p className="text-xs text-muted-foreground text-center">Seguidores</p>
+              </div>
+              <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
+                <p className="text-2xl font-bold text-foreground">{stats.postsCount}</p>
+                <p className="text-xs text-muted-foreground text-center">Posts</p>
+              </div>
+              <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
+                <p className="text-2xl font-bold text-foreground">{stats.followingCount}</p>
+                <p className="text-xs text-muted-foreground text-center">Seguindo</p>
+              </div>
+            </div>
+
+            {/* Engagement */}
+            <div>
+              <p className="text-sm font-semibold mb-2">Engajamento</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
+                  <span className="text-sm text-muted-foreground">Nível da conta</span>
+                  <span className="text-sm font-medium">Nível {stats.level}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
+                  <span className="text-sm text-muted-foreground">Pontos totais</span>
+                  <span className="text-sm font-medium">{stats.points} pts</span>
+                </div>
+                {stats.postsCount > 0 && (
+                  <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
+                    <span className="text-sm text-muted-foreground">Média seguidores/post</span>
+                    <span className="text-sm font-medium">
+                      {(stats.followersCount / stats.postsCount).toFixed(1)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Contact info */}
+            {(commercialProfile?.business_phone || commercialProfile?.business_email || commercialProfile?.business_website) && (
+              <div>
+                <p className="text-sm font-semibold mb-2">Informações de Contato</p>
+                <div className="space-y-2">
+                  {commercialProfile?.business_phone && (
+                    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
+                      <span className="text-sm text-muted-foreground">Telefone</span>
+                      <span className="text-sm font-medium">{commercialProfile.business_phone}</span>
+                    </div>
+                  )}
+                  {commercialProfile?.business_email && (
+                    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
+                      <span className="text-sm text-muted-foreground">E-mail</span>
+                      <span className="text-sm font-medium">{commercialProfile.business_email}</span>
+                    </div>
+                  )}
+                  {commercialProfile?.business_website && (
+                    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
+                      <span className="text-sm text-muted-foreground">Website</span>
+                      <a href={commercialProfile.business_website} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-brand hover:underline">
+                        {commercialProfile.business_website.replace(/^https?:\/\//, "")}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {commercialProfile?.business_description && (
+              <div>
+                <p className="text-sm font-semibold mb-2">Descrição do Negócio</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{commercialProfile.business_description}</p>
+              </div>
+            )}
+
+            <div className="pt-2">
+              <p className="text-xs text-muted-foreground text-center">
+                Perfil ativo desde {new Date(commercialProfile?.created_at || "").toLocaleDateString("pt-BR")}
+              </p>
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }

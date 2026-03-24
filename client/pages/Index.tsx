@@ -21,6 +21,7 @@ import { ImageWithFallback } from "@/components/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import {
   getRoutinesByGoalIdDb,
+  getRoutineItemsForViewDb,
   getActiveStoriesDb,
   getUserProfileDb,
   createStoryDb,
@@ -29,7 +30,11 @@ import {
   createUserGoalDb,
   getUserGoalsDb,
   deletePostDb,
+  updatePostDb,
   getPostLikeUsersDb,
+  getUserWorkoutsDb,
+  getUserDietsDb,
+  getUserHabitsDb,
   type PostIncentiveType,
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
@@ -44,7 +49,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronDown, MoreVertical, Flag, Trash2, Share2 } from "lucide-react";
+import { ChevronDown, MoreVertical, Flag, Trash2, Share2, Edit2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,9 +60,9 @@ import {
 import { formatTimeAgo } from "@/lib/utils";
 import { LoadingSpinner, PostSkeleton } from "@/components/animated-loading";
 import type { PostWithStats } from "../services/post.service";
-import { StoriesCarousel } from "@/components/stories-carousel";
-import { StoryCreationDialog } from "@/components/story-creation-dialog";
-import { StoryViewerModal } from "@/components/story-viewer-modal";
+import { FlowCarousel } from "@/components/flow-carousel";
+import { FlowCreationDialog } from "@/components/flow-creation-dialog";
+import { FlowViewerModal } from "@/components/flow-viewer-modal";
 import { PostCarousel } from "@/components/post-carousel";
 import { UserInsignias } from "@/components/user-insignias";
 import { useAuth } from "@/hooks/useAuth";
@@ -78,6 +83,8 @@ export default function Index() {
   const [selectedGoalPost, setSelectedGoalPost] =
     React.useState<PostWithStats | null>(null);
   const [linkedRoutines, setLinkedRoutines] = React.useState<any[]>([]);
+  const [expandedLinkedRoutine, setExpandedLinkedRoutine] = React.useState<string | null>(null);
+  const [linkedRoutineItems, setLinkedRoutineItems] = React.useState<Record<string, any[]>>({});
 
   const [expandedRoutines, setExpandedRoutines] = React.useState(false);
   const [storyCreationOpen, setStoryCreationOpen] = React.useState(false);
@@ -100,7 +107,13 @@ export default function Index() {
   const [unreadCommentsByPost] = React.useState<Record<string, number>>({});
   const [isCopyingGoal, setIsCopyingGoal] = React.useState(false);
   const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
-  const [feedMode, setFeedMode] = React.useState<"following" | "discover">("following");
+  const [feedMode, setFeedMode] = React.useState<"following" | "discover">(() => {
+    if (localStorage.getItem("new_user_open_discover") === "1") {
+      localStorage.removeItem("new_user_open_discover");
+      return "discover";
+    }
+    return "following";
+  });
   const [discoverPosts, setDiscoverPosts] = React.useState<PostWithStats[]>([]);
   const [discoverLoading, setDiscoverLoading] = React.useState(false);
   const [discoverLoaded, setDiscoverLoaded] = React.useState(false);
@@ -113,6 +126,11 @@ export default function Index() {
     userPhoto: string | null;
     type: number;
   }>>([]);
+  const [editPostOpen, setEditPostOpen] = React.useState(false);
+  const [editingPost, setEditingPost] = React.useState<PostWithStats | null>(null);
+  const [editPostDescription, setEditPostDescription] = React.useState("");
+  const [isSavingEdit, setIsSavingEdit] = React.useState(false);
+
   const [confirmDialog, setConfirmDialog] = React.useState<{
     open: boolean;
     title: string;
@@ -163,9 +181,10 @@ export default function Index() {
     })();
   }, []);
 
-  // Auto-load discover posts when following feed is empty
+  // Pre-load discover posts in the background once the following feed is loaded
+  // (so the inline "Descobrir" section at the bottom of the following feed is ready)
   React.useEffect(() => {
-    if (!loading && posts.length === 0 && feedMode === "following" && !discoverLoaded) {
+    if (!loading && !discoverLoaded) {
       setDiscoverLoading(true);
       getDiscoverPosts()
         .then((data) => {
@@ -175,7 +194,7 @@ export default function Index() {
         .catch((err) => console.error("Erro ao pré-carregar posts populares:", err))
         .finally(() => setDiscoverLoading(false));
     }
-  }, [loading, posts.length, feedMode, discoverLoaded]);
+  }, [loading, discoverLoaded]);
 
   // Load current user's profile photo whenever user becomes available
   React.useEffect(() => {
@@ -247,12 +266,17 @@ export default function Index() {
           // Add the new story to the list
           const enrichedStory: StoryWithUser = {
             ...newStory,
+            id: String(newStory.id),
             userNickname: user.email?.split("@")[0] || "Você",
             userPhoto: null,
           };
           setStories((prev) => [enrichedStory, ...prev]);
           setOwnerHasViewedFlow(false);
           setFlowViewCount(0);
+          // Open viewer immediately on the newly created flow
+          setStoryCreationOpen(false);
+          setSelectedStory(enrichedStory);
+          setStoryViewerOpen(true);
         }
       } catch (err: any) {
         console.error("Error creating story:", err);
@@ -314,6 +338,8 @@ export default function Index() {
     setGoalModalOpen(true);
     setExpandedRoutines(false);
     setHasAlreadyCopiedGoal(false);
+    setExpandedLinkedRoutine(null);
+    setLinkedRoutineItems({});
 
     // Fetch routines and user goals in parallel
     if (post.userGoal) {
@@ -337,6 +363,22 @@ export default function Index() {
       }
     }
   }, [user]);
+
+  const handleToggleLinkedRoutine = React.useCallback(async (groupKey: string, type: number, name: string | undefined, targetUserId: string) => {
+    if (expandedLinkedRoutine === groupKey) {
+      setExpandedLinkedRoutine(null);
+      return;
+    }
+    setExpandedLinkedRoutine(groupKey);
+    if (linkedRoutineItems[groupKey]) return; // already loaded
+    try {
+      const items = await getRoutineItemsForViewDb(targetUserId, type, name);
+      setLinkedRoutineItems((prev) => ({ ...prev, [groupKey]: items }));
+    } catch (err) {
+      console.error("[linkedRoutine] error", err);
+      setLinkedRoutineItems((prev) => ({ ...prev, [groupKey]: [] }));
+    }
+  }, [expandedLinkedRoutine, linkedRoutineItems]);
 
   const handleCopyGoal = React.useCallback(async () => {
     if (!selectedGoalPost?.userGoal || !user) return;
@@ -506,6 +548,29 @@ export default function Index() {
     [user, showConfirm],
   );
 
+  const handleEditPost = React.useCallback((post: PostWithStats) => {
+    setEditingPost(post);
+    setEditPostDescription(post.description || "");
+    setEditPostOpen(true);
+  }, []);
+
+  const handleSaveEditPost = React.useCallback(async () => {
+    if (!editingPost) return;
+    setIsSavingEdit(true);
+    try {
+      await updatePostDb(editingPost.id, editPostDescription, editingPost.user_goal_id || null);
+      setPosts((prev) => prev.map((p) => p.id === editingPost.id ? { ...p, description: editPostDescription } : p));
+      setDiscoverPosts((prev) => prev.map((p) => p.id === editingPost.id ? { ...p, description: editPostDescription } : p));
+      toast({ title: "Post atualizado!" });
+      setEditPostOpen(false);
+      setEditingPost(null);
+    } catch (err: any) {
+      toast({ title: "Erro ao editar post", description: err?.message, variant: "destructive" });
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }, [editingPost, editPostDescription]);
+
   const submitReport = React.useCallback(async () => {
     if (!reportType || !reportedPost || !reportReason.trim()) {
       toast({
@@ -585,7 +650,7 @@ export default function Index() {
     <div className="mx-auto w-full max-w-2xl flex flex-col">
       {/* Stories Carousel */}
       <div className="bg-background border-b border-border/60">
-        <StoriesCarousel
+        <FlowCarousel
           stories={stories}
           onAddStoryClick={handleAddStoryClick}
           onStoryClick={handleStoryClick}
@@ -597,23 +662,23 @@ export default function Index() {
       </div>
 
       {/* Feed Mode Toggle */}
-      <div className={`sticky top-16 z-40 bg-background/90 backdrop-blur border-b border-border/60 px-4 py-2 flex gap-2 transition-transform duration-200 ${tabBarHidden ? "-translate-y-[calc(100%+4rem)] pointer-events-none" : "translate-y-0"}`}>
+      <div className={`sticky top-16 z-40 bg-background/90 backdrop-blur border-b border-border/60 px-4 py-2.5 flex items-center justify-center gap-6 transition-transform duration-200 ${tabBarHidden ? "-translate-y-[calc(100%+4rem)] pointer-events-none" : "translate-y-0"}`}>
         <button
           onClick={() => setFeedMode("following")}
-          className={`flex-1 rounded-full py-1.5 text-sm font-medium transition-colors ${
+          className={`text-sm font-medium pb-0.5 ${
             feedMode === "following"
-              ? "bg-foreground text-background"
-              : "text-muted-foreground hover:text-foreground"
+              ? "text-foreground border-b-2 border-foreground"
+              : "text-muted-foreground"
           }`}
         >
           Seguindo
         </button>
         <button
           onClick={handleSwitchToDiscover}
-          className={`flex-1 rounded-full py-1.5 text-sm font-medium transition-colors ${
+          className={`text-sm font-medium pb-0.5 ${
             feedMode === "discover"
-              ? "bg-foreground text-background"
-              : "text-muted-foreground hover:text-foreground"
+              ? "text-foreground border-b-2 border-foreground"
+              : "text-muted-foreground"
           }`}
         >
           Descobrir
@@ -696,13 +761,20 @@ export default function Index() {
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           {user?.id === post.user_id ? (
-                            <DropdownMenuItem
-                              onClick={() => handleDeletePost(post)}
-                              className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Excluir post
-                            </DropdownMenuItem>
+                            <>
+                              <DropdownMenuItem onClick={() => handleEditPost(post)}>
+                                <Edit2 className="h-4 w-4 mr-2" />
+                                Editar post
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => handleDeletePost(post)}
+                                className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Excluir post
+                              </DropdownMenuItem>
+                            </>
                           ) : (
                             <>
                               <DropdownMenuItem
@@ -803,9 +875,9 @@ export default function Index() {
             ))
             )
           ) : (
-            /* Following mode */
-            posts.length ? (
-              posts.map((post) => (
+            /* Following mode — posts dos seguidos + discover inline no final */
+            <>
+              {posts.map((post) => (
                 <Card
                   key={post.id}
                   className="border-border/60 relative overflow-hidden fade-in"
@@ -865,13 +937,20 @@ export default function Index() {
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             {user?.id === post.user_id ? (
-                              <DropdownMenuItem
-                                onClick={() => handleDeletePost(post)}
-                                className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Excluir post
-                              </DropdownMenuItem>
+                              <>
+                                <DropdownMenuItem onClick={() => handleEditPost(post)}>
+                                  <Edit2 className="h-4 w-4 mr-2" />
+                                  Editar post
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleDeletePost(post)}
+                                  className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Excluir post
+                                </DropdownMenuItem>
+                              </>
                             ) : (
                               <>
                                 <DropdownMenuItem
@@ -969,104 +1048,118 @@ export default function Index() {
                     </div>
                   </CardContent>
                 </Card>
-              ))
-            ) : (
-              <div className="space-y-4">
-                <div className="flex flex-col items-center gap-3 text-center px-4 pt-6 pb-2">
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    Siga pessoas para ver o feed delas. Enquanto isso, confira posts populares:
+              ))}
+
+              {/* ── Divisor Descobrir ── aparece após posts dos seguidos (ou logo no topo se não houver) */}
+              {posts.length === 0 && (
+                <div className="flex flex-col items-center gap-2 text-center pt-4 pb-1">
+                  <p className="text-xs text-muted-foreground">
+                    Siga pessoas para ver o feed delas.
                   </p>
-                  <Button size="sm" variant="outline" className="rounded-full" onClick={() => navigate("/buscar")}>
-                    Buscar pessoas
+                  <Button size="sm" variant="ghost" className="rounded-full text-xs h-7 px-3" onClick={() => navigate("/buscar")}>
+                    Encontrar pessoas
                   </Button>
                 </div>
-                {discoverLoading ? (
-                  <>
-                    {[1, 2, 3].map((i) => (
-                      <PostSkeleton key={i} />
-                    ))}
-                  </>
-                ) : discoverPosts.length === 0 ? (
-                  <div className="flex flex-col items-center py-8 gap-2 text-center">
-                    <p className="text-sm text-muted-foreground">Nenhum post popular disponível agora.</p>
-                  </div>
-                ) : (
-                  discoverPosts.map((post) => (
-                    <Card
-                      key={`seed-${post.id}`}
-                      className="border-border/60 relative overflow-hidden fade-in"
-                    >
-                      <CardContent className="space-y-3 p-0">
-                        <div className="relative">
-                          {post.photos && post.photos.length > 0 ? (
-                            <PostCarousel photos={post.photos} alt="Post" />
-                          ) : (
-                            <ImageWithFallback
-                              src={post.photo}
-                              alt="Post"
-                              fallback="/placeholder.svg"
-                              className="w-full object-cover rounded-lg"
-                            />
-                          )}
-                          <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
-                            <button
-                              onClick={() => navigate(`/usuario/${post.user_id}`)}
-                              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-                            >
-                              {post.userPhoto ? (
-                                <ImageWithFallback
-                                  src={post.userPhoto}
-                                  alt={post.userNickname}
-                                  fallback="/placeholder.svg"
-                                  className="h-8 w-8 rounded-full object-cover border border-white/30"
-                                />
-                              ) : (
-                                <div className="h-8 w-8 rounded-full bg-white/30" />
-                              )}
-                              <span className="text-xs font-medium text-white drop-shadow-sm">
-                                {post.userNickname}
-                              </span>
-                            </button>
-                          </div>
-                        </div>
-                        {post.description && (
-                          <p className="text-sm px-4 pb-3 text-foreground/80 line-clamp-2">{post.description}</p>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))
-                )}
+              )}
+
+              {/* Divisor visual de transição Seguindo → Descobrir */}
+              <div className="flex items-center gap-3 py-2">
+                <div className="flex-1 h-px bg-border/60" />
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest px-1">
+                  Descobrir
+                </span>
+                <div className="flex-1 h-px bg-border/60" />
               </div>
-            )
+              {posts.length > 0 && (
+                <p className="text-xs text-muted-foreground text-center -mt-1 mb-1">
+                  Você chegou ao fim — veja o que está acontecendo na comunidade
+                </p>
+              )}
+
+              {/* Posts do Descobrir inline */}
+              {discoverLoading ? (
+                <>{[1, 2, 3].map((i) => <PostSkeleton key={i} />)}</>
+              ) : discoverPosts.length === 0 ? (
+                <div className="flex flex-col items-center py-8 gap-2 text-center">
+                  <p className="text-sm text-muted-foreground">Nenhum post novo por aqui.</p>
+                </div>
+              ) : (
+                discoverPosts.map((post) => (
+                  <Card key={`seed-${post.id}`} className="border-border/60 relative overflow-hidden fade-in">
+                    <CardContent className="space-y-3 p-0">
+                      <div className="relative">
+                        {post.photos && post.photos.length > 0 ? (
+                          <PostCarousel photos={post.photos} alt="Post" />
+                        ) : (
+                          <ImageWithFallback src={post.photo} alt="Post" fallback="/placeholder.svg" className="w-full object-cover rounded-lg" />
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
+                          <button onClick={() => navigate(`/usuario/${post.user_id}`)} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                            {post.userPhoto ? (
+                              <ImageWithFallback src={post.userPhoto} alt={post.userNickname} fallback="/placeholder.svg" className="h-8 w-8 rounded-full object-cover border border-white/30" />
+                            ) : (
+                              <div className="h-8 w-8 rounded-full bg-white/30" />
+                            )}
+                            <span className="text-xs font-medium text-white drop-shadow-sm">{post.userNickname}</span>
+                          </button>
+                        </div>
+                      </div>
+                      {/* Incentivos e comentários nos posts do descobrir */}
+                      <div className="flex items-center px-1 pt-1.5 border-t border-border/60">
+                        {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                          <PostIncentiveButton
+                            key={type}
+                            type={type}
+                            isActive={post.userLikes.includes(type)}
+                            onClick={() => handleToggleLike(post.id, type)}
+                            loading={togglingIncentives.has(`${post.id}-${type}`)}
+                          />
+                        ))}
+                        <div className="ml-auto">
+                          <PostCommentsDialog postId={post.id} commentCount={post.commentCount} hasActivity={post.hasActivity} isPostOwner={post.user_id === user?.id} hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0} />
+                        </div>
+                      </div>
+                      {post.description && (
+                        <p className="text-sm px-4 pb-3 text-foreground/80 line-clamp-2">{post.description}</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </>
           )}
         </div>
       </div>
 
-      {/* Story Creation Dialog */}
-      <StoryCreationDialog
+      {/* Flow Creation Dialog */}
+      <FlowCreationDialog
         open={storyCreationOpen}
         onOpenChange={setStoryCreationOpen}
         onCreateStory={handleCreateStory}
         isLoading={isCreatingStory}
       />
 
-      {/* Story Viewer Modal */}
-      <StoryViewerModal
+      {/* Flow Viewer Modal */}
+      <FlowViewerModal
         story={selectedStory}
         stories={stories}
         open={storyViewerOpen}
         onOpenChange={setStoryViewerOpen}
         onNextStory={handleSkipStory}
         onPrevStory={handlePrevStory}
+        onDeleted={() => {
+          setStoryViewerOpen(false);
+          getActiveStoriesDb().then(setStories).catch(console.error);
+        }}
       />
 
       {/* Goal Progress Modal */}
       <Drawer open={goalModalOpen} onOpenChange={setGoalModalOpen}>
-        <DrawerContent className="max-h-[70vh] flex flex-col">
+        <DrawerContent className="max-h-[90dvh] flex flex-col">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Progresso da Meta</DrawerTitle>
           </DrawerHeader>
-          <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
+          <div className="flex flex-col flex-1 gap-4 overflow-y-auto px-4 pb-6">
             {selectedGoalPost?.userGoal && (
               <div className="space-y-4 flex-1">
                 {/* Goal Info */}
@@ -1136,7 +1229,7 @@ export default function Index() {
                           className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
                         >
                           <h3 className="text-sm font-medium">
-                            Rotinas Vinculadas ({linkedRoutines.length})
+                            Rotinas Vinculadas ({new Set(linkedRoutines.map((r: any) => `${r.type}__${r.name ?? ""}`)).size})
                           </h3>
                           <ChevronDown
                             className={`h-5 w-5 transform transition-transform ${
@@ -1145,24 +1238,57 @@ export default function Index() {
                           />
                         </button>
 
-                        {expandedRoutines && (
-                          <div className="border-t border-border/60 bg-muted/20 p-4 space-y-3">
-                            {linkedRoutines.map((routine) => (
-                              <div
-                                key={routine.id}
-                                className="p-3 border border-border/60 rounded-lg bg-background"
-                              >
-                                <p className="font-medium text-sm">
-                                  {routine.type === 1
-                                    ? "🏋️ Exercicios"
-                                    : routine.type === 2
-                                      ? "🍽️ Dietas"
-                                      : "✅ Habitos"}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        {expandedRoutines && (() => {
+                          // Deduplicate: group by (type + name), keep one representative per group
+                          const seen = new Set<string>();
+                          const groups = linkedRoutines.reduce<{ key: string; type: number; name?: string }[]>((acc, r) => {
+                            const k = `${r.type}__${r.name ?? ""}`;
+                            if (!seen.has(k)) { seen.add(k); acc.push({ key: k, type: r.type, name: r.name }); }
+                            return acc;
+                          }, []);
+                          return (
+                            <div className="border-t border-border/60 divide-y divide-border/40">
+                              {groups.map(({ key, type, name }) => {
+                                const typeIcon = type === 1 ? "🏋️" : type === 2 ? "🍽️" : "✅";
+                                const typeLabel = type === 1 ? "Exercícios" : type === 2 ? "Dietas" : "Hábitos";
+                                const label = name || typeLabel;
+                                const isOpen = expandedLinkedRoutine === key;
+                                const items = linkedRoutineItems[key];
+                                return (
+                                  <div key={key}>
+                                    <button
+                                      onClick={() => handleToggleLinkedRoutine(key, type, name, selectedGoalPost!.user_id)}
+                                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                                    >
+                                      <span className="text-base">{typeIcon}</span>
+                                      <span className="flex-1 text-sm font-medium truncate">{label}</span>
+                                      <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                                    </button>
+                                    {isOpen && (
+                                      <div className="bg-muted/20 px-4 pb-3 pt-1 space-y-1.5">
+                                        {!items ? (
+                                          <p className="text-xs text-muted-foreground py-2">Carregando...</p>
+                                        ) : items.length === 0 ? (
+                                          <p className="text-xs text-muted-foreground py-2">Nenhum item nesta rotina.</p>
+                                        ) : (
+                                          items.map((item: any) => {
+                                            const itemName = item.workoutName || item.dietName || item.habitName || "—";
+                                            return (
+                                              <div key={item.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-background/60">
+                                                <span className="text-xs text-muted-foreground">•</span>
+                                                <span className="text-sm truncate">{itemName}</span>
+                                              </div>
+                                            );
+                                          })
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <div className="border border-border/60 rounded-lg p-4 bg-muted/20 text-center space-y-3">
@@ -1173,7 +1299,7 @@ export default function Index() {
                           variant="outline"
                           size="sm"
                           className="w-full rounded-full"
-                          onClick={() => navigate("/metas")}
+                          onClick={() => navigate("/metas?tab=rotinas")}
                         >
                           Vincular Rotinas
                         </Button>
@@ -1188,7 +1314,7 @@ export default function Index() {
                       className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
                     >
                       <h3 className="text-sm font-medium">
-                        Rotinas Vinculadas ({linkedRoutines.length})
+                        Rotinas Vinculadas ({new Set(linkedRoutines.map((r: any) => `${r.type}__${r.name ?? ""}`)).size})
                       </h3>
                       <ChevronDown
                         className={`h-5 w-5 transform transition-transform ${
@@ -1197,24 +1323,56 @@ export default function Index() {
                       />
                     </button>
 
-                    {expandedRoutines && (
-                      <div className="border-t border-border/60 bg-muted/20 p-4 space-y-3">
-                        {linkedRoutines.map((routine) => (
-                          <div
-                            key={routine.id}
-                            className="p-3 border border-border/60 rounded-lg bg-background"
-                          >
-                            <p className="font-medium text-sm">
-                              {routine.type === 1
-                                ? "🏋️ Exercicios"
-                                : routine.type === 2
-                                  ? "🍽️ Dietas"
-                                  : "✅ Habitos"}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    {expandedRoutines && (() => {
+                      const seen = new Set<string>();
+                      const groups = linkedRoutines.reduce<{ key: string; type: number; name?: string }[]>((acc, r) => {
+                        const k = `${r.type}__${r.name ?? ""}`;
+                        if (!seen.has(k)) { seen.add(k); acc.push({ key: k, type: r.type, name: r.name }); }
+                        return acc;
+                      }, []);
+                      return (
+                        <div className="border-t border-border/60 divide-y divide-border/40">
+                          {groups.map(({ key, type, name }) => {
+                            const typeIcon = type === 1 ? "🏋️" : type === 2 ? "🍽️" : "✅";
+                            const typeLabel = type === 1 ? "Exercícios" : type === 2 ? "Dietas" : "Hábitos";
+                            const label = name || typeLabel;
+                            const isOpen = expandedLinkedRoutine === key;
+                            const items = linkedRoutineItems[key];
+                            return (
+                              <div key={key}>
+                                <button
+                                  onClick={() => handleToggleLinkedRoutine(key, type, name, selectedGoalPost!.user_id)}
+                                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                                >
+                                  <span className="text-base">{typeIcon}</span>
+                                  <span className="flex-1 text-sm font-medium truncate">{label}</span>
+                                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                                </button>
+                                {isOpen && (
+                                  <div className="bg-muted/20 px-4 pb-3 pt-1 space-y-1.5">
+                                    {!items ? (
+                                      <p className="text-xs text-muted-foreground py-2">Carregando...</p>
+                                    ) : items.length === 0 ? (
+                                      <p className="text-xs text-muted-foreground py-2">Nenhum item nesta rotina.</p>
+                                    ) : (
+                                      items.map((item: any) => {
+                                        const itemName = item.workoutName || item.dietName || item.habitName || "—";
+                                        return (
+                                          <div key={item.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-background/60">
+                                            <span className="text-xs text-muted-foreground">•</span>
+                                            <span className="text-sm truncate">{itemName}</span>
+                                          </div>
+                                        );
+                                      })
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
@@ -1332,6 +1490,31 @@ export default function Index() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit Post Drawer */}
+      <Drawer open={editPostOpen} onOpenChange={(open) => { if (!open) { setEditPostOpen(false); setEditingPost(null); } }}>
+        <DrawerContent className="max-h-[80dvh] flex flex-col">
+          <DrawerHeader>
+            <DrawerTitle>Editar post</DrawerTitle>
+          </DrawerHeader>
+          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
+            <textarea
+              value={editPostDescription}
+              onChange={(e) => setEditPostDescription(e.target.value)}
+              placeholder="Descrição do post..."
+              rows={5}
+              className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm resize-none focus:border-brand focus:outline-none"
+            />
+            <Button
+              onClick={handleSaveEditPost}
+              disabled={isSavingEdit}
+              className="w-full rounded-full"
+            >
+              {isSavingEdit ? "Salvando..." : "Salvar alterações"}
+            </Button>
+          </div>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }

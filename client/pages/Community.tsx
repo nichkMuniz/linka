@@ -13,6 +13,7 @@ import {
   getUserCreatedDuelGroupsDb,
   getAvailableDuelGroupsDb,
   getUserExerciseRoutinesDb,
+  getUserWorkoutsDb,
   getUserProfileDb,
   addMembersToGroupDb,
   leaveGroupDb,
@@ -20,20 +21,26 @@ import {
   deleteGroupCheckInDb,
   deleteGroupDb,
   getGroupParticipantsDb,
+  updateGroupPhotoDb,
+  getPendingInvitesDb,
+  acceptGroupInviteDb,
+  declineGroupInviteDb,
+  sendGroupJoinRequestNotificationDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
   type RankingUser,
   type GroupCheckIn,
   type ExerciseRoutine,
+  type UserWorkoutWithDetails,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+// Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, Trash2, Edit3 } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -97,6 +104,7 @@ export default function Community() {
     photo: "",
   });
   const [groupPhotoFile, setGroupPhotoFile] = React.useState<File | null>(null);
+  const editCoverInputRef = React.useRef<HTMLInputElement>(null);
   const [selectedInvitees, setSelectedInvitees] = React.useState<Set<string>>(new Set());
   const [userCreatedGroups, setUserCreatedGroups] = React.useState<any[]>([]);
   const [availableGroups, setAvailableGroups] = React.useState<any[]>([]);
@@ -115,11 +123,15 @@ export default function Community() {
   });
   const [checkInPhotoFile, setCheckInPhotoFile] = React.useState<File | null>(null);
   const [exerciseRoutines, setExerciseRoutines] = React.useState<ExerciseRoutine[]>([]);
+  const [checkInUserWorkouts, setCheckInUserWorkouts] = React.useState<UserWorkoutWithDetails[]>([]);
+  const [checkInExpandedRoutine, setCheckInExpandedRoutine] = React.useState<string | null>(null);
   const [participantsSearch, setParticipantsSearch] = React.useState("");
   const [selectedCheckInForDetail, setSelectedCheckInForDetail] = React.useState<GroupCheckIn | null>(null);
   const [isCheckInDetailOpen, setIsCheckInDetailOpen] = React.useState(false);
   const [userNickname, setUserNickname] = React.useState<string>("");
   const [isGroupDetailsOpen, setIsGroupDetailsOpen] = React.useState(false);
+  const [deleteGroupConfirmOpen, setDeleteGroupConfirmOpen] = React.useState(false);
+  const [leaveGroupConfirmOpen, setLeaveGroupConfirmOpen] = React.useState(false);
   const [isClassificationsOpen, setIsClassificationsOpen] = React.useState(false);
   const [isParticipantsModalOpen, setIsParticipantsModalOpen] = React.useState(false);
   const [isAddMembersModalOpen, setIsAddMembersModalOpen] = React.useState(false);
@@ -136,6 +148,8 @@ export default function Community() {
     description: string;
     onConfirm: () => void;
   }>({ open: false, title: "", description: "", onConfirm: () => {} });
+
+  const [pendingInvites, setPendingInvites] = React.useState<Array<{ groupId: string; groupName: string; groupGoal: string; groupLocation: string }>>([]);
 
   const showConfirm = React.useCallback(
     (title: string, description: string, onConfirm: () => void) => {
@@ -181,11 +195,13 @@ export default function Community() {
         const nickname = userProfile?.nickname || user.email?.split("@")[0] || "Usuário";
         setUserNickname(nickname);
 
-        // Load user groups + all other groups
-        const [createdGroups, availGroups] = await Promise.all([
+        // Load user groups + all other groups + pending invites
+        const [createdGroups, availGroups, invites] = await Promise.all([
           getUserCreatedDuelGroupsDb(user.id),
           getAvailableDuelGroupsDb(user.id),
+          getPendingInvitesDb(),
         ]);
+        setPendingInvites(invites);
 
         const toGroupCard = (group: any) => ({
           ...group,
@@ -205,12 +221,14 @@ export default function Community() {
               getUserProfileDb(group.createdBy),
               getGroupParticipantsDb(group.id),
             ]);
+            const isPending = invites.some((inv) => inv.groupId === group.id);
             return {
               ...toGroupCard(group),
               creatorNickname: creatorProfile?.nickname || "Usuário",
               creatorPhoto: creatorProfile?.photo || null,
               participants: participants.length,
               isAlreadyMember: participants.some((p: any) => p.userId === user.id),
+              isPending,
             };
           })
         );
@@ -227,18 +245,37 @@ export default function Community() {
     loadUserData();
   }, [user?.id]);
 
-  // Auto-select conversation from URL parameter
+  // Auto-select conversation from URL parameter (?user=<userId>)
   React.useEffect(() => {
     const userIdParam = searchParams.get("user");
-    if (userIdParam && conversations.length > 0) {
-      const conversation = conversations.find((c) => c.userId === userIdParam);
-      if (conversation) {
-        setSelectedConversation(conversation);
-        setViewMode("conversation");
-        setActiveTab("messages");
-      }
+    if (!userIdParam) return;
+    setActiveTab("messages");
+    // Try existing conversation first
+    const existing = conversations.find((c) => c.userId === userIdParam);
+    if (existing) {
+      setSelectedConversation(existing);
+      setViewMode("conversation");
+      return;
     }
-  }, [searchParams, conversations]);
+    // If no conversation yet, fetch the user's profile and open an empty conversation
+    if (!loading) {
+      import("@/lib/ritmofit-db").then(({ getUserProfileDb }) => {
+        getUserProfileDb(userIdParam).then((profile) => {
+          if (profile) {
+            const newConv: Conversation = {
+              userId: userIdParam,
+              userNickname: profile.nickname || profile.name || "Usuário",
+              userPhoto: profile.photo || null,
+              lastMessage: "",
+              lastMessageTime: new Date().toISOString(),
+            };
+            setSelectedConversation(newConv);
+            setViewMode("conversation");
+          }
+        }).catch(console.error);
+      });
+    }
+  }, [searchParams, conversations, loading]);
 
   // Load conversation messages when selected
   React.useEffect(() => {
@@ -329,6 +366,8 @@ export default function Community() {
   const handleBackToConversations = React.useCallback(() => {
     setViewMode("conversations");
     setSelectedConversation(null);
+    // Refresh conversations list so new message appears immediately
+    getConversationsDb().then(setConversations).catch(console.error);
   }, []);
 
   if (loading) {
@@ -343,10 +382,10 @@ export default function Community() {
   if (activeTab === "messages" && viewMode === "conversation" && selectedConversation) {
     const bottomClass = layoutMode === "novo"
       ? "bottom-0"
-      : "bottom-[calc(4.25rem+env(safe-area-inset-bottom))]";
+      : "bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:bottom-0";
 
     return (
-      <div className={`fixed top-0 left-0 right-0 ${bottomClass} bg-background flex flex-col z-[60]`}>
+      <div className={`fixed top-0 left-0 md:left-[244px] right-0 ${bottomClass} bg-background flex flex-col z-[60]`}>
         {/* Header */}
         <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3">
           <button
@@ -463,149 +502,194 @@ export default function Community() {
   );
 
   return (
-    <div className="w-full h-[calc(100dvh-140px)] flex flex-col overflow-hidden">
-      {/* Tabs */}
-      <div className="flex-shrink-0 border-b border-border/60 px-4 pt-4">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 rounded-lg">
-            <TabsTrigger value="messages">{t("community_messages")}</TabsTrigger>
-            <TabsTrigger value="duels">{t("community_duels")}</TabsTrigger>
-            <TabsTrigger value="ranking">{t("community_ranking")}</TabsTrigger>
-          </TabsList>
-        </Tabs>
+    <div className="w-full h-[calc(100dvh-68px)] md:h-[calc(100dvh-24px)] flex flex-col overflow-hidden">
+      {/* Tabs — minimalista, underline style */}
+      <div className="flex-shrink-0 border-b border-border/60 px-4 pt-5 md:pt-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-6">
+            {(["messages", "duels", "ranking"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`text-sm font-medium pb-1 ${
+                  activeTab === tab
+                    ? "text-foreground border-b-2 border-foreground"
+                    : "text-muted-foreground"
+                }`}
+              >
+                {tab === "messages" ? t("community_messages") : tab === "duels" ? t("community_duels") : t("community_ranking")}
+              </button>
+            ))}
+            {pendingInvites.length > 0 && (
+              <button
+                onClick={() => setActiveTab("requests")}
+                className={`text-sm font-medium pb-1 relative ${
+                  activeTab === "requests"
+                    ? "text-foreground border-b-2 border-foreground"
+                    : "text-muted-foreground"
+                }`}
+              >
+                Solicitações
+                <span className="absolute -top-1 -right-3 h-4 w-4 rounded-full bg-destructive text-white text-[10px] flex items-center justify-center ring-2 ring-background font-bold">
+                  {pendingInvites.length}
+                </span>
+              </button>
+            )}
+          </div>
+
+          {/* Nova conversa — só aparece na aba de mensagens */}
+          {activeTab === "messages" && followers.length > 0 && (
+            <button
+              aria-label="Nova conversa"
+              onClick={() => { setSearchQuery(""); setTimeout(() => { document.querySelector<HTMLInputElement>('[placeholder="Buscar conversa..."]')?.focus(); }, 50); }}
+              className="p-2 rounded-full hover:bg-muted/50 transition-colors"
+            >
+              <PenSquare className="h-5 w-5 text-muted-foreground" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages Tab */}
       {activeTab === "messages" && (
         <>
-          {/* Header */}
-          <div className="flex-shrink-0 px-4 pt-4 pb-0">
-            <h1 className="text-2xl font-bold tracking-tight">{t("community_messages")}</h1>
-          </div>
-
           {/* Search Bar */}
-          <div className="flex-shrink-0 border-b border-border/60 px-4 py-3">
-            <Input
-              placeholder="Pesquisar pessoas..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="rounded-full"
-            />
+          <div className="flex-shrink-0 px-4 pt-3 pb-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="Buscar conversa..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="rounded-full pl-9 bg-muted/30 border-transparent focus:border-border/60 focus:bg-background"
+              />
+            </div>
           </div>
 
           {/* Conversations List */}
-          <div className="flex-1 overflow-y-auto px-4 pb-4">
+          <div className="flex-1 overflow-y-auto">
             {filteredConversations.length > 0 ? (
-              <div className="space-y-2">
+              <div className="divide-y divide-border/40">
                 {filteredConversations.map((conversation) => (
                   <button
                     key={conversation.userId}
                     onClick={() => handleOpenConversation(conversation)}
-                    className="w-full"
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 active:bg-muted/50 transition-colors text-left"
                   >
-                    <Card className="border-border/60 hover:bg-muted/50 transition-colors cursor-pointer">
-                      <CardContent className="p-4 flex items-center gap-3">
-                        {conversation.userPhoto ? (
-                          <img
-                            src={conversation.userPhoto}
-                            alt={conversation.userNickname}
-                            className="h-12 w-12 rounded-full object-cover shrink-0"
-                          />
-                        ) : (
-                          <div className="h-12 w-12 rounded-full bg-muted shrink-0" />
-                        )}
-
-                        <div className="flex-1 min-w-0 text-left">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="font-medium text-sm truncate">
-                              {conversation.userNickname}
-                            </p>
-                            <p className="text-xs text-muted-foreground shrink-0">
-                              {formatTimeAgo(conversation.lastMessageTime)}
-                            </p>
-                          </div>
-                          <p
-                            className={`text-sm truncate ${
-                              conversation.unreadCount > 0
-                                ? "font-medium text-foreground"
-                                : "text-muted-foreground"
-                            }`}
-                          >
-                            {conversation.lastMessage}
-                          </p>
+                    {/* Avatar com ring se não lido */}
+                    <div className={`relative shrink-0 ${conversation.unreadCount > 0 ? "ring-2 ring-brand ring-offset-2 ring-offset-background rounded-full" : ""}`}>
+                      {conversation.userPhoto ? (
+                        <img
+                          src={conversation.userPhoto}
+                          alt={conversation.userNickname}
+                          className="h-12 w-12 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+                          <span className="text-sm font-semibold text-muted-foreground">
+                            {conversation.userNickname?.charAt(0).toUpperCase() || "?"}
+                          </span>
                         </div>
+                      )}
+                    </div>
 
-                        {conversation.unreadCount > 0 && (
-                          <div className="flex items-center justify-center h-6 w-6 rounded-full bg-brand text-white text-xs font-semibold shrink-0">
-                            {conversation.unreadCount > 9
-                              ? "9+"
-                              : conversation.unreadCount}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-semibold text-foreground" : "font-medium"}`}>
+                          {conversation.userNickname}
+                        </p>
+                        <p className={`text-xs shrink-0 ${conversation.unreadCount > 0 ? "text-brand font-medium" : "text-muted-foreground"}`}>
+                          {formatTimeAgo(conversation.lastMessageTime)}
+                        </p>
+                      </div>
+                      <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                        {conversation.lastMessage || "Iniciar conversa"}
+                      </p>
+                    </div>
+
+                    {conversation.unreadCount > 0 && (
+                      <div className="flex items-center justify-center h-5 w-5 rounded-full bg-brand text-white text-[11px] font-bold shrink-0">
+                        {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
+                      </div>
+                    )}
+                  </button>
+                ))}
+
+                {/* Separador para sugestões quando há busca */}
+                {searchQuery && filteredFollowers.filter(f => !conversations.some(c => c.userId === f.id)).length > 0 && (
+                  <div className="px-4 pt-4 pb-1">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Sugestões</p>
+                  </div>
+                )}
+                {searchQuery && filteredFollowers.filter(f => !conversations.some(c => c.userId === f.id)).map((follower) => (
+                  <button
+                    key={follower.id}
+                    onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors text-left"
+                  >
+                    <div className="shrink-0">
+                      {follower.photo ? (
+                        <img src={follower.photo} alt={follower.nickname} className="h-12 w-12 rounded-full object-cover" />
+                      ) : (
+                        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+                          <span className="text-sm font-semibold text-muted-foreground">{follower.nickname?.charAt(0).toUpperCase() || "?"}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">{follower.nickname}</p>
+                      {follower.bio && <p className="text-xs text-muted-foreground truncate">{follower.bio}</p>}
+                    </div>
                   </button>
                 ))}
               </div>
             ) : filteredFollowers.length > 0 ? (
-              <div className="space-y-4">
-                <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    Você ainda não tem conversas. Inicie uma nova conversa
-                  </p>
+              <div>
+                <div className="px-4 py-5 text-center space-y-2">
+                  <MessageCircle className="h-10 w-10 mx-auto text-muted-foreground/40" />
+                  <p className="text-sm font-medium">Nenhuma conversa ainda</p>
+                  <p className="text-xs text-muted-foreground">Escolha alguém abaixo para começar</p>
                 </div>
-
-                <div className="space-y-2">
+                <div className="px-4 pb-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Quem você segue</p>
+                </div>
+                <div className="divide-y divide-border/40">
                   {filteredFollowers.map((follower) => (
                     <button
                       key={follower.id}
-                      onClick={() => {
-                        setSelectedConversation({
-                          userId: follower.id,
-                          userNickname: follower.nickname,
-                          userPhoto: follower.photo,
-                          lastMessage: "",
-                          lastMessageTime: new Date().toISOString(),
-                          unreadCount: 0,
-                        });
-                        setViewMode("conversation");
-                      }}
-                      className="w-full"
+                      onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors text-left"
                     >
-                      <Card className="border-border/60 hover:bg-muted/50 transition-colors cursor-pointer">
-                        <CardContent className="p-4 flex items-center gap-3">
-                          {follower.photo ? (
-                            <img
-                              src={follower.photo}
-                              alt={follower.nickname}
-                              className="h-12 w-12 rounded-full object-cover shrink-0"
-                            />
-                          ) : (
-                            <div className="h-12 w-12 rounded-full bg-muted shrink-0" />
-                          )}
-
-                          <div className="flex-1 min-w-0 text-left">
-                            <p className="font-medium text-sm">{follower.nickname}</p>
-                            {follower.bio && (
-                              <p className="text-xs text-muted-foreground truncate">
-                                {follower.bio}
-                              </p>
-                            )}
+                      <div className="shrink-0">
+                        {follower.photo ? (
+                          <img src={follower.photo} alt={follower.nickname} className="h-12 w-12 rounded-full object-cover" />
+                        ) : (
+                          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+                            <span className="text-sm font-semibold text-muted-foreground">{follower.nickname?.charAt(0).toUpperCase() || "?"}</span>
                           </div>
-                        </CardContent>
-                      </Card>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{follower.nickname}</p>
+                        {follower.bio && <p className="text-xs text-muted-foreground truncate">{follower.bio}</p>}
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                     </button>
                   ))}
                 </div>
               </div>
             ) : (
-              <div className="rounded-lg border border-border/60 bg-muted/30 p-8 text-center space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Você ainda não segue ninguém. Procure por pessoas para seguir!
-                </p>
-                <a href="/buscar">
-                  <Button className="rounded-full">Buscar</Button>
-                </a>
+              <div className="flex flex-col items-center justify-center py-16 px-8 text-center space-y-4">
+                <div className="h-16 w-16 rounded-full bg-muted/50 flex items-center justify-center">
+                  <MessageCircle className="h-8 w-8 text-muted-foreground/50" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold">Nenhuma conversa</p>
+                  <p className="text-xs text-muted-foreground">Siga pessoas para poder trocar mensagens</p>
+                </div>
+                <Button onClick={() => navigate("/buscar")} className="rounded-full" size="sm">
+                  Encontrar pessoas
+                </Button>
               </div>
             )}
           </div>
@@ -648,6 +732,37 @@ export default function Community() {
                   )}
                   <h1 className="text-2xl font-bold text-white drop-shadow">{selectedGroupForView.name}</h1>
                 </div>
+                {selectedGroupForView.createdBy === user?.id && (
+                  <>
+                    <input
+                      ref={editCoverInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file || !selectedGroupForView) return;
+                        try {
+                          const photoUrl = await updateGroupPhotoDb(selectedGroupForView.id, file);
+                          setSelectedGroupForView({ ...selectedGroupForView, photo: photoUrl });
+                          setUserCreatedGroups((prev) =>
+                            prev.map((g) => g.id === selectedGroupForView.id ? { ...g, photo: photoUrl } : g)
+                          );
+                          toast({ title: "Capa atualizada!" });
+                        } catch {
+                          toast({ title: "Erro ao salvar capa", variant: "destructive" });
+                        }
+                      }}
+                    />
+                    <button
+                      className="absolute top-3 right-3 z-20 p-2 rounded-full bg-black/50 hover:bg-black/70 transition-colors"
+                      onClick={() => editCoverInputRef.current?.click()}
+                      title="Editar capa"
+                    >
+                      <Edit3 className="h-4 w-4 text-white" />
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Stats Section */}
@@ -746,34 +861,57 @@ export default function Community() {
 
               {/* Check-ins Tab */}
               {activeGroupViewTab === "check-ins" && (
-                <div className="space-y-2 px-3 py-4">
-                  {groupCheckIns.length > 0 ? (
-                    groupCheckIns.map((checkIn) => (
-                      <button
-                        key={checkIn.id}
-                        onClick={() => {
-                          setSelectedCheckInForDetail(checkIn);
-                          setIsCheckInDetailOpen(true);
-                        }}
-                        className="w-full text-left"
-                      >
-                        <div className="p-3 rounded-lg bg-muted/30 border border-border/40 hover:bg-muted/50 transition-colors">
-                          <div className="flex gap-3">
-                            {checkIn.photo && (
-                              <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                                <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
+                <div className="space-y-4 px-3 py-4">
+                  {groupCheckIns.length > 0 ? (() => {
+                    // Sort newest first then group by day
+                    const sorted = [...groupCheckIns].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                    const grouped: { label: string; items: typeof sorted }[] = [];
+                    const seenDays = new Map<string, typeof sorted>();
+                    for (const checkIn of sorted) {
+                      const d = new Date(checkIn.createdAt);
+                      const dayKey = d.toDateString();
+                      const today = new Date();
+                      const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+                      const label = dayKey === today.toDateString() ? "Hoje" : dayKey === yesterday.toDateString() ? "Ontem" : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+                      if (!seenDays.has(dayKey)) {
+                        seenDays.set(dayKey, []);
+                        grouped.push({ label, items: seenDays.get(dayKey)! });
+                      }
+                      seenDays.get(dayKey)!.push(checkIn);
+                    }
+                    return grouped.map((group) => (
+                      <div key={group.label}>
+                        <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">{group.label}</p>
+                        <div className="space-y-2">
+                          {group.items.map((checkIn) => (
+                            <button
+                              key={checkIn.id}
+                              onClick={() => {
+                                setSelectedCheckInForDetail(checkIn);
+                                setIsCheckInDetailOpen(true);
+                              }}
+                              className="w-full text-left"
+                            >
+                              <div className="p-3 rounded-lg bg-muted/30 border border-border/40 hover:bg-muted/50 transition-colors">
+                                <div className="flex gap-3">
+                                  {checkIn.photo && (
+                                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                                      <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-semibold truncate">{checkIn.workoutInfo}</p>
+                                    <p className="text-xs text-muted-foreground truncate">{checkIn.userName}</p>
+                                    <p className="text-xs text-muted-foreground mt-0.5">{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                                  </div>
+                                </div>
                               </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold truncate">{checkIn.workoutInfo}</p>
-                              <p className="text-xs text-muted-foreground truncate">{checkIn.userName}</p>
-                              <p className="text-xs text-muted-foreground mt-0.5">{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
-                            </div>
-                          </div>
+                            </button>
+                          ))}
                         </div>
-                      </button>
-                    ))
-                  ) : (
+                      </div>
+                    ));
+                  })() : (
                     <p className="text-sm text-muted-foreground text-center py-4">Nenhum check-in ainda</p>
                   )}
                 </div>
@@ -815,8 +953,13 @@ export default function Community() {
               onClick={async () => {
                 if (!user?.id) return;
                 try {
-                  const routines = await getUserExerciseRoutinesDb(user.id);
+                  const [routines, workouts] = await Promise.all([
+                    getUserExerciseRoutinesDb(user.id),
+                    getUserWorkoutsDb(user.id),
+                  ]);
                   setExerciseRoutines(routines || []);
+                  setCheckInUserWorkouts(workouts || []);
+                  setCheckInExpandedRoutine(null);
                 } catch (err: any) {
                   console.error("Error loading exercise routines:", err);
                   setExerciseRoutines([]);
@@ -974,7 +1117,7 @@ export default function Community() {
                               {t("duels_view")}
                             </Button>
                           )}
-                          {!joinedGroupIds.has(group.id) && (
+                          {!joinedGroupIds.has(group.id) && !group.isPending && (
                             <Button
                               size="sm"
                               className="w-full rounded-full text-xs h-8"
@@ -984,14 +1127,18 @@ export default function Community() {
                                 setJoiningGroupId(group.id);
                                 try {
                                   await addMembersToGroupDb(group.id, [user.id]);
-                                  setJoinedGroupIds((prev) => new Set([...prev, group.id]));
+                                  // Notify the group creator about the join request
+                                  if (group.createdBy) {
+                                    await sendGroupJoinRequestNotificationDb(group.id, group.createdBy);
+                                  }
                                   setAvailableGroups((prev) =>
                                     prev.map((g) =>
                                       g.id === group.id
-                                        ? { ...g, participants: g.participants + 1, isAlreadyMember: true }
+                                        ? { ...g, isPending: true }
                                         : g
                                     )
                                   );
+                                  toast({ title: "Solicitação enviada!", description: "Aguarde a aprovação do administrador." });
                                 } catch (err: any) {
                                   console.error("Error joining group:", err);
                                 } finally {
@@ -999,7 +1146,12 @@ export default function Community() {
                                 }
                               }}
                             >
-                              {joiningGroupId === group.id ? "Entrando..." : "Solicitar Entrada"}
+                              {joiningGroupId === group.id ? "Enviando..." : "Solicitar Entrada"}
+                            </Button>
+                          )}
+                          {!joinedGroupIds.has(group.id) && group.isPending && (
+                            <Button size="sm" variant="outline" className="w-full rounded-full text-xs h-8" disabled>
+                              ⏳ Pendente
                             </Button>
                           )}
                         </div>
@@ -1115,6 +1267,81 @@ export default function Community() {
                 </p>
               </div>
             )}
+          </div>
+        </>
+      )}
+
+      {/* Solicitações (Pending Invites) Tab */}
+      {activeTab === "requests" && (
+        <>
+          <div className="flex-shrink-0 px-4 pt-4 pb-0">
+            <h1 className="text-2xl font-bold tracking-tight">Solicitações</h1>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 space-y-3">
+            {pendingInvites.map((invite) => (
+              <Card key={invite.groupId} className="border-border/60">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl">⚔️</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm">{invite.groupName}</p>
+                      <p className="text-xs text-muted-foreground truncate">{invite.groupGoal}</p>
+                      <p className="text-xs text-muted-foreground">{invite.groupLocation}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    <Button
+                      size="sm"
+                      className="flex-1 rounded-full text-xs h-8"
+                      onClick={async () => {
+                        try {
+                          await acceptGroupInviteDb(invite.groupId);
+                          const updated = pendingInvites.filter((i) => i.groupId !== invite.groupId);
+                          setPendingInvites(updated);
+                          toast({ title: "Convite aceito!", description: `Você entrou em "${invite.groupName}".` });
+
+                          // Navigate directly to the group detail view
+                          const [group, checkIns, participants] = await Promise.all([
+                            getDuelGroupDb(invite.groupId),
+                            getGroupCheckInsDb(invite.groupId),
+                            getGroupParticipantsDb(invite.groupId),
+                          ]);
+                          if (group) {
+                            setSelectedGroupForView(group);
+                            setGroupCheckIns(checkIns);
+                            setGroupParticipants(participants);
+                            setActiveGroupViewTab("check-ins");
+                            setActiveTab("duels");
+                          }
+                        } catch (err: any) {
+                          toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
+                        }
+                      }}
+                    >
+                      Aceitar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 rounded-full text-xs h-8"
+                      onClick={async () => {
+                        try {
+                          await declineGroupInviteDb(invite.groupId);
+                          const updated = pendingInvites.filter((i) => i.groupId !== invite.groupId);
+                          setPendingInvites(updated);
+                          if (updated.length === 0) setActiveTab("duels");
+                          toast({ title: "Convite recusado" });
+                        } catch (err: any) {
+                          toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
+                        }
+                      }}
+                    >
+                      Recusar
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </>
       )}
@@ -1380,9 +1607,23 @@ export default function Community() {
                         </button>
                       ))
                     ) : (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        Você não segue ninguém ainda
-                      </p>
+                      <div className="flex flex-col items-center gap-3 py-4">
+                        <p className="text-sm text-muted-foreground text-center">
+                          Você não segue ninguém ainda
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-full gap-2"
+                          onClick={() => {
+                            setIsCreateGroupModalOpen(false);
+                            navigate("/buscar");
+                          }}
+                        >
+                          <Search className="h-4 w-4" />
+                          Buscar Usuários
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1427,7 +1668,17 @@ export default function Community() {
                           isOfficial: false,
                         };
 
-                        setUserCreatedGroups([...userCreatedGroups, newGroup]);
+                        // Refresh created groups from DB
+                        getUserCreatedDuelGroupsDb(user.id).then((groups) => {
+                          setUserCreatedGroups(groups.map((g: any) => ({
+                            ...g,
+                            icon: "⚔️",
+                            description: g.goal,
+                            participants: 1,
+                            city: g.location,
+                            isOfficial: false,
+                          })));
+                        }).catch(console.error);
                         setIsCreateGroupModalOpen(false);
                         // Reset form
                         setGroupConfig({
@@ -1545,27 +1796,57 @@ export default function Community() {
                 />
               </div>
 
-              {/* Exercise Routine Select */}
+              {/* Exercise Routine Selector — expandable cards */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">O que você treinou? *</label>
-                <Select value={checkInForm.workoutId} onValueChange={(value) => setCheckInForm({ ...checkInForm, workoutId: value })}>
-                  <SelectTrigger className="rounded-lg">
-                    <SelectValue placeholder="Selecione uma rotina de treino" />
-                  </SelectTrigger>
-                  <SelectContent side="top" className="z-[101]">
-                    {exerciseRoutines.length > 0 ? (
-                      exerciseRoutines.map((routine) => (
-                        <SelectItem key={routine.id} value={routine.id}>
-                          {routine.exerciseName}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <div className="px-4 py-2 text-sm text-muted-foreground">
-                        Nenhuma rotina de treino registrada
-                      </div>
-                    )}
-                  </SelectContent>
-                </Select>
+                {exerciseRoutines.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-3">Nenhuma rotina de exercícios registrada</p>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {exerciseRoutines.map((routine) => {
+                      const isSelected = checkInForm.workoutId === routine.id;
+                      const isExpanded = checkInExpandedRoutine === routine.id;
+                      // exercises belonging to this routine name
+                      const exercises = routine.id === "__unnamed__"
+                        ? checkInUserWorkouts.filter((w) => !w.name)
+                        : checkInUserWorkouts.filter((w) => w.name === routine.exerciseName);
+                      return (
+                        <div
+                          key={routine.id}
+                          className={`rounded-xl border overflow-hidden transition-colors ${isSelected ? "border-brand bg-brand/5" : "border-border/60"}`}
+                        >
+                          <div className="flex items-center gap-3 px-3 py-2.5">
+                            {/* Select radio */}
+                            <button
+                              onClick={() => setCheckInForm({ ...checkInForm, workoutId: routine.id })}
+                              className={`shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? "border-brand bg-brand" : "border-border"}`}
+                            >
+                              {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
+                            </button>
+                            {/* Routine name */}
+                            <span className="flex-1 text-sm font-medium">{routine.exerciseName}</span>
+                            {/* Expand toggle */}
+                            {exercises.length > 0 && (
+                              <button
+                                onClick={() => setCheckInExpandedRoutine(isExpanded ? null : routine.id)}
+                                className="p-1 text-muted-foreground"
+                              >
+                                <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                              </button>
+                            )}
+                          </div>
+                          {isExpanded && exercises.length > 0 && (
+                            <div className="border-t border-border/40 bg-muted/20 px-3 py-2 space-y-1">
+                              {exercises.map((w: any) => (
+                                <p key={w.id} className="text-xs text-muted-foreground">• {w.workoutName || w.name || "Exercício"}</p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <Button
@@ -1777,65 +2058,7 @@ export default function Community() {
                   {selectedGroupForView.createdBy === user?.id ? (
                     <>
                       <Button
-                        onClick={() => {
-                          setSelectedMembers(new Set());
-                          setAddMembersSearch("");
-                          setIsAddMembersModalOpen(true);
-                        }}
-                        className="w-full rounded-full gap-2"
-                      >
-                        <Plus className="h-4 w-4" />
-                        Adicionar Membros
-                      </Button>
-                      <Button
-                        onClick={() => {
-                          showConfirm(
-                            "Apagar grupo",
-                            "Tem certeza que deseja apagar este grupo? Esta ação é irreversível.",
-                            async () => {
-                              try {
-                                await deleteGroupDb(selectedGroupForView.id);
-                                toast({ title: "Grupo apagado!", description: "O grupo foi removido com sucesso." });
-                                setIsGroupDetailsOpen(false);
-                                setSelectedGroupForView(null);
-                                setGroupCheckIns([]);
-                                const [createdGroups, availGroups] = await Promise.all([
-                                  getUserCreatedDuelGroupsDb(user!.id),
-                                  getAvailableDuelGroupsDb(user!.id),
-                                ]);
-                                const toGroupCard = (group: any) => ({
-                                  ...group,
-                                  icon: "⚔️",
-                                  description: group.goal,
-                                  participants: 1,
-                                  city: group.location,
-                                  isOfficial: false,
-                                });
-                                setUserCreatedGroups(createdGroups.map(toGroupCard));
-                                const enriched = await Promise.all(
-                                  availGroups.map(async (group: any) => {
-                                    const [creatorProfile, participants] = await Promise.all([
-                                      getUserProfileDb(group.createdBy),
-                                      getGroupParticipantsDb(group.id),
-                                    ]);
-                                    return {
-                                      ...toGroupCard(group),
-                                      creatorNickname: creatorProfile?.nickname || "Usuário",
-                                      creatorPhoto: creatorProfile?.photo || null,
-                                      participants: participants.length,
-                                      isAlreadyMember: participants.some((p: any) => p.userId === user!.id),
-                                    };
-                                  })
-                                );
-                                setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
-                                setAvailableGroups(enriched);
-                              } catch (error: any) {
-                                console.error("Error deleting group:", error);
-                                toast({ title: "Erro ao apagar grupo", description: error?.message || "Tente novamente.", variant: "destructive" });
-                              }
-                            },
-                          );
-                        }}
+                        onClick={() => setDeleteGroupConfirmOpen(true)}
                         variant="destructive"
                         className="w-full rounded-full gap-2"
                       >
@@ -1845,39 +2068,7 @@ export default function Community() {
                     </>
                   ) : (
                     <Button
-                      onClick={() => {
-                        showConfirm("Sair do grupo", "Tem certeza que deseja sair deste grupo?", async () => {
-                          try {
-                            await leaveGroupDb(selectedGroupForView.id);
-                            toast({
-                              title: "Você saiu do grupo!",
-                              description: "Você não é mais participante deste grupo.",
-                            });
-                            setIsGroupDetailsOpen(false);
-                            setSelectedGroupForView(null);
-                            setGroupCheckIns([]);
-                            setJoinedGroupIds((prev) => {
-                              const next = new Set(prev);
-                              next.delete(selectedGroupForView.id);
-                              return next;
-                            });
-                            setAvailableGroups((prev) =>
-                              prev.map((g) =>
-                                g.id === selectedGroupForView.id
-                                  ? { ...g, participants: Math.max(0, g.participants - 1), isAlreadyMember: false }
-                                  : g
-                              )
-                            );
-                          } catch (error: any) {
-                            console.error("Error leaving group:", error);
-                            toast({
-                              title: "Erro ao sair do grupo",
-                              description: error?.message || "Tente novamente.",
-                              variant: "destructive",
-                            });
-                          }
-                        });
-                      }}
+                      onClick={() => setLeaveGroupConfirmOpen(true)}
                       variant="outline"
                       className="w-full rounded-full gap-2"
                     >
@@ -1888,6 +2079,87 @@ export default function Community() {
               </div>
             )}
           </div>
+
+          {/* Delete group confirmation — inside drawer to avoid focus trap issues */}
+          <AlertDialog open={deleteGroupConfirmOpen} onOpenChange={setDeleteGroupConfirmOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Apagar grupo</AlertDialogTitle>
+                <AlertDialogDescription>Tem certeza que deseja apagar este grupo? Esta ação é irreversível.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    setDeleteGroupConfirmOpen(false);
+                    if (!selectedGroupForView) return;
+                    const groupId = selectedGroupForView.id;
+                    try {
+                      await deleteGroupDb(groupId);
+                      toast({ title: "Grupo apagado!", description: "O grupo foi removido com sucesso." });
+                      setIsGroupDetailsOpen(false);
+                      setSelectedGroupForView(null);
+                      setGroupCheckIns([]);
+                      const [createdGroups, availGroups] = await Promise.all([
+                        getUserCreatedDuelGroupsDb(user!.id),
+                        getAvailableDuelGroupsDb(user!.id),
+                      ]);
+                      const toGroupCard = (g: any) => ({ ...g, icon: "⚔️", description: g.goal, participants: 1, city: g.location, isOfficial: false });
+                      setUserCreatedGroups(createdGroups.map(toGroupCard));
+                      const enriched = await Promise.all(
+                        availGroups.map(async (g: any) => {
+                          const [creatorProfile, participants] = await Promise.all([getUserProfileDb(g.createdBy), getGroupParticipantsDb(g.id)]);
+                          return { ...toGroupCard(g), creatorNickname: creatorProfile?.nickname || "Usuário", creatorPhoto: creatorProfile?.photo || null, participants: participants.length, isAlreadyMember: participants.some((p: any) => p.userId === user!.id) };
+                        })
+                      );
+                      setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
+                      setAvailableGroups(enriched);
+                    } catch (error: any) {
+                      toast({ title: "Erro ao apagar grupo", description: error?.message || "Tente novamente.", variant: "destructive" });
+                    }
+                  }}
+                >
+                  Apagar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* Leave group confirmation — inside drawer */}
+          <AlertDialog open={leaveGroupConfirmOpen} onOpenChange={setLeaveGroupConfirmOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Sair do grupo</AlertDialogTitle>
+                <AlertDialogDescription>Tem certeza que deseja sair deste grupo?</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    setLeaveGroupConfirmOpen(false);
+                    if (!selectedGroupForView) return;
+                    const groupId = selectedGroupForView.id;
+                    try {
+                      await leaveGroupDb(groupId);
+                      toast({ title: "Você saiu do grupo!", description: "Você não é mais participante deste grupo." });
+                      setIsGroupDetailsOpen(false);
+                      setSelectedGroupForView(null);
+                      setGroupCheckIns([]);
+                      setJoinedGroupIds((prev) => { const next = new Set(prev); next.delete(groupId); return next; });
+                      setAvailableGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, participants: Math.max(0, g.participants - 1), isAlreadyMember: false } : g));
+                    } catch (error: any) {
+                      toast({ title: "Erro ao sair do grupo", description: error?.message || "Tente novamente.", variant: "destructive" });
+                    }
+                  }}
+                >
+                  Sair
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </DrawerContent>
       </Drawer>
 
@@ -1964,6 +2236,22 @@ export default function Community() {
               )}
             </div>
           </div>
+          {selectedGroupForView?.createdBy === user?.id && (
+            <div className="border-t border-border/40 p-4">
+              <Button
+                className="w-full rounded-full gap-2"
+                onClick={() => {
+                  setIsParticipantsModalOpen(false);
+                  setSelectedMembers(new Set());
+                  setAddMembersSearch("");
+                  setIsAddMembersModalOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4" />
+                Adicionar Membros
+              </Button>
+            </div>
+          )}
         </DrawerContent>
       </Drawer>
 
@@ -1992,7 +2280,8 @@ export default function Community() {
               {followers.length > 0 ? (
                 followers
                   .filter((f) =>
-                    f.nickname.toLowerCase().includes(addMembersSearch.toLowerCase())
+                    f.nickname.toLowerCase().includes(addMembersSearch.toLowerCase()) &&
+                    !groupParticipants.some((p) => p.userId === f.id)
                   )
                   .map((follower) => (
                     <button
@@ -2054,6 +2343,10 @@ export default function Community() {
                       setIsAddMembersModalOpen(false);
                       setSelectedMembers(new Set());
                       setAddMembersSearch("");
+                      // Refresh participants list
+                      if (selectedGroupForView) {
+                        getGroupParticipantsDb(selectedGroupForView.id).then(setGroupParticipants).catch(console.error);
+                      }
                     } else if (selectedMembers.size === 0) {
                       toast({
                         title: "Selecione membros",
@@ -2211,7 +2504,11 @@ export default function Community() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              onClick={confirmDialog.onConfirm}
+              onClick={async (e) => {
+                e.preventDefault();
+                setConfirmDialog((prev) => ({ ...prev, open: false }));
+                await confirmDialog.onConfirm();
+              }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Confirmar

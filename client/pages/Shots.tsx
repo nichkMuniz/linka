@@ -10,38 +10,46 @@ import { Input } from "@/components/ui/input";
 import { PostIncentiveButton } from "@/components/post-incentive-button";
 import { toast } from "@/components/ui/use-toast";
 import {
-  getReelsDb,
-  toggleReelIncentiveDb,
-  addReelCommentDb,
-  getReelCommentsDb,
-  deleteReelCommentDb,
+  getShotsDb,
+  toggleShotIncentiveDb,
+  addShotCommentDb,
+  getShotCommentsDb,
+  deleteShotCommentDb,
   followUserDb,
   unfollowUserDb,
   getFollowingStatusBatchDb,
-  type ReelWithUser,
-  type ReelComment,
+  updateShotDb,
+  type ShotWithUser,
+  type ShotComment,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { MessageCircle, Send, Trash2, UserPlus, UserCheck, VolumeX, Volume2 } from "lucide-react";
+import { MessageCircle, Send, Trash2, UserPlus, UserCheck, VolumeX, Volume2, MoreVertical, Edit2 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { LoadingSpinner } from "@/components/animated-loading";
 
-export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
+export default function Shots({ footerHeight = 0, isDesktop = false }: { footerHeight?: number; isDesktop?: boolean }) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [reels, setReels] = React.useState<ReelWithUser[]>([]);
+  const [shots, setShots] = React.useState<ShotWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [reelsError, setReelsError] = React.useState(false);
-  const [visibleReelId, setVisibleReelId] = React.useState<string | null>(null);
-  const [togglingReelId, setTogglingReelId] = React.useState<string | null>(
+  const [shotsError, setShotsError] = React.useState(false);
+  const [visibleShotId, setVisibleShotId] = React.useState<string | null>(null);
+  const [togglingShotId, setTogglingShotId] = React.useState<string | null>(
     null,
   );
   const [commentsOpen, setCommentsOpen] = React.useState(false);
-  const [selectedReel, setSelectedReel] = React.useState<ReelWithUser | null>(
+  const [selectedShot, setSelectedShot] = React.useState<ShotWithUser | null>(
     null,
   );
-  const [comments, setComments] = React.useState<ReelComment[]>([]);
+  const [comments, setComments] = React.useState<ShotComment[]>([]);
   const [commentText, setCommentText] = React.useState("");
   const [isLoadingComments, setIsLoadingComments] = React.useState(false);
   const [isAddingComment, setIsAddingComment] = React.useState(false);
@@ -51,39 +59,45 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
   const [isFollowingLoading, setIsFollowingLoading] = React.useState<
     Record<string, boolean>
   >({});
-  const [showSwipeHint, setShowSwipeHint] = React.useState(true);
+  const [showSwipeHint, setShowSwipeHint] = React.useState(
+    () => localStorage.getItem("shots_swipe_hint_seen") !== "1"
+  );
   const [isMuted, setIsMuted] = React.useState(true);
+  const [editShotOpen, setEditShotOpen] = React.useState(false);
+  const [editingShot, setEditingShot] = React.useState<ShotWithUser | null>(null);
+  const [editShotDescription, setEditShotDescription] = React.useState("");
+  const [isSavingEditShot, setIsSavingEditShot] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const videoRefsMap = React.useRef<Record<string, HTMLVideoElement>>({});
 
-  // Load reels on mount
+  // Load shots on mount
   React.useEffect(() => {
     (async () => {
       try {
-        const reelsData = await getReelsDb();
-        setReels(reelsData);
+        const shotsData = await getShotsDb();
+        setShots(shotsData);
 
-        // Load follow status for all reel creators in a single batch query
-        if (user && reelsData.length > 0) {
-          const uniqueUserIds = [...new Set(reelsData.map((r) => r.user_id))];
+        // Load follow status for all shot creators in a single batch query
+        if (user && shotsData.length > 0) {
+          const uniqueUserIds = [...new Set(shotsData.map((r) => r.user_id))];
           getFollowingStatusBatchDb(uniqueUserIds)
             .then(setFollowingStatus)
             .catch((err) => console.error("Error loading follow statuses:", err));
         }
       } catch (err: any) {
-        console.error("Erro ao carregar reels:", err?.message || err);
+        console.error("Erro ao carregar shots:", err?.message || err);
         toast({
-          title: "Erro ao carregar reels",
+          title: "Erro ao carregar shots",
           description: err?.message || "Tente novamente.",
         });
-        setReelsError(true);
+        setShotsError(true);
       } finally {
         setLoading(false);
       }
     })();
   }, [user]);
 
-  // Set up IntersectionObserver to detect visible reel and auto-play video
+  // Set up IntersectionObserver to detect visible shot and auto-play video
   React.useEffect(() => {
     const observerOptions = {
       root: containerRef.current,
@@ -93,18 +107,18 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
 
     const observer = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
-        const reelId = entry.target.getAttribute("data-reel-id");
-        if (!reelId) return;
+        const shotId = entry.target.getAttribute("data-shot-id");
+        if (!shotId) return;
 
         if (entry.isIntersecting) {
-          setVisibleReelId(reelId);
-          const video = videoRefsMap.current[reelId];
+          setVisibleShotId(shotId);
+          const video = videoRefsMap.current[shotId];
           if (video) {
             // AbortError is expected when video is interrupted (e.g. scrolled away) — not a real error
             video.play().catch((err) => { if (err?.name !== "AbortError") console.error("Erro ao reproduzir vídeo:", err); });
           }
         } else {
-          const video = videoRefsMap.current[reelId];
+          const video = videoRefsMap.current[shotId];
           if (video) {
             video.pause();
           }
@@ -114,28 +128,28 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
 
     const container = containerRef.current;
     if (container) {
-      const reelItems = container.querySelectorAll("[data-reel-id]");
-      reelItems.forEach((item) => observer.observe(item));
+      const shotItems = container.querySelectorAll("[data-shot-id]");
+      shotItems.forEach((item) => observer.observe(item));
     }
 
     return () => {
       observer.disconnect();
     };
-  }, [reels]);
+  }, [shots]);
 
-  // Auto-play first video when reels load
+  // Auto-play first video when shots load
   React.useEffect(() => {
-    if (reels.length > 0 && !visibleReelId) {
-      const firstReelId = reels[0].id;
-      const firstVideo = videoRefsMap.current[firstReelId];
+    if (shots.length > 0 && !visibleShotId) {
+      const firstShotId = shots[0].id;
+      const firstVideo = videoRefsMap.current[firstShotId];
       if (firstVideo) {
         firstVideo.play().catch((err) => { if (err?.name !== "AbortError") console.error("Erro ao reproduzir primeiro vídeo:", err); });
       }
     }
-  }, [reels, visibleReelId]);
+  }, [shots, visibleShotId]);
 
   const handleIncentiveClick = React.useCallback(
-    async (reel: ReelWithUser, type: PostIncentiveType) => {
+    async (shot: ShotWithUser, type: PostIncentiveType) => {
       if (!user) {
         toast({
           title: "Faça login",
@@ -144,15 +158,15 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
         return;
       }
 
-      setTogglingReelId(reel.id);
+      setTogglingShotId(shot.id);
 
       try {
-        await toggleReelIncentiveDb(reel.id, type);
+        await toggleShotIncentiveDb(shot.id, type, shot.user_id);
 
         // Update local state
-        setReels((prev) =>
+        setShots((prev) =>
           prev.map((r) => {
-            if (r.id !== reel.id) return r;
+            if (r.id !== shot.id) return r;
 
             const userLikes = r.userLikes || [];
             const newLikes = userLikes.includes(type)
@@ -170,20 +184,20 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
           variant: "destructive",
         });
       } finally {
-        setTogglingReelId(null);
+        setTogglingShotId(null);
       }
     },
     [user]
   );
 
   const handleOpenComments = React.useCallback(
-    async (reel: ReelWithUser) => {
-      setSelectedReel(reel);
+    async (shot: ShotWithUser) => {
+      setSelectedShot(shot);
       setCommentsOpen(true);
       setIsLoadingComments(true);
 
       try {
-        const commentsData = await getReelCommentsDb(reel.id);
+        const commentsData = await getShotCommentsDb(shot.id);
         setComments(commentsData);
       } catch (err: any) {
         console.error("Error loading comments:", err);
@@ -200,13 +214,13 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
   );
 
   const handleAddComment = React.useCallback(async () => {
-    if (!commentText.trim() || !selectedReel) return;
+    if (!commentText.trim() || !selectedShot) return;
 
     setIsAddingComment(true);
     try {
-      await addReelCommentDb(selectedReel.id, commentText);
+      await addShotCommentDb(selectedShot.id, commentText, selectedShot.user_id);
 
-      const updatedComments = await getReelCommentsDb(selectedReel.id);
+      const updatedComments = await getShotCommentsDb(selectedShot.id);
       setComments(updatedComments);
       setCommentText("");
     } catch (err: any) {
@@ -219,13 +233,13 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
     } finally {
       setIsAddingComment(false);
     }
-  }, [commentText, selectedReel]);
+  }, [commentText, selectedShot]);
 
   const handleDeleteComment = React.useCallback(async (commentId: string) => {
     if (!confirm("Tem certeza que deseja deletar este comentário?")) return;
 
     try {
-      await deleteReelCommentDb(commentId);
+      await deleteShotCommentDb(commentId);
       setComments((prev) => prev.filter((c) => c.id !== commentId));
       toast({
         title: "Sucesso",
@@ -298,7 +312,7 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
     );
   }
 
-  if (!loading && reelsError) {
+  if (!loading && shotsError) {
     return (
       <div className="flex items-center justify-center h-full w-full bg-black">
         <p className="text-sm text-muted-foreground">
@@ -308,7 +322,7 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
     );
   }
 
-  if (!loading && reels.length === 0) {
+  if (!loading && shots.length === 0) {
     return (
       <div className="flex items-center justify-center h-full w-full bg-black">
         <p className="text-sm text-muted-foreground">
@@ -320,8 +334,8 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
 
   return (
     <div
-      className="bg-black fixed inset-0 flex flex-col overflow-hidden"
-      style={{
+      className={isDesktop ? "bg-black w-full h-full flex flex-col overflow-hidden" : "bg-black fixed inset-0 flex flex-col overflow-hidden"}
+      style={isDesktop ? { overflow: "hidden" } : {
         top: 0,
         left: 0,
         right: 0,
@@ -330,7 +344,7 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
         overflow: "hidden",
       }}
     >
-      {/* Reels Container - Scroll Snap com overflow-y-scroll */}
+      {/* Shots Container - Scroll Snap com overflow-y-scroll */}
       <div
         ref={containerRef}
         className="flex-1 w-full"
@@ -342,31 +356,30 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
         }}
       >
 
-        {reels.map((reel) => {
+        {shots.map((shot) => {
           return (
             <div
-              key={reel.id}
-              data-reel-id={reel.id}
+              key={shot.id}
+              data-shot-id={shot.id}
               className="flex items-center justify-center bg-black relative"
               style={{
                 width: "100%",
                 height: "100%",
-                maxWidth: "100vw",
                 overflow: "hidden",
                 scrollSnapAlign: "start",
                 minHeight: "100%",
               }}
             >
               {/* Video */}
-              {reel.video_url ? (
+              {shot.video_url ? (
                 <video
                   ref={(el) => {
                     if (el) {
-                      videoRefsMap.current[reel.id] = el;
+                      videoRefsMap.current[shot.id] = el;
                       el.muted = isMuted;
                     }
                   }}
-                  src={reel.video_url}
+                  src={shot.video_url}
                   muted={isMuted}
                   loop
                   playsInline
@@ -381,53 +394,74 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
               {/* Gradient Overlay for Better Text Visibility */}
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
 
-              {/* Mute/Unmute button - top right */}
-              <button
-                onClick={() => {
-                  const newMuted = !isMuted;
-                  setIsMuted(newMuted);
-                  Object.values(videoRefsMap.current).forEach((v) => { v.muted = newMuted; });
-                }}
-                className="absolute top-4 right-4 z-20 flex items-center gap-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
-                aria-label={isMuted ? "Ativar som" : "Silenciar"}
-              >
-                {isMuted ? (
-                  <><VolumeX className="h-4 w-4" /><span>Mudo</span></>
-                ) : (
-                  <><Volume2 className="h-4 w-4" /><span>Som</span></>
+              {/* Top-right controls */}
+              <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const newMuted = !isMuted;
+                    setIsMuted(newMuted);
+                    Object.values(videoRefsMap.current).forEach((v) => { v.muted = newMuted; });
+                  }}
+                  className="flex items-center gap-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
+                  aria-label={isMuted ? "Ativar som" : "Silenciar"}
+                >
+                  {isMuted ? (
+                    <><VolumeX className="h-4 w-4" /><span>Mudo</span></>
+                  ) : (
+                    <><Volume2 className="h-4 w-4" /><span>Som</span></>
+                  )}
+                </button>
+                {user?.id === shot.user_id && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="flex items-center justify-center h-8 w-8 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors">
+                        <MoreVertical className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-40">
+                      <DropdownMenuItem onClick={() => {
+                        setEditingShot(shot);
+                        setEditShotDescription(shot.description || "");
+                        setEditShotOpen(true);
+                      }}>
+                        <Edit2 className="h-4 w-4 mr-2" />
+                        Editar descrição
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
-              </button>
+              </div>
 
               {/* User Info - Top Left */}
               <div className="absolute top-4 left-4 z-10 flex items-center gap-3">
                 <button
-                  onClick={() => navigate(`/usuario/${reel.user_id}`)}
+                  onClick={() => navigate(`/usuario/${shot.user_id}`)}
                   className="flex items-center gap-3 hover:opacity-80 transition-opacity"
                 >
-                  {reel.userPhoto && (
+                  {shot.userPhoto && (
                     <img
-                      src={reel.userPhoto}
-                      alt={reel.userNickname || "Usuário"}
+                      src={shot.userPhoto}
+                      alt={shot.userNickname || "Usuário"}
                       className="h-12 w-12 rounded-full object-cover border-2 border-white/30 shadow-lg"
                     />
                   )}
                   <div>
                     <p className="text-sm font-bold text-white drop-shadow-md">
-                      {reel.userNickname || "Usuário"}
+                      {shot.userNickname || "Usuário"}
                     </p>
                   </div>
                 </button>
-                {user && user.id !== reel.user_id && (
+                {user && user.id !== shot.user_id && (
                   <button
-                    onClick={() => handleFollowUser(reel.user_id)}
-                    disabled={isFollowingLoading[reel.user_id]}
+                    onClick={() => handleFollowUser(shot.user_id)}
+                    disabled={isFollowingLoading[shot.user_id]}
                     className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                      followingStatus[reel.user_id]
+                      followingStatus[shot.user_id]
                         ? "bg-white/20 text-white hover:bg-white/30"
                         : "bg-white text-black hover:bg-white/90"
                     } disabled:opacity-50`}
                   >
-                    {followingStatus[reel.user_id] ? (
+                    {followingStatus[shot.user_id] ? (
                       <>
                         <UserCheck className="h-3 w-3" />
                         Seguindo
@@ -444,9 +478,9 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
 
               {/* Description - Bottom Left */}
               <div className="absolute bottom-20 left-4 right-20 z-10">
-                {reel.description && (
+                {shot.description && (
                   <p className="text-sm text-white drop-shadow-md leading-relaxed">
-                    {reel.description}
+                    {shot.description}
                   </p>
                 )}
               </div>
@@ -457,21 +491,21 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
                   <PostIncentiveButton
                     key={type}
                     type={type}
-                    isActive={(reel.userLikes || [])?.includes(type) ?? false}
-                    onClick={() => handleIncentiveClick(reel, type)}
-                    loading={togglingReelId === reel.id}
+                    isActive={(shot.userLikes || [])?.includes(type) ?? false}
+                    onClick={() => handleIncentiveClick(shot, type)}
+                    loading={togglingShotId === shot.id}
                   />
                 ))}
                 {/* Comments Button */}
                 <button
-                  onClick={() => handleOpenComments(reel)}
+                  onClick={() => handleOpenComments(shot)}
                   className="inline-flex shrink-0 items-center gap-1 transition-opacity hover:opacity-80"
                 >
                   <div className="flex flex-col items-center gap-1">
                     <MessageCircle className="h-7 w-7 text-white hover:scale-110 transition-transform" />
-                    {(reel.commentCount || 0) > 0 && (
+                    {(shot.commentCount || 0) > 0 && (
                       <span className="text-xs text-white/70 font-medium">
-                        {reel.commentCount}
+                        {shot.commentCount}
                       </span>
                     )}
                   </div>
@@ -485,24 +519,14 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
 
       {/* Swipe Hint Overlay */}
       {showSwipeHint && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 pointer-events-none">
+        <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-50 pointer-events-none">
           <style>{`
             @keyframes swipeAnimation {
-              0% {
-                transform: translateY(-20px);
-                opacity: 1;
-              }
-              50% {
-                opacity: 1;
-              }
-              100% {
-                transform: translateY(40px);
-                opacity: 0;
-              }
+              0% { transform: translateY(-20px); opacity: 1; }
+              50% { opacity: 1; }
+              100% { transform: translateY(40px); opacity: 0; }
             }
-            .swipe-finger {
-              animation: swipeAnimation 2s ease-in-out infinite;
-            }
+            .swipe-finger { animation: swipeAnimation 2s ease-in-out infinite; }
           `}</style>
           <div className="flex flex-col items-center gap-4">
             <p className="text-white text-lg font-semibold drop-shadow-lg">
@@ -511,20 +535,63 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
             <div className="text-4xl swipe-finger">☝️</div>
           </div>
           <button
-            onClick={() => setShowSwipeHint(false)}
-            style={{
-              bottom: `calc(${footerHeight}px + 24px)`,
+            onClick={() => {
+              localStorage.setItem("shots_swipe_hint_seen", "1");
+              setShowSwipeHint(false);
             }}
-            className="absolute left-1/2 transform -translate-x-1/2 px-6 py-2 bg-white/20 hover:bg-white/30 text-white rounded-full text-sm font-medium transition-colors pointer-events-auto"
+            className="absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-2 bg-white/20 hover:bg-white/30 text-white rounded-full text-sm font-medium transition-colors pointer-events-auto"
           >
             Entendi
           </button>
         </div>
       )}
 
+      {/* Edit Shot Drawer */}
+      <Drawer open={editShotOpen} onOpenChange={setEditShotOpen}>
+        <DrawerContent className="max-h-[60dvh] flex flex-col z-[100]">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Editar descrição</DrawerTitle>
+          </DrawerHeader>
+          <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
+            <Textarea
+              value={editShotDescription}
+              onChange={(e) => setEditShotDescription(e.target.value)}
+              placeholder="Descrição do clip..."
+              className="min-h-28 resize-none"
+              autoFocus
+            />
+            <Button
+              className="w-full rounded-full"
+              disabled={isSavingEditShot}
+              onClick={async () => {
+                if (!editingShot) return;
+                setIsSavingEditShot(true);
+                try {
+                  const ok = await updateShotDb(editingShot.id, editShotDescription);
+                  if (ok) {
+                    setShots((prev) => prev.map((r) => r.id === editingShot.id ? { ...r, description: editShotDescription } : r));
+                    toast({ title: "Clip atualizado!" });
+                    setEditShotOpen(false);
+                    setEditingShot(null);
+                  } else {
+                    toast({ title: "Erro ao salvar", variant: "destructive" });
+                  }
+                } catch (err: any) {
+                  toast({ title: "Erro ao salvar", description: err?.message, variant: "destructive" });
+                } finally {
+                  setIsSavingEditShot(false);
+                }
+              }}
+            >
+              {isSavingEditShot ? "Salvando..." : "Salvar"}
+            </Button>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
       {/* Comments Drawer */}
       <Drawer
-        open={commentsOpen && selectedReel !== null}
+        open={commentsOpen && selectedShot !== null}
         onOpenChange={setCommentsOpen}
       >
         <DrawerContent className="max-h-[70vh] flex flex-col">
@@ -575,7 +642,7 @@ export default function Reels({ footerHeight = 0 }: { footerHeight?: number }) {
           </div>
 
           {/* Comment Input */}
-          {selectedReel && (
+          {selectedShot && (
             <div className="flex gap-2 border-t border-border/60 px-4 py-4">
               <Input
                 placeholder="Adicione um comentário..."

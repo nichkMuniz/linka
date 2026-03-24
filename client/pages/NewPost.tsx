@@ -17,7 +17,7 @@ import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import {
   getUserGoalsDb,
   createPostDb,
-  createReelDb,
+  createShotDb,
   type UserGoal,
   incrementGoalProgressDb,
 } from "@/lib/ritmofit-db";
@@ -31,20 +31,27 @@ export default function NewPost() {
   const [selectedFiles, setSelectedFiles] = React.useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = React.useState<string[]>([]);
   const [currentPreviewIndex, setCurrentPreviewIndex] = React.useState(0);
-  const [description, setDescription] = React.useState("");
-  const [selectedGoalId, setSelectedGoalId] = React.useState<string>("");
+  const [description, setDescription] = React.useState(() => sessionStorage.getItem("newpost_description") || "");
+  const [selectedGoalId, setSelectedGoalId] = React.useState<string>(() => sessionStorage.getItem("newpost_goal_id") || "");
 
-  // Video/Reel state
+  // Video/Shot state
   const [selectedVideoFile, setSelectedVideoFile] = React.useState<File | null>(null);
   const [videoPreview, setVideoPreview] = React.useState<string | null>(null);
-  const [videoDescription, setVideoDescription] = React.useState("");
-  const [videoSelectedGoalId, setVideoSelectedGoalId] = React.useState<string>("");
+  const [videoDescription, setVideoDescription] = React.useState(() => sessionStorage.getItem("newpost_video_description") || "");
+  const [videoSelectedGoalId, setVideoSelectedGoalId] = React.useState<string>(() => sessionStorage.getItem("newpost_video_goal_id") || "");
 
   // Shared state
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [isLoadingGoals, setIsLoadingGoals] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState("images");
+  const [activeTab, setActiveTab] = React.useState(() => sessionStorage.getItem("newpost_tab") || "images");
+
+  // Persist text state to sessionStorage
+  React.useEffect(() => { sessionStorage.setItem("newpost_description", description); }, [description]);
+  React.useEffect(() => { sessionStorage.setItem("newpost_goal_id", selectedGoalId); }, [selectedGoalId]);
+  React.useEffect(() => { sessionStorage.setItem("newpost_video_description", videoDescription); }, [videoDescription]);
+  React.useEffect(() => { sessionStorage.setItem("newpost_video_goal_id", videoSelectedGoalId); }, [videoSelectedGoalId]);
+  React.useEffect(() => { sessionStorage.setItem("newpost_tab", activeTab); }, [activeTab]);
 
   // Load user goals
   React.useEffect(() => {
@@ -244,6 +251,8 @@ export default function NewPost() {
       setCurrentPreviewIndex(0);
       setDescription("");
       setSelectedGoalId("");
+      sessionStorage.removeItem("newpost_description");
+      sessionStorage.removeItem("newpost_goal_id");
 
       // Redirect to feed after a short delay
       setTimeout(() => {
@@ -261,7 +270,7 @@ export default function NewPost() {
     }
   }, [user, selectedFiles, description, selectedGoalId, navigate]);
 
-  // Handle video reel submission
+  // Handle video shot submission
   const handleVideoSubmit = React.useCallback(async () => {
     if (!user || !selectedVideoFile) {
       toast({
@@ -287,7 +296,7 @@ export default function NewPost() {
       // Upload video
       const timestamp = Date.now();
       const extension = selectedVideoFile.name.split(".").pop() || "mp4";
-      const filePath = `${user.id}/reels/${timestamp}.${extension}`;
+      const filePath = `${user.id}/shots/${timestamp}.${extension}`;
 
       const { error: uploadError } = await supabase.storage
         .from("posts")
@@ -305,8 +314,8 @@ export default function NewPost() {
         .from("posts")
         .getPublicUrl(filePath);
 
-      // Create reel in database
-      const reel = await createReelDb(
+      // Create shot in database
+      const shot = await createShotDb(
         urlData.publicUrl,
         videoDescription,
         videoSelectedGoalId || null,
@@ -318,13 +327,13 @@ export default function NewPost() {
           await incrementGoalProgressDb(videoSelectedGoalId);
         } catch (err) {
           console.error("Error incrementing goal progress:", err);
-          // Don't fail the entire reel creation if goal update fails
+          // Don't fail the entire shot creation if goal update fails
         }
       }
 
       toast({
         title: "Sucesso!",
-        description: "Seu vídeo foi publicado nos reels.",
+        description: "Seu Shots foi publicado.",
       });
 
       // Reset form
@@ -332,13 +341,15 @@ export default function NewPost() {
       setVideoPreview(null);
       setVideoDescription("");
       setVideoSelectedGoalId("");
+      sessionStorage.removeItem("newpost_video_description");
+      sessionStorage.removeItem("newpost_video_goal_id");
 
-      // Redirect to reels after a short delay
+      // Redirect to shots after a short delay
       setTimeout(() => {
-        navigate("/reels");
+        navigate("/shots");
       }, 1500);
     } catch (err: any) {
-      console.error("Error creating reel:", err);
+      console.error("Error creating shot:", err);
       toast({
         title: "Erro ao publicar vídeo",
         description: err?.message || "Tente novamente mais tarde.",
@@ -436,11 +447,10 @@ export default function NewPost() {
                               {previewUrls.map((_, index) => (
                                 <div
                                   key={index}
-                                  className={`h-1.5 rounded-full transition-all ${
-                                    currentPreviewIndex === index
+                                  className={`h-1.5 rounded-full transition-all ${currentPreviewIndex === index
                                       ? "w-4 bg-white"
                                       : "w-1.5 bg-white/50"
-                                  }`}
+                                    }`}
                                 />
                               ))}
                             </div>
@@ -472,11 +482,10 @@ export default function NewPost() {
                         {previewUrls.map((url, index) => (
                           <div
                             key={index}
-                            className={`relative flex-shrink-0 cursor-pointer rounded-lg overflow-hidden border-2 transition-colors ${
-                              currentPreviewIndex === index
+                            className={`relative flex-shrink-0 cursor-pointer rounded-lg overflow-hidden border-2 transition-colors ${currentPreviewIndex === index
                                 ? "border-primary"
                                 : "border-border/40 hover:border-border"
-                            }`}
+                              }`}
                           >
                             <img
                               src={url}
@@ -556,7 +565,7 @@ export default function NewPost() {
                         placeholder={
                           selectedGoalId
                             ? userGoals.find((g) => g.id === selectedGoalId)
-                                ?.description
+                              ?.description
                             : "Selecione uma meta"
                         }
                       />
@@ -574,7 +583,7 @@ export default function NewPost() {
                 ) : (
                   <div
                     className="flex h-10 cursor-pointer items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground hover:bg-muted transition-colors"
-                    onClick={() => navigate("/metas")}
+                    onClick={() => navigate("/metas?tab=metas")}
                   >
                     Nenhuma meta criada.{" "}
                     <span className="ml-1 text-primary underline">Criar meta</span>
