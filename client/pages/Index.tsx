@@ -15,9 +15,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { PostIncentiveButton } from "@/components/post-incentive-button";
-import { PostCommentsDialog } from "@/components/post-comments-dialog";
-import { ImageWithFallback } from "@/components/image-with-fallback";
+import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
+import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
+import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import {
   getRoutinesByGoalIdDb,
@@ -27,6 +27,8 @@ import {
   createStoryDb,
   deleteOldStoriesDb,
   getFlowViewersDb,
+  getMyViewedFlowUserIdsDb,
+  recordFlowViewDb,
   createUserGoalDb,
   getUserGoalsDb,
   deletePostDb,
@@ -38,7 +40,7 @@ import {
   type PostIncentiveType,
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
-import { PostLikesModal } from "@/components/post-likes-modal";
+import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,7 +51,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronDown, MoreVertical, Flag, Trash2, Share2, Edit2 } from "lucide-react";
+import { ChevronDown, MoreVertical, Flag, Trash2, Share2, Edit2, Target } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,13 +60,13 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { formatTimeAgo } from "@/lib/utils";
-import { LoadingSpinner, PostSkeleton } from "@/components/animated-loading";
+import { LoadingSpinner, PostSkeleton } from "@/components/shared/animated-loading";
 import type { PostWithStats } from "../services/post.service";
-import { FlowCarousel } from "@/components/flow-carousel";
-import { FlowCreationDialog } from "@/components/flow-creation-dialog";
-import { FlowViewerModal } from "@/components/flow-viewer-modal";
-import { PostCarousel } from "@/components/post-carousel";
-import { UserInsignias } from "@/components/user-insignias";
+import { FlowCarousel } from "@/components/shots/flow-carousel";
+import { FlowCreationDialog } from "@/components/modals/flow-creation-dialog";
+import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
+import { PostCarousel } from "@/components/post/post-carousel";
+import { UserInsignias } from "@/components/profile/user-insignias";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
@@ -94,7 +96,9 @@ export default function Index() {
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
   const [ownerHasViewedFlow, setOwnerHasViewedFlow] = React.useState(false);
+  const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(new Set());
   const [flowViewCount, setFlowViewCount] = React.useState<number | undefined>(undefined);
+  const [isLoadingFlowViewers, setIsLoadingFlowViewers] = React.useState(false);
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "post" | null>(
     null,
@@ -145,41 +149,57 @@ export default function Index() {
     [],
   );
 
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const [postsData, storiesData] = await Promise.all([
-          getFeedPosts(),
-          getActiveStoriesDb(),
-        ]);
-        setPosts(postsData);
-        setStories(storiesData);
+  const loadFeed = React.useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    try {
+      const [postsData, storiesData, viewedUserIds] = await Promise.all([
+        getFeedPosts(),
+        getActiveStoriesDb(),
+        getMyViewedFlowUserIdsDb(),
+      ]);
+      setPosts(postsData);
+      setStories(storiesData);
+      setViewedStoryIds(viewedUserIds);
 
-        // Get current user's story for flow viewer count (photo is loaded separately in the useEffect below)
-        const userStory = storiesData.find((s: StoryWithUser) => s.user_id === user?.id);
-        // Fallback: if profile photo not yet loaded, use story photo
-        if (userStory?.userPhoto) setCurrentUserPhoto((prev) => prev || userStory.userPhoto);
-        if (userStory) {
-          getFlowViewersDb(userStory.id)
-            .then((viewers) => setFlowViewCount(viewers.length))
-            .catch((err) => console.error("Erro ao carregar visualizações do flow:", err));
-        }
-
-        // Clean up old stories in background
-        deleteOldStoriesDb().catch((err) =>
-          console.error("Error cleaning old stories:", err),
-        );
-      } catch (err: any) {
-        console.error("Erro ao carregar feed:", err?.message || err);
-        toast({
-          title: "Erro ao carregar feed",
-          description: err?.message || "Tente novamente.",
-        });
-      } finally {
-        setLoading(false);
+      // Get current user's story for flow viewer count (photo is loaded separately in the useEffect below)
+      const userStory = storiesData.find((s: StoryWithUser) => s.user_id === user?.id);
+      // Fallback: if profile photo not yet loaded, use story photo
+      if (userStory?.userPhoto) setCurrentUserPhoto((prev) => prev || userStory.userPhoto);
+      if (userStory) {
+        setIsLoadingFlowViewers(true);
+        getFlowViewersDb(userStory.id)
+          .then((viewers) => setFlowViewCount(viewers.length))
+          .catch((err) => console.error("Erro ao carregar visualizações do flow:", err))
+          .finally(() => setIsLoadingFlowViewers(false));
       }
-    })();
-  }, []);
+
+      // Clean up old stories in background
+      deleteOldStoriesDb().catch((err) =>
+        console.error("Error cleaning old stories:", err),
+      );
+    } catch (err: any) {
+      console.error("Erro ao carregar feed:", err?.message || err);
+      toast({
+        title: "Erro ao carregar feed",
+        description: err?.message || "Tente novamente.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  React.useEffect(() => {
+    loadFeed();
+  }, [loadFeed]);
+
+  React.useEffect(() => {
+    const handler = () => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      loadFeed(false);
+    };
+    window.addEventListener("ritmofit-refresh-feed", handler);
+    return () => window.removeEventListener("ritmofit-refresh-feed", handler);
+  }, [loadFeed]);
 
   // Pre-load discover posts in the background once the following feed is loaded
   // (so the inline "Descobrir" section at the bottom of the following feed is ready)
@@ -291,9 +311,15 @@ export default function Index() {
   const handleStoryClick = React.useCallback((story: StoryWithUser) => {
     setSelectedStory(story);
     setStoryViewerOpen(true);
-    // Mark as viewed so the green dot turns gray for the owner
     if (story.user_id === user?.id) {
+      // Mark as viewed so the green dot turns gray for the owner
       setOwnerHasViewedFlow(true);
+    } else {
+      // Optimistically mark as viewed and persist to DB
+      setViewedStoryIds((prev) => new Set(prev).add(story.user_id));
+      recordFlowViewDb(story.id, story.user_id).catch((err) =>
+        console.error("Error recording flow view:", err),
+      );
     }
   }, [user?.id]);
 
@@ -419,9 +445,9 @@ export default function Index() {
         setTogglingIncentives((prev) => new Set(prev).add(key));
         setTogglingPostId(postId);
 
-        // Update UI optimistically, capturing previous state for rollback
+        // Update UI optimistically, capturing a deep copy for reliable rollback
         setPosts((prev) => {
-          previousPosts = prev;
+          previousPosts = prev.map((p) => ({ ...p, likes: { ...p.likes }, userLikes: [...p.userLikes] }));
           return prev.map((post) => {
             if (post.id !== postId) return post;
 
@@ -658,6 +684,8 @@ export default function Index() {
           currentUserPhoto={currentUserPhoto}
           isOwnerViewing={ownerHasViewedFlow}
           viewCount={flowViewCount}
+          isLoadingViewCount={isLoadingFlowViewers}
+          viewedStoryIds={viewedStoryIds}
         />
       </div>
 
@@ -797,8 +825,8 @@ export default function Index() {
                     </div>
                   </div>
 
-                  {/* Incentive Icons - Below User Info, Above Description */}
-                  <div className="flex items-center px-1 pt-1.5 border-t border-border/60">
+                  {/* Actions row: incentivos + comentários */}
+                  <div className="flex items-center px-2 pt-1 pb-0.5">
                     {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
                       <PostIncentiveButton
                         key={type}
@@ -814,61 +842,57 @@ export default function Index() {
                         commentCount={post.commentCount}
                         hasActivity={post.hasActivity}
                         isPostOwner={post.user_id === user?.id}
-                        hasUnreadComments={
-                          (unreadCommentsByPost[post.id] ?? 0) > 0
-                        }
+                        hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0}
                       />
                     </div>
                   </div>
 
-                  {/* Likes Label */}
-                  {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 && (
-                    <button
-                      onClick={() => handleOpenLikesModal(post)}
-                      className="px-4 py-1 text-left text-sm text-foreground/70 hover:text-foreground transition-colors"
-                    >
-                      <span className="font-medium">
-                        {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} Incentivos
-                      </span>
-                    </button>
-                  )}
+                  {/* Contador de incentivos + timestamp numa linha só */}
+                  <div className="flex items-center gap-2 px-3 pb-1">
+                    {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 ? (
+                      <button
+                        onClick={() => handleOpenLikesModal(post)}
+                        className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
+                      >
+                        {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} incentivos
+                      </button>
+                    ) : null}
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {formatTimeAgo(post.created_at)}
+                    </span>
+                  </div>
 
-                  {/* Post Content */}
-                  <div className="px-4 pt-1 pb-4 space-y-3">
+                  {/* Descrição + Meta */}
+                  <div className="px-3 pb-3 space-y-2">
                     {post.description && (
-                      <p className="text-sm leading-relaxed">
+                      <p className="text-sm leading-relaxed text-foreground">
                         {post.description}
                       </p>
                     )}
 
-                    {/* Goal Progress Bar */}
+                    {/* Goal Progress */}
                     {post.userGoal && (
                       <button
                         onClick={() => openGoalModal(post)}
-                        className="w-full space-y-3 pt-3 text-left hover:opacity-80 transition-opacity rounded-lg p-3 bg-muted/30 hover:bg-muted/50"
+                        className="w-full text-left group"
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-foreground">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <Target className="h-3 w-3 text-brand flex-shrink-0" />
+                          <span className="text-xs font-medium text-foreground truncate flex-1">
                             {post.userGoal.description}
                           </span>
-                          <span className="text-sm font-bold text-brand">
+                          <span className="text-xs font-bold text-brand flex-shrink-0">
                             {Math.round(post.userGoal.perc)}%
                           </span>
                         </div>
-                        <div className="w-full bg-muted rounded-full h-4 overflow-hidden">
+                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
                           <div
-                            className="bg-brand h-full rounded-full transition-all duration-300"
-                            style={{
-                              width: `${post.userGoal.perc}%`,
-                            }}
+                            className="bg-brand h-full rounded-full transition-all duration-500"
+                            style={{ width: `${post.userGoal.perc}%` }}
                           />
                         </div>
                       </button>
                     )}
-
-                    <p className="text-xs text-muted-foreground pt-1">
-                      {formatTimeAgo(post.created_at)}
-                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -973,8 +997,8 @@ export default function Index() {
                       </div>
                     </div>
 
-                    {/* Incentive Icons - Below User Info, Above Description */}
-                    <div className="flex items-center px-1 pt-1.5 border-t border-border/60">
+                    {/* Actions row: incentivos + comentários */}
+                    <div className="flex items-center px-2 pt-1 pb-0.5">
                       {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
                         <PostIncentiveButton
                           key={type}
@@ -990,61 +1014,57 @@ export default function Index() {
                           commentCount={post.commentCount}
                           hasActivity={post.hasActivity}
                           isPostOwner={post.user_id === user?.id}
-                          hasUnreadComments={
-                            (unreadCommentsByPost[post.id] ?? 0) > 0
-                          }
+                          hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0}
                         />
                       </div>
                     </div>
 
-                    {/* Likes Label */}
-                    {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 && (
-                      <button
-                        onClick={() => handleOpenLikesModal(post)}
-                        className="px-4 py-1 text-left text-sm text-foreground/70 hover:text-foreground transition-colors"
-                      >
-                        <span className="font-medium">
-                          {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} Incentivos
-                        </span>
-                      </button>
-                    )}
+                    {/* Contador de incentivos + timestamp numa linha só */}
+                    <div className="flex items-center gap-2 px-3 pb-1">
+                      {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 ? (
+                        <button
+                          onClick={() => handleOpenLikesModal(post)}
+                          className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
+                        >
+                          {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} incentivos
+                        </button>
+                      ) : null}
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {formatTimeAgo(post.created_at)}
+                      </span>
+                    </div>
 
-                    {/* Post Content */}
-                    <div className="px-4 pt-1 pb-4 space-y-3">
+                    {/* Descrição + Meta */}
+                    <div className="px-3 pb-3 space-y-2">
                       {post.description && (
-                        <p className="text-sm leading-relaxed">
+                        <p className="text-sm leading-relaxed text-foreground">
                           {post.description}
                         </p>
                       )}
 
-                      {/* Goal Progress Bar */}
+                      {/* Goal Progress */}
                       {post.userGoal && (
                         <button
                           onClick={() => openGoalModal(post)}
-                          className="w-full space-y-3 pt-3 text-left hover:opacity-80 transition-opacity rounded-lg p-3 bg-muted/30 hover:bg-muted/50"
+                          className="w-full text-left group"
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-semibold text-foreground">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Target className="h-3 w-3 text-brand flex-shrink-0" />
+                            <span className="text-xs font-medium text-foreground truncate flex-1">
                               {post.userGoal.description}
                             </span>
-                            <span className="text-sm font-bold text-brand">
+                            <span className="text-xs font-bold text-brand flex-shrink-0">
                               {Math.round(post.userGoal.perc)}%
                             </span>
                           </div>
-                          <div className="w-full bg-muted rounded-full h-4 overflow-hidden">
+                          <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
                             <div
-                              className="bg-brand h-full rounded-full transition-all duration-300"
-                              style={{
-                                width: `${post.userGoal.perc}%`,
-                              }}
+                              className="bg-brand h-full rounded-full transition-all duration-500"
+                              style={{ width: `${post.userGoal.perc}%` }}
                             />
                           </div>
                         </button>
                       )}
-
-                      <p className="text-xs text-muted-foreground pt-1">
-                        {formatTimeAgo(post.created_at)}
-                      </p>
                     </div>
                   </CardContent>
                 </Card>
@@ -1104,8 +1124,8 @@ export default function Index() {
                           </button>
                         </div>
                       </div>
-                      {/* Incentivos e comentários nos posts do descobrir */}
-                      <div className="flex items-center px-1 pt-1.5 border-t border-border/60">
+                      {/* Actions row: incentivos + comentários */}
+                      <div className="flex items-center px-2 pt-1 pb-0.5">
                         {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
                           <PostIncentiveButton
                             key={type}
@@ -1119,9 +1139,47 @@ export default function Index() {
                           <PostCommentsDialog postId={post.id} commentCount={post.commentCount} hasActivity={post.hasActivity} isPostOwner={post.user_id === user?.id} hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0} />
                         </div>
                       </div>
-                      {post.description && (
-                        <p className="text-sm px-4 pb-3 text-foreground/80 line-clamp-2">{post.description}</p>
-                      )}
+
+                      {/* Contador de incentivos + timestamp */}
+                      <div className="flex items-center gap-2 px-3 pb-1">
+                        {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 ? (
+                          <button
+                            onClick={() => handleOpenLikesModal(post)}
+                            className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
+                          >
+                            {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} incentivos
+                          </button>
+                        ) : null}
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          {formatTimeAgo(post.created_at)}
+                        </span>
+                      </div>
+
+                      {/* Descrição + Meta */}
+                      <div className="px-3 pb-3 space-y-2">
+                        {post.description && (
+                          <p className="text-sm leading-relaxed text-foreground line-clamp-2">{post.description}</p>
+                        )}
+                        {post.userGoal && (
+                          <button onClick={() => openGoalModal(post)} className="w-full text-left">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <Target className="h-3 w-3 text-brand flex-shrink-0" />
+                              <span className="text-xs font-medium text-foreground truncate flex-1">
+                                {post.userGoal.description}
+                              </span>
+                              <span className="text-xs font-bold text-brand flex-shrink-0">
+                                {Math.round(post.userGoal.perc)}%
+                              </span>
+                            </div>
+                            <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="bg-brand h-full rounded-full transition-all duration-500"
+                                style={{ width: `${post.userGoal.perc}%` }}
+                              />
+                            </div>
+                          </button>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 ))
@@ -1155,7 +1213,7 @@ export default function Index() {
 
       {/* Goal Progress Modal */}
       <Drawer open={goalModalOpen} onOpenChange={setGoalModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col">
+        <DrawerContent className="max-h-[80dvh] flex flex-col">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Progresso da Meta</DrawerTitle>
           </DrawerHeader>

@@ -39,6 +39,10 @@ import {
   hasCompletedRoutineToday,
   getRoutineTypeName,
   createPostDb,
+  addGroupCheckInDb,
+  getEnrichedDuelGroupsDb,
+  getUserProfileDb,
+  type CompletedRoutineExercise,
   type ProgrammedGoal,
   type Workout,
   type Diet,
@@ -53,9 +57,9 @@ import {
 } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { fetchExerciseCatalog, type CatalogExercise } from "@/lib/exercise-catalog";
-import { ExerciseImage } from "@/components/exercise-image";
+import { ExerciseImage } from "@/components/shared/exercise-image";
 import { fetchMealCatalog, type CatalogMeal } from "@/lib/diet-catalog";
-import { DietImage } from "@/components/diet-image";
+import { DietImage } from "@/components/shared/diet-image";
 import {
   Card,
   CardContent,
@@ -93,6 +97,7 @@ import {
   Camera,
   ImageIcon,
   Tag,
+  Swords,
 } from "lucide-react";
 import {
   Dialog,
@@ -121,7 +126,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
-import { LoadingSpinner } from "@/components/animated-loading";
+import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { useLanguage } from "@/lib/language-context";
 
 export default function Goals() {
@@ -209,9 +214,17 @@ export default function Goals() {
     totalVolume: number;
     totalSeries: number;
     exerciseNames: string[];
+    exercises: CompletedRoutineExercise[];
     routineName: string | null;
     prs: Array<{ exerciseName: string; kg: number; reps: number }>;
+    isAllCardio: boolean;
+    totalKm: number;
   } | null>(null);
+
+  const [isDuelShareModalOpen, setIsDuelShareModalOpen] = React.useState(false);
+  const [isSharingDuel, setIsSharingDuel] = React.useState(false);
+  const [duelGroups, setDuelGroups] = React.useState<Array<{ id: string; name: string; goal: string }>>([]);
+  const [selectedDuelGroupId, setSelectedDuelGroupId] = React.useState<string | null>(null);
 
   // PR celebration state
   const [prCelebration, setPrCelebration] = React.useState<{
@@ -756,6 +769,14 @@ export default function Goals() {
       // Update local state
       setUserWorkouts((prev) => prev.filter((w) => w.id !== userWorkoutId));
 
+      // Refresh routines data
+      if (user) {
+        Promise.all([getUserRoutinesDb(user.id), getUserWorkoutsDb(user.id)]).then(([routinesData, workoutsData]) => {
+          setRoutines(routinesData);
+          setUserWorkouts(workoutsData);
+        });
+      }
+
       toast({
         title: "Exercício removido",
         description: "O exercício foi removido da sua lista.",
@@ -777,8 +798,28 @@ export default function Goals() {
 
       const table =
         typeCode === 1 ? "user_workouts" : typeCode === 2 ? "user_diets" : "user_habits";
+      const histTable =
+        typeCode === 1 ? "user_workouts_hist" : typeCode === 2 ? "user_diets_hist" : "user_habits_hist";
+      const histFk =
+        typeCode === 1 ? "user_workout_id" : typeCode === 2 ? "user_diet_id" : "user_habit_id";
 
-      // Delete matching items from user_* table
+      // Step 1: fetch IDs of the user_* rows that will be deleted
+      const idsQuery = routineCardName
+        ? supabase.from(table).select("id").eq("user_id", user.id).eq("name", routineCardName)
+        : supabase.from(table).select("id").eq("user_id", user.id).is("name", null);
+      const { data: idsData } = await idsQuery;
+      const rowIds = (idsData ?? []).map((r: any) => String(r.id));
+
+      // Step 2: delete history records that reference those IDs
+      if (rowIds.length > 0) {
+        const { error: histError } = await supabase
+          .from(histTable)
+          .delete()
+          .in(histFk, rowIds);
+        if (histError) console.error("Erro ao deletar histórico:", histError);
+      }
+
+      // Step 3: Delete matching items from user_* table
       if (routineCardName) {
         // Named routine: delete only items with this name
         const { error } = await supabase
@@ -1381,6 +1422,19 @@ export default function Goals() {
       setRoutineCompletedTodayStatus(true);
       const dayOfWeek = new Date().getDay();
       setWeekCheckIns((prev) => new Set(prev).add(dayOfWeek));
+
+      // Update progress for all active goals
+      const activeGoals = userGoals.filter((g) => g.perc < 100);
+      for (const goal of activeGoals) {
+        const newProgress = goal.days_completed + 1;
+        const newPercentage = goal.quantity > 0 ? Math.min(100, (newProgress / goal.quantity) * 100) : 0;
+        await updateUserGoalDb(goal.id, { days_completed: newProgress, perc: newPercentage });
+      }
+      if (activeGoals.length > 0) {
+        const updatedGoals = await getUserGoalsDb();
+        setUserGoals(updatedGoals);
+      }
+
       toast({
         title: "Check-in automático realizado! ✓",
         description: "Sua rotina foi concluída e o check-in do dia foi registrado.",
@@ -1417,16 +1471,21 @@ export default function Goals() {
       for (const [workoutId, series] of Object.entries(workoutSeries)) {
         const completedSeries = series.filter((s) => s.completed);
         if (completedSeries.length > 0) {
+          // Find the user_workout row to get its PK (user_workout_id)
+          const userWorkoutRow = userWorkouts.find((w) => w.workout_id === workoutId);
+          const userWorkoutId = userWorkoutRow?.id ?? null;
+          const isCardioExercise = (userWorkoutRow?.muscle_group || "").toLowerCase() === "cardio";
           for (let i = 0; i < completedSeries.length; i++) {
             const serie = completedSeries[i];
             try {
               await saveWorkoutHistoryDb(
                 user.id,
-                null,
+                userWorkoutId,
                 workoutId,
                 serie.kg || null,
-                serie.reps ? `${serie.reps} reps` : null,
-                null // calories not tracked in this form
+                isCardioExercise
+                  ? (serie.reps ? String(serie.reps) : null)
+                  : (serie.reps ? `${serie.reps} reps` : null),
               );
             } catch (historyErr) {
               console.error("Error saving workout history:", historyErr);
@@ -1438,22 +1497,44 @@ export default function Goals() {
 
       // Calculate summary stats from completed series + detect PRs
       let totalVolume = 0;
+      let totalKm = 0;
       let totalSeries = 0;
       const exerciseNames: string[] = [];
+      const exercises: CompletedRoutineExercise[] = [];
       const prs: Array<{ exerciseName: string; kg: number; reps: number }> = [];
+      let allCardio = true;
 
       for (const [workoutId, series] of Object.entries(workoutSeries)) {
         const completed = series.filter((s) => s.completed);
         if (completed.length > 0) {
           totalSeries += completed.length;
-          for (const s of completed) {
-            totalVolume += (s.kg || 0) * (s.reps || 0);
-          }
           const match = userWorkouts.find((w) => w.workout_id === workoutId);
-          if (match?.workoutName) exerciseNames.push(match.workoutName);
+          const isCardioExercise = (match?.muscle_group || "").toLowerCase() === "cardio";
+          if (!isCardioExercise) allCardio = false;
+
+          const bestKg = Math.max(...completed.map((s) => s.kg || 0));
+          const totalExVol = completed.reduce((sum, s) => sum + (s.kg || 0) * (s.reps || 0), 0);
+
+          for (const s of completed) {
+            if (isCardioExercise) {
+              totalKm += (s.kg || 0);
+            } else {
+              totalVolume += (s.kg || 0) * (s.reps || 0);
+            }
+          }
+          if (match?.workoutName) {
+            exerciseNames.push(match.workoutName);
+            exercises.push({
+              workoutId,
+              workoutName: match.workoutName,
+              muscleGroup: match.muscle_group || null,
+              kilos: bestKg > 0 ? bestKg : null,
+              volume: totalExVol > 0 ? String(Math.round(totalExVol * 10) / 10) : null,
+            });
+          }
 
           // PR detection: best set in this session vs best historical
-          const bestSessionKg = Math.max(...completed.map((s) => s.kg || 0));
+          const bestSessionKg = bestKg;
           const history = workoutHistoriesMap[workoutId] || [];
           const bestHistoricalKg = history.length > 0 ? Math.max(...history.map((h) => h.kilos || 0)) : 0;
           if (bestSessionKg > 0 && bestSessionKg > bestHistoricalKg && match?.workoutName) {
@@ -1469,8 +1550,11 @@ export default function Goals() {
         totalVolume: Math.round(totalVolume * 10) / 10,
         totalSeries,
         exerciseNames,
+        exercises,
         routineName: selectedRoutineName === "__unnamed__" ? null : selectedRoutineName,
         prs,
+        isAllCardio: allCardio && exerciseNames.length > 0,
+        totalKm: Math.round(totalKm * 10) / 10,
       });
       setFinishWorkoutConfirmOpen(false);
       setWorkoutModalOpen(false);
@@ -2326,7 +2410,7 @@ export default function Goals() {
 
                         {/* Expanded content */}
                         {isExpanded && (
-                          <div className="border-t border-border/60 bg-muted/20 p-2.5 space-y-1.5">
+                          <div className="border-t border-border/60 bg-muted/20 p-2.5 space-y-1.5 overflow-hidden">
                             {(() => {
                               const visibleItems = itemsForRoutine.filter((item: any) => {
                                 if (typeCode === 2) return !completedDietIds.has(item.id);
@@ -2339,7 +2423,7 @@ export default function Goals() {
                                   key={item.id}
                                   className="space-y-1.5"
                                 >
-                                  <div className="flex items-start gap-2.5 rounded-lg">
+                                  <div className="flex items-start gap-2.5 rounded-lg min-w-0 overflow-hidden">
                                     {/* Mark as completed checkbox for diets (left side) */}
                                     {typeCode === 2 && (
                                       <button
@@ -2358,9 +2442,9 @@ export default function Goals() {
                                             if (isCompleting && user) {
                                               await saveDietHistoryDb(
                                                 user.id,
+                                                item.id,
                                                 Number(item.diet_id),
                                                 item.quantity ?? null,
-                                                item.calories ?? null
                                               );
                                               await performAutoCheckIn();
                                             }
@@ -2404,9 +2488,10 @@ export default function Goals() {
                                             if (isCompleting && user) {
                                               await saveHabitHistoryDb(
                                                 user.id,
+                                                item.id,
                                                 Number(item.habit_id),
                                                 item.quantity ?? null,
-                                                item.frequency ?? null
+                                                item.frequency ?? null,
                                               );
                                               await performAutoCheckIn();
                                             }
@@ -2433,22 +2518,8 @@ export default function Goals() {
                                       </button>
                                     )}
 
-                                    {/* Clickable item - only for exercises (typeCode === 1) */}
-                                    <button
-                                      onClick={() => {
-                                        if (typeCode === 1) {
-                                          handleOpenWorkoutHistory({
-                                            id: item.workout_id,
-                                            name: item.workoutName,
-                                            description: item.workoutDescription || undefined,
-                                            photo: item.workoutPhoto || undefined,
-                                          } as any);
-                                        }
-                                      }}
-                                      className={`flex-1 flex items-start gap-3 p-2 rounded-lg transition-colors ${typeCode === 1 ? "hover:bg-muted/50 cursor-pointer" : ""
-                                        }`}
-                                      disabled={typeCode !== 1}
-                                    >
+                                    {/* Item content */}
+                                    <div className="flex-1 flex items-start gap-3 p-2 rounded-lg min-w-0">
                                       {/* Image thumbnail */}
                                       {typeCode === 1 && (
                                         <button
@@ -2478,13 +2549,25 @@ export default function Goals() {
                                         </button>
                                       )}
                                       <div className="flex-1 min-w-0 text-left">
-                                        <p className="text-sm font-medium truncate">
-                                          {typeCode === 1
-                                            ? item.workoutName
-                                            : typeCode === 2
-                                              ? item.dietName
-                                              : item.habitName}
-                                        </p>
+                                        {typeCode === 1 ? (
+                                          <button
+                                            className="text-sm font-medium truncate block text-left hover:opacity-80 transition-opacity"
+                                            onClick={() => handleOpenWorkoutHistory({
+                                              id: item.workout_id,
+                                              name: item.workoutName,
+                                              description: item.workoutDescription || undefined,
+                                              photo: item.workoutPhoto || undefined,
+                                            } as any)}
+                                          >
+                                            {item.workoutName?.length > 35 ? item.workoutName.slice(0, 35) + "…" : item.workoutName}
+                                          </button>
+                                        ) : (
+                                          <p className="text-sm font-medium truncate">
+                                            {(typeCode === 2 ? item.dietName : item.habitName)?.length > 35
+                                              ? (typeCode === 2 ? item.dietName : item.habitName).slice(0, 35) + "…"
+                                              : (typeCode === 2 ? item.dietName : item.habitName)}
+                                          </p>
+                                        )}
                                         {(item.workoutDescription ||
                                           item.dietDescription ||
                                           item.habitDescription) && (
@@ -2498,20 +2581,39 @@ export default function Goals() {
                                           )}
                                         {typeCode === 2 && (
                                           <p className="text-xs text-muted-foreground mt-1">
-                                            {item.dietCalories ? `${item.dietCalories} cal` : item.calories ? `${item.calories} cal` : "Calorias não informadas"}
+                                            {item.dietCalories ? `${item.dietCalories} cal` : "Calorias não informadas"}
                                           </p>
                                         )}
                                       </div>
-                                    </button>
+                                    </div>
 
                                     {/* Delete button */}
                                     <button
-                                      onClick={(e) => {
+                                      onClick={async (e) => {
                                         e.stopPropagation();
-                                        handleDeleteExercise(item.id);
+                                        if (typeCode === 1) {
+                                          handleDeleteExercise(item.id);
+                                        } else {
+                                          const table = typeCode === 2 ? "user_diets" : "user_habits";
+                                          const { error } = await supabase.from(table).delete().eq("id", item.id);
+                                          if (error) {
+                                            toast({ title: "Erro ao remover", description: error.message, variant: "destructive" });
+                                            return;
+                                          }
+                                          if (typeCode === 2) setUserDiets((prev) => prev.filter((d) => d.id !== item.id));
+                                          else setUserHabits((prev) => prev.filter((h) => h.id !== item.id));
+                                          if (user) {
+                                            Promise.all([getUserRoutinesDb(user.id), typeCode === 2 ? getUserDietsDb(user.id) : getUserHabitsDb(user.id)]).then(([routinesData, itemsData]) => {
+                                              setRoutines(routinesData);
+                                              if (typeCode === 2) setUserDiets(itemsData as any);
+                                              else setUserHabits(itemsData as any);
+                                            });
+                                          }
+                                          toast({ title: typeCode === 2 ? "Dieta removida" : "Hábito removido" });
+                                        }
                                       }}
                                       className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
-                                      title="Remover exercício"
+                                      title="Remover item"
                                     >
                                       <Trash2 className="h-4 w-4 text-red-500" />
                                     </button>
@@ -2568,7 +2670,7 @@ export default function Goals() {
 
       {/* Add Routine Drawer Modal */}
       <Drawer open={addRoutineModalOpen} onOpenChange={(open) => { setAddRoutineModalOpen(open); if (!open) setIsAddingFromWorkout(false); }}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Adicionar Rotina</DrawerTitle>
           </DrawerHeader>
@@ -2734,27 +2836,45 @@ export default function Goals() {
                       {/* Muscle Group Filter */}
                       {uniqueMuscleGroups.length > 0 && (
                         <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Filter className="h-4 w-4 text-muted-foreground" />
-                            <p className="text-xs font-medium text-muted-foreground">
-                              Filtrar por grupo muscular:
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {uniqueMuscleGroups.map((muscleGroup) => (
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                              <p className="text-xs font-medium text-muted-foreground">
+                                Grupo muscular
+                              </p>
+                            </div>
+                            {selectedMuscleGroups.size > 0 && (
                               <button
-                                key={muscleGroup}
-                                onClick={() =>
-                                  handleToggleMuscleGroup(muscleGroup)
-                                }
-                                className={`px-3 py-1.5 text-xs rounded-full border transition-all ${selectedMuscleGroups.has(muscleGroup)
-                                  ? "border-brand bg-brand/20 text-brand"
-                                  : "border-border/60 text-muted-foreground hover:border-border/80"
-                                  }`}
+                                onClick={() => setSelectedMuscleGroups(new Set())}
+                                className="text-xs text-brand hover:underline"
                               >
-                                {muscleGroup}
+                                Limpar filtros
                               </button>
-                            ))}
+                            )}
+                          </div>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {uniqueMuscleGroups.map((muscleGroup) => {
+                              const groupIcons: Record<string, string> = {
+                                "Peito": "🏋️", "Costas": "🔙", "Pernas": "🦵",
+                                "Ombros": "💪", "Braços": "💪", "Abdômen": "⚡",
+                                "Glúteos": "🍑", "Cardio": "❤️", "Full Body": "🔥",
+                              };
+                              const isActive = selectedMuscleGroups.has(muscleGroup);
+                              return (
+                                <button
+                                  key={muscleGroup}
+                                  onClick={() => handleToggleMuscleGroup(muscleGroup)}
+                                  className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl border text-center transition-all ${
+                                    isActive
+                                      ? "border-brand bg-brand/15 text-brand shadow-sm"
+                                      : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
+                                  }`}
+                                >
+                                  <span className="text-base leading-none">{groupIcons[muscleGroup] || "💪"}</span>
+                                  <span className="text-[10px] font-medium leading-tight">{muscleGroup}</span>
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -3017,7 +3137,7 @@ export default function Goals() {
 
       {/* Workout Modal */}
       <Drawer open={workoutModalOpen} onOpenChange={setWorkoutModalOpen}>
-        <DrawerContent className="max-h-[90dvh] overflow-hidden flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] overflow-hidden flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Registrar Treino</DrawerTitle>
           </DrawerHeader>
@@ -3042,29 +3162,45 @@ export default function Goals() {
 
               {/* Stats Row */}
               <div className="flex items-center justify-between">
-                <div className="flex flex-col">
-                  <p className="text-xs text-muted-foreground mb-0.5">Duração</p>
-                  <p className="text-base font-bold text-brand">
-                    {formatDuration(workoutDuration)}
-                  </p>
-                </div>
-                <div className="flex flex-col">
-                  <p className="text-xs text-muted-foreground mb-0.5">Volume</p>
-                  <p className="text-base font-bold text-foreground">
-                    {Math.round(
-                      userWorkouts.reduce((total, workout) => {
-                        const series = workoutSeries[workout.workout_id] || [];
-                        return total + series.filter(s => s.completed).reduce((sum, s) => sum + (s.kg || 0) * (s.reps || 0), 0);
-                      }, 0) * 10
-                    ) / 10} kg
-                  </p>
-                </div>
-                <div className="flex flex-col">
-                  <p className="text-xs text-muted-foreground mb-0.5">Séries</p>
-                  <p className="text-base font-bold text-foreground">
-                    {userWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).filter((s) => s.completed).length, 0)}
-                  </p>
-                </div>
+                {(() => {
+                  const activeWorkouts = userWorkouts.filter((w) => {
+                    if (!selectedRoutineName) return true;
+                    if (selectedRoutineName === "__unnamed__") return !w.name;
+                    return w.name === selectedRoutineName;
+                  });
+                  const allWorkoutsCardio = activeWorkouts.length > 0 && activeWorkouts.every(w => (w.muscle_group || "").toLowerCase() === "cardio");
+                  return (
+                    <>
+                      <div className="flex flex-col">
+                        <p className="text-xs text-muted-foreground mb-0.5">Duração</p>
+                        <p className="text-base font-bold text-brand">
+                          {formatDuration(workoutDuration)}
+                        </p>
+                      </div>
+                      <div className="flex flex-col">
+                        <p className="text-xs text-muted-foreground mb-0.5">{allWorkoutsCardio ? "Distância" : "Volume"}</p>
+                        <p className="text-base font-bold text-foreground">
+                          {allWorkoutsCardio
+                            ? `${Math.round(activeWorkouts.reduce((total, workout) => {
+                                const series = workoutSeries[workout.workout_id] || [];
+                                return total + series.filter(s => s.completed).reduce((sum, s) => sum + (s.kg || 0), 0);
+                              }, 0) * 10) / 10} km`
+                            : `${Math.round(activeWorkouts.reduce((total, workout) => {
+                                const series = workoutSeries[workout.workout_id] || [];
+                                return total + series.filter(s => s.completed).reduce((sum, s) => sum + (s.kg || 0) * (s.reps || 0), 0);
+                              }, 0) * 10) / 10} kg`
+                          }
+                        </p>
+                      </div>
+                      <div className="flex flex-col">
+                        <p className="text-xs text-muted-foreground mb-0.5">Séries</p>
+                        <p className="text-base font-bold text-foreground">
+                          {activeWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).filter((s) => s.completed).length, 0)}
+                        </p>
+                      </div>
+                    </>
+                  );
+                })()}
                 <div className="flex items-center gap-2">
                   {Array.from(
                     new Set(
@@ -3115,20 +3251,37 @@ export default function Goals() {
                     <div key={workout.id} className="px-4 py-3">
                       <div className="bg-card border border-brand/20 rounded-lg p-3 mb-3">
                         {/* Exercise Header */}
-                        <button
-                          onClick={() => handleOpenWorkoutHistory({
-                            id: workout.workout_id,
-                            name: workout.workoutName,
-                            description: workout.workoutDescription || undefined,
-                            photo: workout.workoutPhoto || undefined,
-                          })}
-                          className="flex items-center gap-3 mb-2 hover:opacity-80 transition-opacity w-full"
-                        >
-                          <h3 className="text-sm font-semibold text-brand">
-                            {workout.workoutName}
-                          </h3>
-                          <MoreVertical className="h-4 w-4 text-muted-foreground ml-auto flex-shrink-0" />
-                        </button>
+                        <div className="flex items-center gap-3 mb-2">
+                          <button
+                            onClick={() => handleOpenWorkoutHistory({
+                              id: workout.workout_id,
+                              name: workout.workoutName,
+                              description: workout.workoutDescription || undefined,
+                              photo: workout.workoutPhoto || undefined,
+                            })}
+                            className="flex-1 text-left hover:opacity-80 transition-opacity"
+                          >
+                            <h3 className="text-sm font-semibold text-brand">
+                              {workout.workoutName}
+                            </h3>
+                          </button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button className="p-1 hover:bg-muted/50 rounded transition-colors flex-shrink-0">
+                                <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuItem
+                                onClick={() => handleDeleteExercise(workout.id)}
+                                className="text-red-500"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Remover da rotina
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
 
                         {/* Notes */}
                         <div className="mb-2">
@@ -3160,70 +3313,76 @@ export default function Goals() {
                         </div>
 
                         {/* Table Header */}
-                        <div className="grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 mb-1 py-1 text-xs font-semibold text-muted-foreground border-b border-border/20">
-                          <div>SÉRIE</div>
-                          <div>ANTERIOR</div>
-                          <div className="text-center">KG</div>
-                          <div className="text-center">REPS</div>
-                          <div className="text-center">✓</div>
-                        </div>
+                        {(() => {
+                          const isCardio = (workout.muscle_group || "").toLowerCase() === "cardio";
+                          return (
+                            <>
+                              <div className="grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 mb-1 py-1 text-xs font-semibold text-muted-foreground border-b border-border/20">
+                                <div>SÉRIE</div>
+                                <div>ANTERIOR</div>
+                                <div className="text-center">{isCardio ? "KM" : "KG"}</div>
+                                <div className="text-center">{isCardio ? "TEMPO" : "REPS"}</div>
+                                <div className="text-center">✓</div>
+                              </div>
 
-                        {/* Series Rows */}
-                        <div className="space-y-0">
-                          {series.map((s, index) => {
-                            const previousRecord = workoutHistoriesMap[workout.workout_id]?.[index];
-                            return (
-                              <div
-                                key={index}
-                                className={`group relative grid grid-cols-[40px_1fr_60px_60px_32px_28px] gap-2 items-center py-1.5 rounded hover:bg-muted/20 transition-colors ${s.completed ? "opacity-50" : ""
-                                  }`}
-                              >
-                                {/* Series Number */}
-                                <div className="font-bold text-center text-xs">
-                                  {index + 1}
-                                </div>
+                              {/* Series Rows */}
+                              <div className="space-y-0">
+                                {series.map((s, index) => {
+                                  const previousRecord = workoutHistoriesMap[workout.workout_id]?.[index];
+                                  return (
+                                    <div
+                                      key={index}
+                                      className={`group relative grid grid-cols-[40px_1fr_60px_60px_32px_28px] gap-2 items-center py-1.5 rounded hover:bg-muted/20 transition-colors ${s.completed ? "opacity-50" : ""
+                                        }`}
+                                    >
+                                      {/* Series Number */}
+                                      <div className="font-bold text-center text-xs">
+                                        {index + 1}
+                                      </div>
 
-                                {/* Previous Record */}
-                                <div className="text-xs text-muted-foreground">
-                                  {previousRecord
-                                    ? `${Math.round((previousRecord.kilos || 0) * 10) / 10}kg × ${previousRecord.volume || 0}`
-                                    : "—"}
-                                </div>
+                                      {/* Previous Record */}
+                                      <div className="text-xs text-muted-foreground">
+                                        {previousRecord
+                                          ? isCardio
+                                            ? `${Math.round((previousRecord.kilos || 0) * 10) / 10}km · ${previousRecord.volume || 0}`
+                                            : `${Math.round((previousRecord.kilos || 0) * 10) / 10}kg × ${previousRecord.volume || 0}`
+                                          : "—"}
+                                      </div>
 
-                                {/* KG Input */}
-                                <input
-                                  type="number"
-                                  step="0.5"
-                                  min="0"
-                                  value={s.kg === 0 ? "" : s.kg}
-                                  onChange={(e) =>
-                                    handleUpdateSerie(
-                                      workout.workout_id,
-                                      index,
-                                      "kg",
-                                      e.target.value,
-                                    )
-                                  }
-                                  placeholder="0"
-                                  className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
-                                />
+                                      {/* KM or KG Input */}
+                                      <input
+                                        type="number"
+                                        step={isCardio ? "0.1" : "0.5"}
+                                        min="0"
+                                        value={s.kg === 0 ? "" : s.kg}
+                                        onChange={(e) =>
+                                          handleUpdateSerie(
+                                            workout.workout_id,
+                                            index,
+                                            "kg",
+                                            e.target.value,
+                                          )
+                                        }
+                                        placeholder="0"
+                                        className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
+                                      />
 
-                                {/* REPS Input */}
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={s.reps === 0 ? "" : s.reps}
-                                  onChange={(e) =>
-                                    handleUpdateSerie(
-                                      workout.workout_id,
-                                      index,
-                                      "reps",
-                                      e.target.value,
-                                    )
-                                  }
-                                  placeholder="0"
-                                  className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
-                                />
+                                      {/* REPS or TEMPO Input */}
+                                      <input
+                                        type={isCardio ? "text" : "number"}
+                                        min={isCardio ? undefined : "0"}
+                                        value={isCardio ? (s.reps === 0 ? "" : String(s.reps)) : (s.reps === 0 ? "" : s.reps)}
+                                        onChange={(e) =>
+                                          handleUpdateSerie(
+                                            workout.workout_id,
+                                            index,
+                                            "reps",
+                                            e.target.value,
+                                          )
+                                        }
+                                        placeholder={isCardio ? "00:00" : "0"}
+                                        className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
+                                      />
 
                                 {/* Checkbox */}
                                 <button
@@ -3255,6 +3414,9 @@ export default function Goals() {
                             );
                           })}
                         </div>
+                            </>
+                          );
+                        })()}
 
                         {/* Add Series Button */}
                         <button
@@ -3375,7 +3537,7 @@ export default function Goals() {
 
       {/* Edit Goal Drawer */}
       <Drawer open={editGoalModalOpen} onOpenChange={setEditGoalModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Editar Meta</DrawerTitle>
           </DrawerHeader>
@@ -3507,7 +3669,7 @@ export default function Goals() {
 
       {/* Finish Workout Confirmation Drawer */}
       <Drawer open={finishWorkoutConfirmOpen} onOpenChange={setFinishWorkoutConfirmOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Confirmar Encerramento do Treino</DrawerTitle>
           </DrawerHeader>
@@ -3553,6 +3715,83 @@ export default function Goals() {
           setWorkoutCoverFile(null);
           setWorkoutCoverPreview(null);
           setWorkoutRating(0);
+          setIsDuelShareModalOpen(false);
+          setSelectedDuelGroupId(null);
+          setDuelGroups([]);
+        };
+
+        const handleOpenDuelShare = async () => {
+          if (!user?.id) return;
+          setIsDuelShareModalOpen(true);
+          setSelectedDuelGroupId(null);
+          try {
+            const { myGroups } = await getEnrichedDuelGroupsDb(user.id);
+            setDuelGroups(myGroups.map((g) => ({ id: g.id, name: g.name, goal: g.goal })));
+          } catch {
+            setDuelGroups([]);
+          }
+        };
+
+        const handleShareDuel = async () => {
+          if (!workoutSummaryData || !user || !selectedDuelGroupId) return;
+          setIsSharingDuel(true);
+          try {
+            const userProfile = await getUserProfileDb(user.id);
+            const userName = userProfile?.nickname || user.email?.split("@")[0] || "Usuário";
+            const userPhotoUrl = userProfile?.photo || null;
+
+            let photoUrl: string | null = null;
+            if (workoutCoverFile && supabase) {
+              const ext = workoutCoverFile.name.split(".").pop() || "jpg";
+              const filePath = `${user.id}/${Date.now()}-duel-checkin.${ext}`;
+              const { error: uploadError } = await supabase.storage
+                .from("posts")
+                .upload(filePath, workoutCoverFile, { contentType: workoutCoverFile.type, upsert: false });
+              if (!uploadError) {
+                const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                photoUrl = urlData.publicUrl;
+              }
+            } else if (!workoutCoverFile && workoutCanvasRef.current && supabase) {
+              const canvas = workoutCanvasRef.current;
+              const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
+              if (blob) {
+                const filePath = `${user.id}/${Date.now()}-duel-checkin-cover.png`;
+                const { error: uploadError } = await supabase.storage
+                  .from("posts")
+                  .upload(filePath, blob, { contentType: "image/png", upsert: false });
+                if (!uploadError) {
+                  const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                  photoUrl = urlData.publicUrl;
+                }
+              }
+            }
+
+            const primaryMuscle = workoutSummaryData.exercises[0]?.muscleGroup || null;
+            const description = workoutSummaryData.routineName
+              ? `Treino de ${workoutSummaryData.routineName} concluído! 💪`
+              : "Treino concluído! 💪";
+
+            await addGroupCheckInDb(
+              selectedDuelGroupId,
+              user.id,
+              userName,
+              photoUrl || "",
+              description,
+              workoutSummaryData.routineName || "Treino",
+              workoutSummaryData.totalSeries,
+              workoutSummaryData.totalVolume,
+              primaryMuscle,
+              workoutSummaryData.exercises,
+              userPhotoUrl,
+            );
+
+            toast({ title: "Check-in no duelo! ⚔️", description: "Seu treino foi registrado no grupo." });
+            closeSummary();
+          } catch (err: any) {
+            toast({ title: "Erro ao compartilhar no duelo", description: err?.message || "Tente novamente.", variant: "destructive" });
+          } finally {
+            setIsSharingDuel(false);
+          }
         };
 
         const handlePickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3657,11 +3896,20 @@ export default function Goals() {
                       <p className="text-lg font-bold text-emerald-400">{durationStr}</p>
                       <p className="text-xs text-white/50">Duração</p>
                     </div>
-                    {workoutSummaryData.totalVolume > 0 && (
-                      <div>
-                        <p className="text-lg font-bold text-emerald-400">{workoutSummaryData.totalVolume} kg</p>
-                        <p className="text-xs text-white/50">Volume</p>
-                      </div>
+                    {workoutSummaryData.isAllCardio ? (
+                      workoutSummaryData.totalKm > 0 && (
+                        <div>
+                          <p className="text-lg font-bold text-emerald-400">{workoutSummaryData.totalKm} km</p>
+                          <p className="text-xs text-white/50">Distância</p>
+                        </div>
+                      )
+                    ) : (
+                      workoutSummaryData.totalVolume > 0 && (
+                        <div>
+                          <p className="text-lg font-bold text-emerald-400">{workoutSummaryData.totalVolume} kg</p>
+                          <p className="text-xs text-white/50">Volume</p>
+                        </div>
+                      )
                     )}
                     <div>
                       <p className="text-lg font-bold text-emerald-400">{workoutSummaryData.totalSeries}</p>
@@ -3692,8 +3940,12 @@ export default function Goals() {
               </div>
               <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3">
                 <TrendingUp className="h-4 w-4 text-brand" />
-                <p className="text-[11px] text-muted-foreground">Volume</p>
-                <p className="text-sm font-bold">{workoutSummaryData.totalVolume > 0 ? `${workoutSummaryData.totalVolume} kg` : "—"}</p>
+                <p className="text-[11px] text-muted-foreground">{workoutSummaryData.isAllCardio ? "Distância" : "Volume"}</p>
+                <p className="text-sm font-bold">
+                  {workoutSummaryData.isAllCardio
+                    ? (workoutSummaryData.totalKm > 0 ? `${workoutSummaryData.totalKm} km` : "—")
+                    : (workoutSummaryData.totalVolume > 0 ? `${workoutSummaryData.totalVolume} kg` : "—")}
+                </p>
               </div>
               <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3">
                 <Flame className="h-4 w-4 text-brand" />
@@ -3770,6 +4022,63 @@ export default function Goals() {
                   : <><Share2 className="h-5 w-5" /> Compartilhar no Feed</>
                 }
               </Button>
+
+              {/* Duel share — expandable group selector */}
+              {!isDuelShareModalOpen ? (
+                <Button
+                  variant="outline"
+                  className="w-full rounded-full gap-2 h-12 text-base"
+                  onClick={handleOpenDuelShare}
+                >
+                  <Swords className="h-5 w-5" /> Compartilhar no Duelo
+                </Button>
+              ) : (
+                <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Swords className="h-4 w-4 text-brand" />
+                    <p className="text-sm font-semibold">Escolha o grupo</p>
+                  </div>
+                  {duelGroups.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-2">Você não tem grupos de duelo. Crie um na aba Comunidade.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {duelGroups.map((g) => (
+                        <button
+                          key={g.id}
+                          onClick={() => setSelectedDuelGroupId(g.id)}
+                          className={`w-full text-left px-3 py-2.5 rounded-xl border transition-colors ${
+                            selectedDuelGroupId === g.id
+                              ? "border-brand bg-brand/10"
+                              : "border-border/50 hover:border-brand/40"
+                          }`}
+                        >
+                          <p className="text-sm font-medium truncate">{g.name}</p>
+                          {g.goal && <p className="text-xs text-muted-foreground truncate">{g.goal}</p>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="flex-1 rounded-full h-9 text-xs"
+                      onClick={() => { setIsDuelShareModalOpen(false); setSelectedDuelGroupId(null); }}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1 rounded-full h-9 text-xs gap-1.5"
+                      disabled={!selectedDuelGroupId || isSharingDuel}
+                      onClick={handleShareDuel}
+                    >
+                      {isSharingDuel ? "Enviando..." : <><Swords className="h-3.5 w-3.5" /> Confirmar</>}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <Button variant="ghost" className="w-full rounded-full h-12 text-base text-muted-foreground" onClick={closeSummary}>
                 Fechar
               </Button>
@@ -3780,7 +4089,7 @@ export default function Goals() {
 
       {/* Badges/Insignias Drawer Modal */}
       <Drawer open={badgesModalOpen} onOpenChange={setBadgesModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30">
+        <DrawerContent className="max-h-[80dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30">
           <DrawerHeader className="shrink-0 border-b border-border/60">
             <DrawerTitle className="flex items-center gap-2">
               <span className="text-2xl">🏆</span>
@@ -3957,7 +4266,7 @@ export default function Goals() {
 
       {/* Workout History Drawer */}
       <Drawer open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               Histórico de {selectedWorkoutForHistory?.name || "Exercício"}
@@ -4105,7 +4414,7 @@ export default function Goals() {
 
       {/* Goal Selection Modal for Check-in */}
       <Drawer open={checkInGoalSelectionOpen} onOpenChange={setCheckInGoalSelectionOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Selecione uma Meta para o Check-in</DrawerTitle>
           </DrawerHeader>
@@ -4161,7 +4470,7 @@ export default function Goals() {
 
       {/* Routine Selection Modal for Goal Cards */}
       <Drawer open={goalRoutineModalOpen} onOpenChange={setGoalRoutineModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               {goalRoutineModalMode === "view"
@@ -4569,7 +4878,7 @@ export default function Goals() {
 
       {/* Create Custom Workout Drawer */}
       <Drawer open={createWorkoutDrawerOpen} onOpenChange={setCreateWorkoutDrawerOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Criar Exercício Personalizado</DrawerTitle>
           </DrawerHeader>
@@ -4623,7 +4932,7 @@ export default function Goals() {
 
       {/* Create Custom Goal Drawer */}
       <Drawer open={createGoalDrawerOpen} onOpenChange={setCreateGoalDrawerOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Criar Meta Personalizada</DrawerTitle>
           </DrawerHeader>
@@ -4758,7 +5067,7 @@ export default function Goals() {
 
       {/* Link Goal from Routines Tab */}
       <Drawer open={linkGoalForRoutineOpen} onOpenChange={setLinkGoalForRoutineOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Vincular Meta</DrawerTitle>
           </DrawerHeader>

@@ -29,11 +29,13 @@ type RoutineCardProps = {
   isLoadingItems: boolean;
   items: RoutineItemRow[];
   isCopying: boolean;
+  isCopied: boolean;
   isOwn: boolean;
   loadingText: string;
   onToggleExpand: (routine: RoutineResult) => void;
   onCopy: (routine: RoutineResult) => void;
   onNavigate: (userId: string) => void;
+  onGoToRoutines: () => void;
 };
 
 function RoutineCard({
@@ -42,17 +44,19 @@ function RoutineCard({
   isLoadingItems,
   items,
   isCopying,
+  isCopied,
   isOwn,
   loadingText,
   onToggleExpand,
   onCopy,
   onNavigate,
+  onGoToRoutines,
 }: RoutineCardProps) {
   return (
     <Card className="border-border/60">
       <CardContent className="p-4">
         {/* Routine name — prominent */}
-        <p className="font-semibold text-sm mb-2">{routine.routineName}</p>
+        <p className="font-semibold text-sm mb-2">{routine.routineName ?? "Rotina sem nome"}</p>
 
         {/* User info row + action buttons */}
         <div className="flex items-center gap-2">
@@ -76,16 +80,27 @@ function RoutineCard({
           </div>
 
           {/* Copy button */}
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-full h-7 px-2.5 gap-1 text-xs flex-shrink-0"
-            onClick={() => onCopy(routine)}
-            disabled={isCopying || isOwn}
-          >
-            <Copy className="h-3 w-3" />
-            {isCopying ? "Copiando..." : "Copiar"}
-          </Button>
+          {!isCopied ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full h-7 px-2.5 gap-1 text-xs flex-shrink-0"
+              onClick={() => onCopy(routine)}
+              disabled={isCopying || isOwn}
+            >
+              <Copy className="h-3 w-3" />
+              {isCopying ? "Copiando..." : "Copiar"}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="default"
+              className="rounded-full h-7 px-2.5 gap-1 text-xs flex-shrink-0"
+              onClick={onGoToRoutines}
+            >
+              Ver rotina
+            </Button>
+          )}
 
           {/* Expand toggle */}
           <button
@@ -140,6 +155,7 @@ export default function Search() {
   const [itemsCache, setItemsCache] = React.useState<Map<string, RoutineItemRow[]>>(new Map());
   const [itemsLoading, setItemsLoading] = React.useState<Set<string>>(new Set());
   const [copyingKeys, setCopyingKeys] = React.useState<Set<string>>(new Set());
+  const [copiedKeys, setCopiedKeys] = React.useState<Set<string>>(new Set());
   const searchDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load all users on mount
@@ -277,9 +293,10 @@ export default function Search() {
       setCopyingKeys((prev) => new Set(prev).add(key));
       try {
         await copyRoutineToUserDb(routine.userId, user.id, routine.routineType as 1 | 2, routine.routineName);
+        setCopiedKeys((prev) => new Set(prev).add(key));
         toast({
           title: routine.routineType === 1 ? "Treino copiado!" : "Dieta copiada!",
-          description: `"${routine.routineName}" foi adicionado(a) à sua conta.`,
+          description: `"${routine.routineName ?? "Rotina sem nome"}" foi adicionado(a) à sua conta.`,
         });
       } catch (err: any) {
         toast({ title: "Erro ao copiar", description: err.message || "Tente novamente.", variant: "destructive" });
@@ -290,10 +307,17 @@ export default function Search() {
     [user],
   );
 
+  const searchPlaceholder =
+    activeTab === "people"
+      ? "Busque por pessoas"
+      : activeTab === "workouts"
+        ? "Busque por treinos"
+        : "Busque por dietas";
+
   return (
     <div className="space-y-4">
       <Input
-        placeholder={t("search_placeholder")}
+        placeholder={searchPlaceholder}
         value={searchQuery}
         onChange={(e) => {
           const value = e.target.value;
@@ -367,17 +391,19 @@ export default function Search() {
           )}
           {searchWorkouts.map((routine) => (
             <RoutineCard
-              key={`${routine.userId}-${routine.routineName}`}
+              key={`${routine.userId}-${routine.routineName ?? "__unnamed__"}`}
               routine={routine}
               isExpanded={expandedKeys.has(`${routine.userId}::${routine.routineName}`)}
               isLoadingItems={itemsLoading.has(`${routine.userId}::${routine.routineName}`)}
               items={itemsCache.get(`${routine.userId}::${routine.routineName}`) ?? []}
               isCopying={copyingKeys.has(`${routine.userId}::${routine.routineName}`)}
+              isCopied={copiedKeys.has(`${routine.userId}::${routine.routineName}`)}
               isOwn={routine.userId === user?.id}
               loadingText={t("loading")}
               onToggleExpand={handleToggleExpand}
               onCopy={handleCopy}
               onNavigate={(id) => navigate(`/usuario/${id}`)}
+              onGoToRoutines={() => navigate("/metas?tab=rotinas")}
             />
           ))}
         </TabsContent>
@@ -392,17 +418,19 @@ export default function Search() {
           )}
           {searchDiets.map((routine) => (
             <RoutineCard
-              key={`${routine.userId}-${routine.routineName}`}
+              key={`${routine.userId}-${routine.routineName ?? "__unnamed__"}`}
               routine={routine}
               isExpanded={expandedKeys.has(`${routine.userId}::${routine.routineName}`)}
               isLoadingItems={itemsLoading.has(`${routine.userId}::${routine.routineName}`)}
               items={itemsCache.get(`${routine.userId}::${routine.routineName}`) ?? []}
               isCopying={copyingKeys.has(`${routine.userId}::${routine.routineName}`)}
+              isCopied={copiedKeys.has(`${routine.userId}::${routine.routineName}`)}
               isOwn={routine.userId === user?.id}
               loadingText={t("loading")}
               onToggleExpand={handleToggleExpand}
               onCopy={handleCopy}
               onNavigate={(id) => navigate(`/usuario/${id}`)}
+              onGoToRoutines={() => navigate("/metas?tab=rotinas")}
             />
           ))}
         </TabsContent>

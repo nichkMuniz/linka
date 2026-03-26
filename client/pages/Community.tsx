@@ -10,10 +10,9 @@ import {
   getDuelGroupDb,
   addGroupCheckInDb,
   getGroupCheckInsDb,
-  getUserCreatedDuelGroupsDb,
-  getAvailableDuelGroupsDb,
-  getUserExerciseRoutinesDb,
-  getUserWorkoutsDb,
+  getGroupCheckInDetailDb,
+  getEnrichedDuelGroupsDb,
+  getCompletedRoutinesTodayDb,
   getUserProfileDb,
   addMembersToGroupDb,
   leaveGroupDb,
@@ -22,7 +21,6 @@ import {
   deleteGroupDb,
   getGroupParticipantsDb,
   updateGroupPhotoDb,
-  getPendingInvitesDb,
   acceptGroupInviteDb,
   declineGroupInviteDb,
   sendGroupJoinRequestNotificationDb,
@@ -31,8 +29,7 @@ import {
   type SearchUser,
   type RankingUser,
   type GroupCheckIn,
-  type ExerciseRoutine,
-  type UserWorkoutWithDetails,
+  type CompletedRoutine,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -66,7 +63,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { LoadingSpinner } from "@/components/animated-loading";
+import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
 
@@ -95,7 +92,8 @@ export default function Community() {
 
   // Group creation state
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = React.useState(false);
-  const [groupStep, setGroupStep] = React.useState<"config" | "invite">("config");
+  const [groupStep, setGroupStep] = React.useState<1 | 2 | 3 | 4>(1);
+  const [isCreatingGroup, setIsCreatingGroup] = React.useState(false);
   const [groupConfig, setGroupConfig] = React.useState({
     name: "",
     location: "",
@@ -111,6 +109,16 @@ export default function Community() {
   const [joinedGroupIds, setJoinedGroupIds] = React.useState<Set<string>>(new Set());
   const [joiningGroupId, setJoiningGroupId] = React.useState<string | null>(null);
   const [selectedGroupForView, setSelectedGroupForView] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    if (selectedGroupForView) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [selectedGroupForView]);
+
   const [groupCheckIns, setGroupCheckIns] = React.useState<GroupCheckIn[]>([]);
   const [groupParticipants, setGroupParticipants] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null }>>([]);
   const [activeGroupViewTab, setActiveGroupViewTab] = React.useState<"check-ins" | "participants">("check-ins");
@@ -122,9 +130,8 @@ export default function Community() {
     workoutId: "",
   });
   const [checkInPhotoFile, setCheckInPhotoFile] = React.useState<File | null>(null);
-  const [exerciseRoutines, setExerciseRoutines] = React.useState<ExerciseRoutine[]>([]);
-  const [checkInUserWorkouts, setCheckInUserWorkouts] = React.useState<UserWorkoutWithDetails[]>([]);
-  const [checkInExpandedRoutine, setCheckInExpandedRoutine] = React.useState<string | null>(null);
+  const [completedRoutines, setCompletedRoutines] = React.useState<CompletedRoutine[]>([]);
+  const [selectedRoutineKey, setSelectedRoutineKey] = React.useState<string | null>(null);
   const [participantsSearch, setParticipantsSearch] = React.useState("");
   const [selectedCheckInForDetail, setSelectedCheckInForDetail] = React.useState<GroupCheckIn | null>(null);
   const [isCheckInDetailOpen, setIsCheckInDetailOpen] = React.useState(false);
@@ -150,6 +157,28 @@ export default function Community() {
   }>({ open: false, title: "", description: "", onConfirm: () => {} });
 
   const [pendingInvites, setPendingInvites] = React.useState<Array<{ groupId: string; groupName: string; groupGoal: string; groupLocation: string }>>([]);
+  const [userPhoto, setUserPhoto] = React.useState<string | null>(null);
+  const [isLoadingCheckIns, setIsLoadingCheckIns] = React.useState(false);
+  const [isLoadingRoutines, setIsLoadingRoutines] = React.useState(false);
+
+  // Open a group view instantly and load data in background
+  const openGroupView = React.useCallback((group: any) => {
+    setSelectedGroupForView(group);
+    setActiveGroupViewTab("check-ins");
+    setGroupCheckIns([]);
+    setGroupParticipants([]);
+    setIsLoadingCheckIns(true);
+    Promise.all([
+      getGroupCheckInsDb(group.id),
+      getGroupParticipantsDb(group.id),
+    ])
+      .then(([checkIns, participants]) => {
+        setGroupCheckIns(checkIns);
+        setGroupParticipants(participants);
+      })
+      .catch((err: any) => console.error("Error loading group data:", err))
+      .finally(() => setIsLoadingCheckIns(false));
+  }, []);
 
   const showConfirm = React.useCallback(
     (title: string, description: string, onConfirm: () => void) => {
@@ -190,53 +219,33 @@ export default function Community() {
     const loadUserData = async () => {
       if (!user?.id) return;
       try {
-        // Get user nickname from profile
-        const userProfile = await getUserProfileDb(user.id);
+        // Fetch nickname and all group data in parallel (no waterfall)
+        const [userProfile, { myGroups, availableGroups: enrichedAvailGroups, pendingInvites: invites }] =
+          await Promise.all([
+            getUserProfileDb(user.id),
+            getEnrichedDuelGroupsDb(user.id),
+          ]);
+
         const nickname = userProfile?.nickname || user.email?.split("@")[0] || "Usuário";
         setUserNickname(nickname);
-
-        // Load user groups + all other groups + pending invites
-        const [createdGroups, availGroups, invites] = await Promise.all([
-          getUserCreatedDuelGroupsDb(user.id),
-          getAvailableDuelGroupsDb(user.id),
-          getPendingInvitesDb(),
-        ]);
+        setUserPhoto(userProfile?.photo || null);
         setPendingInvites(invites);
 
         const toGroupCard = (group: any) => ({
           ...group,
           icon: "⚔️",
           description: group.goal,
-          participants: 1,
           city: group.location,
           isOfficial: false,
         });
 
-        setUserCreatedGroups(createdGroups.map(toGroupCard));
+        setUserCreatedGroups(myGroups.map(toGroupCard));
 
-        // Enrich available groups with creator profile and membership status
-        const enrichedAvailGroups = await Promise.all(
-          availGroups.map(async (group: any) => {
-            const [creatorProfile, participants] = await Promise.all([
-              getUserProfileDb(group.createdBy),
-              getGroupParticipantsDb(group.id),
-            ]);
-            const isPending = invites.some((inv) => inv.groupId === group.id);
-            return {
-              ...toGroupCard(group),
-              creatorNickname: creatorProfile?.nickname || "Usuário",
-              creatorPhoto: creatorProfile?.photo || null,
-              participants: participants.length,
-              isAlreadyMember: participants.some((p: any) => p.userId === user.id),
-              isPending,
-            };
-          })
-        );
         const alreadyJoined = new Set(
           enrichedAvailGroups.filter((g) => g.isAlreadyMember).map((g) => g.id)
         );
         setJoinedGroupIds(alreadyJoined);
-        setAvailableGroups(enrichedAvailGroups);
+        setAvailableGroups(enrichedAvailGroups.map(toGroupCard));
       } catch (err: any) {
         console.error("Error loading user groups:", err);
       }
@@ -244,6 +253,14 @@ export default function Community() {
 
     loadUserData();
   }, [user?.id]);
+
+  // Auto-select tab from URL parameter (?tab=requests)
+  React.useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam === "requests") {
+      setActiveTab("requests");
+    }
+  }, [searchParams]);
 
   // Auto-select conversation from URL parameter (?user=<userId>)
   React.useEffect(() => {
@@ -264,15 +281,19 @@ export default function Community() {
           if (profile) {
             const newConv: Conversation = {
               userId: userIdParam,
-              userNickname: profile.nickname || profile.name || "Usuário",
+              userNickname: profile.nickname || "Usuário",
               userPhoto: profile.photo || null,
               lastMessage: "",
               lastMessageTime: new Date().toISOString(),
+              unreadCount: 0,
             };
             setSelectedConversation(newConv);
             setViewMode("conversation");
           }
-        }).catch(console.error);
+        }).catch((err: any) => {
+          console.error("Error loading user profile for conversation:", err);
+          toast({ title: "Erro ao abrir conversa", description: err?.message || "Tente novamente.", variant: "destructive" });
+        });
       });
     }
   }, [searchParams, conversations, loading]);
@@ -281,31 +302,41 @@ export default function Community() {
   React.useEffect(() => {
     if (!selectedConversation || viewMode !== "conversation") return;
 
+    // Clear messages immediately so previous conversation's messages never bleed through
+    setMessages([]);
+
+    const targetUserId = selectedConversation.userId;
+
     const loadMessages = async () => {
       try {
-        const data = await getConversationMessagesDb(
-          selectedConversation.userId,
-        );
-        setMessages(data);
+        const data = await getConversationMessagesDb(targetUserId);
+
+        // Only update state if this conversation is still the selected one
+        setSelectedConversation((current) => {
+          if (current?.userId !== targetUserId) return current;
+          setMessages(data);
+          return current;
+        });
 
         // Mark messages as read
-        await markMessagesAsReadDb(selectedConversation.userId);
+        await markMessagesAsReadDb(targetUserId);
 
         // Update conversation unread count
         setConversations((prev) =>
           prev.map((conv) =>
-            conv.userId === selectedConversation.userId
+            conv.userId === targetUserId
               ? { ...conv, unreadCount: 0 }
               : conv,
           ),
         );
       } catch (err: any) {
         console.error("Error loading messages:", err);
+        toast({ title: "Erro ao carregar mensagens", description: err?.message || "Tente novamente.", variant: "destructive" });
       }
     };
 
     loadMessages();
-  }, [selectedConversation, viewMode]);
+  }, [selectedConversation?.userId, viewMode]);
 
   // Auto-scroll to bottom when messages change
   React.useEffect(() => {
@@ -364,11 +395,20 @@ export default function Community() {
   );
 
   const handleBackToConversations = React.useCallback(() => {
+    // If opened from a profile page (?user=), go back to that profile
+    const fromUserId = searchParams.get("user");
+    if (fromUserId) {
+      navigate(`/usuario/${fromUserId}`);
+      return;
+    }
     setViewMode("conversations");
     setSelectedConversation(null);
     // Refresh conversations list so new message appears immediately
-    getConversationsDb().then(setConversations).catch(console.error);
-  }, []);
+    getConversationsDb().then(setConversations).catch((err: any) => {
+      console.error("Error refreshing conversations:", err);
+      toast({ title: "Erro ao atualizar conversas", description: err?.message || "Tente novamente.", variant: "destructive" });
+    });
+  }, [searchParams, navigate]);
 
   if (loading) {
     return (
@@ -808,7 +848,10 @@ export default function Community() {
                   return (
                     <div className="grid grid-cols-3 gap-3">
                       {/* Leader Card */}
-                      <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center flex flex-col items-center">
+                      <button
+                        onClick={() => setIsClassificationsOpen(true)}
+                        className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center flex flex-col items-center hover:bg-muted/50 active:scale-95 transition-all"
+                      >
                         <div className="text-lg font-bold text-brand mb-1">
                           {leaderStats?.count || 0}
                         </div>
@@ -818,23 +861,29 @@ export default function Community() {
                           </div>
                         )}
                         <div className="text-xs text-muted-foreground">Líder</div>
-                      </div>
+                      </button>
 
                       {/* User Ranking Card */}
-                      <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center">
+                      <button
+                        onClick={() => setIsClassificationsOpen(true)}
+                        className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center hover:bg-muted/50 active:scale-95 transition-all"
+                      >
                         <div className="text-lg font-bold text-brand mb-2">
                           {userRanking > 0 ? `#${userRanking}` : "-"}
                         </div>
                         <div className="text-xs text-muted-foreground">Você</div>
-                      </div>
+                      </button>
 
                       {/* Days Remaining Card */}
-                      <div className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center">
+                      <button
+                        onClick={() => setIsGroupDetailsOpen(true)}
+                        className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center hover:bg-muted/50 active:scale-95 transition-all"
+                      >
                         <div className="text-lg font-bold text-brand mb-2">
                           {daysRemaining !== null ? (daysRemaining > 0 ? daysRemaining : "Fim") : "-"}
                         </div>
                         <div className="text-xs text-muted-foreground">dias</div>
-                      </div>
+                      </button>
                     </div>
                   );
                 })()}
@@ -862,7 +911,19 @@ export default function Community() {
               {/* Check-ins Tab */}
               {activeGroupViewTab === "check-ins" && (
                 <div className="space-y-4 px-3 py-4">
-                  {groupCheckIns.length > 0 ? (() => {
+                  {isLoadingCheckIns ? (
+                    <div className="space-y-3">
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="animate-pulse flex gap-3 p-3 rounded-lg bg-muted/30 border border-border/40">
+                          <div className="w-10 h-10 rounded-full bg-muted flex-shrink-0" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-3 bg-muted rounded w-1/3" />
+                            <div className="h-2 bg-muted rounded w-1/2" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : groupCheckIns.length > 0 ? (() => {
                     // Sort newest first then group by day
                     const sorted = [...groupCheckIns].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
                     const grouped: { label: string; items: typeof sorted }[] = [];
@@ -886,25 +947,43 @@ export default function Community() {
                           {group.items.map((checkIn) => (
                             <button
                               key={checkIn.id}
-                              onClick={() => {
+                              onClick={async () => {
                                 setSelectedCheckInForDetail(checkIn);
                                 setIsCheckInDetailOpen(true);
+                                const detail = await getGroupCheckInDetailDb(checkIn.id);
+                                if (detail) setSelectedCheckInForDetail(detail);
                               }}
                               className="w-full text-left"
                             >
-                              <div className="p-3 rounded-lg bg-muted/30 border border-border/40 hover:bg-muted/50 transition-colors">
-                                <div className="flex gap-3">
-                                  {checkIn.photo && (
-                                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                                      <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
-                                    </div>
+                              <div className="flex items-center gap-3 px-1 py-2 rounded-lg hover:bg-muted/40 transition-colors">
+                                {/* Avatar */}
+                                <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
+                                  {checkIn.userPhoto ? (
+                                    <img src={checkIn.userPhoto} alt={checkIn.userName} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <span className="text-[10px] font-bold text-muted-foreground">{checkIn.userName.charAt(0).toUpperCase()}</span>
                                   )}
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-semibold truncate">{checkIn.workoutInfo}</p>
-                                    <p className="text-xs text-muted-foreground truncate">{checkIn.userName}</p>
-                                    <p className="text-xs text-muted-foreground mt-0.5">{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                                </div>
+                                {/* Content — description first, user name secondary */}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate text-foreground/90">
+                                    {checkIn.description || checkIn.workoutInfo}
+                                  </p>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs text-muted-foreground truncate">{checkIn.userName}</span>
+                                    {checkIn.muscleGroup && (
+                                      <span className="text-[10px] bg-brand/10 text-brand px-1 py-0.5 rounded-full shrink-0 leading-none">{checkIn.muscleGroup}</span>
+                                    )}
                                   </div>
                                 </div>
+                                {/* Right side: thumbnail or time */}
+                                {checkIn.photo ? (
+                                  <div className="w-16 h-14 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                                    <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] text-muted-foreground shrink-0">{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                )}
                               </div>
                             </button>
                           ))}
@@ -914,6 +993,7 @@ export default function Community() {
                   })() : (
                     <p className="text-sm text-muted-foreground text-center py-4">Nenhum check-in ainda</p>
                   )}
+
                 </div>
               )}
 
@@ -950,28 +1030,19 @@ export default function Community() {
           {/* Centered Add Check-in Button at Bottom */}
           <div className="fixed bottom-20 right-4 z-[53]">
             <button
-              onClick={async () => {
+              onClick={() => {
                 if (!user?.id) return;
-                try {
-                  const [routines, workouts] = await Promise.all([
-                    getUserExerciseRoutinesDb(user.id),
-                    getUserWorkoutsDb(user.id),
-                  ]);
-                  setExerciseRoutines(routines || []);
-                  setCheckInUserWorkouts(workouts || []);
-                  setCheckInExpandedRoutine(null);
-                } catch (err: any) {
-                  console.error("Error loading exercise routines:", err);
-                  setExerciseRoutines([]);
-                  toast({
-                    title: "Aviso",
-                    description: "Não foi possível carregar as rotinas. Tente novamente.",
-                    variant: "destructive",
-                  });
-                }
+                // Open modal immediately — load routines in background
+                setSelectedRoutineKey(null);
                 setCheckInForm({ photo: "", description: "", workoutId: "" });
                 setCheckInPhotoFile(null);
+                setCompletedRoutines([]);
                 setIsAddCheckInModalOpen(true);
+                setIsLoadingRoutines(true);
+                getCompletedRoutinesTodayDb(user.id)
+                  .then(setCompletedRoutines)
+                  .catch((err: any) => { console.error("Error loading completed routines:", err); })
+                  .finally(() => setIsLoadingRoutines(false));
               }}
               className="h-14 w-14 rounded-full bg-brand text-white flex items-center justify-center hover:bg-brand/90 transition-colors shadow-lg"
               title="Adicionar check-in"
@@ -1022,20 +1093,7 @@ export default function Community() {
                         <Button
                           size="sm"
                           className="w-full rounded-full text-xs h-8"
-                          onClick={async () => {
-                            setSelectedGroupForView(group);
-                            setActiveGroupViewTab("check-ins");
-                            try {
-                              const [checkIns, participants] = await Promise.all([
-                                getGroupCheckInsDb(group.id),
-                                getGroupParticipantsDb(group.id),
-                              ]);
-                              setGroupCheckIns(checkIns);
-                              setGroupParticipants(participants);
-                            } catch (err: any) {
-                              console.error("Error loading group data:", err);
-                            }
-                          }}
+                          onClick={() => openGroupView(group)}
                         >
                           {t("duels_view")}
                         </Button>
@@ -1099,20 +1157,7 @@ export default function Community() {
                               size="sm"
                               variant="outline"
                               className="w-full rounded-full text-xs h-8"
-                              onClick={async () => {
-                                setSelectedGroupForView(group);
-                                setActiveGroupViewTab("check-ins");
-                                try {
-                                  const [checkIns, participants] = await Promise.all([
-                                    getGroupCheckInsDb(group.id),
-                                    getGroupParticipantsDb(group.id),
-                                  ]);
-                                  setGroupCheckIns(checkIns);
-                                  setGroupParticipants(participants);
-                                } catch (err: any) {
-                                  console.error("Error loading group data:", err);
-                                }
-                              }}
+                              onClick={() => openGroupView(group)}
                             >
                               {t("duels_view")}
                             </Button>
@@ -1167,7 +1212,7 @@ export default function Community() {
           <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 z-[51] px-4">
             <Button
               onClick={() => {
-                setGroupStep("config");
+                setGroupStep(1);
                 setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "" });
                 setSelectedInvitees(new Set());
                 setIsCreateGroupModalOpen(true);
@@ -1292,7 +1337,7 @@ export default function Community() {
                   <div className="flex gap-2 mt-3">
                     <Button
                       size="sm"
-                      className="flex-1 rounded-full text-xs h-8"
+                      className="flex-1 rounded-full text-xs h-11"
                       onClick={async () => {
                         try {
                           await acceptGroupInviteDb(invite.groupId);
@@ -1300,18 +1345,11 @@ export default function Community() {
                           setPendingInvites(updated);
                           toast({ title: "Convite aceito!", description: `Você entrou em "${invite.groupName}".` });
 
-                          // Navigate directly to the group detail view
-                          const [group, checkIns, participants] = await Promise.all([
-                            getDuelGroupDb(invite.groupId),
-                            getGroupCheckInsDb(invite.groupId),
-                            getGroupParticipantsDb(invite.groupId),
-                          ]);
+                          // Navigate directly to the group detail view (open instantly)
+                          const group = await getDuelGroupDb(invite.groupId);
                           if (group) {
-                            setSelectedGroupForView(group);
-                            setGroupCheckIns(checkIns);
-                            setGroupParticipants(participants);
-                            setActiveGroupViewTab("check-ins");
                             setActiveTab("duels");
+                            openGroupView(group);
                           }
                         } catch (err: any) {
                           toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
@@ -1323,7 +1361,7 @@ export default function Community() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="flex-1 rounded-full text-xs h-8"
+                      className="flex-1 rounded-full text-xs h-11"
                       onClick={async () => {
                         try {
                           await declineGroupInviteDb(invite.groupId);
@@ -1362,34 +1400,119 @@ export default function Community() {
             });
             setGroupPhotoFile(null);
             setSelectedInvitees(new Set());
-            setGroupStep("config");
+            setGroupStep(1);
             setParticipantsSearch("");
           }
         }}
       >
         <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
+            {/* Progress indicator */}
+            <div className="flex items-center gap-2 mb-2">
+              {[1, 2, 3, 4].map((s) => (
+                <div
+                  key={s}
+                  className={`h-1.5 flex-1 rounded-full transition-colors ${
+                    s <= groupStep ? "bg-brand" : "bg-muted"
+                  }`}
+                />
+              ))}
+            </div>
             <DrawerTitle>
-              {groupStep === "config" ? "Criar Novo Grupo" : "Convidar Participantes"}
+              {groupStep === 1 && "Passo 1 — Identidade do grupo"}
+              {groupStep === 2 && "Passo 2 — Localização"}
+              {groupStep === 3 && "Passo 3 — Duração"}
+              {groupStep === 4 && "Passo 4 — Convidar participantes"}
             </DrawerTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {groupStep === 1 && "Nome, meta e capa do grupo"}
+              {groupStep === 2 && "Estado onde o desafio acontece"}
+              {groupStep === 3 && "Por quanto tempo o desafio vai durar"}
+              {groupStep === 4 && "Selecione quem vai participar"}
+            </p>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
-            {groupStep === "config" ? (
+            {/* Step 1 — Nome, Meta e Foto */}
+            {groupStep === 1 && (
               <div className="space-y-4">
+                {/* Group Photo */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Capa do Grupo</label>
+                  <div className="relative w-full h-36 rounded-xl overflow-hidden bg-muted border border-border/60 flex items-center justify-center">
+                    {groupConfig.photo ? (
+                      <>
+                        <img src={groupConfig.photo} alt="capa" className="w-full h-full object-cover" />
+                        <button
+                          onClick={() => { setGroupConfig({ ...groupConfig, photo: "" }); setGroupPhotoFile(null); }}
+                          className="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <label className="cursor-pointer flex flex-col items-center gap-2 text-muted-foreground">
+                        <span className="text-3xl">📷</span>
+                        <span className="text-xs">Adicionar capa</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              setGroupPhotoFile(file);
+                              const reader = new FileReader();
+                              reader.onloadend = () => setGroupConfig({ ...groupConfig, photo: reader.result as string });
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+
                 {/* Group Name */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Nome do Grupo *</label>
                   <Input
                     value={groupConfig.name}
-                    onChange={(e) =>
-                      setGroupConfig({ ...groupConfig, name: e.target.value })
-                    }
+                    onChange={(e) => setGroupConfig({ ...groupConfig, name: e.target.value })}
                     placeholder="Ex: Supino Masters, Cardio Challenge..."
                   />
                 </div>
 
-                {/* Location - Brazilian States */}
+                {/* Goal */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Meta do Grupo *</label>
+                  <Textarea
+                    value={groupConfig.goal}
+                    onChange={(e) => setGroupConfig({ ...groupConfig, goal: e.target.value })}
+                    placeholder="Ex: Maior volume total de supino em 30 dias..."
+                    className="min-h-20"
+                  />
+                </div>
+
+                <Button
+                  onClick={() => {
+                    if (groupConfig.name && groupConfig.goal) {
+                      setGroupStep(2);
+                    } else {
+                      toast({ title: "Campos obrigatórios", description: "Preencha nome e meta para continuar", variant: "destructive" });
+                    }
+                  }}
+                  className="w-full rounded-full mt-4"
+                >
+                  Próximo
+                  <ChevronRight className="h-4 w-4 ml-2" />
+                </Button>
+              </div>
+            )}
+
+            {/* Step 2 — UF */}
+            {groupStep === 2 && (
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Estado (UF) *</label>
                   <Select value={groupConfig.location} onValueChange={(value) => setGroupConfig({ ...groupConfig, location: value })}>
@@ -1428,22 +1551,29 @@ export default function Community() {
                   </Select>
                 </div>
 
-                {/* Goal */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Meta do Grupo *</label>
-                  <Textarea
-                    value={groupConfig.goal}
-                    onChange={(e) =>
-                      setGroupConfig({ ...groupConfig, goal: e.target.value })
-                    }
-                    placeholder="Ex: Maior volume total de supino em 30 dias..."
-                    className="min-h-20"
-                  />
+                <div className="flex gap-2 mt-4">
+                  <Button onClick={() => setGroupStep(1)} variant="outline" className="flex-1 rounded-full">Voltar</Button>
+                  <Button
+                    onClick={() => {
+                      if (groupConfig.location) {
+                        setGroupStep(3);
+                      } else {
+                        toast({ title: "Campo obrigatório", description: "Selecione um estado para continuar", variant: "destructive" });
+                      }
+                    }}
+                    className="flex-1 rounded-full"
+                  >
+                    Próximo <ChevronRight className="h-4 w-4 ml-2" />
+                  </Button>
                 </div>
+              </div>
+            )}
 
-                {/* Duration */}
+            {/* Step 3 — Duração */}
+            {groupStep === 3 && (
+              <div className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Duração do Desafio</label>
+                  <label className="text-sm font-medium">Duração do Desafio *</label>
                   <Select value={groupConfig.durationDays} onValueChange={(value) => setGroupConfig({ ...groupConfig, durationDays: value })}>
                     <SelectTrigger className="rounded-lg">
                       <SelectValue placeholder="Selecione a duração" />
@@ -1457,82 +1587,48 @@ export default function Community() {
                       <SelectItem value="360">360 dias</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-
-                {/* Group Photo */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Foto do Grupo</label>
-                  <div className="flex gap-2">
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          setGroupPhotoFile(file);
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setGroupConfig({
-                              ...groupConfig,
-                              photo: reader.result as string,
-                            });
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                      className="flex-1"
-                    />
-                  </div>
-                  {groupConfig.photo && (
-                    <div className="rounded-lg overflow-hidden bg-muted h-32">
-                      <img
-                        src={groupConfig.photo}
-                        alt="group"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
+                  {groupConfig.durationDays && (
+                    <p className="text-xs text-muted-foreground">
+                      Término previsto: {(() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + parseInt(groupConfig.durationDays));
+                        return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+                      })()}
+                    </p>
                   )}
                 </div>
 
-                <Button
-                  onClick={() => {
-                    if (groupConfig.name && groupConfig.location && groupConfig.goal && groupConfig.durationDays) {
-                      setGroupStep("invite");
-                    } else {
-                      toast({
-                        title: "Campos obrigatórios",
-                        description: "Preencha todos os campos para continuar",
-                        variant: "destructive",
-                      });
-                    }
-                  }}
-                  className="w-full rounded-full mt-6"
-                >
-                  Próximo: Convidar Participantes
-                  <ChevronRight className="h-4 w-4 ml-2" />
-                </Button>
+                <div className="flex gap-2 mt-4">
+                  <Button onClick={() => setGroupStep(2)} variant="outline" className="flex-1 rounded-full">Voltar</Button>
+                  <Button
+                    onClick={() => {
+                      if (groupConfig.durationDays) {
+                        setGroupStep(4);
+                      } else {
+                        toast({ title: "Campo obrigatório", description: "Selecione a duração para continuar", variant: "destructive" });
+                      }
+                    }}
+                    className="flex-1 rounded-full"
+                  >
+                    Próximo <ChevronRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </div>
               </div>
-            ) : (
+            )}
+
+            {/* Step 4 — Convidar Participantes */}
+            {groupStep === 4 && (
               <div className="space-y-4">
-                {/* Selected Group Info */}
-                <div className="p-4 rounded-lg bg-muted/20 border border-brand/20">
-                  <div className="text-sm font-semibold text-brand mb-1">
-                    {groupConfig.name}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    📍 {groupConfig.location}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-2">
-                    {groupConfig.goal}
-                  </div>
+                {/* Summary */}
+                <div className="p-4 rounded-xl bg-muted/20 border border-brand/20 space-y-1">
+                  <p className="text-sm font-semibold text-brand">{groupConfig.name}</p>
+                  <p className="text-xs text-muted-foreground">📍 {groupConfig.location} · ⏱ {groupConfig.durationDays} dias</p>
+                  <p className="text-xs text-muted-foreground mt-1">{groupConfig.goal}</p>
                 </div>
 
-                {/* Invite Followers */}
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-medium">
-                      Convidar Participantes ({selectedInvitees.size})
-                    </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium">Convidar Participantes ({selectedInvitees.size})</label>
                     {followers.length > 0 && (
                       <Button
                         onClick={() => {
@@ -1554,7 +1650,6 @@ export default function Community() {
                     )}
                   </div>
 
-                  {/* Search Field */}
                   {followers.length > 0 && (
                     <Input
                       placeholder="Pesquisar seguidor..."
@@ -1564,62 +1659,38 @@ export default function Community() {
                     />
                   )}
 
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
                     {followers.length > 0 ? (
                       followers
-                        .filter((f) =>
-                          f.nickname.toLowerCase().includes(participantsSearch.toLowerCase())
-                        )
+                        .filter((f) => f.nickname.toLowerCase().includes(participantsSearch.toLowerCase()))
                         .map((follower) => (
-                        <button
-                          key={follower.id}
-                          onClick={() => {
-                            const newSelected = new Set(selectedInvitees);
-                            if (newSelected.has(follower.id)) {
-                              newSelected.delete(follower.id);
-                            } else {
-                              newSelected.add(follower.id);
-                            }
-                            setSelectedInvitees(newSelected);
-                          }}
-                          className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2 ${
-                            selectedInvitees.has(follower.id)
-                              ? "border-brand bg-brand/10"
-                              : "border-border hover:border-brand/50"
-                          }`}
-                        >
-                          <div
-                            className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                              selectedInvitees.has(follower.id)
-                                ? "bg-brand border-brand"
-                                : "border-muted-foreground"
+                          <button
+                            key={follower.id}
+                            onClick={() => {
+                              const newSelected = new Set(selectedInvitees);
+                              if (newSelected.has(follower.id)) {
+                                newSelected.delete(follower.id);
+                              } else {
+                                newSelected.add(follower.id);
+                              }
+                              setSelectedInvitees(newSelected);
+                            }}
+                            className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2 ${
+                              selectedInvitees.has(follower.id) ? "border-brand bg-brand/10" : "border-border hover:border-brand/50"
                             }`}
                           >
-                            {selectedInvitees.has(follower.id) && (
-                              <Check className="h-3 w-3 text-white" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate">
-                              {follower.nickname}
+                            <div className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${selectedInvitees.has(follower.id) ? "bg-brand border-brand" : "border-muted-foreground"}`}>
+                              {selectedInvitees.has(follower.id) && <Check className="h-3 w-3 text-white" />}
                             </div>
-                          </div>
-                        </button>
-                      ))
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium truncate">{follower.nickname}</div>
+                            </div>
+                          </button>
+                        ))
                     ) : (
                       <div className="flex flex-col items-center gap-3 py-4">
-                        <p className="text-sm text-muted-foreground text-center">
-                          Você não segue ninguém ainda
-                        </p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-full gap-2"
-                          onClick={() => {
-                            setIsCreateGroupModalOpen(false);
-                            navigate("/buscar");
-                          }}
-                        >
+                        <p className="text-sm text-muted-foreground text-center">Você não segue ninguém ainda</p>
+                        <Button variant="outline" size="sm" className="rounded-full gap-2" onClick={() => { setIsCreateGroupModalOpen(false); navigate("/buscar"); }}>
                           <Search className="h-4 w-4" />
                           Buscar Usuários
                         </Button>
@@ -1629,23 +1700,16 @@ export default function Community() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button
-                    onClick={() => setGroupStep("config")}
-                    variant="outline"
-                    className="flex-1 rounded-full"
-                  >
-                    Voltar
-                  </Button>
+                  <Button onClick={() => setGroupStep(3)} variant="outline" className="flex-1 rounded-full">Voltar</Button>
                   <Button
                     onClick={async () => {
-                      if (!user) return;
+                      if (!user || isCreatingGroup) return;
+                      setIsCreatingGroup(true);
                       try {
-                        // Calculate end date based on duration
                         let endDate: string | undefined;
                         if (groupConfig.durationDays) {
                           const now = new Date();
-                          const days = parseInt(groupConfig.durationDays);
-                          now.setDate(now.getDate() + days);
+                          now.setDate(now.getDate() + parseInt(groupConfig.durationDays));
                           endDate = now.toISOString();
                         }
 
@@ -1658,64 +1722,57 @@ export default function Community() {
                           endDate
                         );
 
+                        // Upload group photo if provided — after group ID is known
+                        let photoUrl: string | null = null;
+                        if (groupPhotoFile) {
+                          try {
+                            photoUrl = await updateGroupPhotoDb(savedGroup.id, groupPhotoFile);
+                          } catch (photoErr) {
+                            console.error("Error uploading group photo:", photoErr);
+                          }
+                        }
+
                         const newGroup = {
                           ...savedGroup,
                           icon: "⚔️",
-                          photo: groupConfig.photo || null,
+                          photo: photoUrl || null,
                           description: groupConfig.goal,
                           participants: selectedInvitees.size + 1,
                           city: groupConfig.location,
                           isOfficial: false,
                         };
 
-                        // Refresh created groups from DB
-                        getUserCreatedDuelGroupsDb(user.id).then((groups) => {
-                          setUserCreatedGroups(groups.map((g: any) => ({
-                            ...g,
-                            icon: "⚔️",
-                            description: g.goal,
-                            participants: 1,
-                            city: g.location,
-                            isOfficial: false,
-                          })));
-                        }).catch(console.error);
-                        setIsCreateGroupModalOpen(false);
                         // Reset form
-                        setGroupConfig({
-                          name: "",
-                          location: "",
-                          goal: "",
-                          durationDays: "",
-                          photo: "",
-                        });
+                        setIsCreateGroupModalOpen(false);
+                        setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "" });
                         setGroupPhotoFile(null);
                         setSelectedInvitees(new Set());
-                        setGroupStep("config");
+                        setGroupStep(1);
 
-                        // Navigate directly to the new group detail view
+                        // Refresh groups list
+                        getEnrichedDuelGroupsDb(user.id).then(({ myGroups }) => {
+                          setUserCreatedGroups(myGroups.map((g: any) => ({
+                            ...g, icon: "⚔️", description: g.goal, city: g.location, isOfficial: false,
+                          })));
+                        }).catch(console.error);
+
+                        // Navigate to new group
                         setSelectedGroupForView(newGroup);
                         setActiveGroupViewTab("check-ins");
                         setGroupCheckIns([]);
                         setGroupParticipants([]);
 
-                        toast({
-                          title: "Grupo criado!",
-                          description: `"${newGroup.name}" foi criado com sucesso.`,
-                        });
+                        toast({ title: "Grupo criado!", description: `"${newGroup.name}" foi criado com sucesso.` });
                       } catch (err: any) {
-                        const errorMessage = err?.message || (typeof err === 'string' ? err : JSON.stringify(err)) || "Tente novamente";
-                        console.error("Full error details:", err);
-                        toast({
-                          title: "Erro ao criar grupo",
-                          description: errorMessage,
-                          variant: "destructive",
-                        });
+                        toast({ title: "Erro ao criar grupo", description: err?.message || "Tente novamente", variant: "destructive" });
+                      } finally {
+                        setIsCreatingGroup(false);
                       }
                     }}
                     className="flex-1 rounded-full"
-                    disabled={selectedInvitees.size === 0}
+                    disabled={isCreatingGroup}
                   >
-                    {t("duels_create")}
+                    {isCreatingGroup ? "Criando..." : t("duels_create")}
                   </Button>
                 </div>
               </div>
@@ -1729,7 +1786,7 @@ export default function Community() {
         open={isAddCheckInModalOpen}
         onOpenChange={setIsAddCheckInModalOpen}
       >
-        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Adicionar Check-in</DrawerTitle>
           </DrawerHeader>
@@ -1796,53 +1853,83 @@ export default function Community() {
                 />
               </div>
 
-              {/* Exercise Routine Selector — expandable cards */}
+              {/* Completed Routine Selector */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">O que você treinou? *</label>
-                {exerciseRoutines.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-3">Nenhuma rotina de exercícios registrada</p>
-                ) : (
-                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                    {exerciseRoutines.map((routine) => {
-                      const isSelected = checkInForm.workoutId === routine.id;
-                      const isExpanded = checkInExpandedRoutine === routine.id;
-                      // exercises belonging to this routine name
-                      const exercises = routine.id === "__unnamed__"
-                        ? checkInUserWorkouts.filter((w) => !w.name)
-                        : checkInUserWorkouts.filter((w) => w.name === routine.exerciseName);
-                      return (
-                        <div
-                          key={routine.id}
-                          className={`rounded-xl border overflow-hidden transition-colors ${isSelected ? "border-brand bg-brand/5" : "border-border/60"}`}
-                        >
-                          <div className="flex items-center gap-3 px-3 py-2.5">
-                            {/* Select radio */}
-                            <button
-                              onClick={() => setCheckInForm({ ...checkInForm, workoutId: routine.id })}
-                              className={`shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? "border-brand bg-brand" : "border-border"}`}
-                            >
-                              {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
-                            </button>
-                            {/* Routine name */}
-                            <span className="flex-1 text-sm font-medium">{routine.exerciseName}</span>
-                            {/* Expand toggle */}
-                            {exercises.length > 0 && (
-                              <button
-                                onClick={() => setCheckInExpandedRoutine(isExpanded ? null : routine.id)}
-                                className="p-1 text-muted-foreground"
-                              >
-                                <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
-                              </button>
-                            )}
+                {isLoadingRoutines ? (
+                  <div className="space-y-2">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="animate-pulse rounded-xl border border-border/60 bg-muted/20 p-3">
+                        <div className="flex gap-3">
+                          <div className="w-5 h-5 rounded-full bg-muted flex-shrink-0 mt-0.5" />
+                          <div className="flex-1 space-y-2">
+                            <div className="h-3 bg-muted rounded w-2/3" />
+                            <div className="h-2 bg-muted rounded w-1/3" />
                           </div>
-                          {isExpanded && exercises.length > 0 && (
-                            <div className="border-t border-border/40 bg-muted/20 px-3 py-2 space-y-1">
-                              {exercises.map((w: any) => (
-                                <p key={w.id} className="text-xs text-muted-foreground">• {w.workoutName || w.name || "Exercício"}</p>
-                              ))}
-                            </div>
-                          )}
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : completedRoutines.length === 0 ? (
+                  <div className="rounded-xl border border-border/60 bg-muted/20 p-4 text-center space-y-3">
+                    <div>
+                      <p className="text-sm font-medium">Nenhum treino concluído</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Conclua uma rotina nos últimos 7 dias para fazer check-in</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full text-xs h-8 px-4"
+                      onClick={() => {
+                        setIsAddCheckInModalOpen(false);
+                        navigate("/metas");
+                      }}
+                    >
+                      Ir para Metas e Rotinas
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {completedRoutines.map((routine, idx) => {
+                      const key = String(idx);
+                      const isSelected = selectedRoutineKey === key;
+                      const completedDate = new Date(routine.completedAt);
+                      const today = new Date();
+                      const isToday = completedDate.toDateString() === today.toDateString();
+                      const dateLabel = isToday
+                        ? "Hoje " + completedDate.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+                        : completedDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) + " " + completedDate.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => setSelectedRoutineKey(isSelected ? null : key)}
+                          className={`w-full text-left rounded-xl border overflow-hidden transition-colors ${isSelected ? "border-brand bg-brand/5" : "border-border/60 hover:border-brand/40"}`}
+                        >
+                          <div className="flex items-start gap-3 px-3 py-2.5">
+                            <div className={`shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? "border-brand bg-brand" : "border-border"}`}>
+                              {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{routine.routineName}</p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                {routine.primaryMuscleGroup && (
+                                  <span className="text-xs bg-brand/10 text-brand px-1.5 py-0.5 rounded-full">{routine.primaryMuscleGroup}</span>
+                                )}
+                                <span className="text-xs text-muted-foreground">{routine.exercises.length} exerc. · {dateLabel}</span>
+                              </div>
+                              {/* Exercise list preview */}
+                              <div className="mt-1.5 space-y-0.5">
+                                {routine.exercises.slice(0, 3).map((ex, i) => (
+                                  <p key={i} className="text-xs text-muted-foreground truncate">• {ex.workoutName}{ex.kilos ? ` — ${ex.kilos}kg` : ""}</p>
+                                ))}
+                                {routine.exercises.length > 3 && (
+                                  <p className="text-xs text-muted-foreground">+{routine.exercises.length - 3} mais</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -1852,11 +1939,14 @@ export default function Community() {
               <Button
                 onClick={async () => {
                   if (!user || !selectedGroupForView || isSubmittingCheckIn) return;
+                  if (!selectedRoutineKey) {
+                    toast({ title: "Selecione um treino", description: "Escolha o treino que você realizou", variant: "destructive" });
+                    return;
+                  }
                   setIsSubmittingCheckIn(true);
                   try {
-                    // Find the selected exercise routine
-                    const selectedRoutine = exerciseRoutines.find((r) => r.id === checkInForm.workoutId);
-                    const exerciseName = selectedRoutine?.exerciseName || "Exercício desconhecido";
+                    const selectedRoutine = completedRoutines[parseInt(selectedRoutineKey)];
+                    const exerciseName = selectedRoutine?.routineName || "Treino";
 
                     const checkIn = await addGroupCheckInDb(
                       selectedGroupForView.id,
@@ -1865,19 +1955,18 @@ export default function Community() {
                       checkInForm.photo,
                       checkInForm.description,
                       exerciseName,
-                      0,
-                      0
+                      selectedRoutine?.totalSeries || 0,
+                      selectedRoutine?.totalVolume || 0,
+                      selectedRoutine?.primaryMuscleGroup || null,
+                      selectedRoutine?.exercises || [],
+                      userPhoto,
                     );
 
-                    setGroupCheckIns([...groupCheckIns, checkIn]);
+                    setGroupCheckIns((prev) => [checkIn, ...prev]);
                     setIsAddCheckInModalOpen(false);
-                    setCheckInForm({
-                      photo: "",
-                      description: "",
-                      workoutId: "",
-                    });
+                    setCheckInForm({ photo: "", description: "", workoutId: "" });
                     setCheckInPhotoFile(null);
-                    setParticipantsSearch("");
+                    setSelectedRoutineKey(null);
 
                     toast({
                       title: "Check-in adicionado!",
@@ -1894,7 +1983,7 @@ export default function Community() {
                   }
                 }}
                 className="w-full rounded-full"
-                disabled={!checkInForm.workoutId || !user || isSubmittingCheckIn}
+                disabled={!selectedRoutineKey || !user || isSubmittingCheckIn}
               >
                 Adicionar Check-in
               </Button>
@@ -1905,7 +1994,7 @@ export default function Community() {
 
       {/* Check-in Detail Modal */}
       <Drawer open={isCheckInDetailOpen} onOpenChange={setIsCheckInDetailOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0 flex items-center justify-between">
             <DrawerTitle>Detalhes do Check-in</DrawerTitle>
             {selectedCheckInForDetail && selectedCheckInForDetail.userId === user?.id && (
@@ -1950,69 +2039,64 @@ export default function Community() {
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
             {selectedCheckInForDetail && (
-              <div className="space-y-4">
-                {/* User Info */}
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/20">
-                  <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-sm flex-shrink-0">
-                    👤
+              <div className="space-y-3">
+                {/* User + meta inline */}
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-full overflow-hidden bg-muted flex items-center justify-center flex-shrink-0">
+                    {selectedCheckInForDetail.userPhoto ? (
+                      <img src={selectedCheckInForDetail.userPhoto} alt={selectedCheckInForDetail.userName} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-[10px] font-bold text-muted-foreground">{selectedCheckInForDetail.userName.charAt(0).toUpperCase()}</span>
+                    )}
                   </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{selectedCheckInForDetail.userName}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-semibold truncate">{selectedCheckInForDetail.userName}</span>
+                      {selectedCheckInForDetail.muscleGroup && (
+                        <span className="text-[10px] bg-brand/10 text-brand px-1 py-0.5 rounded-full shrink-0 leading-none">{selectedCheckInForDetail.muscleGroup}</span>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(selectedCheckInForDetail.createdAt).toLocaleDateString("pt-BR", {
-                        weekday: "long",
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                      })}
+                      {new Date(selectedCheckInForDetail.createdAt).toLocaleDateString("pt-BR", { day: "numeric", month: "short" })} · {new Date(selectedCheckInForDetail.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                     </p>
                   </div>
                 </div>
 
-                {/* Photo */}
+                {/* Photo — proportional, no fixed height */}
                 {selectedCheckInForDetail.photo && (
-                  <div className="rounded-lg overflow-hidden bg-muted h-64">
-                    <img
-                      src={selectedCheckInForDetail.photo}
-                      alt="check-in"
-                      className="w-full h-full object-cover"
-                    />
+                  <div className="rounded-xl overflow-hidden bg-muted">
+                    <img src={selectedCheckInForDetail.photo} alt="check-in" className="w-full object-cover max-h-56" />
                   </div>
                 )}
-
-                {/* Workout Info */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Exercício</label>
-                  <div className="p-3 rounded-lg bg-card border border-brand/20">
-                    <p className="text-sm font-medium text-brand">{selectedCheckInForDetail.workoutInfo}</p>
-                  </div>
-                </div>
 
                 {/* Description */}
                 {selectedCheckInForDetail.description && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Descrição</label>
-                    <div className="p-3 rounded-lg bg-muted/20">
-                      <p className="text-sm text-foreground">{selectedCheckInForDetail.description}</p>
-                    </div>
-                  </div>
+                  <p className="text-sm text-foreground/90">{selectedCheckInForDetail.description}</p>
                 )}
 
-                {/* Stats */}
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="text-center p-3 rounded-lg bg-muted/20">
-                    <div className="font-semibold text-brand text-lg">{selectedCheckInForDetail.series}</div>
-                    <div className="text-xs text-muted-foreground">Séries</div>
-                  </div>
-                  <div className="text-center p-3 rounded-lg bg-muted/20">
-                    <div className="font-semibold text-brand text-lg">{selectedCheckInForDetail.volume}</div>
-                    <div className="text-xs text-muted-foreground">Volume (kg)</div>
-                  </div>
-                  <div className="text-center p-3 rounded-lg bg-muted/20">
-                    <div className="font-semibold text-brand text-lg">✓</div>
-                    <div className="text-xs text-muted-foreground">Concluído</div>
-                  </div>
+                {/* Rotina + stats numa linha */}
+                <div className="flex items-center gap-3 py-1 border-t border-border/40">
+                  <span className="text-xs text-muted-foreground shrink-0">Rotina</span>
+                  <span className="text-xs font-medium text-brand truncate flex-1">{selectedCheckInForDetail.workoutInfo}</span>
+                  {selectedCheckInForDetail.exercises?.length > 0 && (
+                    <span className="text-xs text-muted-foreground shrink-0">{selectedCheckInForDetail.exercises.length} exerc.</span>
+                  )}
+                  {selectedCheckInForDetail.volume > 0 && (
+                    <span className="text-xs text-muted-foreground shrink-0">{selectedCheckInForDetail.volume}kg</span>
+                  )}
                 </div>
+
+                {/* Exercises list — compact */}
+                {selectedCheckInForDetail.exercises && selectedCheckInForDetail.exercises.length > 0 && (
+                  <div className="divide-y divide-border/30">
+                    {selectedCheckInForDetail.exercises.map((ex, i) => (
+                      <div key={i} className="flex items-center justify-between py-1.5">
+                        <span className="text-xs truncate flex-1 text-foreground/80">{ex.workoutName}</span>
+                        {ex.kilos && <span className="text-xs font-medium text-brand ml-2 shrink-0">{ex.kilos} kg</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -2021,7 +2105,7 @@ export default function Community() {
 
       {/* Group Details Modal */}
       <Drawer open={isGroupDetailsOpen} onOpenChange={setIsGroupDetailsOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Detalhes do Grupo</DrawerTitle>
           </DrawerHeader>
@@ -2050,6 +2134,30 @@ export default function Community() {
                   <label className="text-sm font-medium text-muted-foreground">Objetivo</label>
                   <div className="p-3 rounded-lg bg-muted/20">
                     <p className="text-sm">{selectedGroupForView.goal}</p>
+                  </div>
+                </div>
+
+                {/* Dates */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Início</label>
+                    <div className="p-3 rounded-lg bg-muted/20">
+                      <p className="text-sm">
+                        {selectedGroupForView.createdAt
+                          ? new Date(selectedGroupForView.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })
+                          : "—"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Encerramento</label>
+                    <div className="p-3 rounded-lg bg-muted/20">
+                      <p className="text-sm">
+                        {selectedGroupForView.endDate
+                          ? new Date(selectedGroupForView.endDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })
+                          : "Sem prazo"}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -2102,20 +2210,11 @@ export default function Community() {
                       setIsGroupDetailsOpen(false);
                       setSelectedGroupForView(null);
                       setGroupCheckIns([]);
-                      const [createdGroups, availGroups] = await Promise.all([
-                        getUserCreatedDuelGroupsDb(user!.id),
-                        getAvailableDuelGroupsDb(user!.id),
-                      ]);
-                      const toGroupCard = (g: any) => ({ ...g, icon: "⚔️", description: g.goal, participants: 1, city: g.location, isOfficial: false });
-                      setUserCreatedGroups(createdGroups.map(toGroupCard));
-                      const enriched = await Promise.all(
-                        availGroups.map(async (g: any) => {
-                          const [creatorProfile, participants] = await Promise.all([getUserProfileDb(g.createdBy), getGroupParticipantsDb(g.id)]);
-                          return { ...toGroupCard(g), creatorNickname: creatorProfile?.nickname || "Usuário", creatorPhoto: creatorProfile?.photo || null, participants: participants.length, isAlreadyMember: participants.some((p: any) => p.userId === user!.id) };
-                        })
-                      );
+                      const toGroupCard = (g: any) => ({ ...g, icon: "⚔️", description: g.goal, city: g.location, isOfficial: false });
+                      const { myGroups, availableGroups: enriched } = await getEnrichedDuelGroupsDb(user!.id);
+                      setUserCreatedGroups(myGroups.map(toGroupCard));
                       setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
-                      setAvailableGroups(enriched);
+                      setAvailableGroups(enriched.map(toGroupCard));
                     } catch (error: any) {
                       toast({ title: "Erro ao apagar grupo", description: error?.message || "Tente novamente.", variant: "destructive" });
                     }
@@ -2165,7 +2264,7 @@ export default function Community() {
 
       {/* Classifications Modal */}
       <Drawer open={isClassificationsOpen} onOpenChange={setIsClassificationsOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Classificações</DrawerTitle>
           </DrawerHeader>
@@ -2206,7 +2305,7 @@ export default function Community() {
 
       {/* Participants Modal */}
       <Drawer open={isParticipantsModalOpen} onOpenChange={setIsParticipantsModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Participantes ({groupParticipants.length})</DrawerTitle>
           </DrawerHeader>
@@ -2257,7 +2356,7 @@ export default function Community() {
 
       {/* Add Members Modal */}
       <Drawer open={isAddMembersModalOpen} onOpenChange={setIsAddMembersModalOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Adicionar Membros</DrawerTitle>
           </DrawerHeader>
@@ -2345,7 +2444,10 @@ export default function Community() {
                       setAddMembersSearch("");
                       // Refresh participants list
                       if (selectedGroupForView) {
-                        getGroupParticipantsDb(selectedGroupForView.id).then(setGroupParticipants).catch(console.error);
+                        getGroupParticipantsDb(selectedGroupForView.id).then(setGroupParticipants).catch((err: any) => {
+                          console.error("Error refreshing participants:", err);
+                          toast({ title: "Erro ao atualizar participantes", description: err?.message || "Tente novamente.", variant: "destructive" });
+                        });
                       }
                     } else if (selectedMembers.size === 0) {
                       toast({
@@ -2374,7 +2476,7 @@ export default function Community() {
 
       {/* Edit Check-in Modal */}
       <Drawer open={isEditCheckInOpen} onOpenChange={setIsEditCheckInOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Editar Check-in</DrawerTitle>
           </DrawerHeader>

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, MessageCircle, UserPlus, Zap, HeartHandshake, Flame, Trophy, Rocket, Target, Swords } from "lucide-react";
+import { Heart, MessageCircle, UserPlus, Zap, HeartHandshake, Flame, Trophy, Rocket, Target, Swords, Video } from "lucide-react";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -28,15 +28,17 @@ export default function Notifications() {
   React.useEffect(() => {
     if (!user) return;
 
+    let isMounted = true;
+
     const loadNotifications = async () => {
       try {
         await markNotificationsAsReadDb();
         const data = await getNotificationsDb();
-        setNotifications(data);
+        if (isMounted) setNotifications(data);
       } catch (err: any) {
         console.error("Error loading notifications:", err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
@@ -54,14 +56,16 @@ export default function Notifications() {
           filter: `user_id=eq.${user.id}`,
         },
         async () => {
+          if (!isMounted) return;
           // Re-fetch the full list to stay in sync with read-state
           const data = await getNotificationsDb();
-          setNotifications(data);
+          if (isMounted) setNotifications(data);
         },
       )
       .subscribe();
 
     return () => {
+      isMounted = false;
       channel?.unsubscribe();
     };
   }, [user]);
@@ -100,25 +104,35 @@ export default function Notifications() {
           bgColor: "bg-blue-500/10",
           borderColor: "border-blue-200/50",
         };
-      case 2:
+      case 2: {
         const incentiveName = notification.incentiveType
           ? getIncentiveTypeName(notification.incentiveType)
           : "Incentivo";
+        const incentiveIconData = notification.incentiveType
+          ? getIncentiveIcon(notification.incentiveType)
+          : null;
+        const IncentiveIconComponent = incentiveIconData?.Icon;
+        const context = notification.shotId ? "no seu reels" : "na sua postagem";
         return {
-          icon: <Heart className="h-5 w-5 text-red-500 fill-red-500" />,
+          icon: IncentiveIconComponent
+            ? <IncentiveIconComponent className={`h-5 w-5 ${incentiveIconData!.color}`} />
+            : <Heart className="h-5 w-5 text-red-500 fill-red-500" />,
           title: `${incentiveName} recebido`,
-          description: `${notification.userNickname} te deu ${incentiveName.toLowerCase()} na sua postagem`,
-          bgColor: "bg-red-500/10",
-          borderColor: "border-red-200/50",
+          description: `${notification.userNickname} te deu "${incentiveName}" ${context}`,
+          bgColor: IncentiveIconComponent ? "bg-yellow-500/10" : "bg-red-500/10",
+          borderColor: IncentiveIconComponent ? "border-yellow-200/50" : "border-red-200/50",
         };
-      case 3:
+      }
+      case 3: {
+        const commentContext = notification.shotId ? "no seu reels" : "na sua postagem";
         return {
           icon: <MessageCircle className="h-5 w-5 text-purple-500" />,
           title: "Novo comentário",
-          description: `${notification.userNickname} comentou na sua postagem`,
+          description: `${notification.userNickname} comentou ${commentContext}`,
           bgColor: "bg-purple-500/10",
           borderColor: "border-purple-200/50",
         };
+      }
       case 4:
         return {
           icon: <Swords className="h-5 w-5 text-orange-500" />,
@@ -202,11 +216,28 @@ export default function Notifications() {
     if (notification.type === 1) {
       navigate(`/usuario/${notification.userId}`);
     }
-    // Type 4 (duel invite) or type 5 (join request) - navigate to community
+    // Type 4 (duel invite) or type 5 (join request) - navigate to community requests tab
     else if (notification.type === 4 || notification.type === 5) {
-      navigate("/comunidade");
+      navigate("/comunidade?tab=requests");
     }
-    // Type 2 and 3 (incentive and comment) - navigate to post
+    // Shot notifications (shots_id populated)
+    else if (notification.shotId) {
+      if (notification.type === 3) {
+        // Comment on shot → open shots screen with comment drawer open for that shot
+        navigate("/shots", { state: { openComments: true, shotId: notification.shotId } });
+      } else {
+        // Incentive on shot → navigate to shots screen
+        navigate("/shots", { state: { shotId: notification.shotId } });
+      }
+    }
+    // Type 3 (comment) - navigate to post and open comments modal
+    else if (notification.type === 3 && notification.postId) {
+      navigate(`/post/${notification.postId}`, { state: { openComments: true } });
+    }
+    // Type 2 (incentive) - navigate to post and open likes/incentives modal
+    else if (notification.type === 2 && notification.postId) {
+      navigate(`/post/${notification.postId}`, { state: { openLikes: true } });
+    }
     else if (notification.postId) {
       navigate(`/post/${notification.postId}`);
     } else {
@@ -300,9 +331,6 @@ export default function Notifications() {
                       {groupNotifs.map((notification) => {
                         const content = getNotificationContent(notification);
                         const isRead = notification.read === true;
-                        const incentiveIcon = notification.type === 2 && notification.incentiveType
-                          ? getIncentiveIcon(notification.incentiveType)
-                          : null;
 
                         return (
                           <button
@@ -343,14 +371,8 @@ export default function Notifications() {
                                       <p className={`text-xs font-semibold ${isRead ? "text-foreground/50" : "text-foreground/70"}`}>
                                         {content.title}
                                       </p>
-                                      <p className={`text-sm font-medium mt-0.5 flex items-center gap-1.5 ${isRead ? "text-foreground/60" : "text-foreground"}`}>
+                                      <p className={`text-sm font-medium mt-0.5 ${isRead ? "text-foreground/60" : "text-foreground"}`}>
                                         {content.description}
-                                        {incentiveIcon && (
-                                          <>
-                                            <incentiveIcon.Icon className={`h-4 w-4 ${incentiveIcon.color}`} />
-                                            <span className="text-xs">{getIncentiveTypeName(notification.incentiveType!)}</span>
-                                          </>
-                                        )}
                                       </p>
                                     </div>
                                   </div>
@@ -360,19 +382,28 @@ export default function Notifications() {
                                 </div>
 
                                 {/* Post Thumbnail - only for incentive and comment notifications */}
-                                {notification.postPhoto && (notification.type === 2 || notification.type === 3) && (
-                                  <div className="mt-3 ml-7">
-                                    <img
-                                      src={notification.postPhoto}
-                                      alt="Post"
-                                      className={`h-16 w-16 rounded-md object-cover border ${
-                                        isRead
-                                          ? "border-border/20 opacity-50"
-                                          : "border-border/40"
-                                      }`}
-                                    />
-                                  </div>
-                                )}
+                                {notification.postPhoto && (notification.type === 2 || notification.type === 3) && (() => {
+                                  const isVideo = /\.(mp4|webm|mov|avi)(\?|$)/i.test(notification.postPhoto);
+                                  return (
+                                    <div className="mt-3 ml-7">
+                                      {isVideo ? (
+                                        <div className={`h-16 w-16 rounded-md border flex items-center justify-center bg-muted ${isRead ? "border-border/20 opacity-50" : "border-border/40"}`}>
+                                          <Video className="h-6 w-6 text-muted-foreground/60" />
+                                        </div>
+                                      ) : (
+                                        <img
+                                          src={notification.postPhoto}
+                                          alt="Post"
+                                          className={`h-16 w-16 rounded-md object-cover border ${
+                                            isRead
+                                              ? "border-border/20 opacity-50"
+                                              : "border-border/40"
+                                          }`}
+                                        />
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </button>

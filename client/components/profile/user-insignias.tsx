@@ -1,5 +1,5 @@
 import React from "react";
-import { getWeekCheckInsDb, getCheckInHistoryDb, type CheckIn } from "@/lib/ritmofit-db";
+import { getWeekCheckInsDb, getCheckInHistoryDb, getUserStatsDb, type CheckIn } from "@/lib/ritmofit-db";
 
 interface UserInsigniasProps {
   userId: string;
@@ -36,20 +36,22 @@ function calcStreak(history: CheckIn[]): number {
 export function UserInsignias({ userId, maxBadges = 3, showStreak = false }: UserInsigniasProps) {
   const [weekCheckIns, setWeekCheckIns] = React.useState<number>(0);
   const [streakCount, setStreakCount] = React.useState<number>(0);
+  const [level, setLevel] = React.useState<number>(0);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
     const loadInsignias = async () => {
       try {
-        const [days, history] = await Promise.all([
-          getWeekCheckInsDb(userId),
-          showStreak ? getCheckInHistoryDb(userId, 30) : Promise.resolve([] as CheckIn[]),
+        const [days, history, stats] = await Promise.all([
+          getWeekCheckInsDb(userId).catch(() => [] as number[]),
+          showStreak ? getCheckInHistoryDb(userId, 30).catch(() => [] as CheckIn[]) : Promise.resolve([] as CheckIn[]),
+          getUserStatsDb(userId).catch(() => ({ level: 0, points: 0, postsCount: 0, followersCount: 0, followingCount: 0 })),
         ]);
         setWeekCheckIns(days.length);
+        setLevel(stats.level ?? 0);
         if (showStreak) setStreakCount(calcStreak(history));
       } catch (err) {
         console.error("Error loading insignias:", err);
-        setWeekCheckIns(0);
       } finally {
         setLoading(false);
       }
@@ -58,16 +60,25 @@ export function UserInsignias({ userId, maxBadges = 3, showStreak = false }: Use
     loadInsignias();
   }, [userId, showStreak]);
 
-  if (loading || weekCheckIns === 0) {
-    return null;
-  }
+  if (loading) return null;
 
+  // Build badges: check-in based when available, level-based as fallback
   const badgeDisplays = [];
 
   if (weekCheckIns >= 1) badgeDisplays.push({ emoji: "⭐", title: "Iniciante", count: 1 });
   if (weekCheckIns >= 3) badgeDisplays.push({ emoji: "🔥", title: "Sequência", count: 3 });
   if (weekCheckIns >= 5) badgeDisplays.push({ emoji: "💪", title: "Campeão", count: 5 });
   if (weekCheckIns === 7) badgeDisplays.push({ emoji: "👑", title: "Lendário", count: 7 });
+
+  // Level-based badges as fallback when check-in data is unavailable (RLS)
+  if (badgeDisplays.length === 0 && level > 0) {
+    if (level >= 1) badgeDisplays.push({ emoji: "⭐", title: `Nível ${level}`, count: 1 });
+    if (level >= 5) badgeDisplays.push({ emoji: "🔥", title: `Nível ${level}`, count: 5 });
+    if (level >= 10) badgeDisplays.push({ emoji: "💪", title: `Nível ${level}`, count: 10 });
+    if (level >= 20) badgeDisplays.push({ emoji: "👑", title: `Nível ${level}`, count: 20 });
+  }
+
+  if (badgeDisplays.length === 0) return null;
 
   const displayedBadges = badgeDisplays.slice(0, maxBadges);
   const topBadge = badgeDisplays[badgeDisplays.length - 1];

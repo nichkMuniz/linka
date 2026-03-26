@@ -1,14 +1,15 @@
 import * as React from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { getUserPostsDb, type PostWithUser } from "@/lib/ritmofit-db";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { getPostByIdDb, getPostLikeUsersDb, type PostWithUser } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ImageWithFallback } from "@/components/image-with-fallback";
+import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { ArrowLeft, Edit2, Trash2, MoreVertical } from "lucide-react";
-import { PostIncentiveButton } from "@/components/post-incentive-button";
-import { PostCommentsDialog } from "@/components/post-comments-dialog";
+import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
+import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
+import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,31 +17,56 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+// Module-level flag: survives StrictMode remount cycles, resets on navigation
+let _likesAutoOpenConsumed = false;
+
 export default function PostDetail() {
   const { postId } = useParams<{ postId?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
-  
+
   const [post, setPost] = React.useState<PostWithUser | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [likesModalOpen, setLikesModalOpen] = React.useState(false);
+  const [postLikes, setPostLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; type: number }>>([]);
+
+  // Consume nav state synchronously before any render — clear history so back-navigation doesn't re-trigger
+  const navState = React.useRef((() => {
+    const state = location.state as { openComments?: boolean; openLikes?: boolean } | null;
+    if (state?.openLikes || state?.openComments) {
+      window.history.replaceState({}, "");
+    }
+    return state;
+  })()).current;
+
+  // Reset the module-level flag whenever we arrive at a new postId
+  React.useEffect(() => {
+    _likesAutoOpenConsumed = false;
+  }, [postId]);
 
   React.useEffect(() => {
     (async () => {
       try {
-        if (!postId || !user) return;
+        if (!postId) return;
 
-        // Fetch all user posts and find the one matching postId
-        const allPosts = await getUserPostsDb(user.id);
-        const foundPost = allPosts.find((p) => p.id === postId);
+        const foundPost = await getPostByIdDb(postId);
 
         if (foundPost) {
           setPost(foundPost);
+          // Open likes modal only once — module-level flag survives StrictMode remounts
+          if (navState?.openLikes && !_likesAutoOpenConsumed) {
+            _likesAutoOpenConsumed = true;
+            const likes = await getPostLikeUsersDb(postId);
+            setPostLikes(likes);
+            setLikesModalOpen(true);
+          }
         } else {
           toast({
             title: "Post não encontrado",
             variant: "destructive",
           });
-          navigate("/perfil");
+          navigate(-1);
         }
       } catch (err: any) {
         console.error("Error loading post:", err);
@@ -48,12 +74,12 @@ export default function PostDetail() {
           title: "Erro ao carregar post",
           description: err?.message || "Tente novamente.",
         });
-        navigate("/perfil");
+        navigate(-1);
       } finally {
         setLoading(false);
       }
     })();
-  }, [postId, user, navigate]);
+  }, [postId]);
 
   if (loading) {
     return (
@@ -80,7 +106,7 @@ export default function PostDetail() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate("/perfil")}
+            onClick={() => navigate(-1)}
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
@@ -150,14 +176,21 @@ export default function PostDetail() {
                   postId={post.id}
                   commentCount={0}
                   hasActivity={false}
-                  isPostOwner={true}
+                  isPostOwner={post.user_id === user?.id}
                   hasUnreadComments={false}
+                  defaultOpen={navState?.openComments === true}
                 />
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      <PostLikesModal
+        open={likesModalOpen}
+        onOpenChange={setLikesModalOpen}
+        likes={postLikes}
+      />
     </div>
   );
 }

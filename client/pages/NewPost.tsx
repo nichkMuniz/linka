@@ -76,43 +76,52 @@ export default function NewPost() {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-    const newFiles: File[] = [];
-    const newPreviews: string[] = [];
+    const validFiles: File[] = [];
 
-    files.forEach((file) => {
-      // Validate file type
+    for (const file of files) {
       if (!file.type.startsWith("image/")) {
         toast({
           title: "Tipo inválido",
           description: `${file.name} não é uma imagem válida.`,
           variant: "destructive",
         });
-        return;
+        continue;
       }
-
-      // Validate file size (max 10MB)
       if (file.size > 10 * 1024 * 1024) {
         toast({
           title: "Arquivo muito grande",
           description: `${file.name} deve ter no máximo 10MB.`,
           variant: "destructive",
         });
-        return;
+        continue;
       }
+      validFiles.push(file);
+    }
 
-      newFiles.push(file);
+    if (validFiles.length === 0) return;
 
-      // Create preview URL
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        newPreviews.push(reader.result as string);
-        if (newPreviews.length === newFiles.length) {
-          setSelectedFiles((prev) => [...prev, ...newFiles]);
-          setPreviewUrls((prev) => [...prev, ...newPreviews]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    // Read all files in parallel and preserve order via index
+    const readFile = (file: File): Promise<string> =>
+      new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error(`Falha ao ler ${file.name}`));
+        reader.readAsDataURL(file);
+      });
+
+    Promise.all(validFiles.map(readFile))
+      .then((previews) => {
+        setSelectedFiles((prev) => [...prev, ...validFiles]);
+        setPreviewUrls((prev) => [...prev, ...previews]);
+      })
+      .catch((err) => {
+        console.error("Error reading image files:", err);
+        toast({
+          title: "Erro ao carregar imagem",
+          description: err?.message || "Não foi possível ler o arquivo. Tente novamente.",
+          variant: "destructive",
+        });
+      });
   };
 
   // Handle video file selection

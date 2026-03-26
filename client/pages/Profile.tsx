@@ -67,16 +67,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ImageWithFallback } from "@/components/image-with-fallback";
-import { PostLikesModal } from "@/components/post-likes-modal";
-import { PostCommentsDialog } from "@/components/post-comments-dialog";
-import { UserInsignias } from "@/components/user-insignias";
-import { PostCarousel } from "@/components/post-carousel";
-import { FlowViewerModal } from "@/components/flow-viewer-modal";
-import { ExerciseImage } from "@/components/exercise-image";
+import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { PostLikesModal } from "@/components/modals/post-likes-modal";
+import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
+import { UserInsignias } from "@/components/profile/user-insignias";
+import { PostCarousel } from "@/components/post/post-carousel";
+import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
+import { ExerciseImage } from "@/components/shared/exercise-image";
 import { fetchExerciseCatalog, type CatalogExercise } from "@/lib/exercise-catalog";
 import { fetchMealCatalog, type CatalogMeal } from "@/lib/diet-catalog";
-import { DietImage } from "@/components/diet-image";
+import { DietImage } from "@/components/shared/diet-image";
 import {
   Dialog,
   DialogContent,
@@ -106,7 +106,7 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
-import { LoadingSpinner } from "@/components/animated-loading";
+import { LoadingSpinner } from "@/components/shared/animated-loading";
 import {
   Edit2,
   Upload,
@@ -327,6 +327,14 @@ export default function Profile() {
 
   const loadProfile = React.useCallback(async () => {
     if (!profileUserId) return;
+
+    // Reset profile-specific state so stale data from the previous user is never shown
+    setProfile(null);
+    setPosts([]);
+    setShots([]);
+    setRoutines([]);
+    setIsFollowing(false);
+    setLoading(true);
 
     try {
       // Batch 1 — critical above-the-fold data: show immediately
@@ -1445,7 +1453,7 @@ export default function Profile() {
                   <Settings className="h-4 w-4" />
                 </Button>
 
-                <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+                <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
                   <DrawerHeader className="shrink-0">
                     <DrawerTitle>Configurações</DrawerTitle>
                   </DrawerHeader>
@@ -1464,7 +1472,7 @@ export default function Profile() {
                         <Edit2 className="h-4 w-4" />
                       </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0 flex items-center gap-2">
                           <button onClick={() => setIsEditDialogOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
                             <ArrowLeft className="h-5 w-5" />
@@ -1642,7 +1650,7 @@ export default function Profile() {
                           <span className="text-lg">🏪</span>
                         </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
                           <div className="flex items-center gap-2">
                             <button onClick={() => setIsCommercialProfileOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
@@ -1786,7 +1794,7 @@ export default function Profile() {
                         <Globe className="h-4 w-4" />
                       </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
                           <div className="flex items-center gap-2">
                             <button onClick={() => setIsLanguageOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
@@ -1839,7 +1847,7 @@ export default function Profile() {
                         <Bell className="h-4 w-4" />
                       </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
                           <div className="flex items-center gap-2">
                             <button onClick={() => setIsNotificationsOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
@@ -1966,7 +1974,7 @@ export default function Profile() {
                         <BarChart3 className="h-4 w-4" />
                       </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
                           <div className="flex items-center gap-2">
                             <button onClick={() => setIsTimeManagementOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
@@ -2055,7 +2063,7 @@ export default function Profile() {
                         <span>🎨</span>
                       </Button>
 
-                      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
                           <div className="flex items-center gap-2">
                             <button onClick={() => setIsPersonalizationOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
@@ -2358,7 +2366,7 @@ export default function Profile() {
               }
             }}
           >
-            <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+            <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
               <DrawerHeader className="shrink-0">
                 <DrawerTitle>Nova Rotina</DrawerTitle>
               </DrawerHeader>
@@ -2926,7 +2934,7 @@ export default function Profile() {
                           <Tag className="h-5 w-5" />
                         </button>
 
-                        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
                           <DrawerHeader className="shrink-0">
                             <DrawerTitle>
                               {linkedGoal ? "Meta Vinculada" : "Vincular Meta"}
@@ -3169,7 +3177,7 @@ export default function Profile() {
 
       {/* Post Viewer Drawer */}
       <Drawer open={isPostViewerOpen} onOpenChange={setIsPostViewerOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               {isEditingPost ? "Editar Post" : "Visualizar Post"}
@@ -3190,6 +3198,22 @@ export default function Profile() {
                   />
                 </div>
               )}
+
+              {/* Post author with insignias */}
+              <div className="flex items-center gap-2">
+                {selectedPost.userPhoto ? (
+                  <ImageWithFallback
+                    src={selectedPost.userPhoto}
+                    alt={selectedPost.userNickname}
+                    fallback="/placeholder.svg"
+                    className="h-8 w-8 rounded-full object-cover border border-border/60"
+                  />
+                ) : (
+                  <div className="h-8 w-8 rounded-full bg-muted" />
+                )}
+                <span className="text-sm font-medium">{selectedPost.userNickname}</span>
+                <UserInsignias userId={selectedPost.user_id} maxBadges={3} />
+              </div>
 
               {/* Description */}
               {isEditingPost ? (
@@ -3340,7 +3364,7 @@ export default function Profile() {
 
       {/* Followers Drawer */}
       <Drawer open={showFollowersModal} onOpenChange={setShowFollowersModal}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Seguidores</DrawerTitle>
           </DrawerHeader>
@@ -3408,7 +3432,7 @@ export default function Profile() {
 
       {/* Following Drawer */}
       <Drawer open={showFollowingModal} onOpenChange={setShowFollowingModal}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Seguindo</DrawerTitle>
           </DrawerHeader>
@@ -3472,7 +3496,7 @@ export default function Profile() {
 
       {/* Shot Editor Drawer */}
       <Drawer open={isShotEditorOpen} onOpenChange={setIsShotEditorOpen}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               {isEditingShot ? "Editar Shot" : "Opções do Shot"}
@@ -3594,7 +3618,7 @@ export default function Profile() {
       {/* Workout History Modal */}
       {selectedWorkoutForHistory && (
         <Drawer open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
-          <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+          <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
             <DrawerHeader className="shrink-0">
               <DrawerTitle>
                 Histórico de {selectedWorkoutForHistory?.name || "Exercício"}
@@ -3762,7 +3786,7 @@ export default function Profile() {
         open={confirmDialog.open}
         onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
       >
-        <DrawerContent className="modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader>
             <DrawerTitle>{confirmDialog.title}</DrawerTitle>
             <p className="text-sm text-muted-foreground mt-1">{confirmDialog.description}</p>
@@ -3790,7 +3814,7 @@ export default function Profile() {
 
       {/* Commercial Dashboard Drawer */}
       <Drawer open={isCommercialDashboardOpen} onOpenChange={setIsCommercialDashboardOpen}>
-        <DrawerContent className="max-h-[92dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>🏪 {commercialProfile?.business_name || "Perfil Comercial"}</DrawerTitle>
           </DrawerHeader>

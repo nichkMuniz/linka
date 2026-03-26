@@ -13,13 +13,13 @@ import {
   useLocation,
 } from "react-router-dom";
 
-import { AppLayout } from "@/components/app-layout";
-import { ThemeProvider } from "@/components/theme-provider";
+import { AppLayout } from "@/components/layout/app-layout";
+import { ThemeProvider } from "@/components/layout/theme-provider";
 import { LanguageProvider } from "@/lib/language-context";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { FloatingActionMenu } from "@/components/floating-action-menu";
+import { FloatingActionMenu } from "@/components/layout/floating-action-menu";
 
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
@@ -34,7 +34,7 @@ const Search       = React.lazy(() => import("@/pages/Search"));
 const Community    = React.lazy(() => import("@/pages/Community"));
 const Notifications = React.lazy(() => import("@/pages/Notifications"));
 const Store        = React.lazy(() => import("@/pages/Store"));
-const ShotsLayout  = React.lazy(() => import("@/components/shots-layout").then((m) => ({ default: m.ShotsLayout })));
+const ShotsLayout  = React.lazy(() => import("@/components/layout/shots-layout").then((m) => ({ default: m.ShotsLayout })));
 
 // Kept eager — tiny files needed on first paint or error boundaries
 import Login from "@/pages/Login";

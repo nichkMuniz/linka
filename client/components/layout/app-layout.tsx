@@ -13,8 +13,9 @@ import * as React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import { ImageWithFallback } from "@/components/image-with-fallback";
+import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb } from "@/lib/ritmofit-db";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
@@ -124,14 +125,22 @@ export function AppLayout() {
 
     const unsubscribe = subscribeToUnreadNotificationsDb(setUnreadNotificationsCount);
 
-    const interval = setInterval(() => {
-      getUnreadMessageCountDb()
-        .then(setUnreadCount)
-        .catch((err) => console.error("Error loading unread message count:", err));
-    }, 30000);
+    // Replace polling with Realtime subscription for new messages
+    const messagesChannel = supabase
+      ?.channel("app-layout-messages")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        () => {
+          getUnreadMessageCountDb()
+            .then(setUnreadCount)
+            .catch((err) => console.error("Error loading unread message count:", err));
+        },
+      )
+      .subscribe();
 
     return () => {
-      clearInterval(interval);
+      messagesChannel?.unsubscribe();
       if (unsubscribe) unsubscribe();
     };
   }, []);

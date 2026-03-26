@@ -312,7 +312,7 @@ flow_likes:
   - story_id (uuid) → references flow [CANÔNICO — não usar storys_id]
   - created_at (timestamptz)
 
-user_view_flow:
+flow_user_viewed:
   - id (uuid)
   - user_id (uuid)
   - story_id (uuid) [CANÔNICO]

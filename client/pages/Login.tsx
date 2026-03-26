@@ -254,11 +254,15 @@ export default function Login() {
         setBusy(false);
         return;
       }
-    } catch {
+    } catch (err: any) {
+      const message = err?.message || err?.error_description || String(err);
+      const isNetworkError = !navigator.onLine || message.toLowerCase().includes("fetch") || message.toLowerCase().includes("network");
       toast({
-        title: "Falha de conexão",
-        description:
-          "Não foi possível conectar ao Supabase. Confira a URL e tente novamente.",
+        title: isNetworkError ? "Falha de conexão" : "Erro ao entrar",
+        description: isNetworkError
+          ? "Verifique sua conexão e tente novamente."
+          : message,
+        variant: "destructive",
       });
     } finally {
       setBusy(false);
@@ -380,8 +384,16 @@ export default function Login() {
       }
 
       setSignupStep(4);
-    } catch {
-      toast({ title: "Falha de conexão", description: "Não foi possível criar sua conta." });
+    } catch (err: any) {
+      const message = err?.message || err?.error_description || String(err);
+      const isNetworkError = !navigator.onLine || message.toLowerCase().includes("fetch") || message.toLowerCase().includes("network");
+      toast({
+        title: isNetworkError ? "Falha de conexão" : "Erro ao criar conta",
+        description: isNetworkError
+          ? "Verifique sua conexão e tente novamente."
+          : message,
+        variant: "destructive",
+      });
     } finally {
       setBusy(false);
     }

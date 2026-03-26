@@ -10,7 +10,7 @@ import {
   ShoppingBag,
   Users2,
 } from "lucide-react";
-import { ImageWithFallback } from "@/components/image-with-fallback";
+import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";

@@ -177,7 +177,7 @@ export function FlowCreationDialog({
 
   return (
     <Drawer open={open} onOpenChange={handleOpenChange}>
-      <DrawerContent className="max-h-[90dvh] flex flex-col">
+      <DrawerContent className="max-h-[80dvh] flex flex-col">
         <DrawerHeader className="text-center">
           <DrawerTitle>Criar novo flow</DrawerTitle>
           <DrawerDescription>

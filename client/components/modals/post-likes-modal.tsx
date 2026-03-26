@@ -5,7 +5,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { ImageWithFallback } from "@/components/image-with-fallback";
+import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { useNavigate } from "react-router-dom";
 import { Heart } from "lucide-react";
 
@@ -66,7 +66,7 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80vh]">
+      <DrawerContent className="max-h-[80dvh]">
         <DrawerHeader className="shrink-0 border-b border-border/60">
           <div className="space-y-3">
             <DrawerTitle className="flex items-center gap-2">

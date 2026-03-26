@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PostIncentiveButton } from "@/components/post-incentive-button";
+import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { toast } from "@/components/ui/use-toast";
 import {
   getShotsDb,
@@ -19,32 +19,43 @@ import {
   unfollowUserDb,
   getFollowingStatusBatchDb,
   updateShotDb,
+  deleteShotDb,
   type ShotWithUser,
   type ShotComment,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { MessageCircle, Send, Trash2, UserPlus, UserCheck, VolumeX, Volume2, MoreVertical, Edit2 } from "lucide-react";
+import { MessageCircle, Send, Trash2, UserPlus, UserCheck, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
-import { useNavigate } from "react-router-dom";
-import { LoadingSpinner } from "@/components/animated-loading";
+import { useNavigate, useLocation } from "react-router-dom";
+import { LoadingSpinner } from "@/components/shared/animated-loading";
 
 export default function Shots({ footerHeight = 0, isDesktop = false }: { footerHeight?: number; isDesktop?: boolean }) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const openCommentsFromNotifRef = React.useRef(false);
   const [shots, setShots] = React.useState<ShotWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [shotsError, setShotsError] = React.useState(false);
   const [visibleShotId, setVisibleShotId] = React.useState<string | null>(null);
-  const [togglingShotId, setTogglingShotId] = React.useState<string | null>(
-    null,
-  );
+  const [togglingIncentives, setTogglingIncentives] = React.useState<Set<string>>(new Set());
   const [commentsOpen, setCommentsOpen] = React.useState(false);
   const [selectedShot, setSelectedShot] = React.useState<ShotWithUser | null>(
     null,
@@ -67,8 +78,24 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   const [editingShot, setEditingShot] = React.useState<ShotWithUser | null>(null);
   const [editShotDescription, setEditShotDescription] = React.useState("");
   const [isSavingEditShot, setIsSavingEditShot] = React.useState(false);
+  const [deleteShotDialogOpen, setDeleteShotDialogOpen] = React.useState(false);
+  const [deletingShot, setDeletingShot] = React.useState<ShotWithUser | null>(null);
+  const [isDeletingShot, setIsDeletingShot] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const videoRefsMap = React.useRef<Record<string, HTMLVideoElement>>({});
+
+  // Open comments drawer when navigating from a notification
+  React.useEffect(() => {
+    const state = location.state as { openComments?: boolean; shotId?: string } | null;
+    if (!state?.shotId || !state?.openComments || openCommentsFromNotifRef.current) return;
+    if (shots.length === 0) return; // wait for shots to load
+
+    const targetShot = shots.find((s) => s.id === state.shotId);
+    if (targetShot) {
+      openCommentsFromNotifRef.current = true;
+      handleOpenComments(targetShot);
+    }
+  }, [shots, location.state]);
 
   // Load shots on mount
   React.useEffect(() => {
@@ -99,6 +126,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
 
   // Set up IntersectionObserver to detect visible shot and auto-play video
   React.useEffect(() => {
+    let isMounted = true;
     const observerOptions = {
       root: containerRef.current,
       rootMargin: "0px",
@@ -106,6 +134,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     };
 
     const observer = new IntersectionObserver((entries) => {
+      if (!isMounted) return;
       entries.forEach((entry) => {
         const shotId = entry.target.getAttribute("data-shot-id");
         if (!shotId) return;
@@ -133,6 +162,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     }
 
     return () => {
+      isMounted = false;
       observer.disconnect();
     };
   }, [shots]);
@@ -158,22 +188,40 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         return;
       }
 
-      setTogglingShotId(shot.id);
+      const incentiveKey = `${shot.id}-${type}`;
+      if (togglingIncentives.has(incentiveKey)) return;
+
+      setTogglingIncentives((prev) => new Set(prev).add(incentiveKey));
 
       try {
         await toggleShotIncentiveDb(shot.id, type, shot.user_id);
 
-        // Update local state
+        // Update local state (userLikes and likes counters)
         setShots((prev) =>
           prev.map((r) => {
             if (r.id !== shot.id) return r;
 
             const userLikes = r.userLikes || [];
-            const newLikes = userLikes.includes(type)
+            const isRemoving = userLikes.includes(type);
+            const newUserLikes = isRemoving
               ? userLikes.filter((t) => t !== type)
               : [...userLikes, type];
 
-            return { ...r, userLikes: newLikes };
+            const delta = isRemoving ? -1 : 1;
+            const typeKeyMap: Record<number, keyof typeof r.likes> = {
+              1: "apoio",
+              2: "continua",
+              3: "ganhador",
+              4: "consegueMais",
+              5: "limiteMaior",
+              6: "maisAlgum",
+            };
+            const key = typeKeyMap[type];
+            const newLikes = key
+              ? { ...r.likes, [key]: Math.max(0, (r.likes[key] ?? 0) + delta) }
+              : r.likes;
+
+            return { ...r, userLikes: newUserLikes, likes: newLikes };
           })
         );
       } catch (err: any) {
@@ -184,10 +232,14 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
           variant: "destructive",
         });
       } finally {
-        setTogglingShotId(null);
+        setTogglingIncentives((prev) => {
+          const next = new Set(prev);
+          next.delete(incentiveKey);
+          return next;
+        });
       }
     },
-    [user]
+    [user, togglingIncentives]
   );
 
   const handleOpenComments = React.useCallback(
@@ -265,6 +317,9 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         return;
       }
 
+      // Guard against double-click / concurrent requests for the same user
+      if (isFollowingLoading[userId]) return;
+
       setIsFollowingLoading((prev) => ({ ...prev, [userId]: true }));
 
       try {
@@ -300,8 +355,28 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         setIsFollowingLoading((prev) => ({ ...prev, [userId]: false }));
       }
     },
-    [user, followingStatus]
+    [user, followingStatus, isFollowingLoading]
   );
+
+  const handleConfirmDeleteShot = React.useCallback(async () => {
+    if (!deletingShot) return;
+    setIsDeletingShot(true);
+    try {
+      const ok = await deleteShotDb(deletingShot.id);
+      if (ok) {
+        setShots((prev) => prev.filter((r) => r.id !== deletingShot.id));
+        toast({ title: "Clip deletado com sucesso." });
+      } else {
+        toast({ title: "Erro ao deletar clip", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Erro ao deletar clip", description: err?.message, variant: "destructive" });
+    } finally {
+      setIsDeletingShot(false);
+      setDeleteShotDialogOpen(false);
+      setDeletingShot(null);
+    }
+  }, [deletingShot]);
 
   if (loading) {
     return (
@@ -414,7 +489,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                 {user?.id === shot.user_id && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button className="flex items-center justify-center h-8 w-8 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors">
+                      <button aria-label="Opções do clipe" className="flex items-center justify-center h-8 w-8 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors">
                         <MoreVertical className="h-4 w-4" />
                       </button>
                     </DropdownMenuTrigger>
@@ -426,6 +501,16 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                       }}>
                         <Edit2 className="h-4 w-4 mr-2" />
                         Editar descrição
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => {
+                          setDeletingShot(shot);
+                          setDeleteShotDialogOpen(true);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Excluir clip
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -487,19 +572,33 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
 
               {/* Incentive Buttons + Comments - Right Side */}
               <div className="absolute right-6 bottom-20 flex flex-col gap-3 z-20">
-                {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                  <PostIncentiveButton
-                    key={type}
-                    type={type}
-                    isActive={(shot.userLikes || [])?.includes(type) ?? false}
-                    onClick={() => handleIncentiveClick(shot, type)}
-                    loading={togglingShotId === shot.id}
-                  />
-                ))}
+                {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
+                  const likeKeyMap: Record<number, keyof typeof shot.likes> = {
+                    1: "apoio", 2: "continua", 3: "ganhador",
+                    4: "consegueMais", 5: "limiteMaior", 6: "maisAlgum",
+                  };
+                  const count = shot.likes?.[likeKeyMap[type]] ?? 0;
+                  return (
+                    <div key={type} className="flex flex-col items-center gap-0.5">
+                      <PostIncentiveButton
+                        type={type}
+                        isActive={(shot.userLikes || [])?.includes(type) ?? false}
+                        onClick={() => handleIncentiveClick(shot, type)}
+                        loading={togglingIncentives.has(`${shot.id}-${type}`)}
+                      />
+                      {count > 0 && (
+                        <span className="text-xs text-white/70 font-medium leading-none">
+                          {count}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
                 {/* Comments Button */}
                 <button
                   onClick={() => handleOpenComments(shot)}
-                  className="inline-flex shrink-0 items-center gap-1 transition-opacity hover:opacity-80"
+                  aria-label={`Comentários (${shot.commentCount || 0})`}
+                  className="inline-flex shrink-0 items-center gap-1 transition-opacity hover:opacity-80 min-h-[44px] min-w-[44px] justify-center"
                 >
                   <div className="flex flex-col items-center gap-1">
                     <MessageCircle className="h-7 w-7 text-white hover:scale-110 transition-transform" />
@@ -548,7 +647,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
 
       {/* Edit Shot Drawer */}
       <Drawer open={editShotOpen} onOpenChange={setEditShotOpen}>
-        <DrawerContent className="max-h-[60dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Editar descrição</DrawerTitle>
           </DrawerHeader>
@@ -589,12 +688,37 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         </DrawerContent>
       </Drawer>
 
+      {/* Delete Shot Confirmation Dialog */}
+      <AlertDialog open={deleteShotDialogOpen} onOpenChange={setDeleteShotDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Excluir clip
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este clip? Esta ação não pode ser desfeita. O vídeo, curtidas e comentários serão removidos permanentemente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingShot}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeleteShot}
+              disabled={isDeletingShot}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            >
+              {isDeletingShot ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Comments Drawer */}
       <Drawer
         open={commentsOpen && selectedShot !== null}
         onOpenChange={setCommentsOpen}
       >
-        <DrawerContent className="max-h-[70vh] flex flex-col">
+        <DrawerContent className="max-h-[80dvh] flex flex-col">
           <DrawerHeader>
             <DrawerTitle>Comentários</DrawerTitle>
           </DrawerHeader>

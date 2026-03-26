@@ -349,16 +349,18 @@ export async function getPostCommentsDb(
   );
 
   return rows.map(
-    (row: any) =>
-      ({
+    (row: any) => {
+      const nickname = profileMap.get(String(row.user_id)) ?? String(row.user_name ?? "Usuário");
+      return {
         id: String(row.id),
         postId: String(row.post_id),
         userId: String(row.user_id),
-        userName: profileMap.get(String(row.user_id)) ?? String(row.user_name ?? "Usuário"),
-        userHandle: String(row.user_handle ?? "@user"),
+        userName: nickname,
+        userHandle: nickname ? `@${nickname.toLowerCase().replace(/\s+/g, "")}` : "@usuario",
         text: String(row.text ?? ""),
         createdAt: String(row.created_at ?? new Date().toISOString()),
-      }) satisfies PostComment,
+      } satisfies PostComment;
+    },
   );
 }
 
@@ -892,6 +894,33 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   }));
 }
 
+export async function getPostByIdDb(postId: string): Promise<PostWithUser | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  assertUUID(postId, "ID do post");
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select("id, description, photo, photos, created_at, user_id, user_goal_id")
+    .eq("id", postId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  const userProfile = await getUserProfileDb(String(data.user_id));
+  return {
+    id: String(data.id),
+    description: String(data.description ?? ""),
+    photo: String(data.photo ?? ""),
+    photos: Array.isArray(data.photos) ? data.photos : null,
+    created_at: String(data.created_at ?? ""),
+    user_id: String(data.user_id),
+    user_goal_id: data.user_goal_id ?? null,
+    userNickname: userProfile?.nickname || "Usuário",
+    userPhoto: userProfile?.photo || null,
+  };
+}
+
 export type UserStats = {
   postsCount: number;
   followersCount: number;
@@ -1062,7 +1091,6 @@ export type Diet = {
   name: string;
   description: string;
   photo: string | null;
-  calories: number;
 };
 
 export async function getDietsDb(): Promise<Diet[]> {
@@ -1070,7 +1098,7 @@ export async function getDietsDb(): Promise<Diet[]> {
 
   const { data, error } = await supabase
     .from("diets")
-    .select("id, name, description, photo, calories")
+    .select("id, name, description, photo")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -1084,8 +1112,7 @@ export async function getDietsDb(): Promise<Diet[]> {
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
-    photo: row.photo ? String(row.photo) : null,
-    calories: Number(row.calories ?? 0),
+    photo: row.photo ? String(row.photo) : null
   }));
 }
 
@@ -1098,7 +1125,6 @@ export async function bulkUpsertCatalogDietsDb(
     name: m.name,
     description: m.description,
     photo: m.photo || null,
-    calories: 0,
     mealdb_id: m.mealdbId,
     category: m.category,
   }));
@@ -1136,17 +1162,16 @@ export async function createCustomDietDb(
   name: string,
   description: string,
   photo?: string | null,
-  calories?: number,
 ): Promise<Diet> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
 
-  const insertData: Record<string, any> = { name, description, calories: calories || 0 };
+  const insertData: Record<string, any> = { name, description };
   if (photo) insertData.photo = photo;
 
   const { data, error } = await supabase
     .from("diets")
     .insert(insertData)
-    .select("id, name, description, photo, calories")
+    .select("id, name, description, photo")
     .single();
 
   if (error) {
@@ -1158,8 +1183,7 @@ export async function createCustomDietDb(
     id: String(data.id),
     name: String(data.name),
     description: String(data.description ?? ""),
-    photo: data.photo ? String(data.photo) : null,
-    calories: Number(data.calories ?? 0),
+    photo: data.photo ? String(data.photo) : null
   };
 }
 
@@ -1508,11 +1532,6 @@ export type UserWorkout = {
   id: string;
   workout_id: string;
   user_id: string;
-  volume?: number | null;
-  reps?: number | null;
-  calories?: number | null;
-  duration?: number | null;
-  time_rest?: number | null;
   name?: string | null;
 };
 
@@ -1520,11 +1539,6 @@ export async function createUserWorkoutsDb(
   userId: string,
   workoutIds: string[],
   options?: {
-    volume?: number;
-    reps?: number;
-    calories?: number;
-    duration?: number;
-    time_rest?: number;
     name?: string;
   },
 ): Promise<UserWorkout[]> {
@@ -1533,11 +1547,6 @@ export async function createUserWorkoutsDb(
   const workoutsToInsert = workoutIds.map((workoutId) => ({
     workout_id: workoutId,
     user_id: userId,
-    volume: options?.volume || null,
-    reps: options?.reps || null,
-    calories: options?.calories || null,
-    duration: options?.duration || null,
-    time_rest: options?.time_rest || null,
     name: options?.name || null,
   }));
 
@@ -1545,7 +1554,7 @@ export async function createUserWorkoutsDb(
     .from("user_workouts")
     .insert(workoutsToInsert)
     .select(
-      "id, workout_id, user_id, volume, reps, calories, duration, time_rest, name",
+      "id, workout_id, user_id, name",
     );
 
   if (error) {
@@ -1559,11 +1568,6 @@ export async function createUserWorkoutsDb(
     id: String(row.id ?? ""),
     workout_id: String(row.workout_id ?? ""),
     user_id: String(row.user_id ?? ""),
-    volume: row.volume,
-    reps: row.reps,
-    calories: row.calories,
-    duration: row.duration,
-    time_rest: row.time_rest,
     name: row.name ? String(row.name) : null,
   }));
 }
@@ -1572,11 +1576,6 @@ export type UserWorkoutWithDetails = {
   id: string;
   workout_id: string;
   user_id: string;
-  volume?: number | null;
-  reps?: number | null;
-  calories?: number | null;
-  duration?: number | null;
-  time_rest?: number | null;
   name?: string | null;
   workoutName?: string;
   workoutPhoto?: string | null;
@@ -1593,7 +1592,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, volume, reps, calories, duration, time_rest, name, created_at, workouts(name, photo, description, muscle_group)",
+      "id, workout_id, user_id, name, created_at, workouts(name, photo, description, muscle_group)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -1616,7 +1615,7 @@ export async function getUserWorkoutsDb(
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_workouts")
         .select(
-          "id, workout_id, user_id, volume, reps, calories, duration, time_rest, name, created_at",
+          "id, workout_id, user_id, name, created_at",
         )
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
@@ -1647,11 +1646,6 @@ export async function getUserWorkoutsDb(
             id: String(row.id ?? ""),
             workout_id: String(row.workout_id ?? ""),
             user_id: String(row.user_id ?? ""),
-            volume: row.volume,
-            reps: row.reps,
-            calories: row.calories,
-            duration: row.duration,
-            time_rest: row.time_rest,
             name: row.name ? String(row.name) : null,
             workoutName: workoutDetails?.name || "Exercício desconhecido",
             workoutPhoto: workoutDetails?.photo || null,
@@ -1678,11 +1672,6 @@ export async function getUserWorkoutsDb(
     id: String(row.id ?? ""),
     workout_id: String(row.workout_id ?? ""),
     user_id: String(row.user_id ?? ""),
-    volume: row.volume,
-    reps: row.reps,
-    calories: row.calories,
-    duration: row.duration,
-    time_rest: row.time_rest,
     name: row.name ? String(row.name) : null,
     workoutName: (row.workouts as any)?.name || "Exercício desconhecido",
     workoutPhoto: (row.workouts as any)?.photo || null,
@@ -1696,8 +1685,6 @@ export type UserDiet = {
   id: string;
   diet_id: string;
   user_id: string;
-  quantity?: number | null;
-  calories?: number | null;
   name?: string | null;
 };
 
@@ -1705,8 +1692,6 @@ export async function createUserDietsDb(
   userId: string,
   dietIds: string[],
   options?: {
-    quantity?: number;
-    calories?: number;
     name?: string;
   },
 ): Promise<UserDiet[]> {
@@ -1715,15 +1700,13 @@ export async function createUserDietsDb(
   const dietsToInsert = dietIds.map((dietId) => ({
     diet_id: dietId,
     user_id: userId,
-    quantity: options?.quantity || null,
-    calories: options?.calories || null,
     name: options?.name || null,
   }));
 
   const { data, error } = await supabase
     .from("user_diets")
     .insert(dietsToInsert)
-    .select("id, diet_id, user_id, quantity, calories, name");
+    .select("id, diet_id, user_id, name");
 
   if (error) {
     const errorMsg = error?.message || String(error);
@@ -1736,8 +1719,6 @@ export async function createUserDietsDb(
     id: String(row.id ?? ""),
     diet_id: String(row.diet_id ?? ""),
     user_id: String(row.user_id ?? ""),
-    quantity: row.quantity,
-    calories: row.calories,
     name: row.name ? String(row.name) : null,
   }));
 }
@@ -1746,13 +1727,10 @@ export type UserDietWithDetails = {
   id: string;
   diet_id: string;
   user_id: string;
-  quantity?: number | null;
-  calories?: number | null;
   name?: string | null;
   dietName?: string;
   dietPhoto?: string | null;
   dietDescription?: string;
-  dietCalories?: number;
   is_completed?: boolean | null;
   completed_at?: string | null;
 };
@@ -1765,7 +1743,7 @@ export async function getUserDietsDb(
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, diet_id, user_id, quantity, calories, name, diets(name, photo, description, calories)",
+      "id, diet_id, user_id, name, diets(name, photo, description)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -1787,7 +1765,7 @@ export async function getUserDietsDb(
 
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_diets")
-        .select("id, diet_id, user_id, quantity, calories, name")
+        .select("id, diet_id, user_id, name")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
@@ -1801,7 +1779,7 @@ export async function getUserDietsDb(
         if (dietIds.length > 0) {
           const { data: dietsData } = await supabase
             .from("diets")
-            .select("id, name, photo, description, calories")
+            .select("id, name, photo, description")
             .in("id", dietIds);
 
           if (dietsData) {
@@ -1817,13 +1795,10 @@ export async function getUserDietsDb(
             id: String(row.id ?? ""),
             diet_id: String(row.diet_id ?? ""),
             user_id: String(row.user_id ?? ""),
-            quantity: row.quantity,
-            calories: row.calories,
             name: row.name ? String(row.name) : null,
             dietName: dietDetails?.name || "Dieta desconhecida",
             dietPhoto: dietDetails?.photo || null,
             dietDescription: dietDetails?.description || undefined,
-            dietCalories: dietDetails?.calories || 0,
             is_completed: false,
             completed_at: null,
           };
@@ -1846,13 +1821,10 @@ export async function getUserDietsDb(
     id: String(row.id ?? ""),
     diet_id: String(row.diet_id ?? ""),
     user_id: String(row.user_id ?? ""),
-    quantity: row.quantity,
-    calories: row.calories,
     name: row.name ? String(row.name) : null,
     dietName: (row.diets as any)?.name || "Dieta desconhecida",
     dietPhoto: (row.diets as any)?.photo || null,
     dietDescription: (row.diets as any)?.description || undefined,
-    dietCalories: (row.diets as any)?.calories || 0,
     is_completed: false,
     completed_at: null,
   }));
@@ -2164,7 +2136,6 @@ export type SearchDiet = {
   dietName: string;
   dietDescription?: string;
   dietPhoto?: string | null;
-  dietCalories?: number;
 };
 
 export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
@@ -2176,7 +2147,7 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, user_id, diet_id, diets(id, name, description, photo, calories), profiles(nickname, photo)",
+      "id, user_id, diet_id, diets(id, name, description, photo), profiles(nickname, photo)",
     )
     .ilike("diets.name", searchQuery)
     .limit(20);
@@ -2203,7 +2174,7 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
         if (dietIds.length > 0) {
           const { data: dietsData } = await supabase
             .from("diets")
-            .select("id, name, description, photo, calories")
+            .select("id, name, description, photo")
             .in("id", dietIds);
 
           if (dietsData) {
@@ -2244,7 +2215,6 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
               dietName: String(diet?.name ?? ""),
               dietDescription: diet?.description,
               dietPhoto: diet?.photo || null,
-              dietCalories: Number(diet?.calories ?? 0),
             };
           });
       }
@@ -2263,14 +2233,13 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
     dietName: String((row.diets as any)?.name ?? ""),
     dietDescription: (row.diets as any)?.description,
     dietPhoto: (row.diets as any)?.photo || null,
-    dietCalories: Number((row.diets as any)?.calories ?? 0),
   }));
 }
 
 // Search routines by name from the routines table (type 1=workout, 2=diet)
 export type RoutineResult = {
   routineId: string;
-  routineName: string;
+  routineName: string | null;
   routineType: number;
   userId: string;
   userNickname: string;
@@ -2285,12 +2254,12 @@ export async function searchRoutinesDb(
   if (!hasSupabaseConfig || !supabase) return [];
 
   try {
-    // Query routines with a name that matches the query, grouped by name+user
+    // Query routines grouped by name+user — include named AND unnamed routines
     let dbQuery = supabase
       .from("routines")
       .select("id, user_id, type, name")
       .eq("type", routineType)
-      .not("name", "is", null);
+      .is("follower_id", null);
 
     if (query.trim()) {
       dbQuery = dbQuery.ilike("name", `%${query.trim()}%`);
@@ -2306,10 +2275,10 @@ export async function searchRoutinesDb(
 
     if (error || !data?.length) return [];
 
-    // Deduplicate by name+user_id
+    // Deduplicate by name+user_id (null name counts as one per user)
     const seen = new Set<string>();
     const unique = (data as any[]).filter((row) => {
-      const key = `${row.user_id}::${row.name}`;
+      const key = `${row.user_id}::${row.name ?? "__unnamed__"}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -2331,7 +2300,7 @@ export async function searchRoutinesDb(
         const profile = profileMap.get(String(row.user_id));
         return {
           routineId: String(row.id),
-          routineName: String(row.name),
+          routineName: row.name ? String(row.name) : null,
           routineType: Number(row.type),
           userId: String(row.user_id),
           userNickname: profile?.nickname ? String(profile.nickname) : "Usuário",
@@ -2352,15 +2321,17 @@ export type RoutineItemRow = {
   itemName: string;
 };
 
-export async function getRoutineWorkoutsDb(userId: string, routineName: string): Promise<RoutineItemRow[]> {
+export async function getRoutineWorkoutsDb(userId: string, routineName: string | null): Promise<RoutineItemRow[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   try {
-    const { data, error } = await supabase
+    const baseQuery = supabase
       .from("user_workouts")
       .select("id, workout_id, workouts(name)")
       .eq("user_id", userId)
-      .eq("name", routineName)
       .limit(30);
+    const { data, error } = routineName
+      ? await baseQuery.eq("name", routineName)
+      : await baseQuery.is("name", null);
 
     if (!error && data) {
       return data.map((r: any) => ({
@@ -2371,12 +2342,14 @@ export async function getRoutineWorkoutsDb(userId: string, routineName: string):
     }
 
     // Fallback: fetch without join then resolve names separately
-    const { data: fb } = await supabase
+    const fbBase = supabase
       .from("user_workouts")
       .select("id, workout_id")
       .eq("user_id", userId)
-      .eq("name", routineName)
       .limit(30);
+    const { data: fb } = routineName
+      ? await fbBase.eq("name", routineName)
+      : await fbBase.is("name", null);
 
     if (!fb?.length) return [];
 
@@ -2400,15 +2373,17 @@ export async function getRoutineWorkoutsDb(userId: string, routineName: string):
   }
 }
 
-export async function getRoutineDietsDb(userId: string, routineName: string): Promise<RoutineItemRow[]> {
+export async function getRoutineDietsDb(userId: string, routineName: string | null): Promise<RoutineItemRow[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   try {
-    const { data, error } = await supabase
+    const baseQuery = supabase
       .from("user_diets")
       .select("id, diet_id, diets(name)")
       .eq("user_id", userId)
-      .eq("name", routineName)
       .limit(30);
+    const { data, error } = routineName
+      ? await baseQuery.eq("name", routineName)
+      : await baseQuery.is("name", null);
 
     if (!error && data) {
       return data.map((r: any) => ({
@@ -2419,12 +2394,14 @@ export async function getRoutineDietsDb(userId: string, routineName: string): Pr
     }
 
     // Fallback: fetch without join then resolve names separately
-    const { data: fb } = await supabase
+    const fbBase = supabase
       .from("user_diets")
       .select("id, diet_id")
       .eq("user_id", userId)
-      .eq("name", routineName)
       .limit(30);
+    const { data: fb } = routineName
+      ? await fbBase.eq("name", routineName)
+      : await fbBase.is("name", null);
 
     if (!fb?.length) return [];
 
@@ -2453,52 +2430,100 @@ export async function copyRoutineToUserDb(
   sourceUserId: string,
   targetUserId: string,
   routineType: 1 | 2,
-  routineName: string,
+  routineName: string | null,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
+  // Step 1: Insert the routines entry WITH follower_id BEFORE inserting items.
+  // This ensures the trigger on user_workouts/user_diets finds the entry already
+  // existing and skips creating a duplicate with follower_id = null.
+  const routineCheckQuery = supabase.from("routines").select("id")
+    .eq("user_id", targetUserId)
+    .eq("type", routineType);
+
+  const { data: existingRoutine } = routineName
+    ? await routineCheckQuery.eq("name", routineName)
+    : await routineCheckQuery.is("name", null);
+
+  if (!existingRoutine?.length) {
+    const { error: routineError } = await supabase.from("routines").insert({
+      user_id: targetUserId,
+      type: routineType,
+      name: routineName ?? null,
+      follower_id: sourceUserId,
+    });
+    if (routineError) console.error("Error creating routine entry before copy:", routineError.message);
+  } else {
+    // Entry exists (possibly created by a previous trigger) — update follower_id
+    const updateQuery = supabase.from("routines")
+      .update({ follower_id: sourceUserId })
+      .eq("user_id", targetUserId)
+      .eq("type", routineType);
+
+    const { error: updateError } = routineName
+      ? await updateQuery.eq("name", routineName)
+      : await updateQuery.is("name", null);
+
+    if (updateError) console.error("Error updating follower_id on routine:", updateError.message);
+  }
+
+  // Step 2: Insert the actual items (trigger may fire but entry already exists — skip logic in trigger)
   if (routineType === 1) {
-    const { data, error } = await supabase
+    const query = supabase
       .from("user_workouts")
-      .select("workout_id, volume, reps, calories, duration, time_rest, name")
-      .eq("user_id", sourceUserId)
-      .eq("name", routineName);
+      .select("workout_id, name")
+      .eq("user_id", sourceUserId);
+
+    const { data, error } = routineName
+      ? await query.eq("name", routineName)
+      : await query.is("name", null);
 
     if (error || !data?.length) throw new Error("Nenhum treino encontrado.");
 
     const toInsert = data.map((row: any) => ({
       workout_id: row.workout_id,
       user_id: targetUserId,
-      volume: row.volume,
-      reps: row.reps,
-      calories: row.calories,
-      duration: row.duration,
-      time_rest: row.time_rest,
-      name: row.name,
+      name: row.name ?? null,
     }));
 
     const { error: insertError } = await supabase.from("user_workouts").insert(toInsert);
     if (insertError) throw new Error(insertError.message);
   } else {
-    const { data, error } = await supabase
+    const query = supabase
       .from("user_diets")
-      .select("diet_id, quantity, calories, name")
-      .eq("user_id", sourceUserId)
-      .eq("name", routineName);
+      .select("diet_id, name")
+      .eq("user_id", sourceUserId);
+
+    const { data, error } = routineName
+      ? await query.eq("name", routineName)
+      : await query.is("name", null);
 
     if (error || !data?.length) throw new Error("Nenhuma dieta encontrada.");
 
     const toInsert = data.map((row: any) => ({
       diet_id: row.diet_id,
       user_id: targetUserId,
-      quantity: row.quantity,
-      calories: row.calories,
-      name: row.name,
+      name: row.name ?? null,
     }));
 
     const { error: insertError } = await supabase.from("user_diets").insert(toInsert);
     if (insertError) throw new Error(insertError.message);
   }
+
+  // Step 3: Force-update follower_id after items are inserted.
+  // The trigger on user_workouts/user_diets may have overwritten or re-created
+  // the routines entry without follower_id, so we always re-apply it here.
+  const finalUpdateQuery = supabase
+    .from("routines")
+    .update({ follower_id: sourceUserId })
+    .eq("user_id", targetUserId)
+    .eq("type", routineType);
+
+  const { error: finalUpdateError } = routineName
+    ? await finalUpdateQuery.eq("name", routineName)
+    : await finalUpdateQuery.is("name", null);
+
+  if (finalUpdateError) console.error("Error setting follower_id after copy:", finalUpdateError.message);
 }
 
 // Following Functions
@@ -2797,8 +2822,8 @@ export async function deleteStoryDb(storyId: string): Promise<boolean> {
     if (e1) { const { error: e1b } = await supabase.from("flow_likes").delete().eq("flow_id", String(storyId)); if (e1b) console.error("flow_likes delete error:", e1b.message); }
     const { error: e2 } = await supabase.from("flow_comments").delete().eq("flow_id", idValue);
     if (e2) { const { error: e2b } = await supabase.from("flow_comments").delete().eq("flow_id", String(storyId)); if (e2b) console.error("flow_comments delete error:", e2b.message); }
-    const { error: e3 } = await supabase.from("user_view_flow").delete().eq("flow_id", idValue);
-    if (e3) { const { error: e3b } = await supabase.from("user_view_flow").delete().eq("flow_id", String(storyId)); if (e3b) console.error("user_view_flow delete error:", e3b.message); }
+    const { error: e3 } = await supabase.from("flow_user_viewed").delete().eq("flow_id", idValue);
+    if (e3) { const { error: e3b } = await supabase.from("flow_user_viewed").delete().eq("flow_id", String(storyId)); if (e3b) console.error("flow_user_viewed delete error:", e3b.message); }
 
     // Only allow deleting own flow
     const { error } = await supabase
@@ -2912,8 +2937,7 @@ export type FlowViewer = {
   followerId: string;
   userNickname: string;
   userPhoto: string | null;
-  hasIncentive: boolean;
-  incentiveType?: number;
+  incentiveTypes: number[]; // empty = no incentive sent
   viewedAt: string;
 };
 
@@ -3038,26 +3062,89 @@ export async function deleteStoryCommentDb(commentId: string): Promise<boolean> 
   }
 }
 
+// In-memory set to avoid duplicate inserts within the same browser session
+const _recordedFlowViews = new Set<string>();
+// In-flight lock set to prevent race conditions
+const _recordingInFlight = new Set<string>();
+
 export async function recordFlowViewDb(storyId: string, storyOwnerId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
   const viewer = await getViewer();
   if (!viewer || viewer.id === storyOwnerId) return;
 
+  const key = `${viewer.id}:${storyId}`;
+
+  // Already recorded in this session or currently being recorded — skip
+  if (_recordedFlowViews.has(key) || _recordingInFlight.has(key)) return;
+
+  _recordingInFlight.add(key);
+
   try {
+    // Always check DB using both user_id (owner) and follower_id + flow_id
+    const { data: existing, error: checkError } = await supabase
+      .from("flow_user_viewed")
+      .select("flow_id")
+      .eq("flow_id", storyId)
+      .eq("follower_id", viewer.id)
+      .eq("user_id", storyOwnerId)
+      .maybeSingle();
+
+    if (checkError) console.error("Error checking flow view:", checkError.message);
+
+    if (existing) {
+      _recordedFlowViews.add(key);
+      return;
+    }
+
+    // Delete any stale rows with partial match before inserting (safety net)
     await supabase
-      .from("user_view_flow")
-      .upsert(
-        {
-          user_id: storyOwnerId,
-          follower_id: viewer.id,
-          flow_id: storyId,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "follower_id,flow_id" },
-      );
+      .from("flow_user_viewed")
+      .delete()
+      .eq("flow_id", storyId)
+      .eq("follower_id", viewer.id);
+
+    const { error } = await supabase
+      .from("flow_user_viewed")
+      .insert({
+        user_id: storyOwnerId,
+        follower_id: viewer.id,
+        flow_id: storyId,
+        updated_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      console.error("Error inserting flow view:", error.message);
+    } else {
+      _recordedFlowViews.add(key);
+    }
   } catch (err: any) {
     console.error("Error recording flow view:", err?.message || err);
+  } finally {
+    _recordingInFlight.delete(key);
+  }
+}
+
+/**
+ * Returns the set of story owner user_ids whose flows the current viewer has already seen.
+ * Uses flow_user_viewed where follower_id = current viewer.
+ */
+export async function getMyViewedFlowUserIdsDb(): Promise<Set<string>> {
+  if (!hasSupabaseConfig || !supabase) return new Set();
+  const viewer = await getViewer();
+  if (!viewer) return new Set();
+
+  try {
+    const { data, error } = await supabase
+      .from("flow_user_viewed")
+      .select("user_id")
+      .eq("follower_id", viewer.id);
+
+    if (error) throw error;
+    return new Set((data ?? []).map((r: any) => String(r.user_id)));
+  } catch (err: any) {
+    console.error("Error fetching viewed flow user ids:", err?.message || err);
+    return new Set();
   }
 }
 
@@ -3066,7 +3153,7 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
 
   try {
     const { data: views, error } = await supabase
-      .from("user_view_flow")
+      .from("flow_user_viewed")
       .select("follower_id, created_at, updated_at")
       .eq("flow_id", storyId)
       .order("updated_at", { ascending: false });
@@ -3090,19 +3177,22 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
     const profileMap = new Map(
       (profilesResult.data ?? []).map((p: any) => [String(p.user_id), p]),
     );
-    const likesMap = new Map(
-      (likesResult.data ?? []).map((l: any) => [String(l.user_id), Number(l.type)]),
-    );
+
+    // Group all incentive types per user (a user can send multiple)
+    const likesPerUser = new Map<string, number[]>();
+    for (const l of (likesResult.data ?? [])) {
+      const uid = String(l.user_id);
+      if (!likesPerUser.has(uid)) likesPerUser.set(uid, []);
+      likesPerUser.get(uid)!.push(Number(l.type));
+    }
 
     return views.map((view: any) => {
       const profile = profileMap.get(String(view.follower_id));
-      const incentiveType = likesMap.get(String(view.follower_id));
       return {
         followerId: String(view.follower_id),
         userNickname: profile?.nickname ?? "Usuário",
         userPhoto: profile?.photo ?? null,
-        hasIncentive: incentiveType !== undefined,
-        incentiveType,
+        incentiveTypes: likesPerUser.get(String(view.follower_id)) ?? [],
         viewedAt: String(view.updated_at ?? view.created_at),
       };
     });
@@ -3354,9 +3444,10 @@ export async function getUnreadMessageCountDb(): Promise<number> {
   if (!viewer) return 0;
 
   try {
-    const { count, error } = await supabase
+    // Count distinct senders with unread messages (not total unread messages)
+    const { data, error } = await supabase
       .from("messages")
-      .select("id", { count: "exact", head: true })
+      .select("id_user")
       .eq("id_following", viewer.id)
       .eq("read", 0);
 
@@ -3365,11 +3456,85 @@ export async function getUnreadMessageCountDb(): Promise<number> {
       return 0;
     }
 
-    return count ?? 0;
+    const distinctSenders = new Set((data ?? []).map((row: any) => row.id_user)).size;
+    return distinctSenders;
   } catch (err: any) {
     console.error("Error getting unread message count:", err);
     return 0;
   }
+}
+
+export type MessageReactionRecord = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+};
+
+export async function getMessageReactionsDb(
+  messageIds: string[],
+): Promise<MessageReactionRecord[]> {
+  if (!hasSupabaseConfig || !supabase || messageIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("message_reactions")
+    .select("*")
+    .in("message_id", messageIds);
+
+  if (error) {
+    console.error("Error fetching message reactions:", error);
+    return [];
+  }
+
+  return data ?? [];
+}
+
+export async function addMessageReactionDb(
+  messageId: string,
+  emoji: string,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const viewer = await getViewer();
+  if (!viewer) return false;
+
+  // Upsert to avoid duplicates
+  const { error } = await supabase.from("message_reactions").upsert(
+    { message_id: messageId, user_id: viewer.id, emoji },
+    { onConflict: "message_id,user_id,emoji" },
+  );
+
+  if (error) {
+    console.error("Error adding message reaction:", error);
+    return false;
+  }
+
+  return true;
+}
+
+export async function removeMessageReactionDb(
+  messageId: string,
+  emoji: string,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const viewer = await getViewer();
+  if (!viewer) return false;
+
+  const { error } = await supabase
+    .from("message_reactions")
+    .delete()
+    .eq("message_id", messageId)
+    .eq("user_id", viewer.id)
+    .eq("emoji", emoji);
+
+  if (error) {
+    console.error("Error removing message reaction:", error);
+    return false;
+  }
+
+  return true;
 }
 
 export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
@@ -3712,6 +3877,10 @@ export async function deleteShotDb(shotId: string): Promise<boolean> {
   if (!viewer) return false;
 
   try {
+    // Delete dependencies first (likes and comments)
+    await supabase.from("shots_likes").delete().eq("shots_id", shotId);
+    await supabase.from("shots_comments").delete().eq("shots_id", shotId);
+
     const { error } = await supabase
       .from("shots")
       .delete()
@@ -4277,6 +4446,7 @@ export type NotificationItem = {
   userNickname: string;
   userPhoto: string | null;
   postId?: string;
+  shotId?: string; // Present when notification relates to a shot (from shots_id column in notifications)
   postPhoto?: string;
   incentiveType?: number; // For type 2 (incentive): 1=apoio, 2=continua, 3=ganhador, 4=consegueMais, 5=limiteMaior, 6=maisAlgum
   groupName?: string; // For type 4 (duel invite)
@@ -4300,6 +4470,7 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
         follower_id,
         type,
         post_id,
+        shots_id,
         created_at,
         read
       `
@@ -4319,12 +4490,13 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
 
     // Get all follower IDs and post IDs to fetch related data
     const followerIds = [...new Set(notificationsData.map((n: any) => n.follower_id))];
-    const postIds = [...new Set(notificationsData.filter((n: any) => n.type !== 4 && n.type !== 5).map((n: any) => n.post_id).filter(Boolean))];
+    const postIds = [...new Set(notificationsData.filter((n: any) => n.type !== 4 && n.type !== 5 && !n.shots_id).map((n: any) => n.post_id).filter(Boolean))];
+    const shotNotifIds = [...new Set(notificationsData.filter((n: any) => n.shots_id).map((n: any) => n.shots_id).filter(Boolean))];
     const groupIds = [...new Set(notificationsData.filter((n: any) => n.type === 4 || n.type === 5).map((n: any) => n.post_id).filter(Boolean))];
     const incentiveNotifications = notificationsData.filter((n: any) => n.type === 2);
 
-    // Fetch follower profiles, post photos, group names, and like data in parallel
-    const [profilesResult, postsResult, groupsResult] = await Promise.all([
+    // Fetch follower profiles, post photos (posts + shots), group names, and like data in parallel
+    const [profilesResult, postsResult, shotsResult, shotNotifResult, groupsResult] = await Promise.all([
       supabase
         .from("profiles")
         .select("user_id, nickname, photo")
@@ -4334,6 +4506,18 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           .from("posts")
           .select("id, photo")
           .in("id", postIds)
+        : Promise.resolve({ data: [] as any[] }),
+      postIds.length > 0
+        ? supabase
+          .from("shots")
+          .select("id, video_url")
+          .in("id", postIds)
+        : Promise.resolve({ data: [] as any[] }),
+      shotNotifIds.length > 0
+        ? supabase
+          .from("shots")
+          .select("id, video_url")
+          .in("id", shotNotifIds)
         : Promise.resolve({ data: [] as any[] }),
       groupIds.length > 0
         ? supabase
@@ -4345,32 +4529,102 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
 
     const { data: profiles } = profilesResult as any;
     const { data: posts } = postsResult as any;
+    const { data: shots } = shotsResult as any;
+    const { data: shotNotifs } = shotNotifResult as any;
     const { data: groups } = groupsResult as any;
 
     const profileMap = new Map<string, any>((profiles ?? []).map((p: any) => [p.user_id, p]));
-    const postMap = new Map<string, any>((posts ?? []).map((p: any) => [p.id, p]));
+    // Merge posts and shots into one map (shots use thumbnail_url as photo)
+    const postMap = new Map<string, any>([
+      ...(posts ?? []).map((p: any) => [p.id, { photo: p.photo }] as [string, any]),
+      ...(shots ?? []).map((s: any) => [s.id, { photo: s.video_url }] as [string, any]),
+    ]);
+    // Map for shots coming via shots_id column
+    const shotNotifMap = new Map<string, any>((shotNotifs ?? []).map((s: any) => [s.id, { photo: s.video_url }]));
     const groupMap = new Map<string, any>((groups ?? []).map((g: any) => [g.id, g]));
 
-    // Fetch like types for incentive notifications
-    let likesMap = new Map<string, any>();
+    // Fetch like types for incentive notifications.
+    // Key: notif.id → incentive type number.
+    // Strategy: for each incentive notification, fetch ALL likes from that user on that post/shot
+    // (ordered by created_at asc), then pick the like whose index matches the notification's
+    // rank among notifications from the same user+post pair (oldest notif → oldest like).
+    // This correctly handles users who gave multiple different incentives on the same post/shot.
+    let likesMap = new Map<string, number>(); // notif.id → incentive type
     if (incentiveNotifications.length > 0) {
-      const likeQueries = incentiveNotifications.map((notif: any) =>
-        supabase
+      // Separate incentive notifications: shots (have shots_id) vs regular posts (have post_id)
+      const shotIncentiveNotifs = incentiveNotifications.filter((n: any) => n.shots_id);
+      const postIncentiveNotifs = incentiveNotifications.filter((n: any) => !n.shots_id && n.post_id);
+
+      // --- Regular post incentives (tabela: likes, coluna: post_id) ---
+      const groupedPostNotifs = new Map<string, any[]>();
+      for (const notif of postIncentiveNotifs) {
+        const key = `${notif.follower_id}:${notif.post_id}`;
+        if (!groupedPostNotifs.has(key)) groupedPostNotifs.set(key, []);
+        groupedPostNotifs.get(key)!.push(notif);
+      }
+      for (const group of groupedPostNotifs.values()) {
+        group.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      }
+      const uniquePostPairs = [...groupedPostNotifs.keys()];
+      const postLikeQueries = uniquePostPairs.map((key) => {
+        const [followerId, postId] = key.split(":");
+        return supabase
           .from("likes")
-          .select("type")
-          .eq("post_id", notif.post_id)
-          .eq("user_id", notif.follower_id)
-          .maybeSingle()
-      );
-      const likesResults = await Promise.all(likeQueries);
-      likesMap = new Map<string, any>(
-        likesResults
-          .map((r: any, idx: number) => [
-            incentiveNotifications[idx]?.follower_id,
-            r.data?.type,
-          ] as [string, any])
-          .filter(([_, type]: [string, any]) => type !== undefined)
-      );
+          .select("type, created_at")
+          .eq("post_id", postId)
+          .eq("user_id", followerId)
+          .order("created_at", { ascending: true })
+          .then((r: any) => (r.data ?? []) as any[]);
+      });
+
+      // --- Shot incentives (tabela: shots_likes, coluna: shots_id) ---
+      const groupedShotNotifs = new Map<string, any[]>();
+      for (const notif of shotIncentiveNotifs) {
+        const key = `${notif.follower_id}:${notif.shots_id}`;
+        if (!groupedShotNotifs.has(key)) groupedShotNotifs.set(key, []);
+        groupedShotNotifs.get(key)!.push(notif);
+      }
+      for (const group of groupedShotNotifs.values()) {
+        group.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      }
+      const uniqueShotPairs = [...groupedShotNotifs.keys()];
+      const shotLikeQueries = uniqueShotPairs.map((key) => {
+        const [followerId, shotId] = key.split(":");
+        return supabase
+          .from("shots_likes")
+          .select("type, created_at")
+          .eq("shots_id", shotId)
+          .eq("user_id", followerId)
+          .order("created_at", { ascending: true })
+          .then((r: any) => (r.data ?? []) as any[]);
+      });
+
+      const [postLikeResults, shotLikeResults] = await Promise.all([
+        Promise.all(postLikeQueries),
+        Promise.all(shotLikeQueries),
+      ]);
+
+      uniquePostPairs.forEach((key, idx) => {
+        const likes: any[] = postLikeResults[idx] ?? [];
+        const notifs = groupedPostNotifs.get(key)!;
+        notifs.forEach((notif: any, i: number) => {
+          const like = likes[i];
+          if (like?.type !== undefined && like.type !== null) {
+            likesMap.set(notif.id, Number(like.type));
+          }
+        });
+      });
+
+      uniqueShotPairs.forEach((key, idx) => {
+        const likes: any[] = shotLikeResults[idx] ?? [];
+        const notifs = groupedShotNotifs.get(key)!;
+        notifs.forEach((notif: any, i: number) => {
+          const like = likes[i];
+          if (like?.type !== undefined && like.type !== null) {
+            likesMap.set(notif.id, Number(like.type));
+          }
+        });
+      });
     }
 
     // Transform notifications table records to NotificationItem format
@@ -4389,16 +4643,24 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           read: notif.read ?? false,
         };
 
-        // Add incentive type for type 2 notifications
-        if (notif.type === 2 && likesMap.has(notif.follower_id)) {
-          notification.incentiveType = likesMap.get(notif.follower_id);
+        // Add incentive type for type 2 notifications (keyed by notif.id)
+        if (notif.type === 2 && likesMap.has(notif.id)) {
+          notification.incentiveType = likesMap.get(notif.id);
         }
 
-        // Add post-related fields for non-duel notifications
-        if (notif.post_id && notif.type !== 4 && notif.type !== 5) {
+        // Add shot-related fields when shots_id is present (from DB trigger)
+        if (notif.shots_id && notif.type !== 4 && notif.type !== 5) {
+          notification.shotId = notif.shots_id;
+          const shot = shotNotifMap.get(notif.shots_id);
+          if (shot?.photo) {
+            notification.postPhoto = shot.photo;
+          }
+        }
+        // Add post-related fields for non-duel notifications (regular posts)
+        else if (notif.post_id && notif.type !== 4 && notif.type !== 5) {
           notification.postId = notif.post_id;
           const post = postMap.get(notif.post_id);
-          if (post) {
+          if (post?.photo) {
             notification.postPhoto = post.photo;
           }
         }
@@ -4640,7 +4902,13 @@ export async function deletePostDb(postId: string): Promise<boolean> {
       throw new Error("Você não tem permissão para deletar este post");
     }
 
-    // Delete comments associated with the post
+    // Delete notifications referencing this post
+    await supabase.from("notifications").delete().eq("post_id", postId);
+
+    // Delete likes/incentives associated with the post
+    await supabase.from("likes").delete().eq("post_id", postId);
+
+    // Delete comments associated with the post (must succeed before deleting post due to FK)
     const { error: commentsError } = await supabase
       .from("comments")
       .delete()
@@ -4648,18 +4916,7 @@ export async function deletePostDb(postId: string): Promise<boolean> {
 
     if (commentsError) {
       console.error("Error deleting comments:", commentsError);
-      // Continue anyway, don't fail the entire operation
-    }
-
-    // Delete likes/incentives associated with the post
-    const { error: likesError } = await supabase
-      .from("likes")
-      .delete()
-      .eq("post_id", postId);
-
-    if (likesError) {
-      console.error("Error deleting likes:", likesError);
-      // Continue anyway, don't fail the entire operation
+      throw commentsError;
     }
 
     // Delete the post itself
@@ -5120,23 +5377,21 @@ export async function deleteCommercialProfileDb(userId: string): Promise<boolean
 export type WorkoutHistoryRecord = {
   id: string;
   userId: string;
-  userWorkoutId: number | null;
+  userWorkoutId: string | null;
   workoutId: string;
   workoutName: string;
   kilos: number | null;
   volume: string | null;
-  calories: number | null;
   dateCompleted: string;
   createdAt: string;
 };
 
 export async function saveWorkoutHistoryDb(
   userId: string,
-  userWorkoutId: number | null,
+  userWorkoutId: string | null,
   workoutId: string,
   kilos: number | null = null,
   volume: string | null = null,
-  calories: number | null = null
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
@@ -5150,7 +5405,6 @@ export async function saveWorkoutHistoryDb(
           workout_id: workoutId,
           kilos,
           volume,
-          calories,
           date_completed: new Date().toISOString(),
         },
       ]);
@@ -5178,7 +5432,6 @@ export async function getWorkoutHistoryDb(
         workout_id,
         kilos,
         volume,
-        calories,
         date_completed,
         created_at,
         workouts (name)
@@ -5197,7 +5450,6 @@ export async function getWorkoutHistoryDb(
       workoutName: row.workouts?.name || "Exercício",
       kilos: row.kilos,
       volume: row.volume,
-      calories: row.calories,
       dateCompleted: String(row.date_completed),
       createdAt: String(row.created_at),
     }));
@@ -5220,7 +5472,7 @@ export async function getWorkoutHistoriesBatchDb(
   try {
     const { data, error } = await supabase
       .from("user_workouts_hist")
-      .select("id, user_id, user_workout_id, workout_id, kilos, volume, calories, date_completed, created_at, workouts(name)")
+      .select("id, user_id, user_workout_id, workout_id, kilos, volume, date_completed, created_at, workouts(name)")
       .eq("user_id", userId)
       .in("workout_id", workoutIds)
       .order("date_completed", { ascending: false });
@@ -5241,7 +5493,6 @@ export async function getWorkoutHistoriesBatchDb(
         workoutName: row.workouts?.name || "Exercício",
         kilos: row.kilos,
         volume: row.volume,
-        calories: row.calories,
         dateCompleted: String(row.date_completed),
         createdAt: String(row.created_at),
       });
@@ -5286,9 +5537,9 @@ export async function getFollowingStatusBatchDb(
 // Save diet history record
 export async function saveDietHistoryDb(
   userId: string,
+  userDietId: string | null,
   dietId: number,
   quantity: number | null = null,
-  calories: number | null = null
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
@@ -5298,9 +5549,9 @@ export async function saveDietHistoryDb(
       .insert([
         {
           user_id: userId,
+          user_diet_id: userDietId,
           diet_id: dietId,
           quantity,
-          calories,
           created_at: new Date().toISOString(),
         },
       ]);
@@ -5315,6 +5566,7 @@ export async function saveDietHistoryDb(
 // Save habit history record
 export async function saveHabitHistoryDb(
   userId: string,
+  userHabitId: string | null,
   habitId: number,
   quantity: number | null = null,
   frequency: number | null = null
@@ -5327,6 +5579,7 @@ export async function saveHabitHistoryDb(
       .insert([
         {
           user_id: userId,
+          user_habit_id: userHabitId,
           habit_id: habitId,
           quantity,
           frequency,
@@ -5407,14 +5660,150 @@ export type DuelGroup = {
   endDate?: string;
 };
 
+export type CompletedRoutineExercise = {
+  workoutId: string;
+  workoutName: string;
+  muscleGroup: string | null;
+  kilos: number | null;
+  volume: string | null;
+};
+
+export type CompletedRoutine = {
+  /** user_workouts.id — used as the selector key */
+  userWorkoutId: string;
+  routineName: string;
+  /** exercises belonging to this routine (from user_workouts_hist today) */
+  exercises: CompletedRoutineExercise[];
+  /** total volume across all exercises */
+  totalVolume: number;
+  /** total sets across all exercises (count of hist records) */
+  totalSeries: number;
+  /** primary muscle group (most common) */
+  primaryMuscleGroup: string | null;
+  completedAt: string;
+};
+
+/**
+ * Returns all routines the user completed today (or recently), built from
+ * user_workouts_hist joined with user_workouts → routines (for the routine name)
+ * and workouts (for muscle_group).
+ */
+export async function getCompletedRoutinesTodayDb(userId: string): Promise<CompletedRoutine[]> {
+  if (!hasSupabaseConfig || !supabase || !userId) return [];
+
+  try {
+    // Fetch all hist records from the last 7 days so the user always has recent options
+    const since = new Date();
+    since.setDate(since.getDate() - 7);
+
+    const { data, error } = await supabase
+      .from("user_workouts_hist")
+      .select(`
+        id,
+        user_workout_id,
+        workout_id,
+        kilos,
+        volume,
+        date_completed,
+        workouts (name, muscle_group)
+      `)
+      .eq("user_id", userId)
+      .gte("date_completed", since.toISOString())
+      .order("date_completed", { ascending: false });
+
+    if (error || !data || data.length === 0) return [];
+
+    // Get all distinct user_workout_ids to fetch routine names
+    const userWorkoutIds = [...new Set((data as any[]).map((r: any) => r.user_workout_id).filter(Boolean))];
+
+    const routineNameMap: Record<string, string> = {};
+    if (userWorkoutIds.length > 0) {
+      const { data: uwData } = await supabase
+        .from("user_workouts")
+        .select("id, name")
+        .in("id", userWorkoutIds);
+      (uwData ?? []).forEach((uw: any) => {
+        routineNameMap[String(uw.id)] = uw.name || "Rotina de Exercícios";
+      });
+    }
+
+    // Group by (routineName + date day) to avoid duplicates when the user has
+    // multiple user_workouts rows with the same name (e.g. two "Peito" entries).
+    const sessionMap: Record<string, { userWorkoutId: string; routineName: string; exercises: CompletedRoutineExercise[]; completedAt: string }> = {};
+
+    for (const row of data as any[]) {
+      const uwId = row.user_workout_id ? String(row.user_workout_id) : "__none__";
+      const routineName = routineNameMap[uwId] || "Rotina de Exercícios";
+      const day = row.date_completed?.substring(0, 10) ?? "unknown";
+      // Key by name+day so all same-named routines on the same day merge into one card
+      const key = `${routineName}__${day}`;
+
+      if (!sessionMap[key]) {
+        sessionMap[key] = {
+          userWorkoutId: uwId,
+          routineName,
+          exercises: [],
+          completedAt: row.date_completed,
+        };
+      }
+
+      // Avoid adding the exact same exercise twice (same workout_id + kilos)
+      const exerciseKey = `${row.workout_id}__${row.kilos ?? ""}`;
+      const alreadyAdded = sessionMap[key].exercises.some(
+        (ex) => `${ex.workoutId}__${ex.kilos ?? ""}` === exerciseKey,
+      );
+      if (!alreadyAdded) {
+        sessionMap[key].exercises.push({
+          workoutId: String(row.workout_id),
+          workoutName: (row.workouts as any)?.name || "Exercício",
+          muscleGroup: (row.workouts as any)?.muscle_group || null,
+          kilos: row.kilos,
+          volume: row.volume,
+        });
+      }
+    }
+
+    return Object.values(sessionMap).map((session) => {
+      const totalSeries = session.exercises.length;
+      const totalVolume = session.exercises.reduce((sum, ex) => {
+        const v = parseFloat(String(ex.volume ?? "0")) || 0;
+        return sum + v;
+      }, 0);
+
+      // Most frequent muscle group
+      const mgCount: Record<string, number> = {};
+      session.exercises.forEach((ex) => {
+        if (ex.muscleGroup) mgCount[ex.muscleGroup] = (mgCount[ex.muscleGroup] || 0) + 1;
+      });
+      const primaryMuscleGroup = Object.entries(mgCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+      return {
+        userWorkoutId: session.userWorkoutId,
+        routineName: session.routineName,
+        exercises: session.exercises,
+        totalVolume,
+        totalSeries,
+        primaryMuscleGroup,
+        completedAt: session.completedAt,
+      };
+    });
+  } catch (err: any) {
+    console.error("Error fetching completed routines:", err);
+    return [];
+  }
+}
+
 export type GroupCheckIn = {
   id: string;
   groupId: string;
   userId: string;
   userName: string;
+  userPhoto: string | null;
   photo: string;
   description: string;
   workoutInfo: string;
+  muscleGroup: string | null;
+  exercises: CompletedRoutineExercise[];
   series: number;
   volume: number;
   createdAt: string;
@@ -5588,6 +5977,129 @@ export async function getAvailableDuelGroupsDb(userId: string): Promise<DuelGrou
   }
 }
 
+// Optimized: fetch available groups enriched with participant count, creator profile and membership
+// status in 3 parallel queries instead of N*2+1 sequential ones.
+export type EnrichedDuelGroup = DuelGroup & {
+  creatorNickname: string;
+  creatorPhoto: string | null;
+  participants: number;
+  isAlreadyMember: boolean;
+  isPending: boolean;
+};
+
+export async function getEnrichedDuelGroupsDb(
+  userId: string,
+): Promise<{ myGroups: EnrichedDuelGroup[]; availableGroups: EnrichedDuelGroup[]; pendingInvites: Array<{ groupId: string; groupName: string; groupGoal: string; groupLocation: string }> }> {
+  if (!supabase) return { myGroups: [], availableGroups: [], pendingInvites: [] };
+
+  try {
+    // 3 parallel queries — no waterfall
+    const [createdResult, availResult, participantsResult] = await Promise.all([
+      // My created groups
+      supabase
+        .from("duel_groups")
+        .select("id, created_by, name, location, goal, icon, photo, created_at, updated_at, end_date")
+        .eq("created_by", userId)
+        .order("created_at", { ascending: false }),
+
+      // Available groups (not created by me)
+      supabase
+        .from("duel_groups")
+        .select("id, created_by, name, location, goal, icon, photo, created_at, updated_at, end_date")
+        .neq("created_by", userId)
+        .order("created_at", { ascending: false }),
+
+      // All participations across all groups (accepted + pending) — one query for everything
+      supabase
+        .from("duel_group_participants")
+        .select("group_id, user_id, status"),
+    ]);
+
+    const createdGroups = createdResult.data ?? [];
+    const availGroups = availResult.data ?? [];
+    const allParticipants = participantsResult.data ?? [];
+
+    // Build lookup maps from the single participants query
+    const countMap: Record<string, number> = {};
+    const memberMap: Record<string, boolean> = {};
+    const pendingMap: Record<string, boolean> = {};
+
+    for (const p of allParticipants) {
+      if (!p.group_id) continue;
+      const isAccepted = !p.status || p.status === "accepted";
+      if (isAccepted) {
+        countMap[p.group_id] = (countMap[p.group_id] ?? 0) + 1;
+        if (p.user_id === userId) memberMap[p.group_id] = true;
+      } else if (p.status === "pending" && p.user_id === userId) {
+        pendingMap[p.group_id] = true;
+      }
+    }
+
+    // Batch-fetch creator profiles for available groups (one query)
+    const creatorIds = [...new Set(availGroups.map((g: any) => g.created_by).filter(Boolean))];
+    const creatorProfileMap: Record<string, { nickname: string; photo: string | null }> = {};
+    if (creatorIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .in("user_id", creatorIds);
+      (profiles ?? []).forEach((p: any) => {
+        creatorProfileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null };
+      });
+    }
+
+    const toBase = (g: any): DuelGroup => ({
+      id: g.id,
+      createdBy: g.created_by,
+      name: g.name,
+      location: g.location,
+      goal: g.goal,
+      icon: g.icon ?? "⚔️",
+      photo: g.photo || null,
+      createdAt: g.created_at,
+      updatedAt: g.updated_at,
+      endDate: g.end_date,
+    });
+
+    const myGroups: EnrichedDuelGroup[] = createdGroups.map((g: any) => ({
+      ...toBase(g),
+      creatorNickname: "",
+      creatorPhoto: null,
+      participants: countMap[g.id] ?? 1,
+      isAlreadyMember: true,
+      isPending: false,
+    }));
+
+    const availableGroups: EnrichedDuelGroup[] = availGroups.map((g: any) => {
+      const creator = creatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null };
+      return {
+        ...toBase(g),
+        creatorNickname: creator.nickname,
+        creatorPhoto: creator.photo,
+        participants: countMap[g.id] ?? 1,
+        isAlreadyMember: memberMap[g.id] ?? false,
+        isPending: pendingMap[g.id] ?? false,
+      };
+    });
+
+    // Build pendingInvites from the maps (groups where user has a pending invite)
+    const pendingGroupIds = Object.keys(pendingMap);
+    const pendingInvites = availGroups
+      .filter((g: any) => pendingGroupIds.includes(String(g.id)))
+      .map((g: any) => ({
+        groupId: String(g.id),
+        groupName: String(g.name),
+        groupGoal: String(g.goal || ""),
+        groupLocation: String(g.location || ""),
+      }));
+
+    return { myGroups, availableGroups, pendingInvites };
+  } catch (error) {
+    console.error("Error getting enriched duel groups:", error);
+    return { myGroups: [], availableGroups: [], pendingInvites: [] };
+  }
+}
+
 // Get groups created by users the current user follows (no external IDs needed)
 export async function getFollowingGroupsDb(): Promise<DuelGroup[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -5693,7 +6205,10 @@ export async function addGroupCheckInDb(
   description: string,
   workoutInfo: string,
   series: number = 0,
-  volume: number = 0
+  volume: number = 0,
+  muscleGroup: string | null = null,
+  exercises: CompletedRoutineExercise[] = [],
+  userPhoto: string | null = null,
 ): Promise<GroupCheckIn> {
   if (!supabase) throw new Error("Supabase not configured");
 
@@ -5704,11 +6219,14 @@ export async function addGroupCheckInDb(
         group_id: groupId,
         user_id: userId,
         user_name: userName,
+        user_photo: userPhoto,
         photo,
         description,
         workout_info: workoutInfo,
         series,
         volume,
+        muscle_group: muscleGroup,
+        exercises: JSON.stringify(exercises),
       })
       .select()
       .single();
@@ -5721,9 +6239,12 @@ export async function addGroupCheckInDb(
       groupId: data.group_id,
       userId: data.user_id,
       userName: data.user_name,
+      userPhoto: userPhoto,
       photo: data.photo || "",
       description: data.description || "",
       workoutInfo: data.workout_info || "",
+      muscleGroup: data.muscle_group || null,
+      exercises,
       series: data.series || 0,
       volume: data.volume || 0,
       createdAt: data.created_at,
@@ -5734,16 +6255,17 @@ export async function addGroupCheckInDb(
   }
 }
 
-// Get check-ins for a group
+// Get check-ins for a group (optimized: only columns needed for the list, no exercises payload)
 export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[]> {
   if (!supabase) return [];
 
   try {
     const { data, error } = await supabase
       .from("duel_check_ins")
-      .select("*")
+      .select("id, group_id, user_id, user_name, user_photo, photo, description, workout_info, muscle_group, created_at")
       .eq("group_id", groupId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(50);
 
     if (error || !data) return [];
 
@@ -5752,16 +6274,61 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
       groupId: checkIn.group_id,
       userId: checkIn.user_id,
       userName: checkIn.user_name,
+      userPhoto: checkIn.user_photo || null,
       photo: checkIn.photo || "",
       description: checkIn.description || "",
       workoutInfo: checkIn.workout_info || "",
-      series: checkIn.series || 0,
-      volume: checkIn.volume || 0,
+      muscleGroup: checkIn.muscle_group || null,
+      exercises: [],
+      series: 0,
+      volume: 0,
       createdAt: checkIn.created_at,
     }));
   } catch (error) {
     console.error("Error getting check-ins:", error);
     return [];
+  }
+}
+
+// Get full check-in detail (with exercises, description, series, volume and user photo)
+export async function getGroupCheckInDetailDb(checkInId: string): Promise<GroupCheckIn | null> {
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("duel_check_ins")
+      .select("*")
+      .eq("id", checkInId)
+      .single();
+
+    if (error || !data) return null;
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("photo")
+      .eq("user_id", data.user_id)
+      .single();
+
+    return {
+      id: data.id,
+      groupId: data.group_id,
+      userId: data.user_id,
+      userName: data.user_name,
+      userPhoto: profile?.photo ?? null,
+      photo: data.photo || "",
+      description: data.description || "",
+      workoutInfo: data.workout_info || "",
+      muscleGroup: data.muscle_group || null,
+      exercises: (() => {
+        try { return JSON.parse(data.exercises || "[]"); } catch { return []; }
+      })(),
+      series: data.series || 0,
+      volume: data.volume || 0,
+      createdAt: data.created_at,
+    };
+  } catch (error) {
+    console.error("Error getting check-in detail:", error);
+    return null;
   }
 }
 
@@ -5792,9 +6359,12 @@ export async function updateGroupCheckInDb(
       groupId: data.group_id,
       userId: data.user_id,
       userName: data.user_name,
+      userPhoto: null,
       photo: data.photo || "",
       description: data.description || "",
       workoutInfo: data.workout_info || "",
+      muscleGroup: data.muscle_group || null,
+      exercises: (() => { try { return JSON.parse(data.exercises || "[]"); } catch { return []; } })(),
       series: data.series || 0,
       volume: data.volume || 0,
       createdAt: data.created_at,
@@ -6060,6 +6630,8 @@ export async function recordAccessSessionDb(userId: string, durationSeconds: num
     console.error("Error recording access session:", err);
   }
 }
+
+// ─── Access Sessions ────────────────────────────────────────────────────────
 
 export async function getAccessSessionsDb(userId: string, days: number = 30): Promise<{ session_date: string; duration_seconds: number; created_at: string }[]> {
   if (!hasSupabaseConfig || !supabase) return [];

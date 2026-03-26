@@ -38,7 +38,7 @@ import {
 import { X, ChevronLeft, Send, Trash2, Eye, Pause, Play } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { PostIncentiveButton } from "@/components/post-incentive-button";
+import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { toast } from "@/components/ui/use-toast";
 import { Input } from "@/components/ui/input";
 
@@ -117,12 +117,10 @@ export function FlowViewerModal({
 
     loadStoryData();
 
-    // Record view for non-owners
-    if (user && user.id !== story.user_id) {
-      recordFlowViewDb(story.id, story.user_id).catch((err) =>
-        console.error("Error recording flow view:", err),
-      );
-    }
+    // Record view for non-owners (recordFlowViewDb internally checks viewer identity)
+    recordFlowViewDb(story.id, story.user_id).catch((err) =>
+      console.error("Error recording flow view:", err),
+    );
 
     // Reset timer & pause state when story changes
     setTimerProgress(100);
@@ -429,21 +427,23 @@ export function FlowViewerModal({
                 </div>
               )}
 
-              {/* Incentive Buttons + Comment icon - Right Side */}
-              <div
-                className="absolute right-4 bottom-20 flex flex-col gap-2 z-30"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                  <PostIncentiveButton
-                    key={type}
-                    type={type}
-                    isActive={userLikes.includes(type)}
-                    onClick={() => handleToggleLike(type)}
-                    loading={togglingLikeId === story.id}
-                  />
-                ))}
-              </div>
+              {/* Incentive Buttons — only shown to non-owners */}
+              {!isOwner && (
+                <div
+                  className="absolute right-4 bottom-20 flex flex-col gap-2 z-30"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                    <PostIncentiveButton
+                      key={type}
+                      type={type}
+                      isActive={userLikes.includes(type)}
+                      onClick={() => handleToggleLike(type)}
+                      loading={togglingLikeId === story.id}
+                    />
+                  ))}
+                </div>
+              )}
 
               {/* Description Overlay */}
               {story.description && (
@@ -518,7 +518,7 @@ export function FlowViewerModal({
               Visualizações ({viewers.length})
             </DrawerTitle>
           </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-3">
+          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-2">
             {isLoadingViewers ? (
               <p className="text-sm text-muted-foreground text-center py-6">Carregando...</p>
             ) : viewers.length === 0 ? (
@@ -526,26 +526,38 @@ export function FlowViewerModal({
                 Nenhuma visualização ainda
               </p>
             ) : (
-              viewers.map((viewer) => (
-                <div key={viewer.followerId} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted transition-colors">
-                  {viewer.userPhoto ? (
-                    <img
-                      src={viewer.userPhoto}
-                      alt={viewer.userNickname}
-                      className="h-10 w-10 rounded-full object-cover flex-shrink-0"
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded-full bg-muted flex-shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{viewer.userNickname}</p>
-                    <p className="text-xs text-muted-foreground">{formatTimeAgo(viewer.viewedAt)}</p>
+              viewers.map((viewer) => {
+                const INCENTIVE_ICONS: Record<number, string> = { 1: "👏", 2: "🔥", 3: "🏆", 4: "🚀", 5: "🎯", 6: "⚡" };
+                const hasIncentive = viewer.incentiveTypes.length > 0;
+                return (
+                  <div key={viewer.followerId} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors">
+                    {viewer.userPhoto ? (
+                      <img
+                        src={viewer.userPhoto}
+                        alt={viewer.userNickname}
+                        className="h-10 w-10 rounded-full object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-full bg-muted flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{viewer.userNickname}</p>
+                      <p className="text-xs text-muted-foreground">{formatTimeAgo(viewer.viewedAt)}</p>
+                    </div>
+                    <div className="shrink-0">
+                      {hasIncentive ? (
+                        <div className="flex items-center gap-0.5">
+                          {viewer.incentiveTypes.map((type, i) => (
+                            <span key={i} className="text-base leading-none">{INCENTIVE_ICONS[type] ?? "👍"}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">sem incentivo</span>
+                      )}
+                    </div>
                   </div>
-                  {viewer.hasIncentive && (
-                    <span className="text-xs text-brand font-medium shrink-0">Incentivou ✨</span>
-                  )}
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </DrawerContent>

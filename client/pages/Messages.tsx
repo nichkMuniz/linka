@@ -5,19 +5,23 @@ import {
   sendMessageDb,
   markMessagesAsReadDb,
   getFollowingDb,
+  getMessageReactionsDb,
+  addMessageReactionDb,
+  removeMessageReactionDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
 } from "@/lib/ritmofit-db";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 import { formatTimeAgo } from "@/lib/utils";
-import { ArrowLeft, Send, Check, CheckCheck } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Plus } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { LoadingSpinner } from "@/components/animated-loading";
+import { LoadingSpinner } from "@/components/shared/animated-loading";
 
 type ViewMode = "conversations" | "conversation";
 
@@ -50,8 +54,9 @@ export default function Messages() {
   const [reactions, setReactions] = React.useState<
     Record<string, Record<string, MessageReaction>>
   >({});
-  const [hoveredMessageId, setHoveredMessageId] = React.useState<string | null>(null);
-  const hoverTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [activePickerMessageId, setActivePickerMessageId] = React.useState<string | null>(null);
+  // ref for custom emoji input
+  const customEmojiInputRef = React.useRef<HTMLInputElement>(null);
 
   // Load conversations and following users
   React.useEffect(() => {
@@ -96,10 +101,26 @@ export default function Messages() {
 
     const loadMessages = async () => {
       try {
-        const data = await getConversationMessagesDb(
-          selectedConversation.userId,
-        );
+        const data = await getConversationMessagesDb(selectedConversation.userId);
         setMessages(data);
+
+        // Load reactions for these messages
+        if (data.length > 0) {
+          const messageIds = data.map((m) => m.id);
+          const reactionsData = await getMessageReactionsDb(messageIds);
+
+          const reactionsMap: Record<string, Record<string, MessageReaction>> = {};
+          reactionsData.forEach((r) => {
+            if (!reactionsMap[r.message_id]) reactionsMap[r.message_id] = {};
+            const existing = reactionsMap[r.message_id][r.emoji];
+            reactionsMap[r.message_id][r.emoji] = {
+              emoji: r.emoji,
+              count: (existing?.count || 0) + 1,
+              userReacted: existing?.userReacted || r.user_id === user?.id,
+            };
+          });
+          setReactions(reactionsMap);
+        }
 
         // Mark messages as read
         await markMessagesAsReadDb(selectedConversation.userId);
@@ -120,44 +141,95 @@ export default function Messages() {
     loadMessages();
   }, [selectedConversation, viewMode]);
 
+  // Realtime subscription for messages in active conversation
+  React.useEffect(() => {
+    if (!selectedConversation || viewMode !== "conversation" || !supabase || !user) return;
+
+    const channel = supabase
+      .channel(`messages-${selectedConversation.userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+        },
+        async (payload) => {
+          const msg = payload.new as any;
+          // Only react to messages in this conversation
+          const isThisConversation =
+            (msg.id_user === user.id && msg.id_following === selectedConversation.userId) ||
+            (msg.id_user === selectedConversation.userId && msg.id_following === user.id);
+
+          if (!isThisConversation) return;
+
+          const updatedMessages = await getConversationMessagesDb(selectedConversation.userId);
+          setMessages(updatedMessages);
+
+          // If the new message is from the other user, mark as read immediately
+          if (msg.id_user === selectedConversation.userId) {
+            await markMessagesAsReadDb(selectedConversation.userId);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedConversation, viewMode, user]);
+
   // Auto-scroll to bottom when messages change
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Close emoji picker when tapping outside
+  React.useEffect(() => {
+    if (!activePickerMessageId) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-emoji-picker]")) {
+        setActivePickerMessageId(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
+  }, [activePickerMessageId]);
+
   const handleSendMessage = React.useCallback(async () => {
     if (!messageText.trim() || !selectedConversation) return;
 
+    const textToSend = messageText;
+    setMessageText("");
     setIsSending(true);
+
     try {
-      const newMessage = await sendMessageDb(
-        selectedConversation.userId,
-        messageText,
+      await sendMessageDb(selectedConversation.userId, textToSend);
+      // Realtime will update the message list automatically;
+      // if for some reason it's slow, do an optimistic update here
+      const updatedMessages = await getConversationMessagesDb(selectedConversation.userId);
+      setMessages(updatedMessages);
+
+      // Update last message in conversation list
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.userId === selectedConversation.userId
+            ? {
+                ...conv,
+                lastMessage: textToSend,
+                lastMessageTime: new Date().toISOString(),
+              }
+            : conv,
+        ),
       );
-
-      if (newMessage) {
-        // Reload messages
-        const updatedMessages = await getConversationMessagesDb(
-          selectedConversation.userId,
-        );
-        setMessages(updatedMessages);
-        setMessageText("");
-
-        // Update last message in conversation list
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.userId === selectedConversation.userId
-              ? {
-                  ...conv,
-                  lastMessage: messageText,
-                  lastMessageTime: new Date().toISOString(),
-                }
-              : conv,
-          ),
-        );
-      }
     } catch (err: any) {
       console.error("Error sending message:", err);
+      setMessageText(textToSend);
       toast({
         title: "Erro ao enviar mensagem",
         description: err?.message || "Tente novamente.",
@@ -179,60 +251,71 @@ export default function Messages() {
   const handleBackToConversations = React.useCallback(() => {
     setViewMode("conversations");
     setSelectedConversation(null);
+    setActivePickerMessageId(null);
   }, []);
 
   const handleReactToMessage = React.useCallback(
-    (messageId: string, emoji: string) => {
-      setReactions((prev) => {
-        const messageReactions = { ...(prev[messageId] || {}) };
-        const existing = messageReactions[emoji];
-        if (existing?.userReacted) {
-          // Remove reaction
-          const newCount = existing.count - 1;
+    async (messageId: string, emoji: string) => {
+      if (!user) return;
+
+      const prev = reactions[messageId]?.[emoji];
+      const isRemoving = prev?.userReacted;
+
+      // Optimistic update
+      setReactions((prevReactions) => {
+        const messageReactions = { ...(prevReactions[messageId] || {}) };
+        if (isRemoving) {
+          const newCount = (messageReactions[emoji]?.count || 1) - 1;
           if (newCount <= 0) {
             const updated = { ...messageReactions };
             delete updated[emoji];
-            return { ...prev, [messageId]: updated };
+            return { ...prevReactions, [messageId]: updated };
           }
           return {
-            ...prev,
+            ...prevReactions,
             [messageId]: {
               ...messageReactions,
               [emoji]: { emoji, count: newCount, userReacted: false },
             },
           };
         } else {
-          // Add reaction
           return {
-            ...prev,
+            ...prevReactions,
             [messageId]: {
               ...messageReactions,
               [emoji]: {
                 emoji,
-                count: (existing?.count || 0) + 1,
+                count: (messageReactions[emoji]?.count || 0) + 1,
                 userReacted: true,
               },
             },
           };
         }
       });
-      setHoveredMessageId(null);
+
+      setActivePickerMessageId(null);
+
+      // Persist to DB
+      if (isRemoving) {
+        await removeMessageReactionDb(messageId, emoji);
+      } else {
+        await addMessageReactionDb(messageId, emoji);
+      }
     },
-    [],
+    [reactions, user],
   );
 
-  const handleMessageHover = React.useCallback((messageId: string | null) => {
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current);
-    }
-    if (messageId === null) {
-      hoverTimeoutRef.current = setTimeout(() => {
-        setHoveredMessageId(null);
-      }, 300);
-    } else {
-      setHoveredMessageId(messageId);
-    }
-  }, []);
+  const handleCustomEmojiInput = React.useCallback(
+    (messageId: string, value: string) => {
+      // Extract the first emoji-like character from the input
+      const emojiRegex = /\p{Emoji}/u;
+      const match = value.match(emojiRegex);
+      if (match) {
+        handleReactToMessage(messageId, match[0]);
+      }
+    },
+    [handleReactToMessage],
+  );
 
   if (loading) {
     return (
@@ -255,12 +338,18 @@ export default function Messages() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex-1 flex items-center gap-3 min-w-0">
-            {selectedConversation.userPhoto && (
+            {selectedConversation.userPhoto ? (
               <img
                 src={selectedConversation.userPhoto}
                 alt={selectedConversation.userNickname}
                 className="h-10 w-10 rounded-full object-cover flex-shrink-0"
               />
+            ) : (
+              <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                <span className="text-sm font-medium text-muted-foreground">
+                  {selectedConversation.userNickname.charAt(0).toUpperCase()}
+                </span>
+              </div>
             )}
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">
@@ -278,7 +367,7 @@ export default function Messages() {
                 const isOwn = message.id_user === user?.id;
                 const messageReactions = reactions[message.id] || {};
                 const reactionEntries = Object.values(messageReactions);
-                const isHovered = hoveredMessageId === message.id;
+                const isPickerOpen = activePickerMessageId === message.id;
 
                 return (
                   <div
@@ -287,34 +376,63 @@ export default function Messages() {
                   >
                     <div
                       className={`relative flex ${isOwn ? "flex-row-reverse" : "flex-row"} items-end gap-1`}
-                      onMouseEnter={() => handleMessageHover(message.id)}
-                      onMouseLeave={() => handleMessageHover(null)}
                     >
-                      {/* Emoji Picker (appears on hover) */}
-                      {isHovered && (
+                      {/* Emoji Picker — opens on long press or tap on reaction area */}
+                      {isPickerOpen && (
                         <div
-                          className={`absolute bottom-full mb-1 ${isOwn ? "right-0" : "left-0"} flex gap-1 bg-background border border-border/60 rounded-full px-2 py-1 shadow-lg z-10`}
-                          onMouseEnter={() => handleMessageHover(message.id)}
-                          onMouseLeave={() => handleMessageHover(null)}
+                          data-emoji-picker
+                          className={`absolute bottom-full mb-2 ${isOwn ? "right-0" : "left-0"} flex items-center gap-1 bg-card border border-border/60 rounded-full px-2 py-1.5 shadow-xl z-20`}
                         >
                           {EMOJI_OPTIONS.map((emoji) => (
                             <button
                               key={emoji}
                               onClick={() => handleReactToMessage(message.id, emoji)}
-                              className="text-base hover:scale-125 transition-transform leading-none p-0.5"
+                              className="text-lg hover:scale-125 active:scale-110 transition-transform leading-none p-0.5 min-w-[2rem] min-h-[2rem] flex items-center justify-center"
                             >
                               {emoji}
                             </button>
                           ))}
+                          {/* + button to open native emoji keyboard */}
+                          <div className="relative">
+                            <button
+                              className="text-muted-foreground hover:text-foreground min-w-[2rem] min-h-[2rem] flex items-center justify-center rounded-full hover:bg-muted/50"
+                              onClick={() => customEmojiInputRef.current?.focus()}
+                              aria-label="Mais emojis"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </button>
+                            <input
+                              ref={customEmojiInputRef}
+                              type="text"
+                              className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                              inputMode="text"
+                              onChange={(e) => {
+                                handleCustomEmojiInput(message.id, e.target.value);
+                                e.target.value = "";
+                              }}
+                              aria-label="Escolher emoji"
+                            />
+                          </div>
                         </div>
                       )}
 
                       <div
-                        className={`max-w-xs px-4 py-2 rounded-lg space-y-1 break-words ${
+                        className={`max-w-xs px-4 py-2 rounded-2xl space-y-1 break-words cursor-pointer select-none ${
                           isOwn
-                            ? "bg-brand text-white rounded-br-none"
-                            : "bg-muted rounded-bl-none"
+                            ? "bg-brand text-white rounded-br-sm"
+                            : "bg-muted rounded-bl-sm"
                         }`}
+                        onClick={() =>
+                          setActivePickerMessageId(
+                            isPickerOpen ? null : message.id,
+                          )
+                        }
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setActivePickerMessageId(
+                            isPickerOpen ? null : message.id,
+                          );
+                        }}
                       >
                         <p className="text-sm">{message.text}</p>
                         <div className="flex items-center justify-between gap-2">
@@ -349,9 +467,7 @@ export default function Messages() {
                         {reactionEntries.map((r) => (
                           <button
                             key={r.emoji}
-                            onClick={() =>
-                              handleReactToMessage(message.id, r.emoji)
-                            }
+                            onClick={() => handleReactToMessage(message.id, r.emoji)}
                             className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${
                               r.userReacted
                                 ? "bg-brand/10 border-brand/30 text-brand"
@@ -384,7 +500,7 @@ export default function Messages() {
             placeholder="Envie uma mensagem..."
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
-            onKeyPress={(e) => {
+            onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSendMessage();
@@ -422,7 +538,7 @@ export default function Messages() {
         <h1 className="text-2xl font-bold tracking-tight">Mensagens</h1>
       </div>
 
-      {/* Search Bar - Separated */}
+      {/* Search Bar */}
       <div className="flex-shrink-0 border-b border-border/60 px-4 py-3">
         <Input
           placeholder="Pesquisar pessoas..."
@@ -445,18 +561,38 @@ export default function Messages() {
                 <Card className="border-border/60 hover:bg-muted/50 transition-colors cursor-pointer">
                   <CardContent className="p-4 flex items-center gap-3">
                     {conversation.userPhoto ? (
-                      <img
-                        src={conversation.userPhoto}
-                        alt={conversation.userNickname}
-                        className="h-12 w-12 rounded-full object-cover shrink-0"
-                      />
+                      <div className="relative flex-shrink-0">
+                        <img
+                          src={conversation.userPhoto}
+                          alt={conversation.userNickname}
+                          className="h-12 w-12 rounded-full object-cover"
+                        />
+                        {conversation.unreadCount > 0 && (
+                          <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-brand border-2 border-background" />
+                        )}
+                      </div>
                     ) : (
-                      <div className="h-12 w-12 rounded-full bg-muted shrink-0" />
+                      <div className="relative flex-shrink-0">
+                        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+                          <span className="text-sm font-medium text-muted-foreground">
+                            {conversation.userNickname.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                        {conversation.unreadCount > 0 && (
+                          <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-brand border-2 border-background" />
+                        )}
+                      </div>
                     )}
 
                     <div className="flex-1 min-w-0 text-left">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="font-medium text-sm truncate">
+                        <p
+                          className={`text-sm truncate ${
+                            conversation.unreadCount > 0
+                              ? "font-semibold text-foreground"
+                              : "font-medium"
+                          }`}
+                        >
                           {conversation.userNickname}
                         </p>
                         <p className="text-xs text-muted-foreground shrink-0">
@@ -475,7 +611,7 @@ export default function Messages() {
                     </div>
 
                     {conversation.unreadCount > 0 && (
-                      <div className="flex items-center justify-center h-6 w-6 rounded-full bg-brand text-white text-xs font-semibold shrink-0">
+                      <div className="flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-brand text-white text-xs font-semibold shrink-0">
                         {conversation.unreadCount > 9
                           ? "9+"
                           : conversation.unreadCount}

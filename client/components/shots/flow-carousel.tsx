@@ -17,6 +17,8 @@ interface FlowCarouselProps {
   currentUserPhoto?: string | null;
   isOwnerViewing?: boolean;
   viewCount?: number;
+  isLoadingViewCount?: boolean;
+  viewedStoryIds?: Set<string>;
 }
 
 export function FlowCarousel({
@@ -27,6 +29,8 @@ export function FlowCarousel({
   currentUserPhoto,
   isOwnerViewing,
   viewCount,
+  isLoadingViewCount,
+  viewedStoryIds,
 }: FlowCarouselProps) {
   // Group stories by user — always overwrite so the last entry (oldest, since array is newest-first) is stored.
   // This ensures clicking opens from the first (oldest) story posted.
@@ -64,16 +68,18 @@ export function FlowCarousel({
           <DropdownMenuTrigger asChild>
             <button className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer">
               <div className="relative">
-                <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-brand transition-all">
-                  {(currentUserPhoto || userStory.userPhoto) ? (
-                    <img
-                      src={currentUserPhoto || userStory.userPhoto!}
-                      alt={userStory.userNickname}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="h-full w-full bg-muted" />
-                  )}
+                <div className="h-[60px] w-[60px] rounded-full p-[3px] bg-brand-gradient transition-all">
+                  <div className="h-full w-full rounded-full overflow-hidden ring-[2.5px] ring-background">
+                    {(currentUserPhoto || userStory.userPhoto) ? (
+                      <img
+                        src={currentUserPhoto || userStory.userPhoto!}
+                        alt={userStory.userNickname}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="h-full w-full bg-muted" />
+                    )}
+                  </div>
                 </div>
                 {/* Status dot: gray when owner has viewed, green otherwise */}
                 <div
@@ -82,11 +88,13 @@ export function FlowCarousel({
                   } rounded-full ring-1 ring-background`}
                 />
                 {/* View count badge */}
-                {viewCount !== undefined && viewCount > 0 && (
+                {isLoadingViewCount ? (
+                  <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-muted rounded-full ring-1 ring-background animate-pulse" />
+                ) : viewCount !== undefined && viewCount > 0 ? (
                   <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-brand text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 ring-1 ring-background">
                     {viewCount > 99 ? "99+" : viewCount}
                   </div>
-                )}
+                ) : null}
               </div>
               <span className="text-xs text-center truncate max-w-[60px] font-semibold text-brand">
                 Seu flow
@@ -133,30 +141,39 @@ export function FlowCarousel({
 
       {/* Other Stories */}
       {otherStories.length > 0 &&
-        otherStories.map((story) => (
-          <button
-            key={story.id}
-            onClick={() => onStoryClick(story)}
-            className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer"
-          >
-            <div className="relative">
-              <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-transparent group-hover:ring-brand transition-all">
-                {story.userPhoto ? (
-                  <img
-                    src={story.userPhoto}
-                    alt={story.userNickname}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="h-full w-full bg-muted" />
-                )}
+        otherStories.map((story) => {
+          const isViewed = viewedStoryIds?.has(story.user_id) ?? false;
+          return (
+            <button
+              key={story.id}
+              onClick={() => onStoryClick(story)}
+              className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer"
+            >
+              <div className="relative">
+                <div className={`h-[60px] w-[60px] rounded-full p-[3px] transition-all ${
+                  isViewed
+                    ? "bg-muted-foreground/30"
+                    : "bg-brand-gradient"
+                }`}>
+                  <div className="h-full w-full rounded-full overflow-hidden ring-[2.5px] ring-background">
+                    {story.userPhoto ? (
+                      <img
+                        src={story.userPhoto}
+                        alt={story.userNickname}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="h-full w-full bg-muted" />
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-            <span className="text-xs text-center truncate max-w-[60px]">
-              {story.userNickname.split(" ")[0]}
-            </span>
-          </button>
-        ))}
+              <span className={`text-xs text-center truncate max-w-[60px] ${isViewed ? "text-muted-foreground" : ""}`}>
+                {story.userNickname.split(" ")[0]}
+              </span>
+            </button>
+          );
+        })}
     </div>
   );
 }
