@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, MessageCircle, UserPlus, Zap, HeartHandshake, Flame, Trophy, Rocket, Target, Swords, Video } from "lucide-react";
+import { Heart, MessageCircle, UserPlus, Zap, Flame, Trophy, TrendingUp, Dumbbell, Swords, Video } from "lucide-react";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -73,22 +73,22 @@ export default function Notifications() {
   const getIncentiveTypeName = (type: number): string => {
     const incentiveNames: { [key: number]: string } = {
       1: "Apoio",
-      2: "Continua",
-      3: "Ganhador",
-      4: "Consegue Mais",
-      5: "Limite Maior",
-      6: "Mais Algum",
+      2: "Tá pegando fogo!",
+      3: "Vencedor!",
+      4: "Evolução!",
+      5: "Força total!",
+      6: "Energia máxima!",
     };
     return incentiveNames[type] || "Incentivo";
   };
 
   const getIncentiveIcon = (type: number) => {
     const incentiveIcons: { [key: number]: { Icon: React.ComponentType<React.SVGProps<SVGSVGElement>>, color: string } } = {
-      1: { Icon: HeartHandshake, color: "text-rose-500" },
+      1: { Icon: Heart, color: "text-rose-500" },
       2: { Icon: Flame, color: "text-orange-500" },
-      3: { Icon: Trophy, color: "text-emerald-500" },
-      4: { Icon: Rocket, color: "text-blue-500" },
-      5: { Icon: Target, color: "text-purple-500" },
+      3: { Icon: Trophy, color: "text-amber-500" },
+      4: { Icon: TrendingUp, color: "text-emerald-500" },
+      5: { Icon: Dumbbell, color: "text-blue-500" },
       6: { Icon: Zap, color: "text-yellow-500" },
     };
     return incentiveIcons[type];
@@ -177,6 +177,30 @@ export default function Notifications() {
       month: "short",
       day: "numeric",
     });
+  };
+
+  // Collapse multiple incentive notifications for the same post+type into one entry
+  const collapseIncentives = (notifs: NotificationItem[]): Array<NotificationItem & { groupedCount?: number; groupedNicknames?: string[] }> => {
+    const result: Array<NotificationItem & { groupedCount?: number; groupedNicknames?: string[] }> = [];
+    const seen = new Map<string, number>(); // key -> index in result
+
+    for (const n of notifs) {
+      if (n.type === 2 && n.incentiveType) {
+        const key = `${n.postId ?? n.shotId ?? ""}__${n.incentiveType}`;
+        if (seen.has(key)) {
+          const idx = seen.get(key)!;
+          result[idx].groupedCount = (result[idx].groupedCount ?? 1) + 1;
+          result[idx].groupedNicknames = [...(result[idx].groupedNicknames ?? [result[idx].userNickname]), n.userNickname];
+        } else {
+          seen.set(key, result.length);
+          result.push({ ...n, groupedCount: 1, groupedNicknames: [n.userNickname] });
+        }
+      } else {
+        result.push(n);
+      }
+    }
+
+    return result;
   };
 
   const groupNotificationsByDate = (notifs: NotificationItem[]) => {
@@ -320,7 +344,7 @@ export default function Notifications() {
               const groups = groupNotificationsByDate(notifications);
               const groupKeys = ["Hoje", "Ontem", "Esta semana", "Mais antigas"] as const;
               return groupKeys.map((label) => {
-                const groupNotifs = groups[label];
+                const groupNotifs = collapseIncentives(groups[label]);
                 if (groupNotifs.length === 0) return null;
                 return (
                   <div key={label}>
@@ -329,7 +353,19 @@ export default function Notifications() {
                     </p>
                     <div className="space-y-2">
                       {groupNotifs.map((notification) => {
-                        const content = getNotificationContent(notification);
+                        const grouped = (notification as any);
+                        const groupedCount: number = grouped.groupedCount ?? 1;
+                        const groupedNicknames: string[] = grouped.groupedNicknames ?? [notification.userNickname];
+                        const rawContent = getNotificationContent(notification);
+                        // Override description for grouped incentives
+                        const content = groupedCount > 1 && notification.type === 2
+                          ? {
+                              ...rawContent,
+                              description: groupedNicknames.length <= 2
+                                ? `${groupedNicknames.join(" e ")} te deram "${rawContent.title.replace(" recebido", "")}" ${notification.shotId ? "no seu reels" : "na sua postagem"}`
+                                : `${groupedNicknames[0]} e mais ${groupedCount - 1} pessoas te deram "${rawContent.title.replace(" recebido", "")}" ${notification.shotId ? "no seu reels" : "na sua postagem"}`,
+                            }
+                          : rawContent;
                         const isRead = notification.read === true;
 
                         return (
@@ -343,9 +379,24 @@ export default function Notifications() {
                             }`}
                           >
                             <div className="flex items-start gap-3">
-                              {/* User Avatar */}
-                              <div className="flex-shrink-0">
-                                {notification.userPhoto ? (
+                              {/* User Avatar — stacked for grouped incentives */}
+                              <div className="flex-shrink-0 relative" style={{ width: groupedCount > 1 ? "52px" : "48px", height: "48px" }}>
+                                {groupedCount > 1 ? (
+                                  <>
+                                    {/* Back avatar (second person) */}
+                                    <div className={`absolute top-0 right-0 h-9 w-9 rounded-full border-2 bg-muted ${isRead ? "border-background/60 opacity-50" : "border-background"} overflow-hidden`}>
+                                      {notification.userPhoto ? (
+                                        <img src={notification.userPhoto} alt="" className="h-full w-full object-cover" />
+                                      ) : null}
+                                    </div>
+                                    {/* Front avatar (first person) */}
+                                    <div className={`absolute bottom-0 left-0 h-9 w-9 rounded-full border-2 bg-muted ${isRead ? "border-background/60 opacity-60" : "border-background"} overflow-hidden`}>
+                                      {notification.userPhoto ? (
+                                        <img src={notification.userPhoto} alt={notification.userNickname} className="h-full w-full object-cover" />
+                                      ) : null}
+                                    </div>
+                                  </>
+                                ) : notification.userPhoto ? (
                                   <img
                                     src={notification.userPhoto}
                                     alt={notification.userNickname}

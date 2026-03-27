@@ -15,7 +15,6 @@ import {
   createUserWorkoutsDb,
   createUserDietsDb,
   createUserHabitsDb,
-  createRoutineDb,
   getUserRoutinesDb,
   getUserWorkoutsDb,
   getUserDietsDb,
@@ -36,6 +35,7 @@ import {
   saveDietHistoryDb,
   saveHabitHistoryDb,
   updateRoutineGoalDb,
+  updateRoutineNameDb,
   hasCompletedRoutineToday,
   getRoutineTypeName,
   createPostDb,
@@ -127,6 +127,7 @@ import {
 } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
 import { useLanguage } from "@/lib/language-context";
 
 export default function Goals() {
@@ -337,6 +338,14 @@ export default function Goals() {
   // Collapsed section state for Rotinas tab (stores type codes of collapsed sections)
   const [collapsedSections, setCollapsedSections] = React.useState<Set<number>>(new Set());
 
+  // Muscle/diet filter panel expand state in add-routine modal
+  const [showMuscleFilterPanel, setShowMuscleFilterPanel] = React.useState(false);
+
+  // Rename routine state
+  const [renameRoutineOpen, setRenameRoutineOpen] = React.useState(false);
+  const [renameRoutineData, setRenameRoutineData] = React.useState<{ typeCode: number; oldName: string | null } | null>(null);
+  const [renameRoutineValue, setRenameRoutineValue] = React.useState("");
+
   // Tracks which existing routine card we're adding items to (for pre-fill name context)
   const [addToRoutineCardName, setAddToRoutineCardName] = React.useState<string | null>(null);
 
@@ -474,6 +483,20 @@ export default function Goals() {
           );
           setCompletedDietIds(initCompletedDiets);
           setCompletedHabitIds(initCompletedHabits);
+
+          // Reset is_completed for items marked on a previous day (fire-and-forget)
+          const staleCompletedDiets = loadedDiets.filter(
+            (d: any) => d.is_completed && (!d.completed_at || new Date(d.completed_at).toDateString() !== todayStr)
+          );
+          const staleCompletedHabits = loadedHabits.filter(
+            (h: any) => h.is_completed && (!h.completed_at || new Date(h.completed_at).toDateString() !== todayStr)
+          );
+          for (const d of staleCompletedDiets) {
+            toggleUserDietCompletionDb(d.id, false).catch(() => {});
+          }
+          for (const h of staleCompletedHabits) {
+            toggleUserHabitCompletionDb(h.id, false).catch(() => {});
+          }
         }
         setLoading(false); // unblock UI immediately after critical data
       } catch (err: any) {
@@ -646,6 +669,10 @@ export default function Goals() {
       });
 
       setSelectedGoalIds([...selectedGoalIds, goal.id]);
+
+      // Refresh userGoals so editingGoal.id picks up the new user_goal row
+      const freshUserGoals = await getUserGoalsDb();
+      setUserGoals(freshUserGoals);
     } catch (err: any) {
       console.error("Erro ao selecionar meta:", err);
       toast({
@@ -1648,9 +1675,6 @@ export default function Goals() {
         return;
       }
 
-      // Always create a routine record so items appear in the routines tab
-      await createRoutineDb(user.id, selectedRoutineType as RoutineTypeCode, routineName.trim() || undefined);
-
       if (selectedRoutineType === 1) {
         // Save workouts — only new ones
         if (itemIds.length > 0) {
@@ -1687,6 +1711,7 @@ export default function Goals() {
       setRoutineName("");
       setSearchQuery("");
       setAddToRoutineCardName(null);
+      setShowMuscleFilterPanel(false);
 
       // Refresh routines and items data to show newly added items
       if (user) {
@@ -1772,35 +1797,6 @@ export default function Goals() {
         </div>
       </div>
 
-      {/* Streak Card */}
-      {streakCount > 0 && (
-        <div className={`flex items-center gap-3 rounded-2xl px-4 py-3 border ${
-          streakCount >= 30
-            ? "bg-purple-500/10 border-purple-500/30"
-            : streakCount >= 7
-            ? "bg-orange-500/10 border-orange-500/30"
-            : "bg-brand/10 border-brand/30"
-        }`}>
-          <span className="text-3xl leading-none">
-            {streakCount >= 30 ? "👑" : streakCount >= 7 ? "🔥" : "⭐"}
-          </span>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold leading-tight">
-              {streakCount} {streakCount === 1 ? "dia" : "dias"} consecutivos!
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {streakCount >= 30
-                ? "Você é lendário! Continue assim."
-                : streakCount >= 7
-                ? "Uma semana inteira de dedicação! 💪"
-                : "Continue fazendo check-in todo dia para aumentar seu streak."}
-            </p>
-          </div>
-          {dailyCheckInDone && (
-            <span className="text-xs font-semibold text-brand shrink-0">✓ hoje</span>
-          )}
-        </div>
-      )}
 
       <Tabs defaultValue={initialTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2">
@@ -2189,6 +2185,32 @@ export default function Goals() {
                   );
                 })()}
 
+              {/* Streak inside check-in card */}
+              {streakCount > 0 && (
+                <div className={`flex items-center gap-3 rounded-xl px-3 py-2.5 mt-1 ${
+                  streakCount >= 30
+                    ? "bg-purple-500/10 border border-purple-500/30"
+                    : streakCount >= 7
+                    ? "bg-orange-500/10 border border-orange-500/30"
+                    : "bg-brand/10 border border-brand/20"
+                }`}>
+                  <span className="text-2xl leading-none">
+                    {streakCount >= 30 ? "👑" : streakCount >= 7 ? "🔥" : "⭐"}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold leading-tight">
+                      {streakCount} {streakCount === 1 ? "dia" : "dias"} consecutivos!
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {streakCount >= 30
+                        ? "Você é lendário!"
+                        : streakCount >= 7
+                        ? "Uma semana inteira! 💪"
+                        : "Continue todos os dias!"}
+                    </p>
+                  </div>
+                </div>
+              )}
               </div>
             </CardContent>
           </Card>
@@ -2369,6 +2391,7 @@ export default function Goals() {
                                   setSearchQuery("");
                                   setSelectedMuscleGroups(new Set());
                                   setSelectedDietCategories(new Set());
+                                  setShowMuscleFilterPanel(false);
                                   // Pre-fill routine name when adding to an existing named routine
                                   setRoutineName(isNamed ? displayLabel : "");
                                   setAddToRoutineCardName(isNamed ? displayLabel : null);
@@ -2380,6 +2403,16 @@ export default function Goals() {
                                   : typeCode === 2
                                     ? "Adicionar dietas"
                                     : "Adicionar hábito"}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setRenameRoutineData({ typeCode, oldName: isNamed ? displayLabel : null });
+                                  setRenameRoutineValue(isNamed ? displayLabel : "");
+                                  setRenameRoutineOpen(true);
+                                }}
+                              >
+                                <Edit2 className="h-4 w-4 mr-2" />
+                                Editar rotina
                               </DropdownMenuItem>
                               {!routines.some(
                                 (r) =>
@@ -2784,35 +2817,44 @@ export default function Goals() {
                       </div>
                       {uniqueDietCategories.length > 0 && (
                         <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Filter className="h-4 w-4 text-muted-foreground" />
-                            <p className="text-xs font-medium text-muted-foreground">
-                              Filtrar por categoria:
-                            </p>
+                          <div className="flex items-center justify-between">
+                            <button
+                              type="button"
+                              onClick={() => setShowMuscleFilterPanel((v) => !v)}
+                              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+                            >
+                              <Filter className={`h-3.5 w-3.5 ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
+                              <p className={`text-xs font-medium ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
+                                Categoria {selectedDietCategories.size > 0 ? `(${selectedDietCategories.size})` : ""}
+                              </p>
+                              <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
+                            </button>
                             {selectedDietCategories.size > 0 && (
                               <button
                                 onClick={() => setSelectedDietCategories(new Set())}
-                                className="text-xs text-muted-foreground hover:text-foreground transition-colors ml-auto"
+                                className="text-xs text-brand hover:underline"
                               >
                                 Limpar
                               </button>
                             )}
                           </div>
-                          <div className="flex flex-wrap gap-2">
-                            {uniqueDietCategories.map((cat) => (
-                              <button
-                                key={cat}
-                                onClick={() => handleToggleDietCategory(cat)}
-                                className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
-                                  selectedDietCategories.has(cat)
-                                    ? "border-brand bg-brand/20 text-brand"
-                                    : "border-border/60 text-muted-foreground hover:border-border/80"
-                                }`}
-                              >
-                                {cat}
-                              </button>
-                            ))}
-                          </div>
+                          {showMuscleFilterPanel && (
+                            <div className="flex flex-wrap gap-2">
+                              {uniqueDietCategories.map((cat) => (
+                                <button
+                                  key={cat}
+                                  onClick={() => handleToggleDietCategory(cat)}
+                                  className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
+                                    selectedDietCategories.has(cat)
+                                      ? "border-brand bg-brand/20 text-brand"
+                                      : "border-border/60 text-muted-foreground hover:border-border/80"
+                                  }`}
+                                >
+                                  {cat}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2837,45 +2879,52 @@ export default function Goals() {
                       {uniqueMuscleGroups.length > 0 && (
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-                              <p className="text-xs font-medium text-muted-foreground">
-                                Grupo muscular
+                            <button
+                              type="button"
+                              onClick={() => setShowMuscleFilterPanel((v) => !v)}
+                              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+                            >
+                              <Filter className={`h-3.5 w-3.5 ${selectedMuscleGroups.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
+                              <p className={`text-xs font-medium ${selectedMuscleGroups.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
+                                Grupo muscular {selectedMuscleGroups.size > 0 ? `(${selectedMuscleGroups.size})` : ""}
                               </p>
-                            </div>
+                              <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
+                            </button>
                             {selectedMuscleGroups.size > 0 && (
                               <button
                                 onClick={() => setSelectedMuscleGroups(new Set())}
                                 className="text-xs text-brand hover:underline"
                               >
-                                Limpar filtros
+                                Limpar
                               </button>
                             )}
                           </div>
-                          <div className="grid grid-cols-4 gap-1.5">
-                            {uniqueMuscleGroups.map((muscleGroup) => {
-                              const groupIcons: Record<string, string> = {
-                                "Peito": "🏋️", "Costas": "🔙", "Pernas": "🦵",
-                                "Ombros": "💪", "Braços": "💪", "Abdômen": "⚡",
-                                "Glúteos": "🍑", "Cardio": "❤️", "Full Body": "🔥",
-                              };
-                              const isActive = selectedMuscleGroups.has(muscleGroup);
-                              return (
-                                <button
-                                  key={muscleGroup}
-                                  onClick={() => handleToggleMuscleGroup(muscleGroup)}
-                                  className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl border text-center transition-all ${
-                                    isActive
-                                      ? "border-brand bg-brand/15 text-brand shadow-sm"
-                                      : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
-                                  }`}
-                                >
-                                  <span className="text-base leading-none">{groupIcons[muscleGroup] || "💪"}</span>
-                                  <span className="text-[10px] font-medium leading-tight">{muscleGroup}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
+                          {showMuscleFilterPanel && (
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {uniqueMuscleGroups.map((muscleGroup) => {
+                                const groupIcons: Record<string, string> = {
+                                  "Peito": "🏋️", "Costas": "🔙", "Pernas": "🦵",
+                                  "Ombros": "💪", "Braços": "💪", "Abdômen": "⚡",
+                                  "Glúteos": "🍑", "Cardio": "❤️", "Full Body": "🔥",
+                                };
+                                const isActive = selectedMuscleGroups.has(muscleGroup);
+                                return (
+                                  <button
+                                    key={muscleGroup}
+                                    onClick={() => handleToggleMuscleGroup(muscleGroup)}
+                                    className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl border text-center transition-all ${
+                                      isActive
+                                        ? "border-brand bg-brand/15 text-brand shadow-sm"
+                                        : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
+                                    }`}
+                                  >
+                                    <span className="text-base leading-none">{groupIcons[muscleGroup] || "💪"}</span>
+                                    <span className="text-[10px] font-medium leading-tight">{muscleGroup}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -3634,9 +3683,9 @@ export default function Goals() {
                         const updatedGoals = await getUserGoalsDb();
                         setUserGoals(updatedGoals);
 
-                        // Remove from selected goals
+                        // Remove from selected goals (selectedGoalIds contains goal_id, not user_goal id)
                         setSelectedGoalIds(
-                          selectedGoalIds.filter((id) => id !== editingGoal.id)
+                          selectedGoalIds.filter((id) => id !== editingGoal.goal_id)
                         );
 
                         toast({
@@ -3787,6 +3836,7 @@ export default function Goals() {
 
             toast({ title: "Check-in no duelo! ⚔️", description: "Seu treino foi registrado no grupo." });
             closeSummary();
+            navigate("/comunidade");
           } catch (err: any) {
             toast({ title: "Erro ao compartilhar no duelo", description: err?.message || "Tente novamente.", variant: "destructive" });
           } finally {
@@ -3857,6 +3907,7 @@ export default function Goals() {
 
             toast({ title: "Postado no feed! 🎉", description: "Seu treino foi compartilhado." });
             closeSummary();
+            navigate("/");
           } catch (err: any) {
             toast({ title: "Erro ao compartilhar", description: err?.message || "Tente novamente.", variant: "destructive" });
           } finally {
@@ -4087,8 +4138,14 @@ export default function Goals() {
         );
       })()}
 
-      {/* Badges/Insignias Drawer Modal */}
-      <Drawer open={badgesModalOpen} onOpenChange={setBadgesModalOpen}>
+      {/* Badges/Insignias Drawer Modal — using shared InsigniasDrawer component */}
+      <InsigniasDrawer
+        open={badgesModalOpen}
+        onOpenChange={setBadgesModalOpen}
+        weekCheckIns={weekCheckIns.size}
+      />
+      {/* LEGACY INLINE DRAWER REMOVED — kept below as dead block for reference, delete after QA */}
+      {false && <Drawer open={false} onOpenChange={() => {}}>
         <DrawerContent className="max-h-[80dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30">
           <DrawerHeader className="shrink-0 border-b border-border/60">
             <DrawerTitle className="flex items-center gap-2">
@@ -4262,7 +4319,7 @@ export default function Goals() {
             </p>
           </div>
         </DrawerContent>
-      </Drawer>
+      </Drawer>}
 
       {/* Workout History Drawer */}
       <Drawer open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
@@ -4491,12 +4548,19 @@ export default function Goals() {
                 ? String(selectedGoalForRoutines.id)
                 : null;
 
+              // In link mode: hide routines already linked to this goal
+              const alreadyLinkedRoutineIds = new Set(
+                routines
+                  .filter((r) => r.goal_id && goalId && String(r.goal_id) === goalId)
+                  .map((r) => r.id)
+              );
+
               const displayRoutines =
                 goalRoutineModalMode === "view"
                   ? routines.filter(
                     (r) => r.goal_id && goalId && String(r.goal_id) === goalId,
                   )
-                  : routines;
+                  : routines.filter((r) => !alreadyLinkedRoutineIds.has(r.id));
 
               if (displayRoutines.length === 0) {
                 return (
@@ -4600,10 +4664,10 @@ export default function Goals() {
                                   {(() => {
                                     const routineName = items[0]?.name ?? null;
                                     const allSubItems = typeCode === 1
-                                      ? userWorkouts.filter((w) => w.name === routineName)
+                                      ? userWorkouts.filter((w) => routineName ? w.name === routineName : !w.name)
                                       : typeCode === 2
-                                        ? userDiets.filter((d) => d.name === routineName)
-                                        : userHabits.filter((h) => h.name === routineName);
+                                        ? userDiets.filter((d) => routineName ? d.name === routineName : !d.name)
+                                        : userHabits.filter((h) => routineName ? h.name === routineName : !h.name);
                                     const seen = new Set<string>();
                                     const dedupedItems = allSubItems.filter((item: any) => {
                                       const key = typeCode === 1 ? item.workout_id : typeCode === 2 ? item.diet_id : item.habit_id;
@@ -4683,12 +4747,14 @@ export default function Goals() {
                           );
 
                           // Sub-items from related table filtered by group name (deduplicated)
+                          // groupName === label means the routine has no name (null), so filter by !name
+                          const isUnnamed = groupName === label;
                           const subItemsRaw =
                             code === 1
-                              ? userWorkouts.filter((w) => w.name && w.name === groupName)
+                              ? userWorkouts.filter((w) => isUnnamed ? !w.name : w.name === groupName)
                               : code === 2
-                                ? userDiets.filter((d) => d.name && d.name === groupName)
-                                : userHabits.filter((h) => h.name && h.name === groupName);
+                                ? userDiets.filter((d) => isUnnamed ? !d.name : d.name === groupName)
+                                : userHabits.filter((h) => isUnnamed ? !h.name : h.name === groupName);
                           const seenSubIds = new Set<string>();
                           const subItems = subItemsRaw.filter((item: any) => {
                             const key = code === 1 ? item.workout_id : code === 2 ? item.diet_id : item.habit_id;
@@ -5158,6 +5224,64 @@ export default function Goals() {
           )}
         </DrawerContent>
       </Drawer>
+
+      {/* Rename Routine Dialog */}
+      <Dialog open={renameRoutineOpen} onOpenChange={setRenameRoutineOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Editar nome da rotina</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <Input
+              placeholder="Nome da rotina"
+              value={renameRoutineValue}
+              onChange={(e) => setRenameRoutineValue(e.target.value)}
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1 rounded-full"
+                onClick={() => setRenameRoutineOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                className="flex-1 rounded-full"
+                disabled={!renameRoutineValue.trim()}
+                onClick={async () => {
+                  if (!user || !renameRoutineData || !renameRoutineValue.trim()) return;
+                  try {
+                    await updateRoutineNameDb(
+                      user.id,
+                      renameRoutineData.oldName,
+                      renameRoutineData.typeCode,
+                      renameRoutineValue.trim(),
+                    );
+                    // Refresh local state
+                    const [freshRoutines, freshWorkouts, freshDiets, freshHabits] = await Promise.all([
+                      getUserRoutinesDb(user.id),
+                      getUserWorkoutsDb(user.id),
+                      getUserDietsDb(user.id),
+                      getUserHabitsDb(user.id),
+                    ]);
+                    setRoutines(freshRoutines);
+                    setUserWorkouts(freshWorkouts);
+                    setUserDiets(freshDiets);
+                    setUserHabits(freshHabits);
+                    toast({ title: "Rotina renomeada!", description: `Nome atualizado para "${renameRoutineValue.trim()}".` });
+                    setRenameRoutineOpen(false);
+                  } catch {
+                    toast({ title: "Erro ao renomear rotina", variant: "destructive" });
+                  }
+                }}
+              >
+                Salvar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

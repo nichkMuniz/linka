@@ -13,6 +13,7 @@ import {
   getRoutineWorkoutsDb,
   getRoutineDietsDb,
   copyRoutineToUserDb,
+  getCopiedRoutineKeysDb,
   type SearchUser,
   type RoutineResult,
   type RoutineItemRow,
@@ -162,11 +163,12 @@ export default function Search() {
   React.useEffect(() => {
     if (!user) return;
     setIsLoading(true);
-    Promise.all([getAllUsersDb(user.id), getFollowingIdsDb()])
-      .then(([users, followingIdsList]) => {
+    Promise.all([getAllUsersDb(user.id), getFollowingIdsDb(), getCopiedRoutineKeysDb(user.id)])
+      .then(([users, followingIdsList, copiedKeys]) => {
         setAllUsers(users);
         setSearchUsers(users);
         setFollowingIds(new Set(followingIdsList));
+        setCopiedKeys(copiedKeys);
       })
       .catch((err) => console.error("Error loading users:", err))
       .finally(() => setIsLoading(false));
@@ -187,7 +189,7 @@ export default function Search() {
         .catch((err) => console.error("Error loading diets:", err))
         .finally(() => setIsLoading(false));
     }
-  }, [activeTab]);
+  }, [activeTab, user?.id]);
 
   const handleSearch = React.useCallback(
     async (query: string) => {

@@ -81,22 +81,34 @@ Fluxo multi-etapas com 4 passos:
 | Bio | Textarea | Descrição pessoal, opcional |
 | Perfil comercial | Toggle | Ativa campos de negócio |
 
-**Se perfil comercial ativado:**
+**Se perfil comercial ativado → abre wizard comercial (Step 2.5) com 3 sub-etapas:**
+
+**Sub-etapa 1 — Essenciais:**
+| Campo | Tipo | Obrigatório |
+|---|---|---|
+| Segmento do negócio | Select | ✓ |
+| Nome do negócio | Input | ✓ |
+| Descrição | Textarea | — |
+
+**Sub-etapa 2 — Contato:**
 | Campo | Tipo |
 |---|---|
-| Segmento do negócio | Input |
-| Nome do negócio | Input |
-| Descrição do negócio | Textarea |
-| Telefone comercial | Input |
+| Telefone comercial | Input (máscara) |
 | Email comercial | Input |
-| Website | Input |
 
-**Botões:** Voltar | Próximo
+**Sub-etapa 3 — Presença online:**
+| Campo | Tipo |
+|---|---|
+| Site / Portfolio | Input URL |
+
+Exibe resumo do perfil comercial antes de concluir. Botão "Pular por agora" disponível nas sub-etapas opcionais.
+
+**Botões:** Voltar | Próximo / Concluir
 
 ---
 
-### Step 3 — Interesses
-Seleção de segmentos fitness (múltipla escolha):
+### Step 3 — Objetivos
+Seleção de objetivos fitness (múltipla escolha). Os valores selecionados são salvos no campo `objectives` (text[]) da tabela `profiles` e também no `localStorage` para personalização do feed.
 
 | ID | Label |
 |---|---|
@@ -143,7 +155,7 @@ Login
 
 Cadastro
   └─ supabase.auth.signUp()
-       └─ Sucesso → cria perfil no DB → segue usuários selecionados → navega para /
+       └─ Sucesso → signIn → upsert profiles (photo, bio, objectives) → insert commercial_profiles → navega para /
 ```
 
 ---

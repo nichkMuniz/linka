@@ -51,6 +51,11 @@ Visualização isolada de um post específico. Permite ver o post com todas as s
 - Texto completo do post
 - `whitespace-pre-wrap` para preservar quebras de linha
 
+### Meta Vinculada (condicional)
+- Exibida logo abaixo da descrição quando o post tem `user_goal_id`
+- Card roxo (`bg-violet-500/10`) com ícone `Rocket` e a descrição da meta
+- Buscada via `getUserGoalByIdDb(post.user_goal_id)` ao carregar o post
+
 ### Botões de Interação
 | Elemento | Posição | Componente |
 |---|---|---|

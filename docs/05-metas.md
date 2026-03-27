@@ -46,6 +46,21 @@ Cada meta exibe:
 - Adiciona pontos ao usuário via `addPointsDb`
 - Exibe histórico semanal de check-ins (7 dias)
 - Detecta se já fez check-in hoje via `getTodayCheckInDb`
+- Exibe streak de dias consecutivos **dentro do próprio card de check-in** (frame separado removido)
+
+**Hábitos/Dietas concluídos:**
+- `is_completed` + `completed_at` são salvos juntos ao marcar como concluído
+- No carregamento, itens com `is_completed = true` mas `completed_at` de dia anterior têm o campo resetado automaticamente (fire-and-forget)
+- Itens concluídos hoje somem da lista de rotinas até o dia seguinte
+
+**Modal vincular rotinas:**
+- Modo "link": oculta rotinas já vinculadas à meta selecionada
+- Rotinas sem nome exibem itens corretamente (filtro por `name IS NULL`)
+
+**Modal resumo do treino:**
+- "Compartilhar no Feed" → navega para `/` após postar
+- "Compartilhar no Duelo" → navega para `/comunidade` após postar
+- Grupos de duelo incluem grupos onde o usuário é participante (não só criador)
 
 ---
 
@@ -65,7 +80,11 @@ Cada rotina exibe:
 - Lista de itens (exercícios / refeições / hábitos)
 - Status de conclusão diária
 - Botão de compartilhar rotina
-- Menu: Editar nome | Excluir rotina
+- Menu: Adicionar itens | Editar rotina (renomear) | Vincular Meta | Excluir rotina
+
+**Editar rotina:** Dialog para renomear. Atualiza `routines.name`, `user_workouts.name`, `user_diets.name` ou `user_habits.name` via `updateRoutineNameDb`.
+
+**Filtro de grupo muscular / categoria:** Oculto por padrão, expandido ao clicar no ícone de filtro (chevron toggle). Mostra contador de filtros ativos.
 
 ---
 
@@ -112,6 +131,12 @@ Cada hábito exibe:
 - Frequência alvo
 - Toggle de conclusão diária
 - Streak (dias consecutivos)
+
+---
+
+## Metas Disponíveis (catálogo)
+
+Exibe apenas metas com `created_by_user = 0` (metas padrão do sistema). Metas criadas por usuários (`created_by_user = 1`) ficam visíveis somente para quem as criou via `getUserGoalsDb`.
 
 ---
 
@@ -200,7 +225,7 @@ Usuário quer adicionar exercício
 
 | Dado | Função DB |
 |---|---|
-| Metas programadas | `getProgrammedGoalsDb()` |
+| Metas programadas (apenas padrão) | `getProgrammedGoalsDb()` — filtra `created_by_user = 0` |
 | Metas do usuário | `getUserGoalsDb()` |
 | IDs de metas selecionadas | `getUserSelectedGoalIdsDb()` |
 | Treinos disponíveis | `getWorkoutsDb()` |
@@ -214,6 +239,17 @@ Usuário quer adicionar exercício
 | Check-ins da semana | `getWeekCheckInsDb()` |
 | Histórico de check-ins | `getCheckInHistoryDb()` |
 | Histórico de treinos | `getWorkoutHistoriesBatchDb()` |
+
+---
+
+## Componentes Utilizados
+
+| Dado | Função DB |
+|---|---|
+| Renomear rotina (routines + items) | `updateRoutineNameDb(userId, oldName, typeCode, newName)` |
+| Toggle conclusão dieta (com timestamp) | `toggleUserDietCompletionDb(id, isCompleted)` — salva `completed_at` |
+| Toggle conclusão hábito (com timestamp) | `toggleUserHabitCompletionDb(id, isCompleted)` — salva `completed_at` |
+| Grupos de duelo (criados + participante) | `getEnrichedDuelGroupsDb(userId)` — `myGroups` inclui grupos onde usuário é participante |
 
 ---
 

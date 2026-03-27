@@ -49,8 +49,27 @@ Cada conversa exibe:
 | Timestamp | Hora/data da última mensagem |
 | Badge não lida | Ponto/contagem de mensagens não lidas |
 | Status lida | `Check` (enviada) / `CheckCheck` (lida) |
+| Botão excluir | Ícone `Trash2` — aparece ao hover, abre AlertDialog de confirmação |
 
-Ao clicar → entra na conversa (viewMode: `conversation`)
+Ao clicar na linha → entra na conversa (viewMode: `conversation`)
+Ao clicar no botão excluir → remove todas as mensagens da conversa (`deleteConversationDb`)
+
+---
+
+---
+
+## Tab: Solicitações
+
+A aba aparece quando há convites ou pedidos pendentes. Exibe **duas seções**:
+
+1. **Convites recebidos** — grupos para os quais o usuário foi convidado (aceitar/recusar)
+2. **Pedidos para entrar nos seus grupos** — usuários que solicitaram entrada em grupos criados pelo usuário logado (aprovar/recusar)
+   - Exibe nome do usuário, foto, grupo e **quantidade de participantes** do grupo
+   - Ao aprovar → `approveGroupRequestDb` (muda status para "accepted")
+   - Ao recusar → `rejectGroupRequestDb` (remove da tabela)
+
+> A aba recarrega os pendentes sempre que é selecionada (refresh automático).
+> Após recusar um convite, se não houver mais solicitações, retorna para a aba de Duelos.
 
 ---
 
@@ -79,7 +98,7 @@ Exibe:
 
 **Header:**
 - Botão `ArrowLeft` para voltar à lista
-- Avatar + nome do contato
+- Avatar + nome do contato + **insígnia do usuário** (`UserInsignias` component ao lado do nome)
 - Clicável → navega para o perfil do contato
 
 **Lista de Mensagens:**
@@ -99,9 +118,15 @@ Exibe:
 - Auto-scroll para última mensagem
 - Marca mensagens como lidas ao abrir a conversa (`markMessagesAsReadDb`) e ao receber mensagem em tempo real
 
+**Long Press / Segurar Mensagem:**
+- Segurar (touch 450ms) ou clique com botão direito abre um overlay de ações no estilo Instagram
+- O overlay exibe preview da mensagem, 6 emojis rápidos (❤️ 😂 😮 😢 😡 👍) e a ação "Responder"
+- **Responder mensagem:** seleciona a mensagem como contexto de reply; um banner aparece acima do input mostrando o texto original com botão "X" para cancelar
+- A mensagem enviada como reply é prefixada com `↩ <texto original>\n\n<nova mensagem>` no banco
+- Na renderização, mensagens com prefixo `↩` exibem uma citação visual (bloco com borda lateral) antes do texto principal
+
 **Reações de Emoji:**
-- Toque na mensagem abre picker com 6 emojis rápidos (❤️ 😂 😮 😢 👍 🔥) + botão "+" para abrir teclado emoji nativo do celular
-- Long press / clique com botão direito também abre o picker
+- Emojis rápidos disponíveis no overlay de long press
 - Reações persistidas no banco via `message_reactions` (funções: `addMessageReactionDb`, `removeMessageReactionDb`, `getMessageReactionsDb`)
 - Clique na reação existente a remove (toggle)
 - Reações com múltiplos usuários exibem contador
@@ -208,7 +233,8 @@ Fluxo em 4 etapas com barra de progresso visual no topo:
 **Cards de Check-in no Histórico:**
 - Foto de perfil do usuário ao lado do nome
 - Tag de grupo muscular
-- Nome da rotina + horário
+- Nome da rotina / descrição
+- **Horário sempre visível** (mesmo quando há foto) — exibido abaixo da thumbnail
 
 **Modal de Detalhe do Check-in:**
 - Foto de perfil do usuário (com fallback para inicial)
@@ -216,6 +242,10 @@ Fluxo em 4 etapas com barra de progresso visual no topo:
 - Tag de grupo muscular
 - Lista de exercícios realizados com nome, grupo muscular e carga (kg)
 - Volume total e número de exercícios como stats
+- **Reações de emoji** — 6 emojis rápidos (❤️ 🔥 💪 😮 👏 🏆), toggle por usuário, contador de reações (`duel_check_in_reactions`)
+- **Seção de comentários** — lista de comentários com avatar + nome + horário, input para enviar novo comentário (`duel_check_in_comments`)
+
+> **Tabelas necessárias:** `duel_check_in_comments` e `duel_check_in_reactions` — ver migration em `docs/migrations/20260327-community-features.sql`
 
 ---
 
@@ -258,6 +288,14 @@ Dados carregados via `getRankingDb()`
 | Check-ins de um grupo | `getGroupCheckInsDb(groupId)` |
 | Participantes de um grupo | `getGroupParticipantsDb(groupId)` |
 | Convites pendentes | `getPendingInvitesDb()` |
+| Solicitações de entrada nos grupos do dono | `getPendingGroupRequestsDb()` |
+| Comentários de um check-in | `getCheckInCommentsDb(checkInId)` |
+| Adicionar comentário em check-in | `addCheckInCommentDb(checkInId, text)` |
+| Reações de emoji em check-ins | `getCheckInReactionsDb(checkInIds[])` |
+| Adicionar/remover reação | `setCheckInReactionDb(checkInId, emoji)` |
+| Excluir conversa | `deleteConversationDb(otherUserId)` |
+| Aprovar solicitação de grupo | `approveGroupRequestDb(groupId, userId)` |
+| Recusar solicitação de grupo | `rejectGroupRequestDb(groupId, userId)` |
 | Rotinas de exercício | `getUserExerciseRoutinesDb()` |
 | Treinos do usuário | `getUserWorkoutsDb()` |
 | Perfil do usuário | `getUserProfileDb()` |

@@ -38,6 +38,7 @@ import {
   createOrUpdateCommercialProfileDb,
   getWorkoutHistoryDb,
   getUserActiveStoriesDb,
+  deleteAllUserDataDb,
   type UserProfile,
   type PostWithUser,
   type UserStats,
@@ -1259,18 +1260,9 @@ export default function Profile() {
 
     setIsDeleting(true);
     try {
-      // Delete user profile which should cascade delete related data via RLS
-      if (supabase) {
-        const { error: deleteError } = await supabase
-          .from("profiles")
-          .delete()
-          .eq("user_id", user.id);
-
-        if (deleteError) throw deleteError;
-
-        // Sign out the user
-        await resetSupabaseAuth();
-      }
+      // Delete all user data across every table, then sign out
+      await deleteAllUserDataDb(user.id);
+      await resetSupabaseAuth();
 
       setIsDeleteAccountOpen(false);
       setIsSettingsOpen(false);

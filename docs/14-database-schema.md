@@ -91,8 +91,6 @@ Comentários feitos por usuários em posts do feed.
 | `post_id` | uuid | FK → `posts.id` | — | Post comentado |
 | `text` | text | — | — | Conteúdo do comentário |
 | `created_at` | timestamp | — | `now()` | Data de criação |
-| `user_handle` | text | — | — | Handle do autor (denormalizado) |
-| `read` | smallint | — | — | Flag de leitura (0 = não lido, 1 = lido) |
 
 ---
 
@@ -357,6 +355,7 @@ Mensagens diretas trocadas entre usuários.
 | `created_at` | timestamptz | ✓ | `now()` | Data de envio |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `id_following` | uuid | — | — | Destinatário da mensagem |
+| `emojis` | text | — | — | Emojis da mensagem |
 
 ---
 
@@ -422,6 +421,7 @@ Perfil público dos usuários da plataforma.
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `photo` | text | — | — | URL da foto de perfil |
+| `objectives` | text[] | — | — | Objetivos fitness selecionados no cadastro (ex: ["fitness", "cardio"]) |
 
 ---
 

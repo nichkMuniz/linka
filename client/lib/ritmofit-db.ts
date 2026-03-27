@@ -325,9 +325,10 @@ export async function getPostCommentsDb(
 
   const { data, error } = await supabase
     .from("comments")
-    .select("*")
+    .select("id, post_id, user_id, text, created_at")
     .eq("post_id", postId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .limit(500);
 
   if (error) {
     console.error("Error fetching comments:", error);
@@ -412,6 +413,7 @@ export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
   const { data, error } = await supabase
     .from("goals")
     .select("id, description, duration, quantity, type, created_by_user")
+    .eq("created_by_user", 0)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -568,6 +570,7 @@ export type UserGoal = {
 
 export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
   if (!hasSupabaseConfig || !supabase) return null;
+  assertUUID(goalId, "ID da meta");
 
   const { data, error } = await supabase
     .from("goals")
@@ -789,16 +792,18 @@ export type UserProfile = {
   nickname: string;
   bio: string;
   photo: string | null;
+  objectives?: string[] | null;
 };
 
 export async function getUserProfileDb(
   userId: string,
 ): Promise<UserProfile | null> {
   if (!hasSupabaseConfig || !supabase) return null;
+  assertUUID(userId, "ID do usuário");
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, nickname, bio, photo")
+    .select("id, nickname, bio, photo, objectives")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -1310,6 +1315,51 @@ export async function updateRoutineGoalDb(
   };
 }
 
+export async function updateRoutineNameDb(
+  userId: string,
+  oldName: string | null | undefined,
+  typeCode: number,
+  newName: string,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  let query = supabase
+    .from("routines")
+    .update({ name: newName.trim() || null })
+    .eq("user_id", userId)
+    .eq("type", typeCode);
+
+  if (oldName) {
+    query = query.eq("name", oldName);
+  } else {
+    query = query.is("name", null);
+  }
+
+  const { error } = await query;
+
+  if (error) {
+    console.error("Error updating routine name:", error);
+    return false;
+  }
+
+  // Also update user_workouts / user_diets / user_habits name column
+  if (typeCode === 1) {
+    let wQuery = supabase.from("user_workouts").update({ name: newName.trim() || null }).eq("user_id", userId);
+    wQuery = oldName ? wQuery.eq("name", oldName) : wQuery.is("name", null);
+    await wQuery;
+  } else if (typeCode === 2) {
+    let dQuery = supabase.from("user_diets").update({ name: newName.trim() || null }).eq("user_id", userId);
+    dQuery = oldName ? dQuery.eq("name", oldName) : dQuery.is("name", null);
+    await dQuery;
+  } else if (typeCode === 3) {
+    let hQuery = supabase.from("user_habits").update({ name: newName.trim() || null }).eq("user_id", userId);
+    hQuery = oldName ? hQuery.eq("name", oldName) : hQuery.is("name", null);
+    await hQuery;
+  }
+
+  return true;
+}
+
 export async function deleteRoutinesOfTypeDb(
   userId: string,
   type: RoutineTypeCode,
@@ -1743,7 +1793,7 @@ export async function getUserDietsDb(
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, diet_id, user_id, name, diets(name, photo, description)",
+      "id, diet_id, user_id, name, is_completed, completed_at, diets(name, photo, description)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -1765,7 +1815,7 @@ export async function getUserDietsDb(
 
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_diets")
-        .select("id, diet_id, user_id, name")
+        .select("id, diet_id, user_id, name, is_completed, completed_at")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
@@ -1799,8 +1849,8 @@ export async function getUserDietsDb(
             dietName: dietDetails?.name || "Dieta desconhecida",
             dietPhoto: dietDetails?.photo || null,
             dietDescription: dietDetails?.description || undefined,
-            is_completed: false,
-            completed_at: null,
+            is_completed: row.is_completed ?? false,
+            completed_at: row.completed_at ?? null,
           };
         });
       } else if (errorFallback) {
@@ -1825,8 +1875,8 @@ export async function getUserDietsDb(
     dietName: (row.diets as any)?.name || "Dieta desconhecida",
     dietPhoto: (row.diets as any)?.photo || null,
     dietDescription: (row.diets as any)?.description || undefined,
-    is_completed: false,
-    completed_at: null,
+    is_completed: row.is_completed ?? false,
+    completed_at: row.completed_at ?? null,
   }));
 }
 
@@ -1891,7 +1941,7 @@ export async function getUserHabitsDb(
 
   const { data, error } = await supabase
     .from("user_habits")
-    .select("id, habit_id, user_id, name, habits(name, photo, description)")
+    .select("id, habit_id, user_id, name, is_completed, completed_at, habits(name, photo, description)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -1912,7 +1962,7 @@ export async function getUserHabitsDb(
 
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_habits")
-        .select("id, habit_id, user_id, name")
+        .select("id, habit_id, user_id, name, is_completed, completed_at")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
@@ -1946,8 +1996,8 @@ export async function getUserHabitsDb(
             habitName: habitDetails?.name || "Hábito desconhecido",
             habitPhoto: habitDetails?.photo || null,
             habitDescription: habitDetails?.description || undefined,
-            is_completed: false,
-            completed_at: null,
+            is_completed: row.is_completed ?? false,
+            completed_at: row.completed_at ?? null,
           };
         });
       } else if (errorFallback) {
@@ -1972,8 +2022,8 @@ export async function getUserHabitsDb(
     habitName: (row.habits as any)?.name || "Hábito desconhecido",
     habitPhoto: (row.habits as any)?.photo || null,
     habitDescription: (row.habits as any)?.description || undefined,
-    is_completed: false,
-    completed_at: null,
+    is_completed: row.is_completed ?? false,
+    completed_at: row.completed_at ?? null,
   }));
 }
 
@@ -2314,6 +2364,24 @@ export async function searchRoutinesDb(
   }
 }
 
+// Returns keys ("sourceUserId::routineName") for routines the current user has already copied
+export async function getCopiedRoutineKeysDb(currentUserId: string): Promise<Set<string>> {
+  if (!hasSupabaseConfig || !supabase) return new Set();
+  try {
+    const { data, error } = await supabase
+      .from("routines")
+      .select("follower_id, name")
+      .eq("user_id", currentUserId)
+      .not("follower_id", "is", null);
+    if (error || !data?.length) return new Set();
+    return new Set(
+      (data as any[]).map((row) => `${String(row.follower_id)}::${row.name ?? null}`)
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 // Fetch exercises for a user's workout routine (for dropdown display)
 export type RoutineItemRow = {
   id: string;
@@ -2434,40 +2502,7 @@ export async function copyRoutineToUserDb(
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
-  // Step 1: Insert the routines entry WITH follower_id BEFORE inserting items.
-  // This ensures the trigger on user_workouts/user_diets finds the entry already
-  // existing and skips creating a duplicate with follower_id = null.
-  const routineCheckQuery = supabase.from("routines").select("id")
-    .eq("user_id", targetUserId)
-    .eq("type", routineType);
-
-  const { data: existingRoutine } = routineName
-    ? await routineCheckQuery.eq("name", routineName)
-    : await routineCheckQuery.is("name", null);
-
-  if (!existingRoutine?.length) {
-    const { error: routineError } = await supabase.from("routines").insert({
-      user_id: targetUserId,
-      type: routineType,
-      name: routineName ?? null,
-      follower_id: sourceUserId,
-    });
-    if (routineError) console.error("Error creating routine entry before copy:", routineError.message);
-  } else {
-    // Entry exists (possibly created by a previous trigger) — update follower_id
-    const updateQuery = supabase.from("routines")
-      .update({ follower_id: sourceUserId })
-      .eq("user_id", targetUserId)
-      .eq("type", routineType);
-
-    const { error: updateError } = routineName
-      ? await updateQuery.eq("name", routineName)
-      : await updateQuery.is("name", null);
-
-    if (updateError) console.error("Error updating follower_id on routine:", updateError.message);
-  }
-
-  // Step 2: Insert the actual items (trigger may fire but entry already exists — skip logic in trigger)
+  // Step 1: Insert the actual items — the DB trigger will create the routines entry.
   if (routineType === 1) {
     const query = supabase
       .from("user_workouts")
@@ -2510,9 +2545,7 @@ export async function copyRoutineToUserDb(
     if (insertError) throw new Error(insertError.message);
   }
 
-  // Step 3: Force-update follower_id after items are inserted.
-  // The trigger on user_workouts/user_diets may have overwritten or re-created
-  // the routines entry without follower_id, so we always re-apply it here.
+  // Step 2: Set follower_id on the routines entry created by the trigger.
   const finalUpdateQuery = supabase
     .from("routines")
     .update({ follower_id: sourceUserId })
@@ -3210,6 +3243,7 @@ export type Message = {
   text: string;
   read: 0 | 1;
   created_at: string;
+  emoji: string | null;
 };
 
 export type MessageWithUser = Message & {
@@ -3435,6 +3469,25 @@ export async function markMessagesAsReadDb(
     console.error("Error marking messages as read:", err);
     return false;
   }
+}
+
+export async function setMessageEmojiDb(
+  messageId: string,
+  emoji: string | null,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  const { error } = await supabase
+    .from("messages")
+    .update({ emoji })
+    .eq("id", messageId);
+
+  if (error) {
+    console.error("Error setting message emoji:", error);
+    return false;
+  }
+
+  return true;
 }
 
 export async function getUnreadMessageCountDb(): Promise<number> {
@@ -4137,6 +4190,7 @@ export async function getShotCommentsDb(
 
 export async function deleteShotCommentDb(commentId: string) {
   if (!hasSupabaseConfig || !supabase) return;
+  assertUUID(commentId, "ID do comentário");
 
   const viewer = await getViewer();
   if (!viewer) return;
@@ -4313,9 +4367,16 @@ export async function toggleUserDietCompletionDb(
 ): Promise<boolean> {
   if (!hasSupabaseConfig || !supabase) return false;
 
+  const updatePayload: Record<string, any> = { is_completed: isCompleted };
+  if (isCompleted) {
+    updatePayload.completed_at = new Date().toISOString();
+  } else {
+    updatePayload.completed_at = null;
+  }
+
   const { error } = await supabase
     .from("user_diets")
-    .update({ is_completed: isCompleted })
+    .update(updatePayload)
     .eq("id", userDietId);
 
   if (error) {
@@ -4333,9 +4394,16 @@ export async function toggleUserHabitCompletionDb(
 ): Promise<boolean> {
   if (!hasSupabaseConfig || !supabase) return false;
 
+  const updatePayload: Record<string, any> = { is_completed: isCompleted };
+  if (isCompleted) {
+    updatePayload.completed_at = new Date().toISOString();
+  } else {
+    updatePayload.completed_at = null;
+  }
+
   const { error } = await supabase
     .from("user_habits")
-    .update({ is_completed: isCompleted })
+    .update(updatePayload)
     .eq("id", userHabitId);
 
   if (error) {
@@ -4358,24 +4426,25 @@ export async function updateWorkoutSeriesDb(
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase || workoutRecords.length === 0) return;
 
-  for (const record of workoutRecords) {
-    const { error } = await supabase
-      .from("user_workouts")
-      .update({
-        volume: record.volume || null,
-        reps: record.reps || null,
-        time_rest: record.time_rest || null,
-        duration: record.duration || null,
-      })
-      .eq("id", record.id);
+  const results = await Promise.all(
+    workoutRecords.map((record) =>
+      supabase
+        .from("user_workouts")
+        .update({
+          volume: record.volume || null,
+          reps: record.reps || null,
+          time_rest: record.time_rest || null,
+          duration: record.duration || null,
+        })
+        .eq("id", record.id),
+    ),
+  );
 
+  for (const { error } of results) {
     if (error) {
       const errorMsg = error?.message || String(error);
       const errorCode = error?.code || "UNKNOWN";
-      console.error(
-        `Error updating workout series [${errorCode}]:`,
-        errorMsg,
-      );
+      console.error(`Error updating workout series [${errorCode}]:`, errorMsg);
       throw new Error(`Erro ao atualizar treino: ${errorMsg}`);
     }
   }
@@ -6061,14 +6130,40 @@ export async function getEnrichedDuelGroupsDb(
       endDate: g.end_date,
     });
 
-    const myGroups: EnrichedDuelGroup[] = createdGroups.map((g: any) => ({
-      ...toBase(g),
-      creatorNickname: "",
-      creatorPhoto: null,
-      participants: countMap[g.id] ?? 1,
-      isAlreadyMember: true,
-      isPending: false,
-    }));
+    // Groups where user is a participant (accepted, not created by user)
+    const participantGroupIds = allParticipants
+      .filter((p) => p.user_id === userId && (!p.status || p.status === "accepted"))
+      .map((p) => String(p.group_id));
+    const createdGroupIds = new Set(createdGroups.map((g: any) => String(g.id)));
+    const participantOnlyGroupIds = participantGroupIds.filter((id) => !createdGroupIds.has(id));
+
+    let participantGroups: any[] = [];
+    if (participantOnlyGroupIds.length > 0) {
+      const { data: pgData } = await supabase
+        .from("duel_groups")
+        .select("id, created_by, name, location, goal, icon, photo, created_at, updated_at, end_date")
+        .in("id", participantOnlyGroupIds);
+      participantGroups = pgData ?? [];
+    }
+
+    const myGroups: EnrichedDuelGroup[] = [
+      ...createdGroups.map((g: any) => ({
+        ...toBase(g),
+        creatorNickname: "",
+        creatorPhoto: null,
+        participants: countMap[g.id] ?? 1,
+        isAlreadyMember: true,
+        isPending: false,
+      })),
+      ...participantGroups.map((g: any) => ({
+        ...toBase(g),
+        creatorNickname: "",
+        creatorPhoto: null,
+        participants: countMap[g.id] ?? 1,
+        isAlreadyMember: true,
+        isPending: false,
+      })),
+    ];
 
     const availableGroups: EnrichedDuelGroup[] = availGroups.map((g: any) => {
       const creator = creatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null };
@@ -6429,6 +6524,20 @@ export async function addMembersToGroupDb(
       );
 
     if (insertError) throw insertError;
+
+    // Send duel invite notification to each newly invited member
+    const { error: notifError } = await supabase.from("notifications").insert(
+      newMembers.map((userId) => ({
+        user_id: userId,
+        follower_id: viewer.id,
+        type: 4,
+        post_id: groupId,
+        read: false,
+      }))
+    );
+    if (notifError) {
+      console.error("Error inserting duel invite notifications:", notifError);
+    }
   } catch (error) {
     console.error("Error adding members to group:", error);
     throw error;
@@ -6629,6 +6738,364 @@ export async function recordAccessSessionDb(userId: string, durationSeconds: num
   } catch (err) {
     console.error("Error recording access session:", err);
   }
+}
+
+// ─── Delete Account ──────────────────────────────────────────────────────────
+
+/**
+ * Permanently deletes all data associated with a user across every table.
+ * Order respects FK dependencies: dependent rows first, then parent rows.
+ */
+export async function deleteAllUserDataDb(userId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  assertUUID(userId, "ID do usuário");
+
+  // Helper: delete from a table by a column filter, ignoring "no rows" errors
+  const del = async (table: string, column: string, value: string) => {
+    const { error } = await (supabase as any).from(table).delete().eq(column, value);
+    if (error) console.error(`[deleteAllUserDataDb] ${table}.${column}:`, error.message);
+  };
+
+  // ── Batch 1: leaf tables with no children ───────────────────────────────
+  await Promise.all([
+    del("access_sessions", "user_id", userId),
+    del("check_ins", "user_id", userId),
+    del("flow_complaint", "user_id", userId),
+    del("flow_user_viewed", "user_id", userId),
+    del("flow_user_viewed", "follower_id", userId),
+    del("post_complaint", "user_id", userId),
+    del("shots_complaint", "user_id", userId),
+    del("user_complaint", "user_id", userId),
+    del("user_complaint", "follower_id", userId),
+    del("ranking", "user_id", userId),
+    del("user_goals", "user_id", userId),
+    del("user_habits_hist", "user_id", userId),
+    del("user_diets_hist", "user_id", userId),
+    del("user_workouts_hist", "user_id", userId),
+    del("duel_check_ins", "user_id", userId),
+    del("duel_group_participants", "user_id", userId),
+  ]);
+
+  // ── Batch 2: comments, likes and notifications (depend on posts/shots/flow) ─
+  await Promise.all([
+    del("comments", "user_id", userId),
+    del("likes", "user_id", userId),
+    del("flow_comments", "user_id", userId),
+    del("flow_likes", "user_id", userId),
+    del("shots_comments", "user_id", userId),
+    del("shots_likes", "user_id", userId),
+    del("notifications", "user_id", userId),
+    del("notifications", "follower_id", userId),
+    del("messages", "id_user", userId),
+    del("messages", "id_following", userId),
+  ]);
+
+  // ── Batch 3: follow graph ─────────────────────────────────────────────────
+  await Promise.all([
+    del("following", "user_id", userId),
+    del("following", "following_id", userId),
+    del("followers", "user_id", userId),
+    del("followers", "follower_id", userId),
+  ]);
+
+  // ── Batch 4: content owned by user ───────────────────────────────────────
+  await Promise.all([
+    del("routines", "user_id", userId),
+    del("user_workouts", "user_id", userId),
+    del("user_diets", "user_id", userId),
+    del("user_habits", "user_id", userId),
+    del("posts", "user_id", userId),
+    del("shots", "user_id", userId),
+    del("flow", "user_id", userId),
+    del("duel_groups", "created_by", userId),
+    del("commercial_profiles", "user_id", userId),
+  ]);
+
+  // ── Batch 5: profile (last — other tables may reference it) ──────────────
+  await del("profiles", "user_id", userId);
+}
+
+// ─── Conversations ───────────────────────────────────────────────────────────
+
+/** Delete all messages in a conversation between the current user and another user */
+export async function deleteConversationDb(otherUserId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  assertUUID(otherUserId, "ID do usuário");
+
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+
+  const { error } = await supabase
+    .from("messages")
+    .delete()
+    .or(
+      `and(id_user.eq.${viewer.id},id_following.eq.${otherUserId}),and(id_user.eq.${otherUserId},id_following.eq.${viewer.id})`
+    );
+
+  if (error) throw error;
+}
+
+// ─── Group Join Requests (owner view) ────────────────────────────────────────
+
+export type GroupJoinRequest = {
+  groupId: string;
+  groupName: string;
+  userId: string;
+  userNickname: string;
+  userPhoto: string | null;
+  participants: number;
+};
+
+/** Returns all pending join requests for groups owned by the current user */
+export async function getPendingGroupRequestsDb(): Promise<GroupJoinRequest[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  try {
+    // Get my groups
+    const { data: myGroups, error: groupsError } = await supabase
+      .from("duel_groups")
+      .select("id, name")
+      .eq("created_by", viewer.id);
+
+    if (groupsError || !myGroups || myGroups.length === 0) return [];
+
+    const myGroupIds = myGroups.map((g: any) => g.id);
+
+    // Get pending participants for those groups + accepted count
+    const [pendingResult, countResult] = await Promise.all([
+      supabase
+        .from("duel_group_participants")
+        .select("group_id, user_id")
+        .in("group_id", myGroupIds)
+        .eq("status", "pending"),
+      supabase
+        .from("duel_group_participants")
+        .select("group_id, user_id, status")
+        .in("group_id", myGroupIds),
+    ]);
+
+    const pendingRows = pendingResult.data ?? [];
+    if (pendingRows.length === 0) return [];
+
+    // Build accepted count map
+    const countMap: Record<string, number> = {};
+    for (const p of countResult.data ?? []) {
+      if (!p.status || p.status === "accepted") {
+        countMap[p.group_id] = (countMap[p.group_id] ?? 0) + 1;
+      }
+    }
+
+    // Fetch profiles for pending users
+    const userIds = [...new Set(pendingRows.map((p: any) => p.user_id))];
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, photo")
+      .in("user_id", userIds);
+
+    const profileMap: Record<string, { nickname: string; photo: string | null }> = {};
+    for (const p of profiles ?? []) {
+      profileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null };
+    }
+
+    const groupNameMap: Record<string, string> = {};
+    for (const g of myGroups) groupNameMap[g.id] = g.name;
+
+    return pendingRows.map((p: any) => ({
+      groupId: p.group_id,
+      groupName: groupNameMap[p.group_id] || "Grupo",
+      userId: p.user_id,
+      userNickname: profileMap[p.user_id]?.nickname || "Usuário",
+      userPhoto: profileMap[p.user_id]?.photo || null,
+      participants: countMap[p.group_id] ?? 1,
+    }));
+  } catch (err) {
+    console.error("Error getting pending group requests:", err);
+    return [];
+  }
+}
+
+/** Approve a pending group join request */
+export async function approveGroupRequestDb(groupId: string, requestUserId: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase não configurado");
+  const { error } = await supabase
+    .from("duel_group_participants")
+    .update({ status: "accepted" })
+    .eq("group_id", groupId)
+    .eq("user_id", requestUserId)
+    .eq("status", "pending");
+  if (error) throw error;
+}
+
+/** Reject a pending group join request */
+export async function rejectGroupRequestDb(groupId: string, requestUserId: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase não configurado");
+  const { error } = await supabase
+    .from("duel_group_participants")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("user_id", requestUserId)
+    .eq("status", "pending");
+  if (error) throw error;
+}
+
+/** Remove an accepted member from a group (owner action) */
+export async function removeGroupMemberDb(groupId: string, memberUserId: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase não configurado");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+
+  // Verify caller is the group owner
+  const { data: group, error: groupError } = await supabase
+    .from("duel_groups")
+    .select("created_by")
+    .eq("id", groupId)
+    .single();
+
+  if (groupError || !group) throw new Error("Grupo não encontrado");
+  if (group.created_by !== viewer.id) throw new Error("Apenas o dono pode remover participantes");
+
+  const { error } = await supabase
+    .from("duel_group_participants")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("user_id", memberUserId);
+
+  if (error) throw error;
+}
+
+// ─── Check-in Comments ───────────────────────────────────────────────────────
+
+export type CheckInComment = {
+  id: string;
+  checkInId: string;
+  userId: string;
+  userNickname: string;
+  userPhoto: string | null;
+  text: string;
+  createdAt: string;
+};
+
+export async function getCheckInCommentsDb(checkInId: string): Promise<CheckInComment[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  assertUUID(checkInId, "ID do check-in");
+
+  try {
+    const { data, error } = await supabase
+      .from("duel_check_in_comments")
+      .select("id, check_in_id, user_id, text, created_at")
+      .eq("check_in_id", checkInId)
+      .order("created_at", { ascending: true });
+
+    if (error) { console.error("Error fetching check-in comments:", error); return []; }
+    if (!data || data.length === 0) return [];
+
+    const userIds = [...new Set(data.map((c: any) => c.user_id))];
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, photo")
+      .in("user_id", userIds);
+
+    const profileMap: Record<string, { nickname: string; photo: string | null }> = {};
+    for (const p of profiles ?? []) {
+      profileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null };
+    }
+
+    return data.map((c: any) => ({
+      id: c.id,
+      checkInId: c.check_in_id,
+      userId: c.user_id,
+      userNickname: profileMap[c.user_id]?.nickname || "Usuário",
+      userPhoto: profileMap[c.user_id]?.photo || null,
+      text: c.text,
+      createdAt: c.created_at,
+    }));
+  } catch (err) {
+    console.error("Error fetching check-in comments:", err);
+    return [];
+  }
+}
+
+// ─── Check-in Emoji Reactions ─────────────────────────────────────────────────
+
+export type CheckInReaction = {
+  checkInId: string;
+  userId: string;
+  emoji: string;
+};
+
+export async function getCheckInReactionsDb(checkInIds: string[]): Promise<Record<string, CheckInReaction[]>> {
+  if (!hasSupabaseConfig || !supabase || checkInIds.length === 0) return {};
+
+  try {
+    const { data } = await supabase
+      .from("duel_check_in_reactions")
+      .select("check_in_id, user_id, emoji")
+      .in("check_in_id", checkInIds);
+
+    const result: Record<string, CheckInReaction[]> = {};
+    for (const r of data ?? []) {
+      if (!result[r.check_in_id]) result[r.check_in_id] = [];
+      result[r.check_in_id].push({ checkInId: r.check_in_id, userId: r.user_id, emoji: r.emoji });
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+export async function setCheckInReactionDb(checkInId: string, emoji: string | null): Promise<void> {
+  if (!supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  if (emoji === null) {
+    await supabase
+      .from("duel_check_in_reactions")
+      .delete()
+      .eq("check_in_id", checkInId)
+      .eq("user_id", viewer.id);
+  } else {
+    await supabase
+      .from("duel_check_in_reactions")
+      .upsert({ check_in_id: checkInId, user_id: viewer.id, emoji }, { onConflict: "check_in_id,user_id" });
+  }
+}
+
+export async function addCheckInCommentDb(checkInId: string, text: string): Promise<CheckInComment> {
+  if (!supabase) throw new Error("Supabase não configurado");
+  assertUUID(checkInId, "ID do check-in");
+  assertNotEmpty(text, "Comentário");
+  assertMaxLength(text.trim(), 500, "Comentário");
+
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+
+  const { data, error } = await supabase
+    .from("duel_check_in_comments")
+    .insert({ check_in_id: checkInId, user_id: viewer.id, text: text.trim() })
+    .select("id, check_in_id, user_id, text, created_at")
+    .single();
+
+  if (error) throw error;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("nickname, photo")
+    .eq("user_id", viewer.id)
+    .maybeSingle();
+
+  return {
+    id: data.id,
+    checkInId: data.check_in_id,
+    userId: data.user_id,
+    userNickname: profile?.nickname || "Usuário",
+    userPhoto: profile?.photo || null,
+    text: data.text,
+    createdAt: data.created_at,
+  };
 }
 
 // ─── Access Sessions ────────────────────────────────────────────────────────

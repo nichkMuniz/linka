@@ -80,14 +80,14 @@ Cada post exibe:
 | Elemento | Descrição |
 |---|---|
 | **Avatar + nome do usuário** | Link para o perfil (`/usuario/:userId`) |
-| **Insignias do usuário** | Componente `UserInsignias` — badges/conquistas |
+| **Insignias do usuário** | Componente `UserInsignias` — badges/conquistas. Clicável: abre Drawer com detalhes de todas as insígnias (desbloqueadas e bloqueadas) |
 | **Tempo relativo** | Ex: "há 2 horas" (via `formatTimeAgo`) |
 | **Menu de contexto** (⋮) | Opções: Editar, Excluir, Denunciar, Compartilhar |
 | **Imagem(ns)** | Componente `PostCarousel` para múltiplas imagens |
 | **Descrição** | Texto do post |
 | **Meta vinculada** | Card mostrando a meta associada ao post (se houver) |
 | **Rotinas vinculadas** | Lista expansível das rotinas da meta |
-| **Botões de Incentivo** | 6 tipos de reações (componente `PostIncentiveButton`) |
+| **Botões de Incentivo** | 6 reações com ícones expressivos: ❤️ Apoio, 🔥 Fogo, 🏆 Vencedor, 📈 Evolução, 💪 Força, ⚡ Energia (componente `PostIncentiveButton`) |
 | **Botão Comentários** | Abre `PostCommentsDialog` |
 | **Contador de curtidas** | Clicável — abre `PostLikesModal` |
 
@@ -96,7 +96,7 @@ Cada post exibe:
 ## Ações Disponíveis
 
 ### Sobre o próprio post (dono)
-- **Editar post** — Drawer com textarea para editar descrição + seletor de meta
+- **Editar post** — Drawer com textarea para editar descrição + seletor de meta ativa (vincula/desvincula meta do post)
 - **Excluir post** — AlertDialog de confirmação → deleta via `deletePostDb`
 
 ### Sobre post de outro usuário

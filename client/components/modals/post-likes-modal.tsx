@@ -10,11 +10,11 @@ import { useNavigate } from "react-router-dom";
 import { Heart } from "lucide-react";
 
 const INCENTIVE_ICONS: Record<number, string> = {
-  1: "👏",
+  1: "❤️",
   2: "🔥",
   3: "🏆",
-  4: "🚀",
-  5: "🎯",
+  4: "📈",
+  5: "💪",
   6: "⚡",
 };
 
@@ -37,11 +37,11 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
   const getIncentiveTypeName = (type: number): string => {
     const incentiveNames: { [key: number]: string } = {
       1: "Apoio",
-      2: "Continua",
-      3: "Ganhador",
-      4: "Consegue Mais",
-      5: "Limite Maior",
-      6: "Mais Algum",
+      2: "Tá pegando fogo!",
+      3: "Vencedor!",
+      4: "Evolução!",
+      5: "Força total!",
+      6: "Energia máxima!",
     };
     return incentiveNames[type] || "Incentivo";
   };
@@ -86,26 +86,15 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
               <div className="flex flex-wrap gap-3">
                 {Object.entries(incentiveTypeCounts).map(([typeName, count]) => {
                   // Find the type number to get the icon
-                  const typeNum = parseInt(
-                    Object.keys({
-                      1: "Apoio",
-                      2: "Continua",
-                      3: "Ganhador",
-                      4: "Consegue Mais",
-                      5: "Limite Maior",
-                      6: "Mais Algum",
-                    }).find(
-                      (k) =>
-                        ({
-                          1: "Apoio",
-                          2: "Continua",
-                          3: "Ganhador",
-                          4: "Consegue Mais",
-                          5: "Limite Maior",
-                          6: "Mais Algum",
-                        }[parseInt(k)] === typeName)
-                    ) || "1"
-                  );
+                  const nameToType: Record<string, number> = {
+                    "Apoio": 1,
+                    "Tá pegando fogo!": 2,
+                    "Vencedor!": 3,
+                    "Evolução!": 4,
+                    "Força total!": 5,
+                    "Energia máxima!": 6,
+                  };
+                  const typeNum = nameToType[typeName] ?? 1;
 
                   return (
                     <div

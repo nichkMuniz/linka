@@ -1,12 +1,12 @@
 import * as React from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { getPostByIdDb, getPostLikeUsersDb, type PostWithUser } from "@/lib/ritmofit-db";
+import { getPostByIdDb, getPostLikeUsersDb, getUserGoalByIdDb, type PostWithUser, type UserGoal } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { ArrowLeft, Edit2, Trash2, MoreVertical } from "lucide-react";
+import { ArrowLeft, Edit2, Trash2, MoreVertical, Rocket } from "lucide-react";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
@@ -27,6 +27,7 @@ export default function PostDetail() {
   const { user } = useAuth();
 
   const [post, setPost] = React.useState<PostWithUser | null>(null);
+  const [postGoal, setPostGoal] = React.useState<UserGoal | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [postLikes, setPostLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; type: number }>>([]);
@@ -54,6 +55,10 @@ export default function PostDetail() {
 
         if (foundPost) {
           setPost(foundPost);
+          // Load linked goal if present
+          if (foundPost.user_goal_id) {
+            getUserGoalByIdDb(String(foundPost.user_goal_id)).then(setPostGoal).catch(() => {});
+          }
           // Open likes modal only once — module-level flag survives StrictMode remounts
           if (navState?.openLikes && !_likesAutoOpenConsumed) {
             _likesAutoOpenConsumed = true;
@@ -157,6 +162,17 @@ export default function PostDetail() {
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">
                   {post.description}
                 </p>
+              )}
+
+              {/* Linked Goal */}
+              {postGoal && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-500/10 border border-violet-400/20">
+                  <Rocket className="h-4 w-4 text-violet-400 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-violet-400/80 font-medium">Meta vinculada</p>
+                    <p className="text-sm text-violet-300 font-semibold truncate">{postGoal.description}</p>
+                  </div>
+                </div>
               )}
 
               {/* Incentive Buttons and Comments */}

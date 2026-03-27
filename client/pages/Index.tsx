@@ -37,6 +37,7 @@ import {
   getUserWorkoutsDb,
   getUserDietsDb,
   getUserHabitsDb,
+  copyRoutineToUserDb,
   type PostIncentiveType,
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
@@ -111,6 +112,8 @@ export default function Index() {
   const [unreadCommentsByPost] = React.useState<Record<string, number>>({});
   const [isCopyingGoal, setIsCopyingGoal] = React.useState(false);
   const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
+  const [copyingRoutineKeys, setCopyingRoutineKeys] = React.useState<Set<string>>(new Set());
+  const [copiedRoutineKeys, setCopiedRoutineKeys] = React.useState<Set<string>>(new Set());
   const [feedMode, setFeedMode] = React.useState<"following" | "discover">(() => {
     if (localStorage.getItem("new_user_open_discover") === "1") {
       localStorage.removeItem("new_user_open_discover");
@@ -133,6 +136,9 @@ export default function Index() {
   const [editPostOpen, setEditPostOpen] = React.useState(false);
   const [editingPost, setEditingPost] = React.useState<PostWithStats | null>(null);
   const [editPostDescription, setEditPostDescription] = React.useState("");
+  const [editPostGoalId, setEditPostGoalId] = React.useState<string | null>(null);
+  const [editPostUserGoals, setEditPostUserGoals] = React.useState<Array<{ id: string; goal_id: string; description: string }>>([]);
+  const [isLoadingEditGoals, setIsLoadingEditGoals] = React.useState(false);
   const [isSavingEdit, setIsSavingEdit] = React.useState(false);
 
   const [confirmDialog, setConfirmDialog] = React.useState<{
@@ -225,6 +231,18 @@ export default function Index() {
       })
       .catch((err) => console.error("Erro ao carregar foto do perfil:", err));
   }, [user?.id]);
+
+  // Force profile reload for newly registered users (photo uploaded during signup)
+  React.useEffect(() => {
+    if (!user?.id) return;
+    if (localStorage.getItem("force_profile_reload") !== "1") return;
+    localStorage.removeItem("force_profile_reload");
+    getUserProfileDb(user.id)
+      .then((profile) => {
+        if (profile?.photo) setCurrentUserPhoto(profile.photo);
+      })
+      .catch(() => {});
+  });
 
   // Sync tab bar visibility with header scroll behavior
   React.useEffect(() => {
@@ -366,23 +384,14 @@ export default function Index() {
     setHasAlreadyCopiedGoal(false);
     setExpandedLinkedRoutine(null);
     setLinkedRoutineItems({});
+    setCopyingRoutineKeys(new Set());
+    setCopiedRoutineKeys(new Set());
 
-    // Fetch routines and user goals in parallel
+    // Fetch routines
     if (post.userGoal) {
       try {
-        const shouldCheckCopy = user && post.user_id !== user.id;
-        const [routines, userGoalsData] = await Promise.all([
-          getRoutinesByGoalIdDb(post.userGoal.goal_id),
-          shouldCheckCopy ? getUserGoalsDb() : Promise.resolve(null),
-        ]);
+        const routines = await getRoutinesByGoalIdDb(post.userGoal.goal_id);
         setLinkedRoutines(routines);
-
-        if (shouldCheckCopy && userGoalsData) {
-          const alreadyCopied = userGoalsData.some(
-            (goal) => goal.goal_id === post.userGoal!.goal_id
-          );
-          setHasAlreadyCopiedGoal(alreadyCopied);
-        }
       } catch (err) {
         console.error("Error fetching routines:", err);
         setLinkedRoutines([]);
@@ -419,11 +428,31 @@ export default function Index() {
         selectedGoalPost.userGoal.quantity,
       );
 
+      // Copy linked routines (workout type=1 and diet type=2 only)
+      if (linkedRoutines.length > 0) {
+        const seen = new Set<string>();
+        const groups = linkedRoutines.reduce<{ type: number; name?: string }[]>((acc, r) => {
+          const k = `${r.type}__${r.name ?? ""}`;
+          if (!seen.has(k) && (r.type === 1 || r.type === 2)) {
+            seen.add(k);
+            acc.push({ type: r.type, name: r.name });
+          }
+          return acc;
+        }, []);
+
+        await Promise.allSettled(
+          groups.map(({ type, name }) =>
+            copyRoutineToUserDb(selectedGoalPost.user_id, user.id, type as 1 | 2, name ?? null)
+          )
+        );
+      }
+
       toast({
         title: "Meta copiada com sucesso!",
-        description: "Você agora tem a mesma meta que este usuário.",
+        description: "Você agora tem a mesma meta e rotinas que este usuário.",
       });
 
+      setHasAlreadyCopiedGoal(true);
       setGoalModalOpen(false);
     } catch (err: any) {
       console.error("Error copying goal:", err);
@@ -434,7 +463,27 @@ export default function Index() {
     } finally {
       setIsCopyingGoal(false);
     }
-  }, [selectedGoalPost?.userGoal, user]);
+  }, [selectedGoalPost?.userGoal, selectedGoalPost?.user_id, user, linkedRoutines]);
+
+  const handleCopyRoutine = React.useCallback(async (sourceUserId: string, routineType: number, routineName: string | undefined) => {
+    if (!user) return;
+    const key = `${sourceUserId}::${routineName ?? ""}`;
+    if (copyingRoutineKeys.has(key) || copiedRoutineKeys.has(key)) return;
+
+    setCopyingRoutineKeys((prev) => new Set(prev).add(key));
+    try {
+      await copyRoutineToUserDb(sourceUserId, user.id, routineType as 1 | 2, routineName ?? null);
+      setCopiedRoutineKeys((prev) => new Set(prev).add(key));
+      toast({
+        title: routineType === 1 ? "Treino copiado!" : "Dieta copiada!",
+        description: `"${routineName ?? "Rotina"}" foi adicionada à sua conta.`,
+      });
+    } catch (err: any) {
+      toast({ title: "Erro ao copiar", description: err?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setCopyingRoutineKeys((prev) => { const s = new Set(prev); s.delete(key); return s; });
+    }
+  }, [user, copyingRoutineKeys, copiedRoutineKeys]);
 
   const handleToggleLike = React.useCallback(
     async (postId: string, incentiveType: PostIncentiveType) => {
@@ -574,28 +623,42 @@ export default function Index() {
     [user, showConfirm],
   );
 
-  const handleEditPost = React.useCallback((post: PostWithStats) => {
+  const handleEditPost = React.useCallback(async (post: PostWithStats) => {
     setEditingPost(post);
     setEditPostDescription(post.description || "");
+    setEditPostGoalId(post.user_goal_id || null);
     setEditPostOpen(true);
-  }, []);
+
+    // Load user goals for the selector
+    if (user) {
+      setIsLoadingEditGoals(true);
+      try {
+        const goals = await getUserGoalsDb();
+        setEditPostUserGoals(goals.map((g) => ({ id: g.id, goal_id: g.goal_id, description: g.description })));
+      } catch {
+        setEditPostUserGoals([]);
+      } finally {
+        setIsLoadingEditGoals(false);
+      }
+    }
+  }, [user]);
 
   const handleSaveEditPost = React.useCallback(async () => {
     if (!editingPost) return;
     setIsSavingEdit(true);
     try {
-      await updatePostDb(editingPost.id, editPostDescription, editingPost.user_goal_id || null);
-      setPosts((prev) => prev.map((p) => p.id === editingPost.id ? { ...p, description: editPostDescription } : p));
-      setDiscoverPosts((prev) => prev.map((p) => p.id === editingPost.id ? { ...p, description: editPostDescription } : p));
+      await updatePostDb(editingPost.id, editPostDescription, editPostGoalId);
       toast({ title: "Post atualizado!" });
       setEditPostOpen(false);
       setEditingPost(null);
+      // Reload feed so meta vinculada / desvinculada aparece imediatamente
+      loadFeed(false);
     } catch (err: any) {
       toast({ title: "Erro ao editar post", description: err?.message, variant: "destructive" });
     } finally {
       setIsSavingEdit(false);
     }
-  }, [editingPost, editPostDescription]);
+  }, [editingPost, editPostDescription, editPostGoalId]);
 
   const submitReport = React.useCallback(async () => {
     if (!reportType || !reportedPost || !reportReason.trim()) {
@@ -768,7 +831,9 @@ export default function Index() {
                           <span className="text-xs font-medium text-white drop-shadow-sm">
                             {post.userNickname}
                           </span>
-                          <UserInsignias userId={post.user_id} maxBadges={2} />
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <UserInsignias userId={post.user_id} maxBadges={2} />
+                          </span>
                         </div>
                       </button>
                       {/* Menu Button */}
@@ -940,7 +1005,9 @@ export default function Index() {
                             <span className="text-xs font-medium text-white drop-shadow-sm">
                               {post.userNickname}
                             </span>
-                            <UserInsignias userId={post.user_id} maxBadges={2} />
+                            <span onClick={(e) => e.stopPropagation()}>
+                              <UserInsignias userId={post.user_id} maxBadges={2} />
+                            </span>
                           </div>
                         </button>
                         {/* Menu Button */}
@@ -1396,6 +1463,11 @@ export default function Index() {
                             const label = name || typeLabel;
                             const isOpen = expandedLinkedRoutine === key;
                             const items = linkedRoutineItems[key];
+                            const copyKey = `${selectedGoalPost!.user_id}::${name ?? ""}`;
+                            const isCopyingThis = copyingRoutineKeys.has(copyKey);
+                            const isCopiedThis = copiedRoutineKeys.has(copyKey);
+                            // Only show copy for workout (type 1) and diet (type 2)
+                            const canCopy = type === 1 || type === 2;
                             return (
                               <div key={key}>
                                 <button
@@ -1413,15 +1485,31 @@ export default function Index() {
                                     ) : items.length === 0 ? (
                                       <p className="text-xs text-muted-foreground py-2">Nenhum item nesta rotina.</p>
                                     ) : (
-                                      items.map((item: any) => {
-                                        const itemName = item.workoutName || item.dietName || item.habitName || "—";
-                                        return (
-                                          <div key={item.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-background/60">
-                                            <span className="text-xs text-muted-foreground">•</span>
-                                            <span className="text-sm truncate">{itemName}</span>
-                                          </div>
-                                        );
-                                      })
+                                      <>
+                                        {items.map((item: any) => {
+                                          const itemName = item.workoutName || item.dietName || item.habitName || "—";
+                                          return (
+                                            <div key={item.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-background/60">
+                                              <span className="text-xs text-muted-foreground">•</span>
+                                              <span className="text-sm truncate">{itemName}</span>
+                                            </div>
+                                          );
+                                        })}
+                                        {canCopy && (
+                                          <Button
+                                            size="sm"
+                                            variant={isCopiedThis ? "outline" : "default"}
+                                            className="w-full rounded-full mt-2"
+                                            disabled={isCopyingThis || isCopiedThis}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleCopyRoutine(selectedGoalPost!.user_id, type, name);
+                                            }}
+                                          >
+                                            {isCopyingThis ? "Copiando..." : isCopiedThis ? "✓ Copiado" : `Copiar ${type === 1 ? "Treino" : "Dieta"}`}
+                                          </Button>
+                                        )}
+                                      </>
                                     )}
                                   </div>
                                 )}
@@ -1551,7 +1639,7 @@ export default function Index() {
 
       {/* Edit Post Drawer */}
       <Drawer open={editPostOpen} onOpenChange={(open) => { if (!open) { setEditPostOpen(false); setEditingPost(null); } }}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col">
+        <DrawerContent className="max-h-[85dvh] flex flex-col">
           <DrawerHeader>
             <DrawerTitle>Editar post</DrawerTitle>
           </DrawerHeader>
@@ -1560,9 +1648,55 @@ export default function Index() {
               value={editPostDescription}
               onChange={(e) => setEditPostDescription(e.target.value)}
               placeholder="Descrição do post..."
-              rows={5}
+              rows={4}
               className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm resize-none focus:border-brand focus:outline-none"
             />
+
+            {/* Goal selector */}
+            <div className="space-y-2">
+              <label className="flex items-center gap-1.5 text-sm font-medium">
+                <Target className="h-4 w-4 text-brand" />
+                Meta vinculada
+              </label>
+              {isLoadingEditGoals ? (
+                <div className="text-xs text-muted-foreground">Carregando metas...</div>
+              ) : editPostUserGoals.length === 0 ? (
+                <div className="text-xs text-muted-foreground">Nenhuma meta ativa encontrada.</div>
+              ) : (
+                <div className="space-y-2">
+                  {/* None option */}
+                  <button
+                    type="button"
+                    onClick={() => setEditPostGoalId(null)}
+                    className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${
+                      !editPostGoalId
+                        ? "border-brand bg-brand/10 text-brand font-medium"
+                        : "border-border/60 text-muted-foreground hover:border-border"
+                    }`}
+                  >
+                    Sem meta vinculada
+                  </button>
+                  {editPostUserGoals.map((goal) => (
+                    <button
+                      key={goal.id}
+                      type="button"
+                      onClick={() => setEditPostGoalId(goal.id)}
+                      className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${
+                        editPostGoalId === goal.id
+                          ? "border-brand bg-brand/10 text-brand font-medium"
+                          : "border-border/60 hover:border-border"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Target className="h-3.5 w-3.5 flex-shrink-0" />
+                        <span className="truncate">{goal.description}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <Button
               onClick={handleSaveEditPost}
               disabled={isSavingEdit}

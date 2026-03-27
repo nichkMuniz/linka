@@ -4,6 +4,7 @@ import {
   getConversationMessagesDb,
   sendMessageDb,
   markMessagesAsReadDb,
+  deleteConversationDb,
   getFollowingDb,
   getRankingDb,
   createDuelGroupDb,
@@ -24,12 +25,24 @@ import {
   acceptGroupInviteDb,
   declineGroupInviteDb,
   sendGroupJoinRequestNotificationDb,
+  setMessageEmojiDb,
+  getPendingGroupRequestsDb,
+  approveGroupRequestDb,
+  rejectGroupRequestDb,
+  removeGroupMemberDb,
+  getCheckInCommentsDb,
+  addCheckInCommentDb,
+  getCheckInReactionsDb,
+  setCheckInReactionDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
   type RankingUser,
   type GroupCheckIn,
   type CompletedRoutine,
+  type GroupJoinRequest,
+  type CheckInComment,
+  type CheckInReaction,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,7 +50,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -66,13 +79,14 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
+import { UserInsignias } from "@/components/profile/user-insignias";
 
 type ViewMode = "conversations" | "conversation";
 
 export default function Community() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { layoutMode } = useLayoutMode();
   const { t } = useLanguage();
 
@@ -157,28 +171,119 @@ export default function Community() {
   }>({ open: false, title: "", description: "", onConfirm: () => {} });
 
   const [pendingInvites, setPendingInvites] = React.useState<Array<{ groupId: string; groupName: string; groupGoal: string; groupLocation: string }>>([]);
+  const [pendingGroupRequests, setPendingGroupRequests] = React.useState<GroupJoinRequest[]>([]);
+
+  // Check-in comments state
+  const [checkInComments, setCheckInComments] = React.useState<CheckInComment[]>([]);
+  const [isLoadingComments, setIsLoadingComments] = React.useState(false);
+  const [commentText, setCommentText] = React.useState("");
+  const [isSendingComment, setIsSendingComment] = React.useState(false);
+
+  // Check-in emoji reactions state
+  const [checkInReactions, setCheckInReactions] = React.useState<Record<string, CheckInReaction[]>>({});
+  const CHECKIN_QUICK_EMOJIS = ["❤️", "🔥", "💪", "😮", "👏", "🏆"];
+
+  // Check-in long-press (emoji overlay) state
+  const [longPressedCheckIn, setLongPressedCheckIn] = React.useState<GroupCheckIn | null>(null);
+  const checkInLongPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleCheckInTouchStart = React.useCallback((checkIn: GroupCheckIn) => {
+    checkInLongPressTimer.current = setTimeout(() => setLongPressedCheckIn(checkIn), 450);
+  }, []);
+  const handleCheckInTouchEnd = React.useCallback(() => {
+    if (checkInLongPressTimer.current) {
+      clearTimeout(checkInLongPressTimer.current);
+      checkInLongPressTimer.current = null;
+    }
+  }, []);
+
+  // Remove member from group state
+  const [removeMemberConfirm, setRemoveMemberConfirm] = React.useState<{ open: boolean; participant: { userId: string; userNickname: string } | null }>({ open: false, participant: null });
+
+  // Delete conversation state
+  const [deleteConvConfirmOpen, setDeleteConvConfirmOpen] = React.useState(false);
+  const [convToDelete, setConvToDelete] = React.useState<Conversation | null>(null);
+
+  // Message long-press / context menu state
+  const [longPressedMessage, setLongPressedMessage] = React.useState<MessageWithUser | null>(null);
+  const [replyingTo, setReplyingTo] = React.useState<MessageWithUser | null>(null);
+  const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const QUICK_EMOJIS = ["❤️", "😂", "😮", "😢", "😡", "👍"];
+
+  const handleMessageLongPress = React.useCallback((message: MessageWithUser) => {
+    setLongPressedMessage(message);
+  }, []);
+
+  const handleMessageTouchStart = React.useCallback((message: MessageWithUser) => {
+    longPressTimer.current = setTimeout(() => {
+      handleMessageLongPress(message);
+    }, 450);
+  }, [handleMessageLongPress]);
+
+  const handleMessageTouchEnd = React.useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const handleReactToMessage = React.useCallback(async (emoji: string) => {
+    if (!longPressedMessage) return;
+    const messageId = longPressedMessage.id;
+    // Toggle: if same emoji already set, remove it
+    const newEmoji = longPressedMessage.emoji === emoji ? null : emoji;
+    setLongPressedMessage(null);
+    // Optimistic update
+    setMessages((prev) =>
+      prev.map((m) => (m.id === messageId ? { ...m, emoji: newEmoji } : m)),
+    );
+    await setMessageEmojiDb(messageId, newEmoji);
+  }, [longPressedMessage]);
+
+  const handleReplyToMessage = React.useCallback((message: MessageWithUser) => {
+    setReplyingTo(message);
+    setLongPressedMessage(null);
+  }, []);
   const [userPhoto, setUserPhoto] = React.useState<string | null>(null);
   const [isLoadingCheckIns, setIsLoadingCheckIns] = React.useState(false);
   const [isLoadingRoutines, setIsLoadingRoutines] = React.useState(false);
 
+  // Tracks the last requested group id to discard stale async responses
+  const activeGroupIdRef = React.useRef<string | null>(null);
+
   // Open a group view instantly and load data in background
   const openGroupView = React.useCallback((group: any) => {
+    activeGroupIdRef.current = group.id;
     setSelectedGroupForView(group);
     setActiveGroupViewTab("check-ins");
     setGroupCheckIns([]);
     setGroupParticipants([]);
     setIsLoadingCheckIns(true);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("tab", "duels");
+      next.set("group", group.id);
+      return next;
+    }, { replace: true });
     Promise.all([
       getGroupCheckInsDb(group.id),
       getGroupParticipantsDb(group.id),
     ])
       .then(([checkIns, participants]) => {
+        // Ignore if user has already switched to a different group
+        if (activeGroupIdRef.current !== group.id) return;
         setGroupCheckIns(checkIns);
         setGroupParticipants(participants);
+        // Load reactions for check-ins
+        if (checkIns.length > 0) {
+          getCheckInReactionsDb(checkIns.map((c) => c.id)).then(setCheckInReactions).catch(() => {});
+        }
       })
       .catch((err: any) => console.error("Error loading group data:", err))
-      .finally(() => setIsLoadingCheckIns(false));
-  }, []);
+      .finally(() => {
+        if (activeGroupIdRef.current === group.id) setIsLoadingCheckIns(false);
+      });
+  }, [setSearchParams]);
 
   const showConfirm = React.useCallback(
     (title: string, description: string, onConfirm: () => void) => {
@@ -220,16 +325,18 @@ export default function Community() {
       if (!user?.id) return;
       try {
         // Fetch nickname and all group data in parallel (no waterfall)
-        const [userProfile, { myGroups, availableGroups: enrichedAvailGroups, pendingInvites: invites }] =
+        const [userProfile, { myGroups, availableGroups: enrichedAvailGroups, pendingInvites: invites }, joinRequests] =
           await Promise.all([
             getUserProfileDb(user.id),
             getEnrichedDuelGroupsDb(user.id),
+            getPendingGroupRequestsDb(),
           ]);
 
         const nickname = userProfile?.nickname || user.email?.split("@")[0] || "Usuário";
         setUserNickname(nickname);
         setUserPhoto(userProfile?.photo || null);
         setPendingInvites(invites);
+        setPendingGroupRequests(joinRequests);
 
         const toGroupCard = (group: any) => ({
           ...group,
@@ -259,8 +366,38 @@ export default function Community() {
     const tabParam = searchParams.get("tab");
     if (tabParam === "requests") {
       setActiveTab("requests");
+    } else if (tabParam === "duels") {
+      setActiveTab("duels");
     }
   }, [searchParams]);
+
+  // Refresh pending group requests when switching to the requests tab
+  React.useEffect(() => {
+    if (activeTab === "requests" && user?.id) {
+      getPendingGroupRequestsDb().then(setPendingGroupRequests).catch(() => {});
+    }
+  }, [activeTab, user?.id]);
+
+  // Restore group view from URL param (?group=<groupId>) after refresh
+  React.useEffect(() => {
+    const groupIdParam = searchParams.get("group");
+    if (!groupIdParam || selectedGroupForView) return;
+    // Try to find in already-loaded groups
+    const allGroups = [...userCreatedGroups, ...availableGroups];
+    const found = allGroups.find((g) => g.id === groupIdParam);
+    if (found) {
+      openGroupView(found);
+      return;
+    }
+    // Fetch from DB if not loaded yet
+    getDuelGroupDb(groupIdParam).then((group) => {
+      if (group) {
+        const groupCard = { ...group, icon: "⚔️", description: group.goal, city: group.location, isOfficial: false };
+        openGroupView(groupCard);
+      }
+    }).catch((err) => console.error("Error restoring group view:", err));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, userCreatedGroups, availableGroups]);
 
   // Auto-select conversation from URL parameter (?user=<userId>)
   React.useEffect(() => {
@@ -346,12 +483,16 @@ export default function Community() {
   const handleSendMessage = React.useCallback(async () => {
     if (!messageText.trim() || !selectedConversation) return;
 
+    const replyText = replyingTo ? `↩ ${replyingTo.text}\n\n` : "";
+    const fullText = replyText + messageText;
+
     setIsSending(true);
     try {
       const newMessage = await sendMessageDb(
         selectedConversation.userId,
-        messageText,
+        fullText,
       );
+      setReplyingTo(null);
 
       if (newMessage) {
         // Reload messages
@@ -445,10 +586,11 @@ export default function Community() {
                 className="h-10 w-10 rounded-full object-cover flex-shrink-0"
               />
             )}
-            <div className="min-w-0">
+            <div className="min-w-0 flex items-center gap-1.5">
               <p className="text-sm font-medium truncate">
                 {selectedConversation.userNickname}
               </p>
+              <UserInsignias userId={selectedConversation.userId} />
             </div>
           </button>
         </div>
@@ -458,40 +600,62 @@ export default function Community() {
           {messages.length > 0 ? (
             messages.map((message) => {
               const isOwn = message.id_user === user?.id;
+              // Detect reply prefix: lines starting with "↩ "
+              const replyMatch = message.text.match(/^↩ (.+?)\n\n([\s\S]*)$/);
+              const replyQuote = replyMatch ? replyMatch[1] : null;
+              const mainText = replyMatch ? replyMatch[2] : message.text;
               return (
                 <div
                   key={message.id}
                   className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
                 >
-                  <div
-                    className={`max-w-xs px-4 py-2 rounded-lg space-y-1 break-words ${
-                      isOwn
-                        ? "bg-brand text-white rounded-br-none"
-                        : "bg-muted rounded-bl-none"
-                    }`}
-                  >
-                    <p className="text-sm">{message.text}</p>
-                    <div className="flex items-center justify-between gap-2">
-                      <p
-                        className={`text-xs ${
-                          isOwn ? "text-white/70" : "text-muted-foreground"
-                        }`}
-                      >
-                        {new Date(message.created_at).toLocaleTimeString(
-                          "pt-BR",
-                          { hour: "2-digit", minute: "2-digit" },
-                        )}
-                      </p>
-                      {isOwn && (
-                        <span className="text-white/70 flex-shrink-0">
-                          {message.read === 1 ? (
-                            <CheckCheck className="h-4 w-4" />
-                          ) : (
-                            <Check className="h-4 w-4" />
-                          )}
-                        </span>
+                  <div className="relative">
+                    <div
+                      onTouchStart={() => handleMessageTouchStart(message)}
+                      onTouchEnd={handleMessageTouchEnd}
+                      onTouchMove={handleMessageTouchEnd}
+                      onContextMenu={(e) => { e.preventDefault(); handleMessageLongPress(message); }}
+                      className={`max-w-xs px-4 py-2 rounded-lg space-y-1 break-words select-none ${
+                        isOwn
+                          ? "bg-brand text-white rounded-br-none"
+                          : "bg-muted rounded-bl-none"
+                      }`}
+                    >
+                      {replyQuote && (
+                        <div className={`text-xs px-2 py-1 rounded mb-1 border-l-2 ${isOwn ? "bg-white/10 border-white/50 text-white/80" : "bg-muted-foreground/10 border-muted-foreground/40 text-muted-foreground"}`}>
+                          <p className="truncate">{replyQuote}</p>
+                        </div>
                       )}
+                      <p className="text-sm">{mainText}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p
+                          className={`text-xs ${
+                            isOwn ? "text-white/70" : "text-muted-foreground"
+                          }`}
+                        >
+                          {new Date(message.created_at).toLocaleTimeString(
+                            "pt-BR",
+                            { hour: "2-digit", minute: "2-digit" },
+                          )}
+                        </p>
+                        {isOwn && (
+                          <span className="text-white/70 flex-shrink-0">
+                            {message.read === 1 ? (
+                              <CheckCheck className="h-4 w-4" />
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
+                          </span>
+                        )}
+                      </div>
                     </div>
+                    {message.emoji && (
+                      <span
+                        className={`absolute -bottom-3 ${isOwn ? "left-1" : "right-1"} text-base bg-background border border-border/60 rounded-full px-1 shadow-sm`}
+                      >
+                        {message.emoji}
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -503,6 +667,19 @@ export default function Community() {
           )}
           <div ref={messagesEndRef} />
         </div>
+
+        {/* Reply banner */}
+        {replyingTo && (
+          <div className="flex-shrink-0 border-t border-border/60 bg-muted/40 px-4 py-2 flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-muted-foreground mb-0.5">Respondendo</p>
+              <p className="text-xs truncate">{replyingTo.text.replace(/^↩ .+?\n\n/, "")}</p>
+            </div>
+            <button onClick={() => setReplyingTo(null)} className="text-muted-foreground hover:text-foreground flex-shrink-0">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         {/* Input */}
         <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2">
@@ -528,6 +705,54 @@ export default function Community() {
             <Send className="h-4 w-4" />
           </Button>
         </div>
+
+        {/* Long-press overlay */}
+        {longPressedMessage && (
+          <div
+            className="fixed inset-0 z-[100] bg-black/40 flex items-end justify-center pb-12"
+            onClick={() => setLongPressedMessage(null)}
+          >
+            <div
+              className="bg-background rounded-2xl w-full max-w-sm mx-4 overflow-hidden shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Preview da mensagem */}
+              <div className="px-4 py-3 border-b border-border/60">
+                <p className="text-xs text-muted-foreground mb-1">Mensagem</p>
+                <p className="text-sm line-clamp-2">{longPressedMessage.text.replace(/^↩ .+?\n\n/, "")}</p>
+              </div>
+
+              {/* Emoji rápido */}
+              <div className="flex items-center justify-around px-4 py-3 border-b border-border/60">
+                {QUICK_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => handleReactToMessage(emoji)}
+                    className="text-2xl active:scale-125 transition-transform"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+
+              {/* Ações */}
+              <button
+                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left"
+                onClick={() => handleReplyToMessage(longPressedMessage)}
+              >
+                <ArrowLeft className="h-5 w-5 text-muted-foreground" />
+                <span className="text-sm font-medium">Responder</span>
+              </button>
+              <button
+                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left border-t border-border/40"
+                onClick={() => setLongPressedMessage(null)}
+              >
+                <X className="h-5 w-5 text-muted-foreground" />
+                <span className="text-sm font-medium">Cancelar</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -560,7 +785,7 @@ export default function Community() {
                 {tab === "messages" ? t("community_messages") : tab === "duels" ? t("community_duels") : t("community_ranking")}
               </button>
             ))}
-            {pendingInvites.length > 0 && (
+            {(pendingInvites.length > 0 || pendingGroupRequests.length > 0) && (
               <button
                 onClick={() => setActiveTab("requests")}
                 className={`text-sm font-medium pb-1 relative ${
@@ -571,7 +796,7 @@ export default function Community() {
               >
                 Solicitações
                 <span className="absolute -top-1 -right-3 h-4 w-4 rounded-full bg-destructive text-white text-[10px] flex items-center justify-center ring-2 ring-background font-bold">
-                  {pendingInvites.length}
+                  {pendingInvites.length + pendingGroupRequests.length}
                 </span>
               </button>
             )}
@@ -611,48 +836,56 @@ export default function Community() {
             {filteredConversations.length > 0 ? (
               <div className="divide-y divide-border/40">
                 {filteredConversations.map((conversation) => (
-                  <button
-                    key={conversation.userId}
-                    onClick={() => handleOpenConversation(conversation)}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 active:bg-muted/50 transition-colors text-left"
-                  >
-                    {/* Avatar com ring se não lido */}
-                    <div className={`relative shrink-0 ${conversation.unreadCount > 0 ? "ring-2 ring-brand ring-offset-2 ring-offset-background rounded-full" : ""}`}>
-                      {conversation.userPhoto ? (
-                        <img
-                          src={conversation.userPhoto}
-                          alt={conversation.userNickname}
-                          className="h-12 w-12 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-                          <span className="text-sm font-semibold text-muted-foreground">
-                            {conversation.userNickname?.charAt(0).toUpperCase() || "?"}
-                          </span>
+                  <div key={conversation.userId} className="flex items-center group">
+                    <button
+                      onClick={() => handleOpenConversation(conversation)}
+                      className="flex-1 flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 active:bg-muted/50 transition-colors text-left min-w-0"
+                    >
+                      {/* Avatar com ring se não lido */}
+                      <div className="relative shrink-0">
+                        {conversation.userPhoto ? (
+                          <img
+                            src={conversation.userPhoto}
+                            alt={conversation.userNickname}
+                            className="h-12 w-12 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+                            <span className="text-sm font-semibold text-muted-foreground">
+                              {conversation.userNickname?.charAt(0).toUpperCase() || "?"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-0.5">
+                          <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-semibold text-foreground" : "font-medium"}`}>
+                            {conversation.userNickname}
+                          </p>
+                          <p className={`text-xs shrink-0 ${conversation.unreadCount > 0 ? "text-brand font-medium" : "text-muted-foreground"}`}>
+                            {formatTimeAgo(conversation.lastMessageTime)}
+                          </p>
+                        </div>
+                        <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                          {conversation.lastMessage || "Iniciar conversa"}
+                        </p>
+                      </div>
+
+                      {conversation.unreadCount > 0 && (
+                        <div className="flex items-center justify-center h-5 w-5 rounded-full bg-brand text-white text-[11px] font-bold shrink-0">
+                          {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
                         </div>
                       )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2 mb-0.5">
-                        <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-semibold text-foreground" : "font-medium"}`}>
-                          {conversation.userNickname}
-                        </p>
-                        <p className={`text-xs shrink-0 ${conversation.unreadCount > 0 ? "text-brand font-medium" : "text-muted-foreground"}`}>
-                          {formatTimeAgo(conversation.lastMessageTime)}
-                        </p>
-                      </div>
-                      <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-medium text-foreground" : "text-muted-foreground"}`}>
-                        {conversation.lastMessage || "Iniciar conversa"}
-                      </p>
-                    </div>
-
-                    {conversation.unreadCount > 0 && (
-                      <div className="flex items-center justify-center h-5 w-5 rounded-full bg-brand text-white text-[11px] font-bold shrink-0">
-                        {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
-                      </div>
-                    )}
-                  </button>
+                    </button>
+                    <button
+                      onClick={() => { setConvToDelete(conversation); setDeleteConvConfirmOpen(true); }}
+                      className="px-3 py-3.5 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                      aria-label="Excluir conversa"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 ))}
 
                 {/* Separador para sugestões quando há busca */}
@@ -745,6 +978,11 @@ export default function Community() {
               onClick={() => {
                 setSelectedGroupForView(null);
                 setGroupCheckIns([]);
+                setSearchParams((prev) => {
+                  const next = new URLSearchParams(prev);
+                  next.delete("group");
+                  return next;
+                }, { replace: true });
               }}
               className="p-2 hover:bg-muted rounded-full transition-colors"
             >
@@ -944,49 +1182,76 @@ export default function Community() {
                       <div key={group.label}>
                         <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">{group.label}</p>
                         <div className="space-y-2">
-                          {group.items.map((checkIn) => (
-                            <button
-                              key={checkIn.id}
-                              onClick={async () => {
-                                setSelectedCheckInForDetail(checkIn);
-                                setIsCheckInDetailOpen(true);
-                                const detail = await getGroupCheckInDetailDb(checkIn.id);
-                                if (detail) setSelectedCheckInForDetail(detail);
-                              }}
-                              className="w-full text-left"
-                            >
-                              <div className="flex items-center gap-3 px-1 py-2 rounded-lg hover:bg-muted/40 transition-colors">
-                                {/* Avatar */}
-                                <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
-                                  {checkIn.userPhoto ? (
-                                    <img src={checkIn.userPhoto} alt={checkIn.userName} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <span className="text-[10px] font-bold text-muted-foreground">{checkIn.userName.charAt(0).toUpperCase()}</span>
-                                  )}
-                                </div>
-                                {/* Content — description first, user name secondary */}
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium truncate text-foreground/90">
-                                    {checkIn.description || checkIn.workoutInfo}
-                                  </p>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-xs text-muted-foreground truncate">{checkIn.userName}</span>
-                                    {checkIn.muscleGroup && (
-                                      <span className="text-[10px] bg-brand/10 text-brand px-1 py-0.5 rounded-full shrink-0 leading-none">{checkIn.muscleGroup}</span>
+                          {group.items.map((checkIn) => {
+                            const myReaction = (checkInReactions[checkIn.id] ?? []).find((r) => r.userId === user?.id);
+                            return (
+                              <div
+                                key={checkIn.id}
+                                className="relative"
+                              >
+                                <div
+                                  className="flex items-center gap-3 px-1 py-2 rounded-lg hover:bg-muted/40 active:bg-muted/60 transition-colors cursor-pointer select-none"
+                                  onTouchStart={() => handleCheckInTouchStart(checkIn)}
+                                  onTouchEnd={handleCheckInTouchEnd}
+                                  onTouchMove={handleCheckInTouchEnd}
+                                  onContextMenu={(e) => { e.preventDefault(); setLongPressedCheckIn(checkIn); }}
+                                  onClick={async () => {
+                                    if (longPressedCheckIn) return;
+                                    setSelectedCheckInForDetail(checkIn);
+                                    setCheckInComments([]);
+                                    setCommentText("");
+                                    setIsCheckInDetailOpen(true);
+                                    setIsLoadingComments(true);
+                                    const [detail, comments, reactions] = await Promise.all([
+                                      getGroupCheckInDetailDb(checkIn.id),
+                                      getCheckInCommentsDb(checkIn.id),
+                                      getCheckInReactionsDb([checkIn.id]),
+                                    ]);
+                                    if (detail) setSelectedCheckInForDetail(detail);
+                                    setCheckInComments(comments);
+                                    setCheckInReactions((prev) => ({ ...prev, ...reactions }));
+                                    setIsLoadingComments(false);
+                                  }}
+                                >
+                                  {/* Avatar */}
+                                  <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
+                                    {checkIn.userPhoto ? (
+                                      <img src={checkIn.userPhoto} alt={checkIn.userName} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <span className="text-[10px] font-bold text-muted-foreground">{checkIn.userName.charAt(0).toUpperCase()}</span>
                                     )}
                                   </div>
-                                </div>
-                                {/* Right side: thumbnail or time */}
-                                {checkIn.photo ? (
-                                  <div className="w-16 h-14 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                                    <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
+                                  {/* Content */}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium truncate text-foreground/90">
+                                      {checkIn.description || checkIn.workoutInfo}
+                                    </p>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-xs text-muted-foreground truncate">{checkIn.userName}</span>
+                                      {checkIn.muscleGroup && (
+                                        <span className="text-[10px] bg-brand/10 text-brand px-1 py-0.5 rounded-full shrink-0 leading-none">{checkIn.muscleGroup}</span>
+                                      )}
+                                    </div>
                                   </div>
-                                ) : (
-                                  <span className="text-[11px] text-muted-foreground shrink-0">{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                  {/* Right side: thumbnail + time always */}
+                                  <div className="flex flex-col items-end gap-1 shrink-0">
+                                    {checkIn.photo && (
+                                      <div className="w-16 h-14 rounded-lg overflow-hidden bg-muted">
+                                        <img src={checkIn.photo} alt="check-in" className="w-full h-full object-cover" />
+                                      </div>
+                                    )}
+                                    <span className="text-[11px] text-muted-foreground">{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                  </div>
+                                </div>
+                                {/* Emoji reaction badge */}
+                                {myReaction && (
+                                  <span className="absolute -bottom-1 left-6 text-sm bg-background border border-border/60 rounded-full px-1 shadow-sm leading-none py-0.5">
+                                    {myReaction.emoji}
+                                  </span>
                                 )}
                               </div>
-                            </button>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ));
@@ -1050,6 +1315,63 @@ export default function Community() {
               <Plus className="h-6 w-6" />
             </button>
           </div>
+
+          {/* Check-in Emoji Long-Press Overlay */}
+          {longPressedCheckIn && (
+            <div
+              className="fixed inset-0 z-[100] bg-black/40 flex items-end justify-center pb-12"
+              onClick={() => setLongPressedCheckIn(null)}
+            >
+              <div
+                className="bg-background rounded-2xl w-full max-w-sm mx-4 overflow-hidden shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Preview */}
+                <div className="px-4 py-3 border-b border-border/60">
+                  <p className="text-xs text-muted-foreground mb-0.5">Check-in de {longPressedCheckIn.userName}</p>
+                  <p className="text-sm line-clamp-2 font-medium">{longPressedCheckIn.description || longPressedCheckIn.workoutInfo}</p>
+                </div>
+
+                {/* Emoji rápido */}
+                <div className="flex items-center justify-around px-4 py-3">
+                  {CHECKIN_QUICK_EMOJIS.map((emoji) => {
+                    const reactions = checkInReactions[longPressedCheckIn.id] ?? [];
+                    const myReaction = reactions.find((r) => r.userId === user?.id);
+                    const isActive = myReaction?.emoji === emoji;
+                    return (
+                      <button
+                        key={emoji}
+                        onClick={async () => {
+                          const newEmoji = isActive ? null : emoji;
+                          const checkInId = longPressedCheckIn.id;
+                          setLongPressedCheckIn(null);
+                          setCheckInReactions((prev) => {
+                            const current = (prev[checkInId] ?? []).filter((r) => r.userId !== user?.id);
+                            if (newEmoji) current.push({ checkInId, userId: user!.id, emoji: newEmoji });
+                            return { ...prev, [checkInId]: current };
+                          });
+                          await setCheckInReactionDb(checkInId, newEmoji);
+                        }}
+                        className={`text-2xl active:scale-125 transition-transform relative ${isActive ? "scale-110" : ""}`}
+                      >
+                        {emoji}
+                        {isActive && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-brand" />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Cancelar */}
+                <button
+                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left border-t border-border/40"
+                  onClick={() => setLongPressedCheckIn(null)}
+                >
+                  <X className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-sm font-medium">Cancelar</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1316,70 +1638,148 @@ export default function Community() {
         </>
       )}
 
-      {/* Solicitações (Pending Invites) Tab */}
+      {/* Solicitações (Pending Invites + Group Join Requests) Tab */}
       {activeTab === "requests" && (
         <>
           <div className="flex-shrink-0 px-4 pt-4 pb-0">
             <h1 className="text-2xl font-bold tracking-tight">Solicitações</h1>
           </div>
           <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 space-y-3">
-            {pendingInvites.map((invite) => (
-              <Card key={invite.groupId} className="border-border/60">
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <span className="text-2xl">⚔️</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm">{invite.groupName}</p>
-                      <p className="text-xs text-muted-foreground truncate">{invite.groupGoal}</p>
-                      <p className="text-xs text-muted-foreground">{invite.groupLocation}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 mt-3">
-                    <Button
-                      size="sm"
-                      className="flex-1 rounded-full text-xs h-11"
-                      onClick={async () => {
-                        try {
-                          await acceptGroupInviteDb(invite.groupId);
-                          const updated = pendingInvites.filter((i) => i.groupId !== invite.groupId);
-                          setPendingInvites(updated);
-                          toast({ title: "Convite aceito!", description: `Você entrou em "${invite.groupName}".` });
 
-                          // Navigate directly to the group detail view (open instantly)
-                          const group = await getDuelGroupDb(invite.groupId);
-                          if (group) {
-                            setActiveTab("duels");
-                            openGroupView(group);
-                          }
-                        } catch (err: any) {
-                          toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
-                        }
-                      }}
-                    >
-                      Aceitar
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 rounded-full text-xs h-11"
-                      onClick={async () => {
-                        try {
-                          await declineGroupInviteDb(invite.groupId);
-                          const updated = pendingInvites.filter((i) => i.groupId !== invite.groupId);
-                          setPendingInvites(updated);
-                          if (updated.length === 0) setActiveTab("duels");
-                          toast({ title: "Convite recusado" });
-                        } catch (err: any) {
-                          toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
-                        }
-                      }}
-                    >
-                      Recusar
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+            {/* Convites recebidos pelo usuário */}
+            {pendingInvites.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Convites recebidos</p>
+                {pendingInvites.map((invite) => (
+                  <Card key={invite.groupId} className="border-border/60 mb-3">
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        <span className="text-2xl">⚔️</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm">{invite.groupName}</p>
+                          <p className="text-xs text-muted-foreground truncate">{invite.groupGoal}</p>
+                          <p className="text-xs text-muted-foreground">{invite.groupLocation}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <Button
+                          size="sm"
+                          className="flex-1 rounded-full text-xs h-11"
+                          onClick={async () => {
+                            try {
+                              await acceptGroupInviteDb(invite.groupId);
+                              const updated = pendingInvites.filter((i) => i.groupId !== invite.groupId);
+                              setPendingInvites(updated);
+                              toast({ title: "Convite aceito!", description: `Você entrou em "${invite.groupName}".` });
+
+                              // Navigate directly to the group detail view (open instantly)
+                              const group = await getDuelGroupDb(invite.groupId);
+                              if (group) {
+                                setActiveTab("duels");
+                                openGroupView(group);
+                              }
+                            } catch (err: any) {
+                              toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
+                            }
+                          }}
+                        >
+                          Aceitar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 rounded-full text-xs h-11"
+                          onClick={async () => {
+                            try {
+                              await declineGroupInviteDb(invite.groupId);
+                              const updated = pendingInvites.filter((i) => i.groupId !== invite.groupId);
+                              setPendingInvites(updated);
+                              // Remove pending status from availableGroups so it no longer shows "Pendente"
+                              setAvailableGroups((prev) =>
+                                prev.map((g) => g.id === invite.groupId ? { ...g, isPending: false } : g)
+                              );
+                              if (updated.length === 0 && pendingGroupRequests.length === 0) setActiveTab("duels");
+                              toast({ title: "Convite recusado" });
+                            } catch (err: any) {
+                              toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
+                            }
+                          }}
+                        >
+                          Recusar
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* Solicitações de entrada nos grupos do usuário (dono) */}
+            {pendingGroupRequests.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Pedidos para entrar nos seus grupos</p>
+                {pendingGroupRequests.map((req) => (
+                  <Card key={`${req.groupId}-${req.userId}`} className="border-border/60 mb-3">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        {req.userPhoto ? (
+                          <img src={req.userPhoto} alt={req.userNickname} className="h-10 w-10 rounded-full object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                            <span className="text-sm font-semibold text-muted-foreground">{req.userNickname.charAt(0).toUpperCase()}</span>
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm">{req.userNickname}</p>
+                          <p className="text-xs text-muted-foreground truncate">quer entrar em <span className="font-medium">{req.groupName}</span></p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <Users className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-xs text-muted-foreground">{req.participants} participante{req.participants !== 1 ? "s" : ""}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <Button
+                          size="sm"
+                          className="flex-1 rounded-full text-xs h-11"
+                          onClick={async () => {
+                            try {
+                              await approveGroupRequestDb(req.groupId, req.userId);
+                              setPendingGroupRequests((prev) => prev.filter((r) => !(r.groupId === req.groupId && r.userId === req.userId)));
+                              toast({ title: "Aprovado!", description: `${req.userNickname} entrou em "${req.groupName}".` });
+                            } catch (err: any) {
+                              toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
+                            }
+                          }}
+                        >
+                          Aprovar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 rounded-full text-xs h-11"
+                          onClick={async () => {
+                            try {
+                              await rejectGroupRequestDb(req.groupId, req.userId);
+                              setPendingGroupRequests((prev) => prev.filter((r) => !(r.groupId === req.groupId && r.userId === req.userId)));
+                              toast({ title: "Solicitação recusada" });
+                            } catch (err: any) {
+                              toast({ title: "Erro", description: err?.message || "Tente novamente", variant: "destructive" });
+                            }
+                          }}
+                        >
+                          Recusar
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {pendingInvites.length === 0 && pendingGroupRequests.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-8">Nenhuma solicitação pendente</p>
+            )}
           </div>
         </>
       )}
@@ -2097,6 +2497,118 @@ export default function Community() {
                     ))}
                   </div>
                 )}
+
+                {/* Reactions summary (read-only, shows totals per emoji) */}
+                {(() => {
+                  const reactions = checkInReactions[selectedCheckInForDetail.id] ?? [];
+                  const grouped = CHECKIN_QUICK_EMOJIS.map((emoji) => ({
+                    emoji,
+                    count: reactions.filter((r) => r.emoji === emoji).length,
+                  })).filter((g) => g.count > 0);
+                  if (grouped.length === 0) return null;
+                  return (
+                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-border/40">
+                      {grouped.map(({ emoji, count }) => (
+                        <span key={emoji} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-sm bg-muted/40 border border-border/40">
+                          {emoji} <span className="text-xs font-medium">{count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* Comments Section */}
+                <div className="pt-2 border-t border-border/40 space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Comentários {checkInComments.length > 0 ? `(${checkInComments.length})` : ""}
+                  </p>
+
+                  {isLoadingComments ? (
+                    <div className="space-y-2">
+                      {[1, 2].map((i) => (
+                        <div key={i} className="animate-pulse flex gap-2">
+                          <div className="w-7 h-7 rounded-full bg-muted flex-shrink-0" />
+                          <div className="flex-1 space-y-1">
+                            <div className="h-2.5 bg-muted rounded w-1/4" />
+                            <div className="h-2 bg-muted rounded w-3/4" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : checkInComments.length > 0 ? (
+                    <div className="space-y-2.5">
+                      {checkInComments.map((comment) => (
+                        <div key={comment.id} className="flex gap-2">
+                          <div className="w-7 h-7 rounded-full overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
+                            {comment.userPhoto ? (
+                              <img src={comment.userPhoto} alt={comment.userNickname} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-[9px] font-bold text-muted-foreground">{comment.userNickname.charAt(0).toUpperCase()}</span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-1.5 flex-wrap">
+                              <span className="text-xs font-semibold">{comment.userNickname}</span>
+                              <span className="text-[10px] text-muted-foreground">{new Date(comment.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                            </div>
+                            <p className="text-xs text-foreground/90 break-words">{comment.text}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Nenhum comentário ainda. Seja o primeiro!</p>
+                  )}
+
+                  {/* Comment Input */}
+                  <div className="flex gap-2 pt-1">
+                    <Input
+                      placeholder="Adicionar comentário..."
+                      value={commentText}
+                      onChange={(e) => setCommentText(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey && commentText.trim() && !isSendingComment) {
+                          e.preventDefault();
+                          (async () => {
+                            if (!selectedCheckInForDetail) return;
+                            setIsSendingComment(true);
+                            try {
+                              const newComment = await addCheckInCommentDb(selectedCheckInForDetail.id, commentText);
+                              setCheckInComments((prev) => [...prev, newComment]);
+                              setCommentText("");
+                            } catch (err: any) {
+                              toast({ title: "Erro ao comentar", description: err?.message || "Tente novamente.", variant: "destructive" });
+                            } finally {
+                              setIsSendingComment(false);
+                            }
+                          })();
+                        }
+                      }}
+                      className="rounded-full text-xs h-9"
+                      disabled={isSendingComment}
+                    />
+                    <Button
+                      size="sm"
+                      className="rounded-full flex-shrink-0 h-9 w-9 p-0"
+                      disabled={!commentText.trim() || isSendingComment}
+                      onClick={async () => {
+                        if (!selectedCheckInForDetail || !commentText.trim()) return;
+                        setIsSendingComment(true);
+                        try {
+                          const newComment = await addCheckInCommentDb(selectedCheckInForDetail.id, commentText);
+                          setCheckInComments((prev) => [...prev, newComment]);
+                          setCommentText("");
+                        } catch (err: any) {
+                          toast({ title: "Erro ao comentar", description: err?.message || "Tente novamente.", variant: "destructive" });
+                        } finally {
+                          setIsSendingComment(false);
+                        }
+                      }}
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -2247,8 +2759,17 @@ export default function Community() {
                       setIsGroupDetailsOpen(false);
                       setSelectedGroupForView(null);
                       setGroupCheckIns([]);
-                      setJoinedGroupIds((prev) => { const next = new Set(prev); next.delete(groupId); return next; });
-                      setAvailableGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, participants: Math.max(0, g.participants - 1), isAlreadyMember: false } : g));
+                      setSearchParams((prev) => { const next = new URLSearchParams(prev); next.delete("group"); next.set("tab", "duels"); return next; }, { replace: true });
+                      setActiveTab("duels");
+                      // Full refresh of groups
+                      if (user?.id) {
+                        getEnrichedDuelGroupsDb(user.id).then(({ myGroups, availableGroups: enriched }) => {
+                          const toGroupCard = (g: any) => ({ ...g, icon: "⚔️", description: g.goal, city: g.location, isOfficial: false });
+                          setUserCreatedGroups(myGroups.map(toGroupCard));
+                          setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
+                          setAvailableGroups(enriched.map(toGroupCard));
+                        }).catch(() => {});
+                      }
                     } catch (error: any) {
                       toast({ title: "Erro ao sair do grupo", description: error?.message || "Tente novamente.", variant: "destructive" });
                     }
@@ -2325,9 +2846,20 @@ export default function Community() {
                         className="w-10 h-10 rounded-full object-cover flex-shrink-0"
                       />
                     ) : (
-                      <div className="w-10 h-10 rounded-full bg-muted flex-shrink-0" />
+                      <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-semibold text-muted-foreground">{participant.userNickname.charAt(0).toUpperCase()}</span>
+                      </div>
                     )}
-                    <p className="text-sm font-medium">{participant.userNickname}</p>
+                    <p className="text-sm font-medium flex-1">{participant.userNickname}</p>
+                    {selectedGroupForView?.createdBy === user?.id && participant.userId !== user?.id && (
+                      <button
+                        onClick={() => setRemoveMemberConfirm({ open: true, participant })}
+                        className="p-1.5 rounded-full hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive flex-shrink-0"
+                        title="Remover do grupo"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                 ))
               ) : (
@@ -2592,6 +3124,74 @@ export default function Community() {
           </div>
         </DrawerContent>
       </Drawer>
+
+      {/* Remove Member Confirm Dialog */}
+      <AlertDialog open={removeMemberConfirm.open} onOpenChange={(open) => setRemoveMemberConfirm((prev) => ({ ...prev, open }))}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover participante</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja remover {removeMemberConfirm.participant?.userNickname} do grupo?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setRemoveMemberConfirm({ open: false, participant: null })}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!removeMemberConfirm.participant || !selectedGroupForView) return;
+                const { userId, userNickname } = removeMemberConfirm.participant;
+                setRemoveMemberConfirm({ open: false, participant: null });
+                try {
+                  await removeGroupMemberDb(selectedGroupForView.id, userId);
+                  setGroupParticipants((prev) => prev.filter((p) => p.userId !== userId));
+                  setSelectedGroupForView((prev: any) => prev ? { ...prev, participants: Math.max(0, (prev.participants ?? 1) - 1) } : prev);
+                  toast({ title: "Participante removido", description: `${userNickname} foi removido do grupo.` });
+                } catch (err: any) {
+                  toast({ title: "Erro ao remover", description: err?.message || "Tente novamente.", variant: "destructive" });
+                }
+              }}
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Conversation Confirm Dialog */}
+      <AlertDialog open={deleteConvConfirmOpen} onOpenChange={setDeleteConvConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir conversa</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir todas as mensagens com {convToDelete?.userNickname}? Esta ação é irreversível.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConvToDelete(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!convToDelete) return;
+                setDeleteConvConfirmOpen(false);
+                try {
+                  await deleteConversationDb(convToDelete.userId);
+                  setConversations((prev) => prev.filter((c) => c.userId !== convToDelete.userId));
+                  toast({ title: "Conversa excluída!" });
+                } catch (err: any) {
+                  toast({ title: "Erro ao excluir conversa", description: err?.message || "Tente novamente.", variant: "destructive" });
+                } finally {
+                  setConvToDelete(null);
+                }
+              }}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Centralized Confirm Dialog */}
       <AlertDialog

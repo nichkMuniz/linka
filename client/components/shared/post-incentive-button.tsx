@@ -1,6 +1,6 @@
 import * as React from "react";
 import { motion } from "framer-motion";
-import { HeartHandshake, Flame, Trophy, Rocket, Target, Zap } from "lucide-react";
+import { Heart, Flame, Trophy, TrendingUp, Dumbbell, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -12,40 +12,54 @@ import type { PostIncentiveType } from "@/lib/ritmofit-db";
 
 type IncentiveConfig = {
   label: string;
+  emoji: string;
   Icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   iconClassName: string;
+  activeClassName: string;
 };
 
 const incentiveConfig: Record<PostIncentiveType, IncentiveConfig> = {
   1: {
-    label: "Te apoio",
-    Icon: HeartHandshake,
-    iconClassName: "text-rose-500",
+    label: "Apoio",
+    emoji: "❤️",
+    Icon: Heart,
+    iconClassName: "text-rose-400",
+    activeClassName: "text-rose-500 fill-rose-500",
   },
   2: {
-    label: "Continua",
+    label: "Tá pegando fogo! 🔥",
+    emoji: "🔥",
     Icon: Flame,
-    iconClassName: "text-orange-500",
+    iconClassName: "text-orange-400",
+    activeClassName: "text-orange-500 fill-orange-500",
   },
   3: {
-    label: "Ganhador",
+    label: "Vencedor! 🏆",
+    emoji: "🏆",
     Icon: Trophy,
-    iconClassName: "text-emerald-500",
+    iconClassName: "text-amber-400",
+    activeClassName: "text-amber-500 fill-amber-500",
   },
   4: {
-    label: "Você consegue mais",
-    Icon: Rocket,
-    iconClassName: "text-blue-500",
+    label: "Evolução! 📈",
+    emoji: "📈",
+    Icon: TrendingUp,
+    iconClassName: "text-emerald-400",
+    activeClassName: "text-emerald-500",
   },
   5: {
-    label: "Seu limite é maior do que imagina",
-    Icon: Target,
-    iconClassName: "text-purple-500",
+    label: "Força total! 💪",
+    emoji: "💪",
+    Icon: Dumbbell,
+    iconClassName: "text-blue-400",
+    activeClassName: "text-blue-500",
   },
   6: {
-    label: "Aguentava mais 10",
+    label: "Energia máxima! ⚡",
+    emoji: "⚡",
     Icon: Zap,
-    iconClassName: "text-yellow-500",
+    iconClassName: "text-yellow-400",
+    activeClassName: "text-yellow-500 fill-yellow-500",
   },
 };
 
@@ -62,7 +76,6 @@ export function PostIncentiveButton({
 }) {
   const config = incentiveConfig[type];
   const Icon = config.Icon;
-  const shouldHighlight = isActive;
 
   return (
     <TooltipProvider>
@@ -73,26 +86,23 @@ export function PostIncentiveButton({
             disabled={loading}
             aria-label={config.label}
             onClick={onClick}
-            whileHover={{ scale: 1.12 }}
-            whileTap={{ scale: 0.9 }}
+            whileHover={{ scale: 1.18 }}
+            whileTap={{ scale: 0.85 }}
             className={cn(
-              "inline-flex items-center justify-center p-1.5 rounded-full transition-opacity",
+              "inline-flex items-center justify-center p-1.5 rounded-full transition-all",
               loading && "opacity-50 cursor-not-allowed",
-              "hover:opacity-80 active:scale-95",
+              isActive && "scale-110",
             )}
           >
             <Icon
               className={cn(
-                "h-5 w-5 transition-colors",
-                shouldHighlight
-                  ? config.iconClassName
-                  : "text-muted-foreground",
-                shouldHighlight && "fill-current",
+                "h-[18px] w-[18px] transition-all duration-150",
+                isActive ? config.activeClassName : config.iconClassName,
               )}
             />
           </motion.button>
         </TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">
+        <TooltipContent side="top" className="text-xs font-medium">
           {config.label}
         </TooltipContent>
       </Tooltip>

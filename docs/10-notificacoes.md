@@ -147,6 +147,8 @@ supabase
 - O canal Realtime é cancelado no unmount (`channel?.unsubscribe()`) para evitar memory leak
 - A contagem de não lidas no badge da navegação (AppLayout) é gerenciada separadamente com sua própria subscription
 - Notificações de posts regulares (incentivo/comentário) são inseridas pelo **trigger do banco** — o código cliente não insere manualmente para evitar duplicação
+- **Agrupamento de incentivos:** notificações do tipo 2 (incentivo) com mesmo `postId`/`shotId` + mesmo `incentiveType` dentro de um mesmo grupo de data são colapsadas em uma entrada única via `collapseIncentives()`. A descrição é alterada para "X e mais N pessoas te deram…". Avatares empilhados indicam múltiplos incentivadores.
+- **Convite de duelo via modal de Participantes:** `addMembersToGroupDb` agora envia notificações tipo 4 para os novos membros adicionados (mesmo comportamento de `createDuelGroupDb`)
 - Notificações de shots são inseridas pelo **trigger do banco** com o campo `shots_id` populado (em vez de `post_id`). O `NotificationItem` expõe isso como `shotId`. O `getNotificationsDb` lê `shots_id` do select e popula `shotId` no retorno
 - O `PostCommentsDialog` usa `useRef` para garantir que `defaultOpen` abre o drawer apenas uma vez (evita dupla abertura por re-render do React.lazy/Suspense)
 - O `PostDetail` usa `useRef` para garantir que o `PostLikesModal` seja aberto apenas uma vez ao navegar de uma notificação

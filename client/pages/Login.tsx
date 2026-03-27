@@ -25,7 +25,7 @@ import {
 } from "@/lib/network-status";
 import { Fingerprint, Upload, X, Search, Check, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { useTheme } from "next-themes";
-import { getAllUsersDb, searchUsersDb, type SearchUser, followUserDb } from "@/lib/ritmofit-db";
+import { getAllUsersDb, searchUsersDb, type SearchUser, followUserDb, createOrUpdateCommercialProfileDb } from "@/lib/ritmofit-db";
 
 function isEmailNotConfirmed(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
@@ -105,6 +105,7 @@ export default function Login() {
   const [step4SearchResults, setStep4SearchResults] = React.useState<SearchUser[]>([]);
   const [showPassword, setShowPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
+  const [commercialWizardStep, setCommercialWizardStep] = React.useState(1);
 
   const canSubmit =
     !busy &&
@@ -289,8 +290,9 @@ export default function Login() {
       });
       return;
     }
-    // If commercial profile, go to commercial data step, else go to segments
+    // If commercial profile, go to commercial data wizard, else go to segments
     if (hasCommercialProfile) {
+      setCommercialWizardStep(1);
       setSignupStep(2.5);
     } else {
       setSignupStep(3);
@@ -364,16 +366,40 @@ export default function Login() {
           }
         }
 
-        if (photoUrl || bio.trim()) {
+        // Build profile update payload
+        const profilePayload: Record<string, any> = {};
+        if (photoUrl) profilePayload.photo = photoUrl;
+        if (bio.trim()) profilePayload.bio = bio.trim();
+        if (selectedSegments.size > 0) profilePayload.objectives = [...selectedSegments];
+
+        if (Object.keys(profilePayload).length > 0) {
           // Try update first; if the profile row doesn't exist yet (trigger delay), use upsert
           const { error: updateErr } = await supabase
             .from("profiles")
-            .update({ ...(photoUrl ? { photo: photoUrl } : {}), ...(bio.trim() ? { bio: bio.trim() } : {}) })
+            .update(profilePayload)
             .eq("user_id", authUser.id);
           if (updateErr) {
             await supabase
               .from("profiles")
-              .upsert({ user_id: authUser.id, ...(photoUrl ? { photo: photoUrl } : {}), ...(bio.trim() ? { bio: bio.trim() } : {}) }, { onConflict: "user_id" });
+              .upsert({ user_id: authUser.id, ...profilePayload }, { onConflict: "user_id" });
+          }
+        }
+
+        // Save commercial profile if user selected it
+        if (hasCommercialProfile && (commercialData.business_name.trim() || commercialData.business_segment)) {
+          try {
+            await createOrUpdateCommercialProfileDb(authUser.id, {
+              business_segment: commercialData.business_segment,
+              business_name: commercialData.business_name,
+              business_description: commercialData.business_description,
+              business_phone: commercialData.business_phone,
+              business_email: commercialData.business_email,
+              business_website: commercialData.business_website,
+              is_active: true,
+            });
+          } catch (commercialErr) {
+            console.error("Error saving commercial profile:", commercialErr);
+            // Non-fatal: continue signup flow
           }
         }
 
@@ -381,6 +407,9 @@ export default function Login() {
         if (selectedSegments.size > 0) {
           localStorage.setItem("user_fitness_segments", JSON.stringify([...selectedSegments]));
         }
+
+        // Force reload user profile so photo appears immediately in feed
+        await supabase.auth.getSession();
       }
 
       setSignupStep(4);
@@ -495,6 +524,8 @@ export default function Login() {
 
     // Flag: new user should land on Descobrir tab
     localStorage.setItem("new_user_open_discover", "1");
+    // Flag: force profile reload in feed (so photo appears immediately)
+    localStorage.setItem("force_profile_reload", "1");
 
     if (biometricAvailable) {
       setShowBiometricSetup(true);
@@ -1173,125 +1204,225 @@ export default function Login() {
                     </div>
                   )}
 
-                  {/* Step 2.5: Commercial Data */}
+                  {/* Step 2.5: Commercial Data Wizard */}
                   {signupStep === 2.5 && (
-                    <div className="grid gap-3">
-
-                      <div className="grid gap-2">
-                        <Label>Segmento *</Label>
-                        <select
-                          value={commercialData.business_segment}
-                          onChange={(e) =>
-                            setCommercialData({
-                              ...commercialData,
-                              business_segment: e.target.value,
-                            })
-                          }
-                          className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground"
-                        >
-                          <option value="">Selecione um segmento</option>
-                          <option value="academia">Academia / Fitness</option>
-                          <option value="personal_trainer">Personal Trainer</option>
-                          <option value="nutricao">Nutrição / Nutricionista</option>
-                          <option value="psicologia">Psicologia / Coaching</option>
-                          <option value="outros">Outros</option>
-                        </select>
+                    <div className="grid gap-4">
+                      {/* Wizard header */}
+                      <div className="text-center space-y-1">
+                        <h3 className="font-semibold text-sm">Perfil Comercial</h3>
+                        <p className="text-xs text-muted-foreground">
+                          {commercialWizardStep === 1 && "Informações principais do seu negócio"}
+                          {commercialWizardStep === 2 && "Como seus clientes podem te contatar?"}
+                          {commercialWizardStep === 3 && "Presença online (opcional)"}
+                        </p>
                       </div>
 
-                      <div className="grid gap-2">
-                        <Label>Nome da Loja / Negócio *</Label>
-                        <Input
-                          value={commercialData.business_name}
-                          onChange={(e) =>
-                            setCommercialData({
-                              ...commercialData,
-                              business_name: e.target.value,
-                            })
-                          }
-                          placeholder="Ex: Academia Força Total"
-                        />
+                      {/* Wizard progress dots */}
+                      <div className="flex items-center justify-center gap-2">
+                        {[1, 2, 3].map((s) => (
+                          <div
+                            key={s}
+                            className={`h-2 rounded-full transition-all duration-300 ${
+                              s === commercialWizardStep
+                                ? "w-6 bg-brand"
+                                : s < commercialWizardStep
+                                ? "w-2 bg-brand/60"
+                                : "w-2 bg-muted"
+                            }`}
+                          />
+                        ))}
                       </div>
 
-                      <div className="grid gap-2">
-                        <Label>Descrição</Label>
-                        <Textarea
-                          value={commercialData.business_description}
-                          onChange={(e) =>
-                            setCommercialData({
-                              ...commercialData,
-                              business_description: e.target.value,
-                            })
-                          }
-                          placeholder="Descreva seu negócio..."
-                          className="min-h-20"
-                        />
-                      </div>
+                      {/* Sub-step 1: Essentials */}
+                      {commercialWizardStep === 1 && (
+                        <div className="grid gap-3">
+                          <div className="grid gap-2">
+                            <Label>Segmento do negócio *</Label>
+                            <select
+                              value={commercialData.business_segment}
+                              onChange={(e) =>
+                                setCommercialData({ ...commercialData, business_segment: e.target.value })
+                              }
+                              className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground"
+                            >
+                              <option value="">Selecione um segmento</option>
+                              <option value="academia">Academia / Fitness</option>
+                              <option value="personal_trainer">Personal Trainer</option>
+                              <option value="nutricao">Nutrição / Nutricionista</option>
+                              <option value="psicologia">Psicologia / Coaching</option>
+                              <option value="fisioterapia">Fisioterapia / Reabilitação</option>
+                              <option value="crossfit">CrossFit / Funcional</option>
+                              <option value="yoga_pilates">Yoga / Pilates</option>
+                              <option value="suplementos">Suplementos / Nutrição Esportiva</option>
+                              <option value="equipamentos">Equipamentos / Artigos Esportivos</option>
+                              <option value="outros">Outros</option>
+                            </select>
+                          </div>
 
-                      <div className="grid gap-2">
-                        <Label>Telefone</Label>
-                        <Input
-                          type="tel"
-                          value={formatPhoneDisplay(commercialData.business_phone)}
-                          onChange={(e) => {
-                            const rawValue = e.target.value.replace(/\D/g, "");
-                            setCommercialData({
-                              ...commercialData,
-                              business_phone: rawValue,
-                            });
-                          }}
-                          placeholder="(11) 9 9999-9999"
-                          inputMode="numeric"
-                        />
-                      </div>
+                          <div className="grid gap-2">
+                            <Label>Nome do negócio *</Label>
+                            <Input
+                              value={commercialData.business_name}
+                              onChange={(e) =>
+                                setCommercialData({ ...commercialData, business_name: e.target.value })
+                              }
+                              placeholder="Ex: Academia Força Total"
+                            />
+                          </div>
 
-                      <div className="grid gap-2">
-                        <Label>Email</Label>
-                        <Input
-                          type="email"
-                          value={commercialData.business_email}
-                          onChange={(e) =>
-                            setCommercialData({
-                              ...commercialData,
-                              business_email: e.target.value,
-                            })
-                          }
-                          placeholder="contato@negocio.com"
-                        />
-                      </div>
+                          <div className="grid gap-2">
+                            <Label>
+                              Descrição{" "}
+                              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                            </Label>
+                            <Textarea
+                              value={commercialData.business_description}
+                              onChange={(e) =>
+                                setCommercialData({ ...commercialData, business_description: e.target.value })
+                              }
+                              placeholder="Conte sobre seu negócio, diferenciais, etc..."
+                              className="min-h-20 resize-none"
+                            />
+                          </div>
 
-                      <div className="grid gap-2">
-                        <Label>Site / Portfolio</Label>
-                        <Input
-                          type="url"
-                          value={commercialData.business_website}
-                          onChange={(e) =>
-                            setCommercialData({
-                              ...commercialData,
-                              business_website: e.target.value,
-                            })
-                          }
-                          placeholder="https://seu-site.com"
-                        />
-                      </div>
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-full flex-1"
+                              onClick={() => setSignupStep(2)}
+                            >
+                              Voltar
+                            </Button>
+                            <Button
+                              type="button"
+                              className="rounded-full flex-1"
+                              onClick={() => {
+                                if (!commercialData.business_name.trim() || !commercialData.business_segment) {
+                                  toast({
+                                    title: "Preencha os campos obrigatórios",
+                                    description: "Segmento e Nome do negócio são obrigatórios.",
+                                    variant: "destructive",
+                                  });
+                                  return;
+                                }
+                                setCommercialWizardStep(2);
+                              }}
+                              disabled={!commercialData.business_name.trim() || !commercialData.business_segment}
+                            >
+                              Próximo
+                            </Button>
+                          </div>
+                        </div>
+                      )}
 
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="rounded-full flex-1"
-                          onClick={() => setSignupStep(2)}
-                        >
-                          Voltar
-                        </Button>
-                        <Button
-                          type="button"
-                          className="rounded-full flex-1"
-                          onClick={handleCommercialDataComplete}
-                          disabled={!commercialData.business_name.trim() || !commercialData.business_segment}
-                        >
-                          Próximo
-                        </Button>
-                      </div>
+                      {/* Sub-step 2: Contact */}
+                      {commercialWizardStep === 2 && (
+                        <div className="grid gap-3">
+                          <div className="grid gap-2">
+                            <Label>
+                              Telefone comercial{" "}
+                              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                            </Label>
+                            <Input
+                              type="tel"
+                              value={formatPhoneDisplay(commercialData.business_phone)}
+                              onChange={(e) => {
+                                const rawValue = e.target.value.replace(/\D/g, "");
+                                setCommercialData({ ...commercialData, business_phone: rawValue });
+                              }}
+                              placeholder="(11) 9 9999-9999"
+                              inputMode="numeric"
+                            />
+                          </div>
+
+                          <div className="grid gap-2">
+                            <Label>
+                              Email comercial{" "}
+                              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                            </Label>
+                            <Input
+                              type="email"
+                              value={commercialData.business_email}
+                              onChange={(e) =>
+                                setCommercialData({ ...commercialData, business_email: e.target.value })
+                              }
+                              placeholder="contato@seunegocio.com"
+                            />
+                          </div>
+
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-full flex-1"
+                              onClick={() => setCommercialWizardStep(1)}
+                            >
+                              Voltar
+                            </Button>
+                            <Button
+                              type="button"
+                              className="rounded-full flex-1"
+                              onClick={() => setCommercialWizardStep(3)}
+                            >
+                              Próximo
+                            </Button>
+                          </div>
+
+                          <button
+                            type="button"
+                            className="text-xs text-muted-foreground hover:text-foreground text-center transition-colors"
+                            onClick={() => setCommercialWizardStep(3)}
+                          >
+                            Pular por agora →
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Sub-step 3: Online presence */}
+                      {commercialWizardStep === 3 && (
+                        <div className="grid gap-3">
+                          <div className="grid gap-2">
+                            <Label>
+                              Site / Portfolio{" "}
+                              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                            </Label>
+                            <Input
+                              type="url"
+                              value={commercialData.business_website}
+                              onChange={(e) =>
+                                setCommercialData({ ...commercialData, business_website: e.target.value })
+                              }
+                              placeholder="https://seu-site.com"
+                            />
+                          </div>
+
+                          <div className="rounded-lg border border-border/40 bg-muted/20 p-3 text-xs text-muted-foreground">
+                            <p className="font-medium text-foreground mb-1">Resumo do seu perfil comercial:</p>
+                            <p>📌 {commercialData.business_name} · {commercialData.business_segment}</p>
+                            {commercialData.business_phone && <p>📞 {formatPhoneDisplay(commercialData.business_phone)}</p>}
+                            {commercialData.business_email && <p>✉️ {commercialData.business_email}</p>}
+                          </div>
+
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-full flex-1"
+                              onClick={() => setCommercialWizardStep(2)}
+                            >
+                              Voltar
+                            </Button>
+                            <Button
+                              type="button"
+                              className="rounded-full flex-1"
+                              onClick={handleCommercialDataComplete}
+                            >
+                              Concluir
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

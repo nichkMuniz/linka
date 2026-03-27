@@ -1,10 +1,17 @@
 import React from "react";
 import { getWeekCheckInsDb, getCheckInHistoryDb, getUserStatsDb, type CheckIn } from "@/lib/ritmofit-db";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
 
 interface UserInsigniasProps {
   userId: string;
   maxBadges?: number;
-  /** When true, shows the streak day count next to the highest badge */
+  /** When true, shows the streak day count next to the badge */
   showStreak?: boolean;
 }
 
@@ -16,7 +23,6 @@ function calcStreak(history: CheckIn[]): number {
   const today = new Date().toISOString().split("T")[0];
   const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
 
-  // Start from today or yesterday (if today not checked in yet)
   const mostRecent = sorted[0]?.check_in_date;
   if (mostRecent !== today && mostRecent !== yesterday) return 0;
 
@@ -33,11 +39,29 @@ function calcStreak(history: CheckIn[]): number {
   return streak;
 }
 
-export function UserInsignias({ userId, maxBadges = 3, showStreak = false }: UserInsigniasProps) {
+/** Returns only the single highest unlocked badge, or null */
+function getTopBadge(weekCheckIns: number, level: number): { emoji: string; title: string; description: string } | null {
+  // Check-in based (preferred, accurate)
+  if (weekCheckIns === 7) return { emoji: "👑", title: "Lendário", description: "Check-in todos os 7 dias da semana!" };
+  if (weekCheckIns >= 5) return { emoji: "💪", title: "Campeão", description: "5 ou mais check-ins esta semana" };
+  if (weekCheckIns >= 3) return { emoji: "🔥", title: "Sequência", description: "3 ou mais check-ins esta semana" };
+  if (weekCheckIns >= 1) return { emoji: "⭐", title: "Iniciante", description: "1 ou mais check-in esta semana" };
+
+  // Level-based fallback (when RLS blocks check-in reads for non-followers)
+  if (level >= 20) return { emoji: "👑", title: "Lendário", description: "Usuário experiente da plataforma" };
+  if (level >= 10) return { emoji: "💪", title: "Campeão", description: "Usuário experiente da plataforma" };
+  if (level >= 5) return { emoji: "🔥", title: "Sequência", description: "Usuário ativo da plataforma" };
+  if (level >= 1) return { emoji: "⭐", title: "Iniciante", description: "Membro da comunidade" };
+
+  return null;
+}
+
+export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps) {
   const [weekCheckIns, setWeekCheckIns] = React.useState<number>(0);
   const [streakCount, setStreakCount] = React.useState<number>(0);
   const [level, setLevel] = React.useState<number>(0);
   const [loading, setLoading] = React.useState(true);
+  const [modalOpen, setModalOpen] = React.useState(false);
 
   React.useEffect(() => {
     const loadInsignias = async () => {
@@ -45,13 +69,14 @@ export function UserInsignias({ userId, maxBadges = 3, showStreak = false }: Use
         const [days, history, stats] = await Promise.all([
           getWeekCheckInsDb(userId).catch(() => [] as number[]),
           showStreak ? getCheckInHistoryDb(userId, 30).catch(() => [] as CheckIn[]) : Promise.resolve([] as CheckIn[]),
-          getUserStatsDb(userId).catch(() => ({ level: 0, points: 0, postsCount: 0, followersCount: 0, followingCount: 0 })),
+          getUserStatsDb(userId).catch(() => ({ level: 1, points: 0, postsCount: 0, followersCount: 0, followingCount: 0 })),
         ]);
         setWeekCheckIns(days.length);
-        setLevel(stats.level ?? 0);
+        // Ensure at least level 1 so the badge fallback renders for any existing user
+        setLevel(Math.max(stats.level ?? 1, 1));
         if (showStreak) setStreakCount(calcStreak(history));
-      } catch (err) {
-        console.error("Error loading insignias:", err);
+      } catch {
+        // fail silently
       } finally {
         setLoading(false);
       }
@@ -62,45 +87,47 @@ export function UserInsignias({ userId, maxBadges = 3, showStreak = false }: Use
 
   if (loading) return null;
 
-  // Build badges: check-in based when available, level-based as fallback
-  const badgeDisplays = [];
+  const badge = getTopBadge(weekCheckIns, level);
+  if (!badge) return null;
 
-  if (weekCheckIns >= 1) badgeDisplays.push({ emoji: "⭐", title: "Iniciante", count: 1 });
-  if (weekCheckIns >= 3) badgeDisplays.push({ emoji: "🔥", title: "Sequência", count: 3 });
-  if (weekCheckIns >= 5) badgeDisplays.push({ emoji: "💪", title: "Campeão", count: 5 });
-  if (weekCheckIns === 7) badgeDisplays.push({ emoji: "👑", title: "Lendário", count: 7 });
-
-  // Level-based badges as fallback when check-in data is unavailable (RLS)
-  if (badgeDisplays.length === 0 && level > 0) {
-    if (level >= 1) badgeDisplays.push({ emoji: "⭐", title: `Nível ${level}`, count: 1 });
-    if (level >= 5) badgeDisplays.push({ emoji: "🔥", title: `Nível ${level}`, count: 5 });
-    if (level >= 10) badgeDisplays.push({ emoji: "💪", title: `Nível ${level}`, count: 10 });
-    if (level >= 20) badgeDisplays.push({ emoji: "👑", title: `Nível ${level}`, count: 20 });
-  }
-
-  if (badgeDisplays.length === 0) return null;
-
-  const displayedBadges = badgeDisplays.slice(0, maxBadges);
-  const topBadge = badgeDisplays[badgeDisplays.length - 1];
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setModalOpen(true);
+  };
 
   return (
-    <div className="flex items-center gap-1">
-      <div className="flex gap-0.5">
-        {displayedBadges.map((badge) => (
-          <span
-            key={badge.title}
-            className="text-xs"
-            title={badge.title}
-          >
-            {badge.emoji}
-          </span>
-        ))}
-      </div>
-      {showStreak && topBadge && (
-        <span className="text-xs font-semibold text-orange-400">
-          {streakCount > 0 ? streakCount : weekCheckIns}d
-        </span>
-      )}
-    </div>
+    <>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={handleClick}
+              className="inline-flex items-center gap-0.5 cursor-pointer focus:outline-none"
+              aria-label={`Insígnia: ${badge.title}`}
+            >
+              <span className="text-xs leading-none">{badge.emoji}</span>
+              {showStreak && (
+                <span className="text-xs font-semibold text-orange-400 ml-0.5">
+                  {streakCount > 0 ? streakCount : weekCheckIns}d
+                </span>
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs">
+            <p className="font-semibold">{badge.title}</p>
+            <p className="text-muted-foreground">{badge.description}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      <InsigniasDrawer
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        weekCheckIns={weekCheckIns}
+        level={level}
+      />
+    </>
   );
 }

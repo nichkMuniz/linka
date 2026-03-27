@@ -108,6 +108,7 @@ Dietas:
 | Busca de usuários | `searchUsersDb(query)` |
 | IDs que o usuário segue | `getFollowingIdsDb()` |
 | Busca de rotinas | `searchRoutinesDb(query)` |
+| Rotinas já copiadas pelo usuário | `getCopiedRoutineKeysDb(userId)` |
 | Exercícios de uma rotina | `getRoutineWorkoutsDb(routineId)` |
 | Dietas de uma rotina | `getRoutineDietsDb(routineId)` |
 
@@ -138,3 +139,4 @@ Dietas:
 - `RoutineCard` é um componente interno isolado para melhor performance
 - Status de follow/unfollow é gerenciado localmente em um Set de IDs
 - Itens de rotina são carregados sob demanda e cacheados em estado local (`Record<string, RoutineItemRow[]>`)
+- Rotinas já copiadas pelo usuário são carregadas no mount via `getCopiedRoutineKeysDb` e pré-populam o `copiedKeys`, garantindo que o botão "Ver rotina" persista após refresh
