@@ -1,0 +1,156 @@
+import * as React from "react";
+import { Smile } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  getCommentReactionsDb,
+  toggleCommentReactionDb,
+  groupCommentReactions,
+  type CommentReactionSummary,
+} from "@/lib/ritmofit-db";
+import { useAuth } from "@/hooks/useAuth";
+
+const QUICK_EMOJIS = ["❤️", "🔥", "💪", "😂", "👏", "🥇"];
+
+interface CommentReactionsProps {
+  commentType: "post" | "shot" | "flow" | "checkin";
+  commentId: string;
+  /** Se true, usa estilo claro (fundo dark como no FlowViewer) */
+  dark?: boolean;
+}
+
+export function CommentReactions({ commentType, commentId, dark = false }: CommentReactionsProps) {
+  const { user } = useAuth();
+  const [reactions, setReactions] = React.useState<CommentReactionSummary[]>([]);
+  const [showPicker, setShowPicker] = React.useState(false);
+  const [loading, setLoading] = React.useState<string | null>(null);
+  const pickerRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    getCommentReactionsDb(commentType, [commentId]).then((records) => {
+      if (cancelled) return;
+      setReactions(groupCommentReactions(records, user?.id ?? null));
+    });
+    return () => { cancelled = true; };
+  }, [commentType, commentId, user?.id]);
+
+  // Fecha picker ao clicar fora
+  React.useEffect(() => {
+    if (!showPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showPicker]);
+
+  const handleReact = async (emoji: string) => {
+    if (!user) return;
+    setLoading(emoji);
+    setShowPicker(false);
+
+    // Optimistic update
+    setReactions((prev) => {
+      const existing = prev.find((r) => r.emoji === emoji);
+      if (existing) {
+        if (existing.userReacted) {
+          // remove
+          return prev
+            .map((r) => r.emoji === emoji ? { ...r, count: r.count - 1, userReacted: false } : r)
+            .filter((r) => r.count > 0);
+        } else {
+          return prev.map((r) => r.emoji === emoji ? { ...r, count: r.count + 1, userReacted: true } : r);
+        }
+      } else {
+        return [...prev, { emoji, count: 1, userReacted: true }];
+      }
+    });
+
+    try {
+      await toggleCommentReactionDb(commentType, commentId, emoji);
+    } catch {
+      // Reverte em caso de erro — rebusca do servidor
+      getCommentReactionsDb(commentType, [commentId]).then((records) => {
+        setReactions(groupCommentReactions(records, user?.id ?? null));
+      });
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap mt-1">
+      {/* Reações existentes */}
+      {reactions.map((r) => (
+        <button
+          key={r.emoji}
+          type="button"
+          onClick={() => handleReact(r.emoji)}
+          disabled={loading === r.emoji || !user}
+          className={cn(
+            "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs font-medium transition-all",
+            dark
+              ? r.userReacted
+                ? "bg-white/30 text-white ring-1 ring-white/60"
+                : "bg-white/10 text-white/80 hover:bg-white/20"
+              : r.userReacted
+                ? "bg-primary/15 text-primary ring-1 ring-primary/40"
+                : "bg-muted text-muted-foreground hover:bg-muted/80",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
+          )}
+        >
+          <span>{r.emoji}</span>
+          <span>{r.count}</span>
+        </button>
+      ))}
+
+      {/* Botão para abrir o picker de emojis rápidos */}
+      {user && (
+        <div ref={pickerRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setShowPicker((v) => !v)}
+            className={cn(
+              "inline-flex items-center justify-center rounded-full p-0.5 transition-colors",
+              dark
+                ? "text-white/50 hover:text-white hover:bg-white/10"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+            )}
+            aria-label="Reagir ao comentário"
+          >
+            <Smile className="h-3.5 w-3.5" />
+          </button>
+
+          {showPicker && (
+            <div
+              className={cn(
+                "absolute bottom-full mb-1 left-0 z-[300] flex gap-1 rounded-full px-2 py-1.5 shadow-xl",
+                dark ? "bg-zinc-800 border border-white/10" : "bg-popover border border-border/60",
+              )}
+            >
+              {QUICK_EMOJIS.map((emoji) => {
+                const reaction = reactions.find((r) => r.emoji === emoji);
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => handleReact(emoji)}
+                    className={cn(
+                      "flex h-7 w-7 items-center justify-center rounded-full text-base transition-all hover:scale-125",
+                      reaction?.userReacted && "scale-110",
+                    )}
+                    aria-label={emoji}
+                  >
+                    {emoji}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

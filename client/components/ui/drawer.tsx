@@ -35,22 +35,49 @@ DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content>
->(({ className, children, ...props }, ref) => (
-  <DrawerPortal>
-    <DrawerOverlay />
-    <DrawerPrimitive.Content
-      ref={ref}
-      className={cn(
-        "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-full md:max-w-[680px] md:rounded-xl",
-        className,
-      )}
-      {...props}
-    >
-      <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />
-      {children}
-    </DrawerPrimitive.Content>
-  </DrawerPortal>
-));
+>(({ className, children, style, ...props }, ref) => {
+  // On desktop (md+), center the drawer inside the feed column.
+  // Sidebar = 244px, feed max-width = 680px.
+  // Feed center = 244px + (100vw - 244px) / 2 = 50vw + 122px.
+  // We set left/right/width via inline style so they take priority over
+  // Tailwind's inset-x-0 and any Vaul inline styles.
+  const [isDesktop, setIsDesktop] = React.useState(false);
+  React.useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    setIsDesktop(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  const desktopStyle: React.CSSProperties = isDesktop
+    ? {
+        left: "calc(50vw + 122px)",
+        right: "auto",
+        width: "100%",
+        maxWidth: "680px",
+        transform: "translateX(-50%)",
+      }
+    : {};
+
+  return (
+    <DrawerPortal>
+      <DrawerOverlay />
+      <DrawerPrimitive.Content
+        ref={ref}
+        className={cn(
+          "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background md:rounded-xl",
+          className,
+        )}
+        style={{ ...desktopStyle, ...style }}
+        {...props}
+      >
+        <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />
+        {children}
+      </DrawerPrimitive.Content>
+    </DrawerPortal>
+  );
+});
 DrawerContent.displayName = "DrawerContent";
 
 const DrawerHeader = ({

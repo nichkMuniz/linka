@@ -46,7 +46,7 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 
 ### Bottom Navigation (Mobile)
 - **Home** → `/` (Feed)
-- **Clips** → `/shots`
+- **Shots** → `/shots`
 - **Nova** → `/postar`
 - **Metas** → `/metas`
 - **Loja** → `/loja`

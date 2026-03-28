@@ -8,7 +8,7 @@
 client/components/
 ├── ui/             ← Shadcn UI (não mexer)
 ├── layout/         ← Componentes estruturais globais (AppLayout, ShotsLayout, ThemeProvider, FloatingActionMenu)
-├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage)
+├── shared/         ← Componentes reutilizáveis em 2+ domínios (ImageWithFallback, AnimatedLoading, PostIncentiveButton, ExerciseImage, DietImage, EmojiPicker)
 ├── modals/         ← Modais e Dialogs globais (PostCommentsDialog, PostLikesModal, FlowViewerModal, FlowCreationDialog)
 ├── post/           ← Componentes de post (PostCarousel)
 ├── shots/          ← Componentes de shots/flows (FlowCarousel)
@@ -33,7 +33,7 @@ client/components/
 │                                  │
 ├──────────────────────────────────┤
 │  Bottom Navigation (mobile)      │
-│  [Home][Clips][Nova][Metas][Loja]│
+│  [Home][Shots][Nova][Metas][Loja]│
 └──────────────────────────────────┘
 ```
 
@@ -43,10 +43,13 @@ client/components/
 - **Badge de notificações:** Contador no ícone de Notificações
 - **Foto de perfil:** Carregada dinamicamente no ícone de Perfil
 - **Bottom Navigation (mobile):** 5 itens fixos na parte inferior
-- **Side Navigation (desktop):** Navegação lateral em telas grandes
+- **Side Navigation (desktop):** Navegação lateral em telas grandes (244px fixo)
 - **Timer de uso diário:** Monitora tempo de sessão
 - **Limite diário:** Se o usuário configurou um limite, bloqueia o app ao atingir
 - **Floating Action Menu:** Menu flutuante arrastável (mobile)
+
+#### Desktop — frame de conteúdo
+Em desktop (md+), o conteúdo é limitado a `max-w-[680px]` centralizado após a sidebar (244px). Todas as sobreposições fixas (Dialogs, Drawers) respeitam esse frame usando a classe `md-modal-centered` / `md-drawer-centered` definida em `global.css`, que ajusta o `left` para `calc(50vw + 122px)` (centro do frame de conteúdo).
 
 ---
 
@@ -97,6 +100,7 @@ Modal de visualização de stories:
 - Navegação entre múltiplos stories
 - Exibe contagem de visualizações (para o dono)
 - Swipe ou click para avançar
+- Campo de comentário com **EmojiPicker** integrado
 
 ---
 
@@ -130,11 +134,10 @@ Botão de reação/incentivo:
 
 Dialog de comentários de um post:
 - Lista de comentários com avatar, nome e texto
-- Campo para adicionar comentário
+- Campo para adicionar comentário com **EmojiPicker** integrado
 - Contagem de comentários no botão trigger
 - Badge de comentário não lido (para o dono do post)
 - Deletar comentário próprio
-- Responder a comentários
 
 ---
 
@@ -170,6 +173,18 @@ Card visual de refeição do catálogo:
 - Nome
 - Calorias
 - Descrição nutricional
+
+---
+
+### EmojiPicker
+**Arquivo:** `client/components/shared/emoji-picker.tsx`
+**Usado em:** PostCommentsDialog, Shots, FlowViewerModal, Community (check-in)
+
+Seletor de emojis nativo (sem dependência externa):
+- 4 categorias: Fitness, Emoções, Gestos, Comida
+- Popover posicionável (`placement="top"` ou `"bottom"`)
+- Fecha automaticamente ao clicar fora ou selecionar emoji
+- Props: `onSelect(emoji)`, `placement`, `triggerClassName`
 
 ---
 

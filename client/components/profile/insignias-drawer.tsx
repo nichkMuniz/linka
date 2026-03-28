@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
+  DrawerDescription,
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
@@ -38,6 +39,7 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
             <span className="text-2xl">🏆</span>
             Insígnias
           </DrawerTitle>
+          <DrawerDescription className="sr-only">Suas insígnias e conquistas</DrawerDescription>
         </DrawerHeader>
 
         <div className="flex-1 overflow-y-auto px-4 py-4">

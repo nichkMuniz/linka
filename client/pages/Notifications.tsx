@@ -116,11 +116,11 @@ export default function Notifications() {
         return {
           icon: IncentiveIconComponent
             ? <IncentiveIconComponent className={`h-5 w-5 ${incentiveIconData!.color}`} />
-            : <Heart className="h-5 w-5 text-red-500 fill-red-500" />,
+            : <Zap className="h-5 w-5 text-yellow-500" />,
           title: `${incentiveName} recebido`,
           description: `${notification.userNickname} te deu "${incentiveName}" ${context}`,
-          bgColor: IncentiveIconComponent ? "bg-yellow-500/10" : "bg-red-500/10",
-          borderColor: IncentiveIconComponent ? "border-yellow-200/50" : "border-red-200/50",
+          bgColor: "bg-yellow-500/10",
+          borderColor: "border-yellow-200/50",
         };
       }
       case 3: {
@@ -179,21 +179,58 @@ export default function Notifications() {
     });
   };
 
-  // Collapse multiple incentive notifications for the same post+type into one entry
-  const collapseIncentives = (notifs: NotificationItem[]): Array<NotificationItem & { groupedCount?: number; groupedNicknames?: string[] }> => {
-    const result: Array<NotificationItem & { groupedCount?: number; groupedNicknames?: string[] }> = [];
-    const seen = new Map<string, number>(); // key -> index in result
+  // Collapse incentive notifications for the same post/shot into one grouped entry per unique sender.
+  // A single user sending multiple incentive types on the same post becomes one notification
+  // listing all incentive types they sent. Multiple users sending incentives on the same post
+  // are also merged, showing stacked avatars and a combined description.
+  const collapseIncentives = (notifs: NotificationItem[]): Array<NotificationItem & {
+    groupedCount?: number;
+    groupedNicknames?: string[];
+    groupedIncentiveTypes?: number[];
+    groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
+  }> => {
+    type GroupedNotif = NotificationItem & {
+      groupedCount?: number;
+      groupedNicknames?: string[];
+      groupedIncentiveTypes?: number[];
+      groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
+    };
+
+    const result: GroupedNotif[] = [];
+    // Key: postId/shotId → index in result (one group per post/shot regardless of incentive type)
+    const seenPost = new Map<string, number>();
 
     for (const n of notifs) {
       if (n.type === 2 && n.incentiveType) {
-        const key = `${n.postId ?? n.shotId ?? ""}__${n.incentiveType}`;
-        if (seen.has(key)) {
-          const idx = seen.get(key)!;
-          result[idx].groupedCount = (result[idx].groupedCount ?? 1) + 1;
-          result[idx].groupedNicknames = [...(result[idx].groupedNicknames ?? [result[idx].userNickname]), n.userNickname];
+        const postKey = n.postId ?? n.shotId ?? "";
+        if (seenPost.has(postKey)) {
+          const idx = seenPost.get(postKey)!;
+          const existing = result[idx];
+          // Track per-user incentive types
+          const users = existing.groupedUsers!;
+          const existingUser = users.find(u => u.userId === n.userId);
+          if (existingUser) {
+            if (!existingUser.incentiveTypes.includes(n.incentiveType!)) {
+              existingUser.incentiveTypes.push(n.incentiveType!);
+            }
+          } else {
+            users.push({ userId: n.userId, userNickname: n.userNickname, userPhoto: n.userPhoto, incentiveTypes: [n.incentiveType!] });
+            existing.groupedNicknames = users.map(u => u.userNickname);
+            existing.groupedCount = users.length;
+          }
+          // Accumulate all incentive types seen across all users for icon display
+          if (!existing.groupedIncentiveTypes!.includes(n.incentiveType!)) {
+            existing.groupedIncentiveTypes!.push(n.incentiveType!);
+          }
         } else {
-          seen.set(key, result.length);
-          result.push({ ...n, groupedCount: 1, groupedNicknames: [n.userNickname] });
+          seenPost.set(postKey, result.length);
+          result.push({
+            ...n,
+            groupedCount: 1,
+            groupedNicknames: [n.userNickname],
+            groupedIncentiveTypes: [n.incentiveType!],
+            groupedUsers: [{ userId: n.userId, userNickname: n.userNickname, userPhoto: n.userPhoto, incentiveTypes: [n.incentiveType!] }],
+          });
         }
       } else {
         result.push(n);
@@ -356,15 +393,31 @@ export default function Notifications() {
                         const grouped = (notification as any);
                         const groupedCount: number = grouped.groupedCount ?? 1;
                         const groupedNicknames: string[] = grouped.groupedNicknames ?? [notification.userNickname];
+                        const groupedIncentiveTypes: number[] = grouped.groupedIncentiveTypes ?? (notification.incentiveType ? [notification.incentiveType] : []);
+                        const groupedUsers: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }> = grouped.groupedUsers ?? [];
                         const rawContent = getNotificationContent(notification);
-                        // Override description for grouped incentives
-                        const content = groupedCount > 1 && notification.type === 2
-                          ? {
-                              ...rawContent,
-                              description: groupedNicknames.length <= 2
-                                ? `${groupedNicknames.join(" e ")} te deram "${rawContent.title.replace(" recebido", "")}" ${notification.shotId ? "no seu reels" : "na sua postagem"}`
-                                : `${groupedNicknames[0]} e mais ${groupedCount - 1} pessoas te deram "${rawContent.title.replace(" recebido", "")}" ${notification.shotId ? "no seu reels" : "na sua postagem"}`,
-                            }
+                        const context = notification.shotId ? "no seu reels" : "na sua postagem";
+
+                        // Build description for grouped incentives
+                        let groupedDescription = rawContent.description;
+                        if (notification.type === 2) {
+                          const totalReactions = groupedUsers.reduce((sum, u) => sum + u.incentiveTypes.length, 0);
+                          const firstUser = groupedUsers[0];
+                          const firstName = firstUser?.userNickname ?? notification.userNickname;
+                          const firstIncentiveName = firstUser?.incentiveTypes[0]
+                            ? `"${getIncentiveTypeName(firstUser.incentiveTypes[0])}"`
+                            : `"${getIncentiveTypeName(notification.incentiveType ?? 1)}"`;
+
+                          if (totalReactions === 1) {
+                            // Single reaction — use default description
+                          } else {
+                            const othersCount = totalReactions - 1;
+                            groupedDescription = `${firstName} te deu ${firstIncentiveName} e outras ${othersCount} ${othersCount === 1 ? "reação" : "reações"} ${context}`;
+                          }
+                        }
+
+                        const content = notification.type === 2
+                          ? { ...rawContent, description: groupedDescription }
                           : rawContent;
                         const isRead = notification.read === true;
 
@@ -383,16 +436,16 @@ export default function Notifications() {
                               <div className="flex-shrink-0 relative" style={{ width: groupedCount > 1 ? "52px" : "48px", height: "48px" }}>
                                 {groupedCount > 1 ? (
                                   <>
-                                    {/* Back avatar (second person) */}
+                                    {/* Back avatar (second user or same user repeated) */}
                                     <div className={`absolute top-0 right-0 h-9 w-9 rounded-full border-2 bg-muted ${isRead ? "border-background/60 opacity-50" : "border-background"} overflow-hidden`}>
-                                      {notification.userPhoto ? (
-                                        <img src={notification.userPhoto} alt="" className="h-full w-full object-cover" />
+                                      {(groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto) ? (
+                                        <img src={groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto} alt="" className="h-full w-full object-cover" />
                                       ) : null}
                                     </div>
-                                    {/* Front avatar (first person) */}
+                                    {/* Front avatar (first user) */}
                                     <div className={`absolute bottom-0 left-0 h-9 w-9 rounded-full border-2 bg-muted ${isRead ? "border-background/60 opacity-60" : "border-background"} overflow-hidden`}>
-                                      {notification.userPhoto ? (
-                                        <img src={notification.userPhoto} alt={notification.userNickname} className="h-full w-full object-cover" />
+                                      {groupedUsers[0]?.userPhoto ? (
+                                        <img src={groupedUsers[0].userPhoto} alt={groupedUsers[0].userNickname} className="h-full w-full object-cover" />
                                       ) : null}
                                     </div>
                                   </>

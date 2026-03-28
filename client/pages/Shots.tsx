@@ -2,6 +2,7 @@ import * as React from "react";
 import {
   Drawer,
   DrawerContent,
+  DrawerDescription,
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
@@ -42,6 +43,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { EmojiPicker } from "@/components/shared/emoji-picker";
+import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
@@ -382,7 +385,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     return (
       <div className="flex flex-col items-center justify-center h-full w-full bg-black gap-4">
         <LoadingSpinner className="h-12 w-12" />
-        <p className="text-sm text-muted-foreground">Carregando clips...</p>
+        <p className="text-sm text-muted-foreground">Carregando shots...</p>
       </div>
     );
   }
@@ -391,7 +394,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     return (
       <div className="flex items-center justify-center h-full w-full bg-black">
         <p className="text-sm text-muted-foreground">
-          Erro ao carregar clips. Tente novamente.
+          Erro ao carregar shots. Tente novamente.
         </p>
       </div>
     );
@@ -540,11 +543,10 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                   <button
                     onClick={() => handleFollowUser(shot.user_id)}
                     disabled={isFollowingLoading[shot.user_id]}
-                    className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                      followingStatus[shot.user_id]
+                    className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all ${followingStatus[shot.user_id]
                         ? "bg-white/20 text-white hover:bg-white/30"
                         : "bg-white text-black hover:bg-white/90"
-                    } disabled:opacity-50`}
+                      } disabled:opacity-50`}
                   >
                     {followingStatus[shot.user_id] ? (
                       <>
@@ -629,7 +631,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
           `}</style>
           <div className="flex flex-col items-center gap-4">
             <p className="text-white text-lg font-semibold drop-shadow-lg">
-              Deslize para ver mais clips
+              Deslize para ver mais shots
             </p>
             <div className="text-4xl swipe-finger">☝️</div>
           </div>
@@ -721,6 +723,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         <DrawerContent className="max-h-[80dvh] flex flex-col">
           <DrawerHeader>
             <DrawerTitle>Comentários</DrawerTitle>
+            <DrawerDescription className="sr-only">Comentários deste shot</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto space-y-4 px-4 py-4">
@@ -747,6 +750,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     <p className="text-xs text-muted-foreground mt-1">
                       {new Date(comment.createdAt).toLocaleString("pt-BR")}
                     </p>
+                    <CommentReactions commentType="shot" commentId={comment.id} />
                   </div>
                   {user?.id === comment.userId && (
                     <button
@@ -767,7 +771,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
 
           {/* Comment Input */}
           {selectedShot && (
-            <div className="flex gap-2 border-t border-border/60 px-4 py-4">
+            <div className="flex gap-2 border-t border-border/60 px-4 py-4 items-center">
               <Input
                 placeholder="Adicione um comentário..."
                 value={commentText}
@@ -780,6 +784,10 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                 }}
                 disabled={isAddingComment}
                 className="rounded-full"
+              />
+              <EmojiPicker
+                placement="top"
+                onSelect={(emoji) => setCommentText((prev) => prev + emoji)}
               />
               <Button
                 onClick={handleAddComment}

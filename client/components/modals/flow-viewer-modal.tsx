@@ -12,11 +12,13 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
   Drawer,
   DrawerContent,
+  DrawerDescription,
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
@@ -36,11 +38,13 @@ import {
   type FlowViewer,
 } from "@/lib/ritmofit-db";
 import { X, ChevronLeft, Send, Trash2, Eye, Pause, Play } from "lucide-react";
+import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { toast } from "@/components/ui/use-toast";
 import { Input } from "@/components/ui/input";
+import { EmojiPicker } from "@/components/shared/emoji-picker";
 
 interface FlowViewerModalProps {
   story: StoryWithUser | null;
@@ -300,9 +304,10 @@ export function FlowViewerModal({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="w-screen h-screen max-w-none max-h-none p-0 border-0 bg-black [&>button]:hidden"
+          className="w-screen h-screen md:w-[680px] md:h-[calc(100dvh-48px)] max-w-none md:max-w-[680px] max-h-none p-0 border-0 bg-black rounded-none md:rounded-xl [&>button]:hidden"
         >
           <DialogTitle className="sr-only">Flow viewer</DialogTitle>
+          <DialogDescription className="sr-only">Visualizando flow</DialogDescription>
           <div className="relative w-full h-full flex flex-col">
             {/* Header */}
             <div className="space-y-2 z-10">
@@ -463,6 +468,7 @@ export function FlowViewerModal({
                         <div className="flex-1">
                           <span className="font-semibold text-white">{comment.userName}</span>
                           <span className="text-white/70 ml-2">{comment.text}</span>
+                          <CommentReactions commentType="flow" commentId={comment.id} dark />
                         </div>
                         {user?.id === comment.userId && (
                           <button
@@ -494,6 +500,11 @@ export function FlowViewerModal({
                       className="flex-1 bg-transparent border-0 text-xs text-white placeholder-white/50 focus:outline-none focus-visible:ring-0 h-6"
                       disabled={isAddingComment}
                     />
+                    <EmojiPicker
+                      placement="top"
+                      onSelect={(emoji) => setNewComment((prev) => prev + emoji)}
+                      triggerClassName="text-white/70 hover:text-white hover:bg-white/10"
+                    />
                     <button
                       onClick={handleAddComment}
                       disabled={!newComment.trim() || isAddingComment}
@@ -517,6 +528,7 @@ export function FlowViewerModal({
               <Eye className="h-4 w-4" />
               Visualizações ({viewers.length})
             </DrawerTitle>
+            <DrawerDescription className="sr-only">Lista de pessoas que visualizaram este flow</DrawerDescription>
           </DrawerHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-2">
             {isLoadingViewers ? (

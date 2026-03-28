@@ -1,5 +1,7 @@
 import * as React from "react";
 import { MessageCircle, Trash2 } from "lucide-react";
+import { EmojiPicker } from "@/components/shared/emoji-picker";
+import { CommentReactions } from "@/components/shared/comment-reactions";
 import { motion } from "framer-motion";
 import {
   Drawer,
@@ -211,6 +213,7 @@ export function PostCommentsDialog({
                     <div className="mt-1 text-xs text-muted-foreground">
                       {new Date(comment.createdAt).toLocaleString("pt-BR")}
                     </div>
+                    <CommentReactions commentType="post" commentId={comment.id} />
                   </div>
 
                   {user && user.id === comment.userId && (
@@ -239,19 +242,27 @@ export function PostCommentsDialog({
         {/* Comment input */}
         {user ? (
           <div className="space-y-2 shrink-0">
-            <Textarea
-              placeholder="Adicione um comentário..."
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !submitting && draft.trim()) {
-                  e.preventDefault();
-                  handleSubmit();
-                }
-              }}
-              className="min-h-20 resize-none"
-              disabled={submitting}
-            />
+            <div className="relative">
+              <Textarea
+                placeholder="Adicione um comentário..."
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !submitting && draft.trim()) {
+                    e.preventDefault();
+                    handleSubmit();
+                  }
+                }}
+                className="min-h-20 resize-none pr-10"
+                disabled={submitting}
+              />
+              <div className="absolute bottom-2 right-2">
+                <EmojiPicker
+                  placement="top"
+                  onSelect={(emoji) => setDraft((prev) => prev + emoji)}
+                />
+              </div>
+            </div>
             <Button
               onClick={handleSubmit}
               disabled={!draft.trim() || submitting}

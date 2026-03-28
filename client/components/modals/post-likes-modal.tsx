@@ -2,6 +2,7 @@ import React from "react";
 import {
   Drawer,
   DrawerContent,
+  DrawerDescription,
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
@@ -66,13 +67,14 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh]">
+      <DrawerContent className="max-h-[80dvh] flex flex-col">
         <DrawerHeader className="shrink-0 border-b border-border/60">
           <div className="space-y-3">
             <DrawerTitle className="flex items-center gap-2">
               <Heart className="h-5 w-5 text-red-500 fill-red-500" />
               Incentivos
             </DrawerTitle>
+            <DrawerDescription className="sr-only">Lista de pessoas que incentivaram este post</DrawerDescription>
 
             {/* Distinct Users Counter */}
             <div className="bg-muted/50 rounded-lg p-3">
@@ -114,7 +116,7 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
           </div>
         </DrawerHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-20">
+        <div className="flex-1 overflow-y-auto px-4 pb-6">
           {likes.length === 0 ? (
             <div className="flex items-center justify-center py-8">
               <p className="text-sm text-muted-foreground">

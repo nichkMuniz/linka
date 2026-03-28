@@ -112,8 +112,16 @@
     @apply border-border;
   }
 
+  html {
+    /* Prevents layout shift when modal/drawer opens and scrollbar disappears */
+    scrollbar-gutter: stable;
+    /* Sidebar width token — used to offset fixed-positioned modals in desktop */
+    --sidebar-w: 0px;
+  }
+
   body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
   }
 
   :where(p, span, li, h1, h2, h3, h4, h5, h6, a, button, label, td, th) {
@@ -231,6 +239,11 @@
       opacity: 0;
     }
   }
+
+  /* ─── Desktop modal/drawer centering inside the feed column ───
+   * Sidebar = 244px. Feed column center = 50vw + 122px.
+   * Centering is handled via inline style in dialog.tsx and drawer.tsx.
+   * ─────────────────────────────────────────────────────────────── */
 
   /* Slide animations */
   .slide-in-up {

@@ -51,12 +51,15 @@ import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
 import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users } from "lucide-react";
+import { CommentReactions } from "@/components/shared/comment-reactions";
 import {
   Drawer,
   DrawerContent,
+  DrawerDescription,
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { EmojiPicker } from "@/components/shared/emoji-picker";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -566,7 +569,7 @@ export default function Community() {
       : "bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:bottom-0";
 
     return (
-      <div className={`fixed top-0 left-0 md:left-[244px] right-0 ${bottomClass} bg-background flex flex-col z-[60]`}>
+      <div className={`fixed top-0 left-0 md:left-[244px] right-0 md:right-auto md:w-[680px] ${bottomClass} bg-background flex flex-col z-[60]`}>
         {/* Header */}
         <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3">
           <button
@@ -767,7 +770,7 @@ export default function Community() {
   );
 
   return (
-    <div className="w-full h-[calc(100dvh-68px)] md:h-[calc(100dvh-24px)] flex flex-col overflow-hidden">
+    <div className="w-full h-[calc(100dvh-68px)] md:h-[calc(100dvh-48px)] flex flex-col overflow-hidden">
       {/* Tabs — minimalista, underline style */}
       <div className="flex-shrink-0 border-b border-border/60 px-4 pt-5 md:pt-4">
         <div className="flex items-center justify-between mb-3">
@@ -971,7 +974,7 @@ export default function Community() {
 
       {/* Duels Tab - Full Screen Group View */}
       {selectedGroupForView && (
-        <div className="fixed inset-0 bg-background flex flex-col z-[51]">
+        <div className="fixed inset-0 md:inset-y-0 md:left-[244px] md:right-0 bg-background flex flex-col z-[51] md:max-w-[680px] md:mx-auto">
           {/* Header with Back Button */}
           <div className="flex-shrink-0 px-4 pt-3 pb-0 flex items-center justify-start border-b border-border/40">
             <button
@@ -1266,7 +1269,7 @@ export default function Community() {
           </div>
 
           {/* Bottom Navigation Tabs */}
-          <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border/40 z-[52]">
+          <div className="fixed bottom-0 left-0 right-0 md:left-[244px] md:right-0 md:max-w-[680px] md:mx-auto bg-background border-t border-border/40 z-[52]">
             <div className="flex items-center justify-around h-16 px-4">
               <button
                 onClick={() => setIsGroupDetailsOpen(true)}
@@ -1293,7 +1296,7 @@ export default function Community() {
           </div>
 
           {/* Centered Add Check-in Button at Bottom */}
-          <div className="fixed bottom-20 right-4 z-[53]">
+          <div className="fixed bottom-20 right-4 z-[53] md:bottom-20 md:left-[244px] md:right-0 md:max-w-[680px] md:mx-auto md:flex md:justify-end md:pr-4 md:pointer-events-none [&>*]:pointer-events-auto">
             <button
               onClick={() => {
                 if (!user?.id) return;
@@ -1829,6 +1832,7 @@ export default function Community() {
               {groupStep === 3 && "Passo 3 — Duração"}
               {groupStep === 4 && "Passo 4 — Convidar participantes"}
             </DrawerTitle>
+            <DrawerDescription className="sr-only">Criação de grupo de desafio</DrawerDescription>
             <p className="text-xs text-muted-foreground mt-0.5">
               {groupStep === 1 && "Nome, meta e capa do grupo"}
               {groupStep === 2 && "Estado onde o desafio acontece"}
@@ -2194,6 +2198,7 @@ export default function Community() {
         <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Adicionar Check-in</DrawerTitle>
+            <DrawerDescription className="sr-only">Registre seu check-in de treino</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -2402,6 +2407,7 @@ export default function Community() {
         <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0 flex items-center justify-between">
             <DrawerTitle>Detalhes do Check-in</DrawerTitle>
+            <DrawerDescription className="sr-only">Veja detalhes e comentários do check-in</DrawerDescription>
             {selectedCheckInForDetail && selectedCheckInForDetail.userId === user?.id && (
               <div className="flex gap-2">
                 <button
@@ -2557,6 +2563,7 @@ export default function Community() {
                               <span className="text-[10px] text-muted-foreground">{new Date(comment.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                             </div>
                             <p className="text-xs text-foreground/90 break-words">{comment.text}</p>
+                            <CommentReactions commentType="checkin" commentId={comment.id} />
                           </div>
                         </div>
                       ))}
@@ -2566,7 +2573,7 @@ export default function Community() {
                   )}
 
                   {/* Comment Input */}
-                  <div className="flex gap-2 pt-1">
+                  <div className="flex gap-2 pt-1 items-center">
                     <Input
                       placeholder="Adicionar comentário..."
                       value={commentText}
@@ -2591,6 +2598,10 @@ export default function Community() {
                       }}
                       className="rounded-full text-xs h-9"
                       disabled={isSendingComment}
+                    />
+                    <EmojiPicker
+                      placement="top"
+                      onSelect={(emoji) => setCommentText((prev) => prev + emoji)}
                     />
                     <Button
                       size="sm"
@@ -2625,6 +2636,7 @@ export default function Community() {
         <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Detalhes do Grupo</DrawerTitle>
+            <DrawerDescription className="sr-only">Informações e estatísticas do grupo</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -2793,6 +2805,7 @@ export default function Community() {
         <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Classificações</DrawerTitle>
+            <DrawerDescription className="sr-only">Ranking de membros do grupo</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -2834,6 +2847,7 @@ export default function Community() {
         <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Participantes ({groupParticipants.length})</DrawerTitle>
+            <DrawerDescription className="sr-only">Lista de participantes do grupo</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -2896,6 +2910,7 @@ export default function Community() {
         <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Adicionar Membros</DrawerTitle>
+            <DrawerDescription className="sr-only">Convide pessoas para o grupo</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4 flex flex-col">
@@ -3016,6 +3031,7 @@ export default function Community() {
         <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Editar Check-in</DrawerTitle>
+            <DrawerDescription className="sr-only">Edite as informações do seu check-in</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">

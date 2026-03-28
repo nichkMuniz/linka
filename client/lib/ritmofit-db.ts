@@ -3679,6 +3679,96 @@ export async function removeMessageReactionDb(
   return true;
 }
 
+// ─── Comment Reactions ───────────────────────────────────────────────────────
+// Unified table: comment_reactions(id, comment_type, comment_id, user_id, emoji, created_at)
+// comment_type: 'post' | 'shot' | 'flow' | 'checkin'
+
+export type CommentReactionRecord = {
+  id: string;
+  comment_type: string;
+  comment_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+};
+
+export type CommentReactionSummary = {
+  emoji: string;
+  count: number;
+  userReacted: boolean;
+};
+
+export async function getCommentReactionsDb(
+  commentType: string,
+  commentIds: string[],
+): Promise<CommentReactionRecord[]> {
+  if (!hasSupabaseConfig || !supabase || commentIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("comment_reactions")
+    .select("*")
+    .eq("comment_type", commentType)
+    .in("comment_id", commentIds);
+
+  if (error) {
+    console.error("Error fetching comment reactions:", error);
+    return [];
+  }
+
+  return data ?? [];
+}
+
+export async function toggleCommentReactionDb(
+  commentType: string,
+  commentId: string,
+  emoji: string,
+): Promise<"added" | "removed" | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  // Check if reaction already exists
+  const { data: existing } = await supabase
+    .from("comment_reactions")
+    .select("id")
+    .eq("comment_type", commentType)
+    .eq("comment_id", commentId)
+    .eq("user_id", viewer.id)
+    .eq("emoji", emoji)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from("comment_reactions")
+      .delete()
+      .eq("id", existing.id);
+    if (error) { console.error("Error removing comment reaction:", error); return null; }
+    return "removed";
+  } else {
+    const { error } = await supabase
+      .from("comment_reactions")
+      .insert({ comment_type: commentType, comment_id: commentId, user_id: viewer.id, emoji });
+    if (error) { console.error("Error adding comment reaction:", error); return null; }
+    return "added";
+  }
+}
+
+export function groupCommentReactions(
+  records: CommentReactionRecord[],
+  viewerUserId: string | null,
+): CommentReactionSummary[] {
+  const map: Record<string, { count: number; userReacted: boolean }> = {};
+  for (const r of records) {
+    if (!map[r.emoji]) map[r.emoji] = { count: 0, userReacted: false };
+    map[r.emoji].count += 1;
+    if (viewerUserId && r.user_id === viewerUserId) map[r.emoji].userReacted = true;
+  }
+  return Object.entries(map)
+    .map(([emoji, v]) => ({ emoji, ...v }))
+    .sort((a, b) => b.count - a.count);
+}
+
 export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
 
@@ -4847,19 +4937,19 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
   if (!viewer) return 0;
 
   try {
-    // Try with read filter first
-    let { count, error } = await supabase
+    // Fetch unread notification rows (we need post/shot IDs to apply grouping logic)
+    let { data, error } = await supabase
       .from("notifications")
-      .select("*", { count: "exact", head: true })
+      .select("id, type, post_id, shots_id, read")
       .eq("user_id", viewer.id)
       .eq("read", false);
 
-    // If read column doesn't exist, fallback to all unread
-    if (error && error.message?.includes("read")) {
+    // If read column doesn't exist, fallback to fetching all
+    if (error && (error.message?.includes("read") || error.message?.includes("column"))) {
       console.warn("Read column might not exist, fetching all notifications count");
-      const { count: allCount, error: fallbackError } = await supabase
+      const { data: allData, error: fallbackError } = await supabase
         .from("notifications")
-        .select("*", { count: "exact", head: true })
+        .select("id, type, post_id, shots_id")
         .eq("user_id", viewer.id);
 
       if (fallbackError) {
@@ -4867,16 +4957,33 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
         console.error("Error fetching unread count:", errorMsg);
         return 0;
       }
-      return allCount ?? 0;
-    }
-
-    if (error) {
+      data = allData;
+    } else if (error) {
       const errorMsg = typeof error === 'object' ? JSON.stringify(error) : String(error);
       console.error("Error fetching unread count:", errorMsg);
       return 0;
     }
 
-    return count ?? 0;
+    if (!data || data.length === 0) return 0;
+
+    // Apply the same grouping as the UI: incentive notifications (type 2) for the same
+    // post/shot are collapsed into a single entry regardless of incentive subtype or sender.
+    const seenPostKeys = new Set<string>();
+    let groupedCount = 0;
+
+    for (const n of data) {
+      if (n.type === 2) {
+        const key = n.shots_id ?? n.post_id ?? n.id;
+        if (!seenPostKeys.has(key)) {
+          seenPostKeys.add(key);
+          groupedCount++;
+        }
+      } else {
+        groupedCount++;
+      }
+    }
+
+    return groupedCount;
   } catch (err: any) {
     const errorMsg = typeof err === 'object' ? JSON.stringify(err) : String(err);
     console.error("Error getting unread notifications count:", errorMsg);
