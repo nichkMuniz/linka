@@ -608,6 +608,9 @@ export async function getUserGoalsByUserIdDb(
     rows.map((row: any) => {
       const quantity = Number(row.quantity ?? 0);
       const perc = Number(row.perc ?? 0);
+      const days_completed = row.days_completed != null
+        ? Number(row.days_completed)
+        : Math.round((perc / 100) * quantity);
       return {
         id: String(row.id),
         goal_id: String(row.goal_id ?? ""),
@@ -616,14 +619,14 @@ export async function getUserGoalsByUserIdDb(
         quantity,
         type_goal: Number(row.type_goal ?? 0),
         perc,
-        days_completed: Math.round((perc / 100) * quantity),
+        days_completed,
       } satisfies UserGoal;
     });
 
   // Try with embedded join first
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, goals(description)")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, goals(description)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -635,7 +638,7 @@ export async function getUserGoalsByUserIdDb(
   console.warn(`[getUserGoalsByUserIdDb] Join failed (${error.code}), using fallback`);
   const { data: fallback, error: fbError } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -671,6 +674,9 @@ export async function getUserGoalByIdDb(
   const buildGoal = (row: any, description: string): UserGoal => {
     const quantity = Number(row.quantity ?? 0);
     const perc = Number(row.perc ?? 0);
+    const days_completed = row.days_completed != null
+      ? Number(row.days_completed)
+      : Math.round((perc / 100) * quantity);
     return {
       id: String(row.id),
       goal_id: String(row.goal_id ?? ""),
@@ -679,14 +685,14 @@ export async function getUserGoalByIdDb(
       quantity,
       type_goal: Number(row.type_goal ?? 0),
       perc,
-      days_completed: Math.round((perc / 100) * quantity),
+      days_completed,
     };
   };
 
   // Try with embedded join first
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, goals(description)")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, goals(description)")
     .eq("id", userGoalId)
     .maybeSingle();
 
@@ -699,7 +705,7 @@ export async function getUserGoalByIdDb(
   console.warn(`[getUserGoalByIdDb] Join failed (${error.code}), using fallback`);
   const { data: fb } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed")
     .eq("id", userGoalId)
     .maybeSingle();
   if (!fb) return null;
@@ -1863,6 +1869,28 @@ export async function getUserDietsDb(
       }
     }
 
+    // Last-resort fallback: columns is_completed/completed_at may not exist yet — fetch without them
+    console.warn(`[getUserDietsDb] Trying minimal fallback without is_completed/completed_at: ${errorMsg}`);
+    const { data: minData, error: minError } = await supabase
+      .from("user_diets")
+      .select("id, diet_id, user_id, name, diets(name, photo, description)")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (!minError && minData) {
+      return (minData ?? []).map((row: any) => ({
+        id: String(row.id ?? ""),
+        diet_id: String(row.diet_id ?? ""),
+        user_id: String(row.user_id ?? ""),
+        name: row.name ? String(row.name) : null,
+        dietName: (row.diets as any)?.name || "Dieta desconhecida",
+        dietPhoto: (row.diets as any)?.photo || null,
+        dietDescription: (row.diets as any)?.description || undefined,
+        is_completed: false,
+        completed_at: null,
+      }));
+    }
+
     console.error(`Error fetching user diets [${errorCode}]:`, errorMsg);
     return [];
   }
@@ -2008,6 +2036,28 @@ export async function getUserHabitsDb(
           fallbackMsg,
         );
       }
+    }
+
+    // Last-resort fallback: columns is_completed/completed_at may not exist yet — fetch without them
+    console.warn(`[getUserHabitsDb] Trying minimal fallback without is_completed/completed_at: ${errorMsg}`);
+    const { data: minData, error: minError } = await supabase
+      .from("user_habits")
+      .select("id, habit_id, user_id, name, habits(name, photo, description)")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (!minError && minData) {
+      return (minData ?? []).map((row: any) => ({
+        id: String(row.id ?? ""),
+        habit_id: String(row.habit_id ?? ""),
+        user_id: String(row.user_id ?? ""),
+        name: row.name ? String(row.name) : null,
+        habitName: (row.habits as any)?.name || "Hábito desconhecido",
+        habitPhoto: (row.habits as any)?.photo || null,
+        habitDescription: (row.habits as any)?.description || undefined,
+        is_completed: false,
+        completed_at: null,
+      }));
     }
 
     console.error(`Error fetching user habits [${errorCode}]:`, errorMsg);
@@ -2793,6 +2843,45 @@ export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithU
     }));
   } catch (err: any) {
     console.error("Error fetching user stories:", err);
+    return [];
+  }
+}
+
+export async function getExpiredUserFlowsDb(): Promise<StoryWithUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+  if (!viewer) return [];
+
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const { data, error } = await supabase
+      .from("flow")
+      .select("*")
+      .eq("user_id", viewer.id)
+      .lt("created_at", twentyFourHoursAgo)
+      .order("created_at", { ascending: false });
+
+    if (error || !data?.length) return [];
+
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, photo")
+      .eq("user_id", viewer.id)
+      .limit(1);
+
+    const profile = profiles?.[0];
+
+    return data.map((story: any) => ({
+      ...story,
+      id: String(story.id),
+      user_id: String(story.user_id),
+      userNickname: profile?.nickname ?? "Usuário",
+      userPhoto: profile?.photo ?? null,
+    }));
+  } catch (err: any) {
+    console.error("Error fetching expired flows:", err);
     return [];
   }
 }
@@ -7116,5 +7205,163 @@ export async function getAccessSessionsDb(userId: string, days: number = 30): Pr
   } catch (err) {
     console.error("Error fetching access sessions:", err);
     return [];
+  }
+}
+
+// ============================================================
+// Badge / Insígnia Functions
+// ============================================================
+
+export type Badge = {
+  id: string;
+  key: string;
+  name: string;
+  emoji: string;
+  description: string;
+  required_checkins: number;
+  sort_order: number;
+};
+
+export type UserBadge = {
+  badge_id: string;
+  earned_at: string;
+  badge: Badge;
+};
+
+/** Retorna o total de check-ins acumulados de um usuário (todos os tempos) */
+export async function getTotalCheckInsDb(userId: string): Promise<number> {
+  if (!hasSupabaseConfig || !supabase) return 0;
+  try {
+    const { count, error } = await supabase
+      .from("check_ins")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId);
+    if (error) throw error;
+    return count ?? 0;
+  } catch (err) {
+    console.error("Error fetching total check-ins:", err);
+    return 0;
+  }
+}
+
+/** Retorna todos os badges do catálogo ordenados por sort_order */
+export async function getAllBadgesDb(): Promise<Badge[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from("badges")
+      .select("id, key, name, emoji, description, required_checkins, sort_order")
+      .order("sort_order", { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as Badge[];
+  } catch (err) {
+    console.error("Error fetching badges:", err);
+    return [];
+  }
+}
+
+/** Retorna as insígnias conquistadas por um usuário */
+export async function getUserBadgesDb(userId: string): Promise<UserBadge[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from("user_badges")
+      .select("badge_id, earned_at, badges(id, key, name, emoji, description, required_checkins, sort_order)")
+      .eq("user_id", userId)
+      .order("earned_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map((row: any) => ({
+      badge_id: String(row.badge_id),
+      earned_at: String(row.earned_at),
+      badge: row.badges as Badge,
+    }));
+  } catch (err) {
+    console.error("Error fetching user badges:", err);
+    return [];
+  }
+}
+
+/**
+ * Avalia o total de check-ins acumulados do usuário e concede os badges
+ * que ele ainda não possui mas já merece.
+ *
+ * Regra: baseado em check-ins TOTAIS (todos os tempos), não só da semana.
+ * - 1 check-in total  → Iniciante ⭐
+ * - 3 check-ins total → Sequência 🔥
+ * - 5 check-ins total → Campeão 💪
+ * - 7 check-ins total → Lendário 👑
+ *
+ * Deve ser chamado após cada check-in.
+ */
+export async function awardBadgesForCheckInsDb(userId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  try {
+    // Busca total de check-ins acumulados (contagem de todas as datas únicas)
+    const { count, error: countError } = await supabase
+      .from("check_ins")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId);
+
+    if (countError) throw countError;
+
+    const totalCheckIns = count ?? 0;
+
+    const [allBadges, existingRows] = await Promise.all([
+      getAllBadgesDb(),
+      supabase.from("user_badges").select("badge_id").eq("user_id", userId),
+    ]);
+
+    const alreadyEarned = new Set(
+      (existingRows.data ?? []).map((r: any) => String(r.badge_id))
+    );
+
+    // Insere apenas badges que o usuário ainda não tem mas já merece
+    const toInsert = allBadges
+      .filter((b) => totalCheckIns >= b.required_checkins && !alreadyEarned.has(b.id))
+      .map((b) => ({ user_id: userId, badge_id: b.id }));
+
+    if (toInsert.length === 0) return;
+
+    const { error } = await supabase
+      .from("user_badges")
+      .insert(toInsert);
+
+    if (error && error.code !== "23505") {
+      // 23505 = unique violation (corrida entre requisições, seguro ignorar)
+      console.error("Error awarding badges:", error);
+    }
+  } catch (err) {
+    console.error("Error in awardBadgesForCheckInsDb:", err);
+  }
+}
+
+/**
+ * Retorna o badge mais alto que o usuário possui (maior sort_order).
+ * Usado para exibição no feed e perfil.
+ *
+ * Nota: o Supabase JS v2 não suporta order por coluna de tabela relacionada,
+ * então buscamos todos e filtramos no cliente.
+ */
+export async function getTopUserBadgeDb(userId: string): Promise<Badge | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("user_badges")
+      .select("badges(id, key, name, emoji, description, required_checkins, sort_order)")
+      .eq("user_id", userId);
+    if (error) throw error;
+    if (!data || data.length === 0) return null;
+
+    // Pega o badge com maior sort_order (mais alto nível)
+    const top = data.reduce((best: any, row: any) => {
+      const b = row.badges as Badge;
+      if (!best) return b;
+      return (b?.sort_order ?? 0) > (best?.sort_order ?? 0) ? b : best;
+    }, null);
+
+    return top ?? null;
+  } catch (err) {
+    console.error("Error fetching top user badge:", err);
+    return null;
   }
 }

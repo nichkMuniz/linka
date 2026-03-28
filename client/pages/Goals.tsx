@@ -24,6 +24,10 @@ import {
   deleteRoutinesOfTypeDb,
   createCheckInDb,
   addPointsDb,
+  awardBadgesForCheckInsDb,
+  getUserBadgesDb,
+  getAllBadgesDb,
+  getTotalCheckInsDb,
   getTodayCheckInDb,
   getWeekCheckInsDb,
   getCheckInHistoryDb,
@@ -54,6 +58,8 @@ import {
   type UserGoal,
   type RoutineTypeCode,
   type WorkoutHistoryRecord,
+  type Badge,
+  type UserBadge,
 } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { fetchExerciseCatalog, type CatalogExercise } from "@/lib/exercise-catalog";
@@ -254,6 +260,9 @@ export default function Goals() {
   const [checkInWeekOffset, setCheckInWeekOffset] = React.useState(0); // 0 = current week, -1 = last week, etc
   const [routineCompletedTodayStatus, setRoutineCompletedTodayStatus] = React.useState(false);
   const [badgesModalOpen, setBadgesModalOpen] = React.useState(false);
+  const [userBadges, setUserBadges] = React.useState<UserBadge[]>([]);
+  const [allBadges, setAllBadges] = React.useState<Badge[]>([]);
+  const [totalCheckIns, setTotalCheckIns] = React.useState<number>(0);
   const [hasNewBadge, setHasNewBadge] = React.useState(false);
   const lastSeenBadgeCountRef = React.useRef<number | null>(null);
 
@@ -546,16 +555,22 @@ export default function Goals() {
 
     (async () => {
       try {
-        const [todayCheckIn, weekCheckInDays, hasCompleted, checkInHistory] = await Promise.all([
+        const [todayCheckIn, weekCheckInDays, hasCompleted, checkInHistory, earnedBadges, catalog, total] = await Promise.all([
           getTodayCheckInDb(user.id),
           getWeekCheckInsDb(user.id),
           hasCompletedRoutineToday(user.id),
           getCheckInHistoryDb(user.id, 60),
+          getUserBadgesDb(user.id),
+          getAllBadgesDb(),
+          getTotalCheckInsDb(user.id),
         ]);
         setDailyCheckInDone(todayCheckIn !== null);
         setWeekCheckIns(new Set(weekCheckInDays));
         setRoutineCompletedTodayStatus(hasCompleted);
         setCheckInHistory(checkInHistory);
+        setUserBadges(earnedBadges);
+        setAllBadges(catalog);
+        setTotalCheckIns(total);
 
         // Calculate consecutive streak
         if (checkInHistory.length > 0) {
@@ -985,6 +1000,21 @@ export default function Goals() {
           console.error("Error awarding check-in points:", pointsErr);
         }
 
+        // Award badges based on total check-ins and refresh local state
+        try {
+          await awardBadgesForCheckInsDb(user.id);
+          const [earned, catalog, total] = await Promise.all([
+            getUserBadgesDb(user.id),
+            getAllBadgesDb(),
+            getTotalCheckInsDb(user.id),
+          ]);
+          setUserBadges(earned);
+          setAllBadges(catalog);
+          setTotalCheckIns(total);
+        } catch (badgeErr) {
+          console.error("Error awarding badges:", badgeErr);
+        }
+
         // Update week check-ins
         const dayOfWeek = new Date().getDay();
         const newWeekCheckIns = new Set(weekCheckIns);
@@ -1038,6 +1068,21 @@ export default function Goals() {
           console.error("Error awarding check-in points:", pointsErr);
         }
 
+        // Award badges based on total check-ins and refresh local state
+        try {
+          await awardBadgesForCheckInsDb(user.id);
+          const [earned, catalog, total] = await Promise.all([
+            getUserBadgesDb(user.id),
+            getAllBadgesDb(),
+            getTotalCheckInsDb(user.id),
+          ]);
+          setUserBadges(earned);
+          setAllBadges(catalog);
+          setTotalCheckIns(total);
+        } catch (badgeErr) {
+          console.error("Error awarding badges:", badgeErr);
+        }
+
         // Update week check-ins
         const dayOfWeek = new Date().getDay();
         const newWeekCheckIns = new Set(weekCheckIns);
@@ -1077,6 +1122,13 @@ export default function Goals() {
         await addPointsDb(5);
       } catch (pointsErr) {
         console.error("Error awarding check-in points:", pointsErr);
+      }
+
+      // Award badges based on week check-ins
+      try {
+        await awardBadgesForCheckInsDb(user.id);
+      } catch (badgeErr) {
+        console.error("Error awarding badges:", badgeErr);
       }
 
       // Update week check-ins
@@ -1449,6 +1501,28 @@ export default function Goals() {
       setRoutineCompletedTodayStatus(true);
       const dayOfWeek = new Date().getDay();
       setWeekCheckIns((prev) => new Set(prev).add(dayOfWeek));
+
+      // Award points for daily check-in
+      try {
+        await addPointsDb(5);
+      } catch (pointsErr) {
+        console.error("Error awarding check-in points:", pointsErr);
+      }
+
+      // Award badges based on total check-ins and refresh local state
+      try {
+        await awardBadgesForCheckInsDb(user.id);
+        const [earned, catalog, total] = await Promise.all([
+          getUserBadgesDb(user.id),
+          getAllBadgesDb(),
+          getTotalCheckInsDb(user.id),
+        ]);
+        setUserBadges(earned);
+        setAllBadges(catalog);
+        setTotalCheckIns(total);
+      } catch (badgeErr) {
+        console.error("Error awarding badges:", badgeErr);
+      }
 
       // Update progress for all active goals
       const activeGoals = userGoals.filter((g) => g.perc < 100);
@@ -4142,7 +4216,9 @@ export default function Goals() {
       <InsigniasDrawer
         open={badgesModalOpen}
         onOpenChange={setBadgesModalOpen}
-        weekCheckIns={weekCheckIns.size}
+        userBadges={userBadges}
+        allBadges={allBadges}
+        totalCheckIns={totalCheckIns}
       />
       {/* LEGACY INLINE DRAWER REMOVED — kept below as dead block for reference, delete after QA */}
       {false && <Drawer open={false} onOpenChange={() => {}}>

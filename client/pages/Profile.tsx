@@ -38,6 +38,8 @@ import {
   createOrUpdateCommercialProfileDb,
   getWorkoutHistoryDb,
   getUserActiveStoriesDb,
+  getExpiredUserFlowsDb,
+  getUserPostLikesDb,
   deleteAllUserDataDb,
   type UserProfile,
   type PostWithUser,
@@ -53,6 +55,7 @@ import {
   type ShotWithUser,
   type CommercialProfile,
   type StoryWithUser,
+  type PostIncentiveType,
 } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -74,6 +77,8 @@ import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { PostCarousel } from "@/components/post/post-carousel";
 import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
+import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
+import { togglePostLike } from "../services/post.service";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { fetchExerciseCatalog, type CatalogExercise } from "@/lib/exercise-catalog";
 import { fetchMealCatalog, type CatalogMeal } from "@/lib/diet-catalog";
@@ -178,7 +183,12 @@ export default function Profile() {
   const [isUpdatingPost, setIsUpdatingPost] = React.useState(false);
   const [postLikes, setPostLikes] = React.useState<any[]>([]);
   const [postComments, setPostComments] = React.useState<any[]>([]);
+  const [postUserLikes, setPostUserLikes] = React.useState<PostIncentiveType[]>([]);
+  const [isTogglingPostLike, setIsTogglingPostLike] = React.useState(false);
   const [isLoadingPostData, setIsLoadingPostData] = React.useState(false);
+  const [isFlowHistoryOpen, setIsFlowHistoryOpen] = React.useState(false);
+  const [expiredFlows, setExpiredFlows] = React.useState<StoryWithUser[]>([]);
+  const [isLoadingFlowHistory, setIsLoadingFlowHistory] = React.useState(false);
   const [isLikesModalOpen, setIsLikesModalOpen] = React.useState(false);
   const [selectedShot, setSelectedShot] = React.useState<ShotWithUser | null>(null);
   const [isShotEditorOpen, setIsShotEditorOpen] = React.useState(false);
@@ -408,12 +418,14 @@ export default function Profile() {
     setIsLoadingPostData(true);
 
     try {
-      const [likes, comments] = await Promise.all([
+      const [likes, comments, userLikes] = await Promise.all([
         getPostLikeUsersDb(post.id),
         getPostCommentsDb(post.id),
+        getUserPostLikesDb(post.id),
       ]);
       setPostLikes(likes);
       setPostComments(comments);
+      setPostUserLikes(userLikes);
     } catch (err) {
       console.error("Error loading post data:", err);
     } finally {
@@ -453,6 +465,25 @@ export default function Profile() {
       setIsUpdatingPost(false);
     }
   }, [selectedPost, editPostDescription, editPostGoalId]);
+
+  const handleTogglePostIncentive = React.useCallback(async (type: PostIncentiveType) => {
+    if (!selectedPost || isTogglingPostLike) return;
+    setIsTogglingPostLike(true);
+    const wasActive = postUserLikes.includes(type);
+    const newUserLikes = wasActive
+      ? postUserLikes.filter((t) => t !== type)
+      : [...postUserLikes, type];
+    setPostUserLikes(newUserLikes);
+    try {
+      await togglePostLike(selectedPost.id, type);
+      const updatedLikes = await getPostLikeUsersDb(selectedPost.id);
+      setPostLikes(updatedLikes);
+    } catch (err) {
+      setPostUserLikes(postUserLikes);
+    } finally {
+      setIsTogglingPostLike(false);
+    }
+  }, [selectedPost, postUserLikes, isTogglingPostLike]);
 
   const handleDeletePost = React.useCallback(() => {
     if (!selectedPost) return;
@@ -2096,6 +2127,92 @@ export default function Profile() {
                       </DrawerContent>
                     </Drawer>
 
+                    {/* Flow History Drawer */}
+                    <Drawer
+                      open={isFlowHistoryOpen}
+                      onOpenChange={setIsFlowHistoryOpen}
+                    >
+                      <Button
+                        onClick={async () => {
+                          setIsFlowHistoryOpen(true);
+                          setIsLoadingFlowHistory(true);
+                          try {
+                            const flows = await getExpiredUserFlowsDb();
+                            setExpiredFlows(flows);
+                          } catch (err) {
+                            console.error("Error loading flow history:", err);
+                          } finally {
+                            setIsLoadingFlowHistory(false);
+                          }
+                        }}
+                        variant="outline"
+                        className="gap-2 justify-between"
+                      >
+                        <span>Arquivo de Flows</span>
+                        <span>🕐</span>
+                      </Button>
+
+                      <DrawerContent className="max-h-[85dvh] flex flex-col modal-enter">
+                        <DrawerHeader className="shrink-0">
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => setIsFlowHistoryOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                              <ArrowLeft className="h-5 w-5" />
+                            </button>
+                            <DrawerTitle>Arquivo de Flows</DrawerTitle>
+                          </div>
+                        </DrawerHeader>
+
+                        <div className="flex-1 overflow-y-auto px-4 pb-4">
+                          {isLoadingFlowHistory ? (
+                            <div className="flex justify-center py-8">
+                              <LoadingSpinner />
+                            </div>
+                          ) : expiredFlows.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
+                              <span className="text-4xl">📂</span>
+                              <p className="text-sm text-muted-foreground">Nenhum flow arquivado ainda</p>
+                              <p className="text-xs text-muted-foreground">Os flows expirados (mais de 24h) aparecem aqui</p>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-3 gap-1">
+                              {expiredFlows.map((flow) => (
+                                <div
+                                  key={flow.id}
+                                  className="relative aspect-[9/16] rounded-lg overflow-hidden bg-muted border border-border/40"
+                                >
+                                  {flow.media_url ? (
+                                    flow.media_url.includes(".mp4") || flow.media_url.includes(".mov") || flow.media_url.includes(".webm") ? (
+                                      <video
+                                        src={flow.media_url}
+                                        className="w-full h-full object-cover"
+                                        muted
+                                        playsInline
+                                      />
+                                    ) : (
+                                      <img
+                                        src={flow.media_url}
+                                        alt="flow"
+                                        className="w-full h-full object-cover"
+                                      />
+                                    )
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-muted/50">
+                                      <span className="text-2xl">🌊</span>
+                                    </div>
+                                  )}
+                                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1.5">
+                                    <p className="text-[10px] text-white/80 truncate">
+                                      {new Date(flow.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </DrawerContent>
+                    </Drawer>
+
                     <Button
                       onClick={handleLogout}
                       variant="destructive"
@@ -3278,22 +3395,35 @@ export default function Profile() {
 
               {/* Incentives and Comments */}
               {!isLoadingPostData && (
-                <div className="flex gap-4 pt-2">
+                <div className="space-y-2 pt-2">
+                  <div className="flex items-center gap-1">
+                    {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                      <PostIncentiveButton
+                        key={type}
+                        type={type}
+                        isActive={postUserLikes.includes(type)}
+                        onClick={() => handleTogglePostIncentive(type)}
+                        loading={isTogglingPostLike}
+                      />
+                    ))}
+                    {!isEditingPost && selectedPost && (
+                      <div className="ml-auto">
+                        <PostCommentsDialog
+                          postId={selectedPost.id}
+                          commentCount={postComments.length}
+                          isPostOwner={!isViewingOtherProfile}
+                        />
+                      </div>
+                    )}
+                  </div>
                   {postLikes.length > 0 && (
                     <button
                       onClick={() => setIsLikesModalOpen(true)}
-                      className="flex items-center gap-2 text-sm hover:opacity-70 transition-opacity"
+                      className="flex items-center gap-2 text-xs text-muted-foreground hover:opacity-70 transition-opacity"
                     >
-                      <Heart className="h-5 w-5 text-red-500 fill-red-500" />
-                      <span className="font-medium">{postLikes.length} incentivos</span>
+                      <Heart className="h-3.5 w-3.5 text-red-500 fill-red-500" />
+                      <span>{postLikes.length} incentivos</span>
                     </button>
-                  )}
-                  {selectedPost && (
-                    <PostCommentsDialog
-                      postId={selectedPost.id}
-                      commentCount={postComments.length}
-                      isPostOwner={!isViewingOtherProfile}
-                    />
                   )}
                 </div>
               )}

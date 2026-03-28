@@ -352,7 +352,7 @@ export default function Community() {
           enrichedAvailGroups.filter((g) => g.isAlreadyMember).map((g) => g.id)
         );
         setJoinedGroupIds(alreadyJoined);
-        setAvailableGroups(enrichedAvailGroups.map(toGroupCard));
+        setAvailableGroups(enrichedAvailGroups.filter((g) => !g.isAlreadyMember).map(toGroupCard));
       } catch (err: any) {
         console.error("Error loading user groups:", err);
       }
@@ -1694,10 +1694,15 @@ export default function Community() {
                               await declineGroupInviteDb(invite.groupId);
                               const updated = pendingInvites.filter((i) => i.groupId !== invite.groupId);
                               setPendingInvites(updated);
-                              // Remove pending status from availableGroups so it no longer shows "Pendente"
-                              setAvailableGroups((prev) =>
-                                prev.map((g) => g.id === invite.groupId ? { ...g, isPending: false } : g)
-                              );
+                              // Refresh groups so duels tab reflects the declined invite
+                              if (user?.id) {
+                                const toGroupCard = (g: any) => ({ ...g, icon: "⚔️", description: g.goal, city: g.location, isOfficial: false });
+                                getEnrichedDuelGroupsDb(user.id).then(({ myGroups, availableGroups: enriched }) => {
+                                  setUserCreatedGroups(myGroups.map(toGroupCard));
+                                  setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
+                                  setAvailableGroups(enriched.filter((g) => !g.isAlreadyMember).map(toGroupCard));
+                                }).catch(() => {});
+                              }
                               if (updated.length === 0 && pendingGroupRequests.length === 0) setActiveTab("duels");
                               toast({ title: "Convite recusado" });
                             } catch (err: any) {
@@ -2726,7 +2731,7 @@ export default function Community() {
                       const { myGroups, availableGroups: enriched } = await getEnrichedDuelGroupsDb(user!.id);
                       setUserCreatedGroups(myGroups.map(toGroupCard));
                       setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
-                      setAvailableGroups(enriched.map(toGroupCard));
+                      setAvailableGroups(enriched.filter((g) => !g.isAlreadyMember).map(toGroupCard));
                     } catch (error: any) {
                       toast({ title: "Erro ao apagar grupo", description: error?.message || "Tente novamente.", variant: "destructive" });
                     }
@@ -2767,7 +2772,7 @@ export default function Community() {
                           const toGroupCard = (g: any) => ({ ...g, icon: "⚔️", description: g.goal, city: g.location, isOfficial: false });
                           setUserCreatedGroups(myGroups.map(toGroupCard));
                           setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
-                          setAvailableGroups(enriched.map(toGroupCard));
+                          setAvailableGroups(enriched.filter((g) => !g.isAlreadyMember).map(toGroupCard));
                         }).catch(() => {});
                       }
                     } catch (error: any) {

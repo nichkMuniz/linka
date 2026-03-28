@@ -94,9 +94,9 @@ Cada post na grade:
 **Ao expandir um post:**
 - Carrossel de imagens (`PostCarousel`)
 - Descrição
-- Botões de incentivo (`PostIncentiveButton`)
-- Botão comentários (`PostCommentsDialog`)
-- Modal de quem curtiu (`PostLikesModal`)
+- Botões de incentivo interativos (`PostIncentiveButton` × 6 tipos) — visíveis em modo visualização e edição
+- Botão comentários (`PostCommentsDialog`) — visível apenas em modo visualização (oculto ao editar)
+- Contador de incentivos clicável → abre `PostLikesModal`
 
 ---
 
@@ -158,9 +158,13 @@ Aberto pelo botão "Configurações":
 
 | Configuração | Tipo | Descrição |
 |---|---|---|
-| Limite de uso diário | Slider / Input | Minutos por dia no app |
-| Tema | Toggle | Dark / Light |
-| Perfil comercial | Toggle | Ativa/desativa modo comercial |
+| Editar Perfil | Botão → Drawer aninhado | Edição de nome, bio, foto, banner, segmentos |
+| Idioma | Botão → Drawer aninhado | Selecionar pt-BR ou en-US |
+| Notificações | Botão → Drawer aninhado | Toggles de treino, conquistas, amigos, mensagens, sons |
+| Gerenciamento de Tempo | Botão → Drawer aninhado | Histórico de uso 7 dias + limite diário |
+| Personalização | Botão → Drawer aninhado | Trocar layout e tema dark/light |
+| Arquivo de Flows | Botão → Drawer aninhado | Histórico de flows expirados (> 24h) |
+| Desconectar | Botão destrutivo | Logout |
 
 **Perfil Comercial (se ativado):**
 | Campo | Tipo |
@@ -213,6 +217,8 @@ Aberto ao clicar nas estatísticas:
 | Stories ativos | `getUserActiveStoriesDb(userId)` |
 | Curtidas do post | `getPostLikeUsersDb(postId)` |
 | Comentários do post | `getPostCommentsDb(postId)` |
+| Incentivos do usuário no post | `getUserPostLikesDb(postId)` |
+| Flows expirados (arquivo) | `getExpiredUserFlowsDb()` |
 
 ---
 

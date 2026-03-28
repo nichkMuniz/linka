@@ -609,8 +609,41 @@ Metas ativas vinculadas a um usuário.
 | `quantity` | bigint | ✓ | — | Quantidade alvo |
 | `visibility` | smallint | ✓ | `1` | Visibilidade (1 = pública, 0 = privada) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
-| `perc` | real | ✓ | `0` | Percentual de conclusão |
-| `days_completed` | smallint | — | — | Dias completados |
+| `perc` | real | ✓ | `0` | Percentual de conclusão (calculado a partir de days_completed / quantity) |
+| `days_completed` | smallint | — | `0` | Dias completados. Incrementado a cada check-in. **Fonte de verdade para o progresso.** |
+
+---
+
+## badges
+
+Catálogo de insígnias disponíveis na plataforma.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
+| `key` | text | ✓ UNIQUE | — | Chave única (ex: `iniciante`, `sequencia`, `campeao`, `lendario`) |
+| `name` | text | ✓ | — | Nome da insígnia |
+| `emoji` | text | ✓ | — | Emoji representativo |
+| `description` | text | ✓ | — | Descrição do critério |
+| `required_checkins` | int | ✓ | `0` | Check-ins semanais necessários para ganhar |
+| `sort_order` | int | ✓ | `0` | Ordenação (menor = mais básico) |
+| `created_at` | timestamptz | ✓ | `now()` | Data de criação |
+
+---
+
+## user_badges
+
+Insígnias conquistadas por usuário.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
+| `user_id` | uuid | FK → `profiles.user_id` | — | Usuário |
+| `badge_id` | uuid | FK → `badges.id` | — | Insígnia conquistada |
+| `earned_at` | timestamptz | ✓ | `now()` | Data de conquista |
+| UNIQUE | — | — | — | `(user_id, badge_id)` — cada insígnia é conquistada uma vez |
+
+> RLS: qualquer usuário autenticado pode ler `user_badges` (necessário para exibir no feed sem restrição de seguimento).
 
 ---
 

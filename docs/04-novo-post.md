@@ -85,6 +85,10 @@ Campos automaticamente salvos na sessão:
 | `newpost_video_description` | Texto da descrição do vídeo |
 | `newpost_video_goal_id` | ID da meta selecionada para o vídeo |
 | `newpost_tab` | Aba ativa ao sair da tela |
+| `newpost_image_previews` | Array JSON de base64 das imagens selecionadas |
+| `newpost_image_meta` | Array JSON de `{ name, type }` para reconstruir os File objects |
+| `newpost_video_preview` | Base64 do vídeo selecionado |
+| `newpost_video_meta` | JSON de `{ name, type }` para reconstruir o File object do vídeo |
 
 ---
 

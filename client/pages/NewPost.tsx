@@ -23,20 +23,25 @@ import {
 } from "@/lib/ritmofit-db";
 import { ImagePlus, Loader2, ChevronLeft, ChevronRight, X, Video } from "lucide-react";
 
+// Module-level draft store — persists across navigation within the same SPA session
+// (survives React unmount/remount; cleared on page reload or explicit reset)
+const imageDraft: { files: File[]; previews: string[] } = { files: [], previews: [] };
+const videoDraft: { file: File | null; preview: string | null } = { file: null, preview: null };
+
 export default function NewPost() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
 
-  // Image/Post state
-  const [selectedFiles, setSelectedFiles] = React.useState<File[]>([]);
-  const [previewUrls, setPreviewUrls] = React.useState<string[]>([]);
+  // Image/Post state — initialised from module-level draft (survives navigation)
+  const [selectedFiles, setSelectedFiles] = React.useState<File[]>(() => imageDraft.files);
+  const [previewUrls, setPreviewUrls] = React.useState<string[]>(() => imageDraft.previews);
   const [currentPreviewIndex, setCurrentPreviewIndex] = React.useState(0);
   const [description, setDescription] = React.useState(() => sessionStorage.getItem("newpost_description") || "");
   const [selectedGoalId, setSelectedGoalId] = React.useState<string>(() => sessionStorage.getItem("newpost_goal_id") || "");
 
-  // Video/Shot state
-  const [selectedVideoFile, setSelectedVideoFile] = React.useState<File | null>(null);
-  const [videoPreview, setVideoPreview] = React.useState<string | null>(null);
+  // Video/Shot state — initialised from module-level draft (survives navigation)
+  const [selectedVideoFile, setSelectedVideoFile] = React.useState<File | null>(() => videoDraft.file);
+  const [videoPreview, setVideoPreview] = React.useState<string | null>(() => videoDraft.preview);
   const [videoDescription, setVideoDescription] = React.useState(() => sessionStorage.getItem("newpost_video_description") || "");
   const [videoSelectedGoalId, setVideoSelectedGoalId] = React.useState<string>(() => sessionStorage.getItem("newpost_video_goal_id") || "");
 
@@ -52,6 +57,18 @@ export default function NewPost() {
   React.useEffect(() => { sessionStorage.setItem("newpost_video_description", videoDescription); }, [videoDescription]);
   React.useEffect(() => { sessionStorage.setItem("newpost_video_goal_id", videoSelectedGoalId); }, [videoSelectedGoalId]);
   React.useEffect(() => { sessionStorage.setItem("newpost_tab", activeTab); }, [activeTab]);
+
+  // Keep module-level image draft in sync with state
+  React.useEffect(() => {
+    imageDraft.files = selectedFiles;
+    imageDraft.previews = previewUrls;
+  }, [selectedFiles, previewUrls]);
+
+  // Keep module-level video draft in sync with state
+  React.useEffect(() => {
+    videoDraft.file = selectedVideoFile;
+    videoDraft.preview = videoPreview;
+  }, [selectedVideoFile, videoPreview]);
 
   // Load user goals
   React.useEffect(() => {
@@ -255,6 +272,8 @@ export default function NewPost() {
       });
 
       // Reset form
+      imageDraft.files = [];
+      imageDraft.previews = [];
       setSelectedFiles([]);
       setPreviewUrls([]);
       setCurrentPreviewIndex(0);
@@ -346,6 +365,8 @@ export default function NewPost() {
       });
 
       // Reset form
+      videoDraft.file = null;
+      videoDraft.preview = null;
       setSelectedVideoFile(null);
       setVideoPreview(null);
       setVideoDescription("");
