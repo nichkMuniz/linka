@@ -79,10 +79,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { supabase } from "@/lib/supabase";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
 import { UserInsignias } from "@/components/profile/user-insignias";
+import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 
 type ViewMode = "conversations" | "conversation";
 
@@ -147,6 +149,14 @@ export default function Community() {
     workoutId: "",
   });
   const [checkInPhotoFile, setCheckInPhotoFile] = React.useState<File | null>(null);
+  const [checkInPhotoPreviewUrl, setCheckInPhotoPreviewUrl] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!checkInPhotoFile) { setCheckInPhotoPreviewUrl(null); return; }
+    const url = URL.createObjectURL(checkInPhotoFile);
+    setCheckInPhotoPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [checkInPhotoFile]);
   const [completedRoutines, setCompletedRoutines] = React.useState<CompletedRoutine[]>([]);
   const [selectedRoutineKey, setSelectedRoutineKey] = React.useState<string | null>(null);
   const [participantsSearch, setParticipantsSearch] = React.useState("");
@@ -247,6 +257,20 @@ export default function Community() {
     setReplyingTo(message);
     setLongPressedMessage(null);
   }, []);
+
+  const handleSendComment = React.useCallback(async (checkInId: string) => {
+    if (!commentText.trim() || isSendingComment) return;
+    setIsSendingComment(true);
+    try {
+      const newComment = await addCheckInCommentDb(checkInId, commentText);
+      setCheckInComments((prev) => [...prev, newComment]);
+      setCommentText("");
+    } catch (err: any) {
+      toast({ title: "Erro ao comentar", description: err?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setIsSendingComment(false);
+    }
+  }, [commentText, isSendingComment]);
   const [userPhoto, setUserPhoto] = React.useState<string | null>(null);
   const [isLoadingCheckIns, setIsLoadingCheckIns] = React.useState(false);
   const [isLoadingRoutines, setIsLoadingRoutines] = React.useState(false);
@@ -511,7 +535,7 @@ export default function Community() {
             conv.userId === selectedConversation.userId
               ? {
                   ...conv,
-                  lastMessage: messageText,
+                  lastMessage: fullText,
                   lastMessageTime: new Date().toISOString(),
                 }
               : conv,
@@ -529,6 +553,28 @@ export default function Community() {
       setIsSending(false);
     }
   }, [messageText, selectedConversation]);
+
+  // Realtime: reload messages when a new message arrives for the active conversation
+  React.useEffect(() => {
+    if (!selectedConversation || !user || !supabase) return;
+    const channel = supabase
+      .channel(`messages:${selectedConversation.userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          const msg = payload.new as { id_user: string; id_receiver: string };
+          const isRelevant =
+            (msg.id_user === selectedConversation.userId && msg.id_receiver === user.id) ||
+            (msg.id_user === user.id && msg.id_receiver === selectedConversation.userId);
+          if (isRelevant) {
+            getConversationMessagesDb(selectedConversation.userId).then(setMessages).catch(() => {});
+          }
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedConversation?.userId, user?.id]);
 
   const handleOpenConversation = React.useCallback(
     (conversation: Conversation) => {
@@ -583,10 +629,11 @@ export default function Community() {
             className="flex-1 flex items-center gap-3 min-w-0 hover:opacity-80 transition-opacity text-left"
           >
             {selectedConversation.userPhoto && (
-              <img
+              <ImageWithFallback
                 src={selectedConversation.userPhoto}
                 alt={selectedConversation.userNickname}
                 className="h-10 w-10 rounded-full object-cover flex-shrink-0"
+                fallback="/placeholder.svg"
               />
             )}
             <div className="min-w-0 flex items-center gap-1.5">
@@ -690,7 +737,7 @@ export default function Community() {
             placeholder={t("community_type_message")}
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
-            onKeyPress={(e) => {
+            onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSendMessage();
@@ -847,10 +894,11 @@ export default function Community() {
                       {/* Avatar com ring se não lido */}
                       <div className="relative shrink-0">
                         {conversation.userPhoto ? (
-                          <img
+                          <ImageWithFallback
                             src={conversation.userPhoto}
                             alt={conversation.userNickname}
                             className="h-12 w-12 rounded-full object-cover"
+                            fallback="/placeholder.svg"
                           />
                         ) : (
                           <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
@@ -905,7 +953,7 @@ export default function Community() {
                   >
                     <div className="shrink-0">
                       {follower.photo ? (
-                        <img src={follower.photo} alt={follower.nickname} className="h-12 w-12 rounded-full object-cover" />
+                        <ImageWithFallback src={follower.photo} alt={follower.nickname} className="h-12 w-12 rounded-full object-cover" fallback="/placeholder.svg" />
                       ) : (
                         <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
                           <span className="text-sm font-semibold text-muted-foreground">{follower.nickname?.charAt(0).toUpperCase() || "?"}</span>
@@ -938,7 +986,7 @@ export default function Community() {
                     >
                       <div className="shrink-0">
                         {follower.photo ? (
-                          <img src={follower.photo} alt={follower.nickname} className="h-12 w-12 rounded-full object-cover" />
+                          <ImageWithFallback src={follower.photo} alt={follower.nickname} className="h-12 w-12 rounded-full object-cover" fallback="/placeholder.svg" />
                         ) : (
                           <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
                             <span className="text-sm font-semibold text-muted-foreground">{follower.nickname?.charAt(0).toUpperCase() || "?"}</span>
@@ -1219,7 +1267,7 @@ export default function Community() {
                                   {/* Avatar */}
                                   <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
                                     {checkIn.userPhoto ? (
-                                      <img src={checkIn.userPhoto} alt={checkIn.userName} className="w-full h-full object-cover" />
+                                      <ImageWithFallback src={checkIn.userPhoto} alt={checkIn.userName} className="w-full h-full object-cover" fallback="/placeholder.svg" />
                                     ) : (
                                       <span className="text-[10px] font-bold text-muted-foreground">{checkIn.userName.charAt(0).toUpperCase()}</span>
                                     )}
@@ -1731,7 +1779,7 @@ export default function Community() {
                     <CardContent className="p-4">
                       <div className="flex items-center gap-3">
                         {req.userPhoto ? (
-                          <img src={req.userPhoto} alt={req.userNickname} className="h-10 w-10 rounded-full object-cover flex-shrink-0" />
+                          <ImageWithFallback src={req.userPhoto} alt={req.userNickname} className="h-10 w-10 rounded-full object-cover flex-shrink-0" fallback="/placeholder.svg" />
                         ) : (
                           <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
                             <span className="text-sm font-semibold text-muted-foreground">{req.userNickname.charAt(0).toUpperCase()}</span>
@@ -2207,10 +2255,10 @@ export default function Community() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Foto do Treino</label>
                 <div className="border-2 border-dashed border-brand/40 rounded-lg p-4 text-center">
-                  {checkInPhotoFile ? (
+                  {checkInPhotoFile && checkInPhotoPreviewUrl ? (
                     <div className="space-y-2">
                       <img
-                        src={URL.createObjectURL(checkInPhotoFile)}
+                        src={checkInPhotoPreviewUrl}
                         alt="preview"
                         className="w-full h-32 object-cover rounded"
                       />
@@ -2455,7 +2503,7 @@ export default function Community() {
                 <div className="flex items-center gap-2">
                   <div className="h-8 w-8 rounded-full overflow-hidden bg-muted flex items-center justify-center flex-shrink-0">
                     {selectedCheckInForDetail.userPhoto ? (
-                      <img src={selectedCheckInForDetail.userPhoto} alt={selectedCheckInForDetail.userName} className="w-full h-full object-cover" />
+                      <ImageWithFallback src={selectedCheckInForDetail.userPhoto} alt={selectedCheckInForDetail.userName} className="w-full h-full object-cover" fallback="/placeholder.svg" />
                     ) : (
                       <span className="text-[10px] font-bold text-muted-foreground">{selectedCheckInForDetail.userName.charAt(0).toUpperCase()}</span>
                     )}
@@ -2552,7 +2600,7 @@ export default function Community() {
                         <div key={comment.id} className="flex gap-2">
                           <div className="w-7 h-7 rounded-full overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
                             {comment.userPhoto ? (
-                              <img src={comment.userPhoto} alt={comment.userNickname} className="w-full h-full object-cover" />
+                              <ImageWithFallback src={comment.userPhoto} alt={comment.userNickname} className="w-full h-full object-cover" fallback="/placeholder.svg" />
                             ) : (
                               <span className="text-[9px] font-bold text-muted-foreground">{comment.userNickname.charAt(0).toUpperCase()}</span>
                             )}
@@ -2578,22 +2626,10 @@ export default function Community() {
                       placeholder="Adicionar comentário..."
                       value={commentText}
                       onChange={(e) => setCommentText(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey && commentText.trim() && !isSendingComment) {
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey && selectedCheckInForDetail) {
                           e.preventDefault();
-                          (async () => {
-                            if (!selectedCheckInForDetail) return;
-                            setIsSendingComment(true);
-                            try {
-                              const newComment = await addCheckInCommentDb(selectedCheckInForDetail.id, commentText);
-                              setCheckInComments((prev) => [...prev, newComment]);
-                              setCommentText("");
-                            } catch (err: any) {
-                              toast({ title: "Erro ao comentar", description: err?.message || "Tente novamente.", variant: "destructive" });
-                            } finally {
-                              setIsSendingComment(false);
-                            }
-                          })();
+                          handleSendComment(selectedCheckInForDetail.id);
                         }
                       }}
                       className="rounded-full text-xs h-9"
@@ -2607,19 +2643,7 @@ export default function Community() {
                       size="sm"
                       className="rounded-full flex-shrink-0 h-9 w-9 p-0"
                       disabled={!commentText.trim() || isSendingComment}
-                      onClick={async () => {
-                        if (!selectedCheckInForDetail || !commentText.trim()) return;
-                        setIsSendingComment(true);
-                        try {
-                          const newComment = await addCheckInCommentDb(selectedCheckInForDetail.id, commentText);
-                          setCheckInComments((prev) => [...prev, newComment]);
-                          setCommentText("");
-                        } catch (err: any) {
-                          toast({ title: "Erro ao comentar", description: err?.message || "Tente novamente.", variant: "destructive" });
-                        } finally {
-                          setIsSendingComment(false);
-                        }
-                      }}
+                      onClick={() => selectedCheckInForDetail && handleSendComment(selectedCheckInForDetail.id)}
                     >
                       <Send className="h-3.5 w-3.5" />
                     </Button>

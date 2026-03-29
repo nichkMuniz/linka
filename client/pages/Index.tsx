@@ -78,9 +78,6 @@ export default function Index() {
   const [posts, setPosts] = React.useState<PostWithStats[]>([]);
   const [stories, setStories] = React.useState<StoryWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [togglingPostId, setTogglingPostId] = React.useState<string | null>(
-    null,
-  );
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<string>>(new Set());
   const [goalModalOpen, setGoalModalOpen] = React.useState(false);
   const [selectedGoalPost, setSelectedGoalPost] =
@@ -242,7 +239,7 @@ export default function Index() {
         if (profile?.photo) setCurrentUserPhoto(profile.photo);
       })
       .catch(() => {});
-  });
+  }, [user?.id]);
 
   // Sync tab bar visibility with header scroll behavior
   React.useEffect(() => {
@@ -485,52 +482,47 @@ export default function Index() {
     }
   }, [user, copyingRoutineKeys, copiedRoutineKeys]);
 
+  const applyOptimisticLike = (list: PostWithStats[], postId: string, incentiveType: PostIncentiveType): PostWithStats[] =>
+    list.map((post) => {
+      if (post.id !== postId) return post;
+      const wasActive = post.userLikes.includes(incentiveType);
+      const newUserLikes = wasActive
+        ? post.userLikes.filter((t) => t !== incentiveType)
+        : [...post.userLikes, incentiveType];
+      const likesMap = {
+        apoio: post.likes.apoio,
+        continua: post.likes.continua,
+        ganhador: post.likes.ganhador,
+        consegueMais: post.likes.consegueMais,
+        limiteMaior: post.likes.limiteMaior,
+        maisAlgum: post.likes.maisAlgum,
+      };
+      if (incentiveType === 1) likesMap.apoio += wasActive ? -1 : 1;
+      else if (incentiveType === 2) likesMap.continua += wasActive ? -1 : 1;
+      else if (incentiveType === 3) likesMap.ganhador += wasActive ? -1 : 1;
+      else if (incentiveType === 4) likesMap.consegueMais += wasActive ? -1 : 1;
+      else if (incentiveType === 5) likesMap.limiteMaior += wasActive ? -1 : 1;
+      else if (incentiveType === 6) likesMap.maisAlgum += wasActive ? -1 : 1;
+      return { ...post, likes: likesMap, userLikes: newUserLikes };
+    });
+
   const handleToggleLike = React.useCallback(
     async (postId: string, incentiveType: PostIncentiveType) => {
       const key = `${postId}-${incentiveType}`;
       if (togglingIncentives.has(key)) return;
       let previousPosts: PostWithStats[] = [];
+      let previousDiscoverPosts: PostWithStats[] = [];
       try {
         setTogglingIncentives((prev) => new Set(prev).add(key));
-        setTogglingPostId(postId);
 
-        // Update UI optimistically, capturing a deep copy for reliable rollback
+        // Update UI optimistically for both feeds, capturing deep copies for rollback
         setPosts((prev) => {
           previousPosts = prev.map((p) => ({ ...p, likes: { ...p.likes }, userLikes: [...p.userLikes] }));
-          return prev.map((post) => {
-            if (post.id !== postId) return post;
-
-            const wasActive = post.userLikes.includes(incentiveType);
-            const newUserLikes = wasActive
-              ? post.userLikes.filter((t) => t !== incentiveType)
-              : [...post.userLikes, incentiveType];
-
-            const likesMap = {
-              apoio: post.likes.apoio,
-              continua: post.likes.continua,
-              ganhador: post.likes.ganhador,
-              consegueMais: post.likes.consegueMais,
-              limiteMaior: post.likes.limiteMaior,
-              maisAlgum: post.likes.maisAlgum,
-            };
-            if (incentiveType === 1) likesMap.apoio += wasActive ? -1 : 1;
-            else if (incentiveType === 2)
-              likesMap.continua += wasActive ? -1 : 1;
-            else if (incentiveType === 3)
-              likesMap.ganhador += wasActive ? -1 : 1;
-            else if (incentiveType === 4)
-              likesMap.consegueMais += wasActive ? -1 : 1;
-            else if (incentiveType === 5)
-              likesMap.limiteMaior += wasActive ? -1 : 1;
-            else if (incentiveType === 6)
-              likesMap.maisAlgum += wasActive ? -1 : 1;
-
-            return {
-              ...post,
-              likes: likesMap,
-              userLikes: newUserLikes,
-            };
-          });
+          return applyOptimisticLike(prev, postId, incentiveType);
+        });
+        setDiscoverPosts((prev) => {
+          previousDiscoverPosts = prev.map((p) => ({ ...p, likes: { ...p.likes }, userLikes: [...p.userLikes] }));
+          return applyOptimisticLike(prev, postId, incentiveType);
         });
 
         await togglePostLike(postId, incentiveType);
@@ -540,10 +532,10 @@ export default function Index() {
           title: "Erro ao reagir",
           description: err?.message || "Tente novamente.",
         });
-        // Revert optimistic update on failure
+        // Revert optimistic update on failure for both feeds
         if (previousPosts.length > 0) setPosts(previousPosts);
+        if (previousDiscoverPosts.length > 0) setDiscoverPosts(previousDiscoverPosts);
       } finally {
-        setTogglingPostId(null);
         setTogglingIncentives((prev) => { const next = new Set(prev); next.delete(key); return next; });
       }
     },
@@ -898,7 +890,7 @@ export default function Index() {
                         type={type}
                         isActive={post.userLikes.includes(type)}
                         onClick={() => handleToggleLike(post.id, type)}
-                        loading={togglingPostId === post.id}
+                        loading={togglingIncentives.has(`${post.id}-${type}`)}
                       />
                     ))}
                     <div className="ml-auto">
@@ -1023,7 +1015,7 @@ export default function Index() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
                             <DropdownMenuItem onClick={() => handleSharePost(post)}>
-                              <ChevronDown className="h-4 w-4 mr-2 rotate-[-90deg]" />
+                              <Share2 className="h-4 w-4 mr-2" />
                               Compartilhar
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
@@ -1072,7 +1064,7 @@ export default function Index() {
                           type={type}
                           isActive={post.userLikes.includes(type)}
                           onClick={() => handleToggleLike(post.id, type)}
-                          loading={togglingPostId === post.id}
+                          loading={togglingIncentives.has(`${post.id}-${type}`)}
                         />
                       ))}
                       <div className="ml-auto">
@@ -1177,9 +1169,9 @@ export default function Index() {
                       <div className="relative">
                         {post.photos && post.photos.length > 0 ? (
                           <PostCarousel photos={post.photos} alt="Post" />
-                        ) : (
+                        ) : post.photo ? (
                           <ImageWithFallback src={post.photo} alt="Post" fallback="/placeholder.svg" className="w-full object-cover rounded-lg" />
-                        )}
+                        ) : null}
                         <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
                           <button onClick={() => navigate(`/usuario/${post.user_id}`)} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
                             {post.userPhoto ? (
@@ -1187,7 +1179,12 @@ export default function Index() {
                             ) : (
                               <div className="h-8 w-8 rounded-full bg-white/30" />
                             )}
-                            <span className="text-xs font-medium text-white drop-shadow-sm">{post.userNickname}</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-medium text-white drop-shadow-sm">{post.userNickname}</span>
+                              <span onClick={(e) => e.stopPropagation()}>
+                                <UserInsignias userId={post.user_id} maxBadges={2} />
+                              </span>
+                            </div>
                           </button>
                         </div>
                       </div>

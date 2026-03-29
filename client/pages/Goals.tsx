@@ -265,6 +265,8 @@ export default function Goals() {
   const [totalCheckIns, setTotalCheckIns] = React.useState<number>(0);
   const [hasNewBadge, setHasNewBadge] = React.useState(false);
   const lastSeenBadgeCountRef = React.useRef<number | null>(null);
+  // Mutex ref to prevent concurrent check-ins from parallel calls (diet/habit toggles, workout finish)
+  const checkInInProgressRef = React.useRef(false);
 
   const getBadgeCount = (size: number) =>
     [1, 3, 5, 7].filter((t) => size >= t).length;
@@ -572,13 +574,21 @@ export default function Goals() {
         setAllBadges(catalog);
         setTotalCheckIns(total);
 
-        // Calculate consecutive streak
+        // Calculate consecutive streak using local timezone dates
         if (checkInHistory.length > 0) {
           const sorted = [...checkInHistory].sort((a, b) =>
             new Date(b.check_in_date).getTime() - new Date(a.check_in_date).getTime()
           );
-          const today = new Date().toISOString().split("T")[0];
-          const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+          const localDateStr = (d: Date) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, "0");
+            const day = String(d.getDate()).padStart(2, "0");
+            return `${y}-${m}-${day}`;
+          };
+          const today = localDateStr(new Date());
+          const yesterdayDate = new Date();
+          yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+          const yesterday = localDateStr(yesterdayDate);
           const mostRecent = sorted[0]?.check_in_date;
           if (mostRecent === today || mostRecent === yesterday) {
             let streak = 0;
@@ -586,9 +596,9 @@ export default function Goals() {
             for (const ci of sorted) {
               if (ci.check_in_date === current) {
                 streak++;
-                const d = new Date(current + "T12:00:00Z");
+                const d = new Date(current + "T12:00:00");
                 d.setDate(d.getDate() - 1);
-                current = d.toISOString().split("T")[0];
+                current = localDateStr(d);
               } else break;
             }
             setStreakCount(streak);
@@ -748,15 +758,9 @@ export default function Goals() {
         newGoalQuantity,
       );
 
-      // Add to local goals list and selected ids
-      const newGoal: ProgrammedGoal = {
-        id: goalId,
-        description: newGoalDescription.trim(),
-        type: newGoalType,
-        duration: newGoalDuration,
-        quantity: newGoalQuantity,
-      };
-      setGoals((prev) => [newGoal, ...prev]);
+      // Refresh userGoals so the new goal appears in Metas Ativas immediately
+      const freshUserGoals = await getUserGoalsDb();
+      setUserGoals(freshUserGoals);
       setSelectedGoalIds((prev) => [...prev, goalId]);
 
       toast({ title: "Meta criada!", description: newGoalDescription.trim() });
@@ -956,13 +960,16 @@ export default function Goals() {
       return;
     }
 
-    // Check if user has completed any routine item
-    const hasCompletedRoutines = userWorkouts.length > 0 || userDiets.length > 0 || userHabits.length > 0;
+    // Check if user has actually completed at least one routine item today
+    const hasCompletedToday =
+      completedDietIds.size > 0 ||
+      completedHabitIds.size > 0 ||
+      Object.values(workoutSeries).some((series) => series.some((s) => s.completed));
 
-    if (!hasCompletedRoutines) {
+    if (!hasCompletedToday) {
       toast({
         title: "Nenhuma rotina completada",
-        description: "Você precisa completar pelo menos uma rotina para fazer o check-in.",
+        description: "Complete pelo menos um exercício, dieta ou hábito antes de fazer o check-in.",
         variant: "destructive",
       });
       return;
@@ -978,7 +985,8 @@ export default function Goals() {
         });
         return;
       }
-      // Open goal selection modal
+      // Open goal selection modal — set processing guard now to prevent double-tap
+      setIsProcessingCheckIn(true);
       setCheckInGoalSelectionOpen(true);
       return;
     }
@@ -1469,7 +1477,7 @@ export default function Goals() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [restTimerModalOpen, restTimerRemaining]);
+  }, [restTimerModalOpen, restTimerRemaining, restTimerPaused]);
 
   const handleFinishWorkout = () => {
     if (!user) return;
@@ -1494,7 +1502,8 @@ export default function Goals() {
   };
 
   const performAutoCheckIn = async () => {
-    if (!user || dailyCheckInDone) return;
+    if (!user || dailyCheckInDone || checkInInProgressRef.current) return;
+    checkInInProgressRef.current = true;
     try {
       await createCheckInDb(user.id);
       setDailyCheckInDone(true);
@@ -1542,6 +1551,8 @@ export default function Goals() {
       });
     } catch (err) {
       console.error("Auto check-in failed:", err);
+    } finally {
+      checkInInProgressRef.current = false;
     }
   };
 
@@ -1777,7 +1788,7 @@ export default function Goals() {
 
       toast({
         title: "Rotinas adicionadas!",
-        description: `${selectedItems.size} ${typeLabel} adicionado(s) com sucesso.`,
+        description: `${itemIds.length} ${typeLabel} adicionado(s) com sucesso.`,
       });
       setAddRoutineModalOpen(false);
       setSelectedRoutineType(null);
@@ -3259,7 +3270,7 @@ export default function Goals() {
       </Drawer>
 
       {/* Workout Modal */}
-      <Drawer open={workoutModalOpen} onOpenChange={setWorkoutModalOpen}>
+      <Drawer open={workoutModalOpen} onOpenChange={(open) => { setWorkoutModalOpen(open); if (!open) { setWorkoutDuration(0); setWorkoutStartTime(null); } }}>
         <DrawerContent className="max-h-[80dvh] overflow-hidden flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Registrar Treino</DrawerTitle>
@@ -4546,7 +4557,7 @@ export default function Goals() {
       </Drawer>
 
       {/* Goal Selection Modal for Check-in */}
-      <Drawer open={checkInGoalSelectionOpen} onOpenChange={setCheckInGoalSelectionOpen}>
+      <Drawer open={checkInGoalSelectionOpen} onOpenChange={(open) => { setCheckInGoalSelectionOpen(open); if (!open) setIsProcessingCheckIn(false); }}>
         <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Selecione uma Meta para o Check-in</DrawerTitle>

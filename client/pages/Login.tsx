@@ -85,9 +85,6 @@ export default function Login() {
   const [bio, setBio] = React.useState("");
   const [hasCommercialProfile, setHasCommercialProfile] = React.useState(false);
   const [selectedSegments, setSelectedSegments] = React.useState<Set<string>>(new Set());
-  const [userEmail, setUserEmail] = React.useState("");
-  const [emailCheckStatus, setEmailCheckStatus] = React.useState<"idle" | "checking" | "valid" | "exists">("idle");
-  const [emailCheckMessage, setEmailCheckMessage] = React.useState("");
   const [showForgotPassword, setShowForgotPassword] = React.useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = React.useState("");
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
@@ -106,6 +103,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [commercialWizardStep, setCommercialWizardStep] = React.useState(1);
+  const [isCompletingSignup, setIsCompletingSignup] = React.useState(false);
 
   const canSubmit =
     !busy &&
@@ -141,32 +139,39 @@ export default function Login() {
 
   // Load available users for step 4
   React.useEffect(() => {
+    if (!(tab === "signup" && signupStep === 4)) return;
+    let cancelled = false;
     const loadUsers = async () => {
       setLoadingUsers(true);
       try {
         const users = await getAllUsersDb();
-        setAvailableUsers(users);
-        setStep4SearchResults(users);
+        const currentUser = supabase ? (await supabase.auth.getUser()).data.user : null;
+        const filtered = currentUser ? users.filter((u) => u.id !== currentUser.id) : users;
+        if (!cancelled) {
+          setAvailableUsers(filtered);
+          setStep4SearchResults(filtered);
+        }
       } catch {
-        setAvailableUsers([]);
-        setStep4SearchResults([]);
+        if (!cancelled) {
+          setAvailableUsers([]);
+          setStep4SearchResults([]);
+        }
       } finally {
-        setLoadingUsers(false);
+        if (!cancelled) setLoadingUsers(false);
       }
     };
-
-    if (tab === "signup" && signupStep === 4) {
-      loadUsers();
-    }
+    loadUsers();
+    return () => { cancelled = true; };
   }, [tab, signupStep]);
 
   React.useEffect(() => {
     if (authLoading) return;
     if (!user) return;
+    if (isCompletingSignup) return;
 
     // Always go to feed after login
     navigate("/", { replace: true });
-  }, [authLoading, user, navigate]);
+  }, [authLoading, user, navigate, isCompletingSignup]);
 
   const submit = async (mode: "login" | "signup") => {
     if (!hasSupabaseConfig || !supabase) {
@@ -237,20 +242,6 @@ export default function Login() {
           return;
         }
 
-        // Validate email exists
-        const emailExists = await validateEmailExists(trimmedEmail);
-
-        if (emailExists) {
-          toast({
-            title: "Usuário já cadastrado",
-            description: "Este email já está sendo usado. Faça login ou use outro email.",
-            variant: "destructive",
-          });
-          setBusy(false);
-          return;
-        }
-
-        setUserEmail(trimmedEmail);
         setSignupStep(2);
         setBusy(false);
         return;
@@ -322,6 +313,7 @@ export default function Login() {
 
     if (!hasSupabaseConfig || !supabase) return;
 
+    setIsCompletingSignup(true);
     setBusy(true);
     try {
       const trimmedEmail = email.trim();
@@ -331,11 +323,21 @@ export default function Login() {
       const { error: signUpError } = await supabase.auth.signUp({
         email: trimmedEmail,
         password: trimmedPassword,
-        options: { data: { full_name: displayName } },
+        options: { data: { full_name: displayName.trim() } },
       });
 
       if (signUpError) {
-        toast({ title: "Não foi possível criar a conta", description: signUpError.message });
+        const signUpErrMsg = signUpError.message?.toLowerCase() || "";
+        if (signUpErrMsg.includes("already registered") || signUpErrMsg.includes("user already registered")) {
+          toast({
+            title: "Usuário já cadastrado",
+            description: "Este email já está sendo usado. Faça login ou use outro email.",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "Não foi possível criar a conta", description: signUpError.message });
+        }
+        setIsCompletingSignup(false);
         return;
       }
 
@@ -347,6 +349,7 @@ export default function Login() {
 
       if (signInError && !isEmailNotConfirmed(signInError.message)) {
         toast({ title: "Conta criada, mas não foi possível entrar", description: signInError.message });
+        setIsCompletingSignup(false);
         return;
       }
 
@@ -423,45 +426,11 @@ export default function Login() {
           : message,
         variant: "destructive",
       });
+      setIsCompletingSignup(false);
     } finally {
       setBusy(false);
     }
   };
-
-  const validateEmailExists = React.useCallback(async (emailToCheck: string): Promise<boolean> => {
-    if (!emailToCheck.trim() || !supabase) {
-      return false;
-    }
-
-    try {
-      // Try to sign in with a dummy password to check if email exists
-      // If email doesn't exist, we get "Invalid login credentials" error
-      // If email exists, we get "Invalid password" or similar error
-      const { error } = await supabase.auth.signInWithPassword({
-        email: emailToCheck.trim(),
-        password: "dummypassword123",
-      });
-
-      if (!error) {
-        // This shouldn't happen with dummy password
-        return true;
-      }
-
-      const errorMsg = error.message?.toLowerCase() || "";
-
-      // If we get "invalid login credentials" it means email doesn't exist
-      // If we get other errors like "invalid password" or "wrong password", email exists
-      if (errorMsg.includes("invalid login credentials") || errorMsg.includes("email not confirmed")) {
-        return false;
-      }
-
-      // Email exists (got password error or other auth errors)
-      return true;
-    } catch {
-      // If there's an error, assume email doesn't exist to not block signup
-      return false;
-    }
-  }, [supabase]);
 
   const handleResetPassword = async () => {
     if (!hasSupabaseConfig || !supabase || !forgotPasswordEmail.trim()) {
@@ -527,8 +496,12 @@ export default function Login() {
     // Flag: force profile reload in feed (so photo appears immediately)
     localStorage.setItem("force_profile_reload", "1");
 
+    setIsCompletingSignup(false);
+
     if (biometricAvailable) {
       setShowBiometricSetup(true);
+    } else {
+      navigate("/", { replace: true });
     }
   };
 
@@ -679,9 +652,8 @@ export default function Login() {
       }
 
       toast({
-        title: "Autenticação biométrica concluída",
-        description:
-          "Entrando com sua biometria. Use email e senha para login inicial.",
+        title: "Biometria verificada",
+        description: "Email preenchido. Digite sua senha para entrar.",
       });
 
       // Set email for login

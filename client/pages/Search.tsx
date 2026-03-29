@@ -23,6 +23,7 @@ import { toast } from "@/components/ui/use-toast";
 import { UserPlus, UserCheck, ChevronDown, ChevronUp, Copy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
+import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 
 type RoutineCardProps = {
   routine: RoutineResult;
@@ -64,10 +65,11 @@ function RoutineCard({
           {/* Small user avatar + name */}
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
             {routine.userPhoto ? (
-              <img
+              <ImageWithFallback
                 src={routine.userPhoto}
                 alt={routine.userNickname}
                 className="h-5 w-5 rounded-full object-cover flex-shrink-0"
+                fallback="/placeholder.svg"
               />
             ) : (
               <div className="h-5 w-5 rounded-full bg-muted flex-shrink-0" />
@@ -146,7 +148,9 @@ export default function Search() {
   const [allWorkouts, setAllWorkouts] = React.useState<RoutineResult[]>([]);
   const [searchDiets, setSearchDiets] = React.useState<RoutineResult[]>([]);
   const [allDiets, setAllDiets] = React.useState<RoutineResult[]>([]);
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isLoadingPeople, setIsLoadingPeople] = React.useState(false);
+  const [isLoadingWorkouts, setIsLoadingWorkouts] = React.useState(false);
+  const [isLoadingDiets, setIsLoadingDiets] = React.useState(false);
   const [followingIds, setFollowingIds] = React.useState<Set<string>>(new Set());
   const [followingLoadingIds, setFollowingLoadingIds] = React.useState<Set<string>>(new Set());
 
@@ -162,7 +166,7 @@ export default function Search() {
   // Load all users on mount
   React.useEffect(() => {
     if (!user) return;
-    setIsLoading(true);
+    setIsLoadingPeople(true);
     Promise.all([getAllUsersDb(user.id), getFollowingIdsDb(), getCopiedRoutineKeysDb(user.id)])
       .then(([users, followingIdsList, copiedKeys]) => {
         setAllUsers(users);
@@ -171,23 +175,23 @@ export default function Search() {
         setCopiedKeys(copiedKeys);
       })
       .catch((err) => console.error("Error loading users:", err))
-      .finally(() => setIsLoading(false));
+      .finally(() => setIsLoadingPeople(false));
   }, [user]);
 
   // Load all routines when switching to workouts/diets tabs
   React.useEffect(() => {
     if (activeTab === "workouts" && allWorkouts.length === 0) {
-      setIsLoading(true);
+      setIsLoadingWorkouts(true);
       searchRoutinesDb("", 1, user?.id)
         .then((data) => { setAllWorkouts(data); setSearchWorkouts(data); })
         .catch((err) => console.error("Error loading workouts:", err))
-        .finally(() => setIsLoading(false));
+        .finally(() => setIsLoadingWorkouts(false));
     } else if (activeTab === "diets" && allDiets.length === 0) {
-      setIsLoading(true);
+      setIsLoadingDiets(true);
       searchRoutinesDb("", 2, user?.id)
         .then((data) => { setAllDiets(data); setSearchDiets(data); })
         .catch((err) => console.error("Error loading diets:", err))
-        .finally(() => setIsLoading(false));
+        .finally(() => setIsLoadingDiets(false));
     }
   }, [activeTab, user?.id]);
 
@@ -200,11 +204,14 @@ export default function Search() {
         return;
       }
 
-      setIsLoading(true);
+      if (activeTab === "people") setIsLoadingPeople(true);
+      else if (activeTab === "workouts") setIsLoadingWorkouts(true);
+      else if (activeTab === "diets") setIsLoadingDiets(true);
+
       try {
         if (activeTab === "people") {
           const users = await searchUsersDb(query);
-          setSearchUsers(users);
+          setSearchUsers(users.filter((u) => u.id !== user?.id));
         } else if (activeTab === "workouts") {
           const workouts = await searchRoutinesDb(query, 1, user?.id);
           setSearchWorkouts(workouts);
@@ -215,29 +222,35 @@ export default function Search() {
       } catch (err) {
         console.error("Error searching:", err);
       } finally {
-        setIsLoading(false);
+        if (activeTab === "people") setIsLoadingPeople(false);
+        else if (activeTab === "workouts") setIsLoadingWorkouts(false);
+        else if (activeTab === "diets") setIsLoadingDiets(false);
       }
     },
-    [activeTab, allUsers, allWorkouts, allDiets],
+    [activeTab, allUsers, allWorkouts, allDiets, user?.id],
   );
 
   const handleToggleFollow = React.useCallback(
     async (userId: string) => {
       if (!user || followingLoadingIds.has(userId)) return;
-      setFollowingLoadingIds((prev) => new Set(prev).add(userId));
       const isCurrentlyFollowing = followingIds.has(userId);
+      // Optimistic update
+      if (isCurrentlyFollowing) {
+        setFollowingIds((prev) => { const s = new Set(prev); s.delete(userId); return s; });
+      } else {
+        setFollowingIds((prev) => new Set(prev).add(userId));
+      }
+      setFollowingLoadingIds((prev) => new Set(prev).add(userId));
       try {
         if (isCurrentlyFollowing) {
           await unfollowUserDb(userId);
-          setFollowingIds((prev) => { const s = new Set(prev); s.delete(userId); return s; });
           toast({ title: "Deixou de seguir", description: "Você deixou de seguir este usuário." });
         } else {
           await followUserDb(userId);
-          setFollowingIds((prev) => new Set(prev).add(userId));
           toast({ title: "Seguindo!", description: "Você começou a seguir este usuário." });
         }
       } catch (err: any) {
-        // Rollback optimistic state
+        // Rollback
         if (isCurrentlyFollowing) {
           setFollowingIds((prev) => new Set(prev).add(userId));
         } else {
@@ -252,6 +265,7 @@ export default function Search() {
   );
 
   const handleTabChange = (tab: string) => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     setActiveTab(tab);
     setSearchQuery("");
     if (tab === "people") setSearchUsers(allUsers);
@@ -261,7 +275,7 @@ export default function Search() {
 
   const handleToggleExpand = React.useCallback(
     async (routine: RoutineResult) => {
-      const key = `${routine.userId}::${routine.routineName}`;
+      const key = `${routine.userId}::${routine.routineId ?? routine.routineName}`;
       const isExpanded = expandedKeys.has(key);
 
       if (isExpanded) {
@@ -291,7 +305,7 @@ export default function Search() {
   const handleCopy = React.useCallback(
     async (routine: RoutineResult) => {
       if (!user) return;
-      const key = `${routine.userId}::${routine.routineName}`;
+      const key = `${routine.userId}::${routine.routineId ?? routine.routineName}`;
       setCopyingKeys((prev) => new Set(prev).add(key));
       try {
         await copyRoutineToUserDb(routine.userId, user.id, routine.routineType as 1 | 2, routine.routineName);
@@ -328,7 +342,6 @@ export default function Search() {
           searchDebounceRef.current = setTimeout(() => handleSearch(value), 350);
         }}
         className="rounded-full"
-        autoFocus
       />
 
       <Tabs defaultValue="people" value={activeTab} onValueChange={handleTabChange} className="w-full">
@@ -340,8 +353,8 @@ export default function Search() {
 
         {/* People */}
         <TabsContent value="people" className="space-y-3">
-          {isLoading && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
-          {!isLoading && searchUsers.length === 0 && (
+          {isLoadingPeople && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
+          {!isLoadingPeople && searchUsers.length === 0 && (
             <div className="text-center py-6 text-sm text-muted-foreground">{t("search_no_people")}</div>
           )}
           {searchUsers.map((u) => (
@@ -350,7 +363,7 @@ export default function Search() {
                 <div className="flex items-start gap-3 justify-between">
                   <div className="flex items-start gap-3 flex-1">
                     {u.photo ? (
-                      <img src={u.photo} alt={u.nickname} className="h-12 w-12 rounded-full object-cover flex-shrink-0" />
+                      <ImageWithFallback src={u.photo} alt={u.nickname} className="h-12 w-12 rounded-full object-cover flex-shrink-0" fallback="/placeholder.svg" />
                     ) : (
                       <div className="h-12 w-12 rounded-full bg-muted flex-shrink-0" />
                     )}
@@ -385,8 +398,8 @@ export default function Search() {
 
         {/* Workouts */}
         <TabsContent value="workouts" className="space-y-3">
-          {isLoading && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
-          {!isLoading && searchWorkouts.length === 0 && (
+          {isLoadingWorkouts && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
+          {!isLoadingWorkouts && searchWorkouts.length === 0 && (
             <div className="text-center py-6 text-sm text-muted-foreground">
               {t("search_no_workouts")}
             </div>
@@ -395,11 +408,11 @@ export default function Search() {
             <RoutineCard
               key={`${routine.userId}-${routine.routineName ?? "__unnamed__"}`}
               routine={routine}
-              isExpanded={expandedKeys.has(`${routine.userId}::${routine.routineName}`)}
-              isLoadingItems={itemsLoading.has(`${routine.userId}::${routine.routineName}`)}
-              items={itemsCache.get(`${routine.userId}::${routine.routineName}`) ?? []}
-              isCopying={copyingKeys.has(`${routine.userId}::${routine.routineName}`)}
-              isCopied={copiedKeys.has(`${routine.userId}::${routine.routineName}`)}
+              isExpanded={expandedKeys.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
+              isLoadingItems={itemsLoading.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
+              items={itemsCache.get(`${routine.userId}::${routine.routineId ?? routine.routineName}`) ?? []}
+              isCopying={copyingKeys.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
+              isCopied={copiedKeys.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
               isOwn={routine.userId === user?.id}
               loadingText={t("loading")}
               onToggleExpand={handleToggleExpand}
@@ -412,8 +425,8 @@ export default function Search() {
 
         {/* Diets */}
         <TabsContent value="diets" className="space-y-3">
-          {isLoading && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
-          {!isLoading && searchDiets.length === 0 && (
+          {isLoadingDiets && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
+          {!isLoadingDiets && searchDiets.length === 0 && (
             <div className="text-center py-6 text-sm text-muted-foreground">
               {t("search_no_diets")}
             </div>
@@ -422,11 +435,11 @@ export default function Search() {
             <RoutineCard
               key={`${routine.userId}-${routine.routineName ?? "__unnamed__"}`}
               routine={routine}
-              isExpanded={expandedKeys.has(`${routine.userId}::${routine.routineName}`)}
-              isLoadingItems={itemsLoading.has(`${routine.userId}::${routine.routineName}`)}
-              items={itemsCache.get(`${routine.userId}::${routine.routineName}`) ?? []}
-              isCopying={copyingKeys.has(`${routine.userId}::${routine.routineName}`)}
-              isCopied={copiedKeys.has(`${routine.userId}::${routine.routineName}`)}
+              isExpanded={expandedKeys.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
+              isLoadingItems={itemsLoading.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
+              items={itemsCache.get(`${routine.userId}::${routine.routineId ?? routine.routineName}`) ?? []}
+              isCopying={copyingKeys.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
+              isCopied={copiedKeys.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
               isOwn={routine.userId === user?.id}
               loadingText={t("loading")}
               onToggleExpand={handleToggleExpand}

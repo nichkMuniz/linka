@@ -322,7 +322,7 @@ export function FlowViewerModal({
                           idx < storyIndexInUser
                             ? "100%"
                             : idx === storyIndexInUser
-                            ? `${timerProgress}%`
+                            ? `${100 - timerProgress}%`
                             : "0%",
                       }}
                     />

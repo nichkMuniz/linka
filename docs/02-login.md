@@ -60,15 +60,11 @@ Fluxo multi-etapas com 4 passos:
 ### Step 1 — Dados da Conta
 | Campo | Tipo | Validação |
 |---|---|---|
-| Nome de usuário | Input text | Obrigatório |
-| Email | Input email | Verificação de unicidade em tempo real |
+| Email | Input email | Obrigatório |
 | Senha | Input password | Mínimo 6 caracteres, com toggle show/hide |
 | Confirmar senha | Input password | Deve coincidir com senha, toggle show/hide |
 
-**Verificação de email:**
-- Enquanto digita, verifica se o email já está cadastrado (`emailCheckStatus`)
-- Estados: `idle` → `checking` → `valid` | `exists`
-- Feedback visual inline
+**Verificação de email duplicado:** Feita no Step 3 ao tentar `supabase.auth.signUp()`. Se o email já existe, o Supabase retorna erro `"User already registered"` e o usuário é informado via toast destrutivo.
 
 **Botão "Próximo"** — avança para Step 2
 
@@ -124,7 +120,8 @@ Seleção de objetivos fitness (múltipla escolha). Os valores selecionados são
 ---
 
 ### Step 4 — Seguir Pessoas
-- Lista de usuários sugeridos carregada via `getAllUsersDb()`
+- Lista de usuários sugeridos carregada via `getAllUsersDb()`, filtrada para excluir o próprio usuário
+- Carregamento com guard de cancelamento (`cancelled` flag) para evitar atualizações de estado após desmontagem
 - Campo de busca para filtrar usuários
 - Botão follow/unfollow em cada usuário
 - Exibe foto e nome de cada usuário
@@ -154,8 +151,18 @@ Login
        └─ Erro "email not confirmed" → alerta de verificação de email
 
 Cadastro
-  └─ supabase.auth.signUp()
-       └─ Sucesso → signIn → upsert profiles (photo, bio, objectives) → insert commercial_profiles → navega para /
+  └─ Steps 1–2 coletam dados localmente
+  └─ Step 3 (handleSignupStep3):
+       ├─ isCompletingSignup = true  ← inibe navegação automática
+       ├─ supabase.auth.signUp()
+       │    └─ Erro "User already registered" → toast + abort
+       ├─ supabase.auth.signInWithPassword()
+       ├─ upsert profiles (photo, bio, objectives)
+       ├─ insert commercial_profiles (se aplicável)
+       └─ setSignupStep(4)
+  └─ Step 4 (handleSignupComplete):
+       ├─ isCompletingSignup = false
+       └─ Se biometricAvailable → showBiometricSetup; senão → navega para /
 ```
 
 ---

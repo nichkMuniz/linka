@@ -48,6 +48,7 @@ import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 
 export default function Shots({ footerHeight = 0, isDesktop = false }: { footerHeight?: number; isDesktop?: boolean }) {
   const { user } = useAuth();
@@ -84,8 +85,21 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   const [deleteShotDialogOpen, setDeleteShotDialogOpen] = React.useState(false);
   const [deletingShot, setDeletingShot] = React.useState<ShotWithUser | null>(null);
   const [isDeletingShot, setIsDeletingShot] = React.useState(false);
+  const [deleteCommentDialogOpen, setDeleteCommentDialogOpen] = React.useState(false);
+  const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
+  const [isDeletingComment, setIsDeletingComment] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const videoRefsMap = React.useRef<Record<string, HTMLVideoElement>>({});
+
+  // Auto-dismiss swipe hint after 4s to prevent blocking interaction
+  React.useEffect(() => {
+    if (!showSwipeHint) return;
+    const timer = setTimeout(() => {
+      localStorage.setItem("shots_swipe_hint_seen", "1");
+      setShowSwipeHint(false);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [showSwipeHint]);
 
   // Open comments drawer when navigating from a notification
   React.useEffect(() => {
@@ -130,8 +144,11 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   // Set up IntersectionObserver to detect visible shot and auto-play video
   React.useEffect(() => {
     let isMounted = true;
+    const container = containerRef.current;
+    if (!container) return;
+
     const observerOptions = {
-      root: containerRef.current,
+      root: container,
       rootMargin: "0px",
       threshold: [0.5],
     };
@@ -141,34 +158,42 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
       entries.forEach((entry) => {
         const shotId = entry.target.getAttribute("data-shot-id");
         if (!shotId) return;
-
         if (entry.isIntersecting) {
           setVisibleShotId(shotId);
           const video = videoRefsMap.current[shotId];
           if (video) {
-            // AbortError is expected when video is interrupted (e.g. scrolled away) — not a real error
             video.play().catch((err) => { if (err?.name !== "AbortError") console.error("Erro ao reproduzir vídeo:", err); });
           }
         } else {
           const video = videoRefsMap.current[shotId];
-          if (video) {
-            video.pause();
-          }
+          if (video) video.pause();
         }
       });
     }, observerOptions);
 
-    const container = containerRef.current;
-    if (container) {
-      const shotItems = container.querySelectorAll("[data-shot-id]");
-      shotItems.forEach((item) => observer.observe(item));
-    }
+    // Observe existing elements
+    container.querySelectorAll("[data-shot-id]").forEach((item) => observer.observe(item));
+
+    // MutationObserver ensures newly added/removed DOM elements are observed without recreating everything
+    const mutationObserver = new MutationObserver((mutations) => {
+      if (!isMounted) return;
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof Element) {
+            if (node.hasAttribute("data-shot-id")) observer.observe(node);
+            node.querySelectorAll("[data-shot-id]").forEach((el) => observer.observe(el));
+          }
+        });
+      });
+    });
+    mutationObserver.observe(container, { childList: true, subtree: true });
 
     return () => {
       isMounted = false;
       observer.disconnect();
+      mutationObserver.disconnect();
     };
-  }, [shots]);
+  }, []); // runs once — MutationObserver handles DOM changes dynamically
 
   // Auto-play first video when shots load
   React.useEffect(() => {
@@ -196,39 +221,39 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
 
       setTogglingIncentives((prev) => new Set(prev).add(incentiveKey));
 
+      const typeKeyMap: Record<number, keyof ShotWithUser["likes"]> = {
+        1: "apoio",
+        2: "continua",
+        3: "ganhador",
+        4: "consegueMais",
+        5: "limiteMaior",
+        6: "maisAlgum",
+      };
+
+      let previousShots: ShotWithUser[] = [];
       try {
-        await toggleShotIncentiveDb(shot.id, type, shot.user_id);
-
-        // Update local state (userLikes and likes counters)
-        setShots((prev) =>
-          prev.map((r) => {
+        // Optimistic update — apply immediately before server responds
+        setShots((prev) => {
+          previousShots = prev.map((r) => ({ ...r, likes: { ...r.likes }, userLikes: [...(r.userLikes || [])] }));
+          return prev.map((r) => {
             if (r.id !== shot.id) return r;
-
             const userLikes = r.userLikes || [];
             const isRemoving = userLikes.includes(type);
-            const newUserLikes = isRemoving
-              ? userLikes.filter((t) => t !== type)
-              : [...userLikes, type];
-
+            const newUserLikes = isRemoving ? userLikes.filter((t) => t !== type) : [...userLikes, type];
             const delta = isRemoving ? -1 : 1;
-            const typeKeyMap: Record<number, keyof typeof r.likes> = {
-              1: "apoio",
-              2: "continua",
-              3: "ganhador",
-              4: "consegueMais",
-              5: "limiteMaior",
-              6: "maisAlgum",
-            };
             const key = typeKeyMap[type];
             const newLikes = key
               ? { ...r.likes, [key]: Math.max(0, (r.likes[key] ?? 0) + delta) }
               : r.likes;
-
             return { ...r, userLikes: newUserLikes, likes: newLikes };
-          })
-        );
+          });
+        });
+
+        await toggleShotIncentiveDb(shot.id, type, shot.user_id);
       } catch (err: any) {
         console.error("Error toggling incentive:", err);
+        // Revert optimistic update on failure
+        if (previousShots.length > 0) setShots(previousShots);
         toast({
           title: "Erro ao enviar incentivo",
           description: err?.message || "Tente novamente.",
@@ -278,6 +303,14 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
       const updatedComments = await getShotCommentsDb(selectedShot.id);
       setComments(updatedComments);
       setCommentText("");
+      // Bug 5 fix: increment commentCount in shots state
+      setShots((prev) =>
+        prev.map((s) =>
+          s.id === selectedShot.id
+            ? { ...s, commentCount: (s.commentCount || 0) + 1 }
+            : s
+        )
+      );
     } catch (err: any) {
       console.error("Error adding comment:", err);
       toast({
@@ -290,16 +323,26 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     }
   }, [commentText, selectedShot]);
 
-  const handleDeleteComment = React.useCallback(async (commentId: string) => {
-    if (!confirm("Tem certeza que deseja deletar este comentário?")) return;
+  const handleDeleteComment = React.useCallback((commentId: string) => {
+    setDeletingCommentId(commentId);
+    setDeleteCommentDialogOpen(true);
+  }, []);
 
+  const handleConfirmDeleteComment = React.useCallback(async () => {
+    if (!deletingCommentId) return;
+    setIsDeletingComment(true);
     try {
-      await deleteShotCommentDb(commentId);
-      setComments((prev) => prev.filter((c) => c.id !== commentId));
-      toast({
-        title: "Sucesso",
-        description: "Comentário deletado com sucesso.",
-      });
+      await deleteShotCommentDb(deletingCommentId);
+      setComments((prev) => prev.filter((c) => c.id !== deletingCommentId));
+      // Bug 5 fix: decrement commentCount in shots state
+      setShots((prev) =>
+        prev.map((s) =>
+          selectedShot && s.id === selectedShot.id
+            ? { ...s, commentCount: Math.max(0, (s.commentCount || 0) - 1) }
+            : s
+        )
+      );
+      toast({ title: "Comentário deletado com sucesso." });
     } catch (err: any) {
       console.error("Error deleting comment:", err);
       toast({
@@ -307,8 +350,12 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         description: err?.message || "Tente novamente.",
         variant: "destructive",
       });
+    } finally {
+      setIsDeletingComment(false);
+      setDeleteCommentDialogOpen(false);
+      setDeletingCommentId(null);
     }
-  }, []);
+  }, [deletingCommentId, selectedShot]);
 
   const handleFollowUser = React.useCallback(
     async (userId: string) => {
@@ -526,13 +573,12 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                   onClick={() => navigate(`/usuario/${shot.user_id}`)}
                   className="flex items-center gap-3 hover:opacity-80 transition-opacity"
                 >
-                  {shot.userPhoto && (
-                    <img
-                      src={shot.userPhoto}
-                      alt={shot.userNickname || "Usuário"}
-                      className="h-12 w-12 rounded-full object-cover border-2 border-white/30 shadow-lg"
-                    />
-                  )}
+                  <ImageWithFallback
+                    src={shot.userPhoto}
+                    alt={shot.userNickname || "Usuário"}
+                    fallback="/placeholder.svg"
+                    className="h-12 w-12 rounded-full object-cover border-2 border-white/30 shadow-lg"
+                  />
                   <div>
                     <p className="text-sm font-bold text-white drop-shadow-md">
                       {shot.userNickname || "Usuário"}
@@ -710,6 +756,28 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             >
               {isDeletingShot ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Comment Confirmation Dialog */}
+      <AlertDialog open={deleteCommentDialogOpen} onOpenChange={setDeleteCommentDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir comentário</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este comentário? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingComment}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeleteComment}
+              disabled={isDeletingComment}
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            >
+              {isDeletingComment ? "Excluindo..." : "Excluir"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

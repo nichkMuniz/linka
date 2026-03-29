@@ -1390,6 +1390,18 @@ export async function deleteRoutinesOfTypeDb(
   }
 }
 
+export async function deleteRoutineDb(routineId: string, userId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const { error } = await supabase
+    .from("routines")
+    .delete()
+    .eq("id", routineId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
+}
+
 // Get items for a specific routine (by userId + routineName + type) — works for other users via workouts/diets/habits catalog join
 export async function getRoutineItemsForViewDb(
   userId: string,
@@ -3203,28 +3215,18 @@ export async function recordFlowViewDb(storyId: string, storyOwnerId: string): P
   _recordingInFlight.add(key);
 
   try {
-    // Always check DB using both user_id (owner) and follower_id + flow_id
-    const { data: existing, error: checkError } = await supabase
+    // Check DB first to avoid duplicates across sessions/screens
+    const { data: existing } = await supabase
       .from("flow_user_viewed")
       .select("flow_id")
       .eq("flow_id", storyId)
       .eq("follower_id", viewer.id)
-      .eq("user_id", storyOwnerId)
       .maybeSingle();
-
-    if (checkError) console.error("Error checking flow view:", checkError.message);
 
     if (existing) {
       _recordedFlowViews.add(key);
       return;
     }
-
-    // Delete any stale rows with partial match before inserting (safety net)
-    await supabase
-      .from("flow_user_viewed")
-      .delete()
-      .eq("flow_id", storyId)
-      .eq("follower_id", viewer.id);
 
     const { error } = await supabase
       .from("flow_user_viewed")

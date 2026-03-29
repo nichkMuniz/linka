@@ -29,6 +29,7 @@ import {
   updatePostDb,
   deleteShotDb,
   updateShotDb,
+  deleteRoutineDb,
   getPostLikeUsersDb,
   getPostCommentsDb,
   followUserDb,
@@ -323,15 +324,7 @@ export default function Profile() {
     const stored = localStorage.getItem("ritmofit_daily_limit_minutes");
     return stored ? parseInt(stored, 10) : 0;
   });
-  const [usageDataLast7Days] = React.useState([
-    { day: "Seg", minutes: 45 },
-    { day: "Ter", minutes: 60 },
-    { day: "Qua", minutes: 55 },
-    { day: "Qui", minutes: 70 },
-    { day: "Sex", minutes: 80 },
-    { day: "Sab", minutes: 90 },
-    { day: "Dom", minutes: 75 },
-  ]);
+  const [usageDataLast7Days] = React.useState<{ day: string; minutes: number }[]>([]);
 
   // Personalization state
   const [isPersonalizationOpen, setIsPersonalizationOpen] = React.useState(false);
@@ -625,21 +618,24 @@ export default function Profile() {
 
   const doFollowUnfollow = React.useCallback(async () => {
     if (!profileUserId) return;
+    const wasFollowing = isFollowing;
+    setIsFollowing(!wasFollowing);
     setIsFollowingLoading(true);
     try {
-      const success = isFollowing
+      const success = wasFollowing
         ? await unfollowUserDb(profileUserId)
         : await followUserDb(profileUserId);
-      if (success) {
-        setIsFollowing(!isFollowing);
+      if (!success) {
+        setIsFollowing(wasFollowing);
+        toast({ title: "Erro", description: "Tente novamente.", variant: "destructive" });
+      } else {
         toast({
           title: "Sucesso!",
-          description: isFollowing ? "Você deixou de seguir este usuário." : "Você está seguindo este usuário.",
+          description: wasFollowing ? "Você deixou de seguir este usuário." : "Você está seguindo este usuário.",
         });
-      } else {
-        toast({ title: "Erro", description: "Tente novamente.", variant: "destructive" });
       }
     } catch (err: any) {
+      setIsFollowing(wasFollowing);
       console.error("Error toggling follow:", err);
       toast({ title: "Erro", description: err?.message || "Tente novamente.", variant: "destructive" });
     } finally {
@@ -666,21 +662,23 @@ export default function Profile() {
     const isCurrentlyFollowing = followerFollowStatus[userId] || false;
 
     const doToggle = async () => {
+      setFollowerFollowStatus((prev) => ({ ...prev, [userId]: !isCurrentlyFollowing }));
       setIsTogglingFollow((prev) => ({ ...prev, [userId]: true }));
       try {
         const success = isCurrentlyFollowing
           ? await unfollowUserDb(userId)
           : await followUserDb(userId);
-        if (success) {
-          setFollowerFollowStatus((prev) => ({ ...prev, [userId]: !isCurrentlyFollowing }));
+        if (!success) {
+          setFollowerFollowStatus((prev) => ({ ...prev, [userId]: isCurrentlyFollowing }));
+          toast({ title: "Erro", description: "Tente novamente.", variant: "destructive" });
+        } else {
           toast({
             title: "Sucesso!",
             description: isCurrentlyFollowing ? "Você deixou de seguir este usuário." : "Você está seguindo este usuário.",
           });
-        } else {
-          toast({ title: "Erro", description: "Tente novamente.", variant: "destructive" });
         }
       } catch (err: any) {
+        setFollowerFollowStatus((prev) => ({ ...prev, [userId]: isCurrentlyFollowing }));
         console.error("Error toggling follow:", err);
         toast({ title: "Erro", description: err?.message || "Tente novamente.", variant: "destructive" });
       } finally {
@@ -931,19 +929,8 @@ export default function Profile() {
 
     setIsDeletingRoutine(true);
     try {
-      const routineToDelete = routines.find((r) => r.id === deleteRoutineId);
-      if (!routineToDelete) return;
+      await deleteRoutineDb(deleteRoutineId, user.id);
 
-      // Delete the specific routine from the database
-      const { error } = await supabase
-        .from("routines")
-        .delete()
-        .eq("id", deleteRoutineId)
-        .eq("user_id", user.id);
-
-      if (error) throw error;
-
-      // Update routines list
       setRoutines(routines.filter((r) => r.id !== deleteRoutineId));
       setIsDeleteConfirmOpen(false);
       setDeleteRoutineId(null);
@@ -967,6 +954,10 @@ export default function Profile() {
 
   const handleSaveProfile = async () => {
     if (!user || !profile) return;
+    if (!editNickname.trim()) {
+      toast({ title: "Nome obrigatório", description: "O nome não pode ser vazio.", variant: "destructive" });
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -1432,10 +1423,7 @@ export default function Profile() {
                       <div className="text-xs text-muted-foreground whitespace-nowrap">Posts</div>
                     </div>
                     <button
-                      onClick={() => {
-                        setShowFollowersModal(true);
-                        loadFollowersData();
-                      }}
+                      onClick={() => setShowFollowersModal(true)}
                       className="flex flex-col hover:opacity-80 transition-opacity items-center"
                     >
                       <div className="text-base font-semibold">
@@ -1446,10 +1434,7 @@ export default function Profile() {
                       </div>
                     </button>
                     <button
-                      onClick={() => {
-                        setShowFollowingModal(true);
-                        loadFollowingData();
-                      }}
+                      onClick={() => setShowFollowingModal(true)}
                       className="flex flex-col hover:opacity-80 transition-opacity items-center"
                     >
                       <div className="text-base font-semibold">
@@ -1835,7 +1820,6 @@ export default function Profile() {
                               onClick={() => {
                                 setCurrentLanguage(lang);
                                 setIsLanguageOpen(false);
-                                setTimeout(() => window.location.reload(), 300);
                               }}
                               className={`w-full p-3 rounded-lg border text-left transition-colors ${
                                 currentLanguage === lang
@@ -2013,19 +1997,23 @@ export default function Profile() {
                           <div className="space-y-2">
                             <label className="text-sm font-medium">Uso nos Últimos 7 Dias</label>
                             <div className="p-4 rounded-lg border border-border/50 bg-muted/20">
-                              <div className="flex items-end justify-between gap-2 h-32">
-                                {usageDataLast7Days.map((data, idx) => {
-                                  const maxMinutes = Math.max(...usageDataLast7Days.map(d => d.minutes));
-                                  const heightPercent = (data.minutes / maxMinutes) * 100;
-                                  return (
-                                    <div key={idx} className="flex flex-col items-center gap-1 flex-1">
-                                      <div className="w-full bg-brand rounded-t" style={{height: `${heightPercent}%`}} />
-                                      <div className="text-xs text-muted-foreground">{data.day}</div>
-                                      <div className="text-xs font-semibold">{data.minutes}m</div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                              {usageDataLast7Days.length > 0 ? (
+                                <div className="flex items-end justify-between gap-2 h-32">
+                                  {usageDataLast7Days.map((data, idx) => {
+                                    const maxMinutes = Math.max(...usageDataLast7Days.map(d => d.minutes));
+                                    const heightPercent = (data.minutes / maxMinutes) * 100;
+                                    return (
+                                      <div key={idx} className="flex flex-col items-center gap-1 flex-1">
+                                        <div className="w-full bg-brand rounded-t" style={{height: `${heightPercent}%`}} />
+                                        <div className="text-xs text-muted-foreground">{data.day}</div>
+                                        <div className="text-xs font-semibold">{data.minutes}m</div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground text-center py-6">Histórico de uso não disponível</p>
+                              )}
                             </div>
                           </div>
 

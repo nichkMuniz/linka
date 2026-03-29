@@ -50,6 +50,14 @@ export default function NewPost() {
   const [isLoadingGoals, setIsLoadingGoals] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState(() => sessionStorage.getItem("newpost_tab") || "images");
+  const redirectTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cancel any pending redirect on unmount
+  React.useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+    };
+  }, []);
 
   // Persist text state to sessionStorage
   React.useEffect(() => { sessionStorage.setItem("newpost_description", description); }, [description]);
@@ -177,6 +185,8 @@ export default function NewPost() {
   };
 
   const removePhoto = (index: number) => {
+    imageDraft.files = imageDraft.files.filter((_, i) => i !== index);
+    imageDraft.previews = imageDraft.previews.filter((_, i) => i !== index);
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
     setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
 
@@ -283,9 +293,7 @@ export default function NewPost() {
       sessionStorage.removeItem("newpost_goal_id");
 
       // Redirect to feed after a short delay
-      setTimeout(() => {
-        navigate("/");
-      }, 1500);
+      redirectTimerRef.current = setTimeout(() => navigate("/"), 1500);
     } catch (err: any) {
       console.error("Error creating post:", err);
       toast({
@@ -375,9 +383,7 @@ export default function NewPost() {
       sessionStorage.removeItem("newpost_video_goal_id");
 
       // Redirect to shots after a short delay
-      setTimeout(() => {
-        navigate("/shots");
-      }, 1500);
+      redirectTimerRef.current = setTimeout(() => navigate("/shots"), 1500);
     } catch (err: any) {
       console.error("Error creating shot:", err);
       toast({
@@ -634,7 +640,7 @@ export default function NewPost() {
                 <Button
                   className="flex-1"
                   onClick={handleImageSubmit}
-                  disabled={selectedFiles.length === 0 || isSubmitting}
+                  disabled={selectedFiles.length === 0 || !description.trim() || isSubmitting}
                 >
                   {isSubmitting ? (
                     <>
@@ -722,6 +728,45 @@ export default function NewPost() {
                 <p className="text-xs text-muted-foreground">
                   {videoDescription.length}/500 caracteres
                 </p>
+              </div>
+
+              {/* Goal Selection */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Meta Vinculada (Opcional)</label>
+                {isLoadingGoals ? (
+                  <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
+                    Carregando metas...
+                  </div>
+                ) : userGoals.length > 0 ? (
+                  <Select value={videoSelectedGoalId} onValueChange={setVideoSelectedGoalId}>
+                    <SelectTrigger className="rounded-lg">
+                      <SelectValue
+                        placeholder={
+                          videoSelectedGoalId
+                            ? userGoals.find((g) => g.id === videoSelectedGoalId)?.description
+                            : "Selecione uma meta"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {userGoals.map((goal) => (
+                        <SelectItem key={goal.id} value={goal.id}>
+                          <div className="flex flex-col">
+                            <span>{goal.description}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div
+                    className="flex h-10 cursor-pointer items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground hover:bg-muted transition-colors"
+                    onClick={() => navigate("/metas?tab=metas")}
+                  >
+                    Nenhuma meta criada.{" "}
+                    <span className="ml-1 text-primary underline">Criar meta</span>
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons */}

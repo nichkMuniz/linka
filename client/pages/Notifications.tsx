@@ -4,6 +4,8 @@ import { Heart, MessageCircle, UserPlus, Zap, Flame, Trophy, TrendingUp, Dumbbel
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
+import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { LoadingSpinner } from "@/components/shared/animated-loading";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -201,7 +203,7 @@ export default function Notifications() {
     const seenPost = new Map<string, number>();
 
     for (const n of notifs) {
-      if (n.type === 2 && n.incentiveType) {
+      if (n.type === 2 && n.incentiveType && (n.postId || n.shotId)) {
         const postKey = n.postId ?? n.shotId ?? "";
         if (seenPost.has(postKey)) {
           const idx = seenPost.get(postKey)!;
@@ -240,12 +242,19 @@ export default function Notifications() {
     return result;
   };
 
+  const localDateStr = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
   const groupNotificationsByDate = (notifs: NotificationItem[]) => {
     const now = new Date();
-    const todayStr = now.toISOString().split("T")[0];
+    const todayStr = localDateStr(now);
     const yesterdayDate = new Date(now);
     yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-    const yesterdayStr = yesterdayDate.toISOString().split("T")[0];
+    const yesterdayStr = localDateStr(yesterdayDate);
     const weekAgo = new Date(now);
     weekAgo.setDate(weekAgo.getDate() - 7);
 
@@ -257,7 +266,7 @@ export default function Notifications() {
     };
 
     for (const n of notifs) {
-      const dateStr = new Date(n.createdAt).toISOString().split("T")[0];
+      const dateStr = localDateStr(new Date(n.createdAt));
       if (dateStr === todayStr) {
         groups["Hoje"].push(n);
       } else if (dateStr === yesterdayStr) {
@@ -346,7 +355,8 @@ export default function Notifications() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-12">
+          <div className="flex flex-col items-center justify-center py-12 gap-3">
+            <LoadingSpinner className="h-8 w-8" />
             <p className="text-sm text-muted-foreground">Carregando notificações...</p>
           </div>
         ) : notifications.length === 0 ? (
@@ -439,18 +449,18 @@ export default function Notifications() {
                                     {/* Back avatar (second user or same user repeated) */}
                                     <div className={`absolute top-0 right-0 h-9 w-9 rounded-full border-2 bg-muted ${isRead ? "border-background/60 opacity-50" : "border-background"} overflow-hidden`}>
                                       {(groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto) ? (
-                                        <img src={groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto} alt="" className="h-full w-full object-cover" />
+                                        <ImageWithFallback src={groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto ?? ""} alt="" className="h-full w-full object-cover" fallback="/placeholder.svg" />
                                       ) : null}
                                     </div>
                                     {/* Front avatar (first user) */}
                                     <div className={`absolute bottom-0 left-0 h-9 w-9 rounded-full border-2 bg-muted ${isRead ? "border-background/60 opacity-60" : "border-background"} overflow-hidden`}>
                                       {groupedUsers[0]?.userPhoto ? (
-                                        <img src={groupedUsers[0].userPhoto} alt={groupedUsers[0].userNickname} className="h-full w-full object-cover" />
+                                        <ImageWithFallback src={groupedUsers[0].userPhoto} alt={groupedUsers[0].userNickname} className="h-full w-full object-cover" fallback="/placeholder.svg" />
                                       ) : null}
                                     </div>
                                   </>
                                 ) : notification.userPhoto ? (
-                                  <img
+                                  <ImageWithFallback
                                     src={notification.userPhoto}
                                     alt={notification.userNickname}
                                     className={`h-12 w-12 rounded-full object-cover border ${
@@ -458,6 +468,7 @@ export default function Notifications() {
                                         ? "border-border/20 opacity-60"
                                         : "border-border/40"
                                     }`}
+                                    fallback="/placeholder.svg"
                                   />
                                 ) : (
                                   <div className={`h-12 w-12 rounded-full bg-muted ${isRead ? "opacity-40" : ""} border ${isRead ? "border-border/20" : "border-border/40"}`} />
