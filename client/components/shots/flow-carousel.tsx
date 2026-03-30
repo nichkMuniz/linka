@@ -142,7 +142,7 @@ export function FlowCarousel({
       {/* Other Stories */}
       {otherStories.length > 0 &&
         otherStories.map((story) => {
-          const isViewed = viewedStoryIds?.has(story.user_id) ?? false;
+          const isViewed = viewedStoryIds?.has(story.id) ?? false;
           return (
             <button
               key={story.id}

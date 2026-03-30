@@ -47,6 +47,7 @@ Cada meta exibe:
 - Exibe histórico semanal de check-ins (7 dias)
 - Detecta se já fez check-in hoje via `getTodayCheckInDb`
 - Exibe streak de dias consecutivos **dentro do próprio card de check-in** (frame separado removido)
+- **Após cada check-in**, recarrega `checkInHistory` via `getCheckInHistoryDb` e recalcula o streak imediatamente (refresh automático)
 
 **Hábitos/Dietas concluídos:**
 - `is_completed` + `completed_at` são salvos juntos ao marcar como concluído
@@ -61,6 +62,11 @@ Cada meta exibe:
 - "Compartilhar no Feed" → navega para `/` após postar
 - "Compartilhar no Duelo" → navega para `/comunidade` após postar
 - Grupos de duelo incluem grupos onde o usuário é participante (não só criador)
+- Frame "Como foi o treino?" **removido**
+- Frame de PRs exibe mini-row com Duração / Volume / Séries acima da lista de recordes
+- Frame de Nutrição Pós-Treino tem **dropdown** (ChevronUp/Down) para ocultar/expandir — sem botão de fechar
+- Seleção de foto suporta **múltiplas fotos** (até 4); preview mostra grid 2-colunas quando 2+ fotos; upload usa a primeira foto
+- Clicar em data no histórico de treino abre o modal de resumo para aquela sessão
 
 ---
 
@@ -107,6 +113,38 @@ Cada exercício exibe:
 - Salva histórico via `saveWorkoutHistoryDb`
 - Opção de tirar foto do treino (câmera ou galeria)
 
+**Treino minimizado (Floating Button):**
+- Se o usuário fechar o drawer de treino com treino em andamento (`workoutStartTime !== null`), o modal é **minimizado** em vez de fechado
+- Aparece um botão flutuante (FAB) verde no canto inferior direito da tela em qualquer página
+- Clicar no FAB reabre o modal de treino de onde parou
+- O cronômetro continua rodando mesmo minimizado (`workoutMinimized` state)
+
+---
+
+### Seção: Hidratação
+
+Card **condicional** — aparece apenas quando o usuário possui uma rotina de hábito com o hábito de id `1` ("beber 2 litros de água por dia"). Verificado via `hasWaterHabit` (userHabits com `habit_id === "1"`).
+
+- Barra de progresso de ml consumidos vs meta diária (padrão: 2000ml)
+- Botões de registro rápido: +250ml, +350ml, +500ml
+- Botão "-" (desfazer): remove o **último registro** inserido na tabela `hydration_logs` do dia
+- Mensagem de meta atingida ao completar 2000ml
+- Ao atingir a meta pela primeira vez, tenta conceder o badge `hidratacao_7dias` via `awardNutritionBadgesDb`
+
+Dados: `getTodayHydrationDb` / `addHydrationDb` / `undoLastHydrationDb` (tabela `hydration_logs`)
+
+---
+
+### Seção: Macro do Dia
+
+Card condicional (aparece quando há ao menos 1 dieta concluída com dados de macro), logo abaixo da seção de hidratação:
+- Total de calorias, proteína (g), carboidrato (g) e gordura (g) acumulados pelas dietas marcadas hoje
+- Score de qualidade: chips coloridos mostrando quantas refeições são in natura / processadas / ultraprocessadas
+- Mensagem positiva quando nenhum ultraprocessado foi registrado
+- Atualizado automaticamente ao marcar/desmarcar dietas
+
+Dados: `getTodayMacroSummaryDb` (agrega `user_diets` com `is_completed = true` e `completed_at` de hoje)
+
 ---
 
 ### Seção: Dietas do Usuário
@@ -116,8 +154,10 @@ Lista as refeições/planos alimentares:
 Cada dieta exibe:
 - Imagem da refeição (`DietImage`)
 - Nome e descrição
-- Calorias
+- Macro inline: chips coloridos com Proteína (g), Carboidrato (g), Gordura (g) quando disponíveis
+- Badge de qualidade: "Natural" (verde) para `in_natura`, "Ultra" (laranja) para `ultraprocessado`
 - Toggle de conclusão diária
+- Ao marcar como concluída: atualiza macro do dia, verifica badges nutricionais, exibe aviso contextual para ultraprocessados
 - Histórico de adesão
 
 ---
@@ -211,9 +251,29 @@ Usuário quer adicionar exercício
 - `getWeekCheckInsDb` para carregar
 
 ### Histórico de Treinos
-- Lista de execuções anteriores por exercício
+- Lista de execuções anteriores por exercício, agrupada por dia
 - Data, séries, repetições e carga de cada sessão
 - `getWorkoutHistoryDb` / `getWorkoutHistoriesBatchDb`
+- Stats resumidos: Recorde (PR), 1RM estimado (fórmula de Epley), total de sessões
+- **Gráfico de progressão de carga** (Recharts LineChart): um ponto por dia com carga máxima, linha de referência no PR, exibido quando há ≥ 2 dias com dados
+- **Clicar na data** de uma sessão abre o modal de Resumo do Treino reconstruído com os dados daquele dia (permite postar, ver PRs, etc.)
+
+### Sugestão de Carga no Treino
+- Exibida no modal de treino, antes da tabela de séries de cada exercício (exceto cardio)
+- Mostra a melhor carga da última sessão e sugere +2.5 kg
+- Exemplo: "Última sessão: 80 kg — tente 82.5 kg hoje"
+
+### Compartilhar PR
+- Botão "Compartilhar" no bloco de Novos Recordes no resumo de treino pós-sessão
+- Cria post no feed com texto formatado listando os PRs batidos
+- Usa `createPostDb` sem foto (texto puro com emojis)
+
+### Timing Nutricional Pós-Treino
+- Card exibido ao final da tela de Resumo do Treino
+- Aparece automaticamente ao concluir qualquer treino (`setShowPostWorkoutNutrition(true)`)
+- Mostra recomendações contextuais: proteína (20–40g), carboidrato (30–60g), hidratação (500ml+), timing (janela de 2h)
+- Pode ser fechado individualmente pelo usuário
+- `showPostWorkoutNutrition` state: boolean, resetado ao fechar o resumo
 
 ### Progresso da Meta
 - Barra de progresso de 0 a 100%
@@ -239,6 +299,8 @@ Usuário quer adicionar exercício
 | Check-ins da semana | `getWeekCheckInsDb()` |
 | Histórico de check-ins | `getCheckInHistoryDb()` |
 | Histórico de treinos | `getWorkoutHistoriesBatchDb()` |
+| Hidratação do dia | `getTodayHydrationDb()` — soma de `hydration_logs` de hoje |
+| Macro acumulado do dia | `getTodayMacroSummaryDb()` — agrega dietas concluídas hoje |
 
 ---
 

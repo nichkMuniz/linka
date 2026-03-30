@@ -100,6 +100,11 @@ export default function Login() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [loadingUsers, setLoadingUsers] = React.useState(false);
   const [step4SearchResults, setStep4SearchResults] = React.useState<SearchUser[]>([]);
+  const [username, setUsername] = React.useState("");
+  const [gender, setGender] = React.useState("");
+  const [age, setAge] = React.useState("");
+  const [height, setHeight] = React.useState("");
+  const [weight, setWeight] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [commercialWizardStep, setCommercialWizardStep] = React.useState(1);
@@ -281,12 +286,19 @@ export default function Login() {
       });
       return;
     }
-    // If commercial profile, go to commercial data wizard, else go to segments
+    if (!username.trim()) {
+      toast({
+        title: "@usuário obrigatório",
+        description: "Por favor, informe seu @.",
+      });
+      return;
+    }
+    // If commercial profile, go to commercial data wizard, else go to physical data step
     if (hasCommercialProfile) {
       setCommercialWizardStep(1);
       setSignupStep(2.5);
     } else {
-      setSignupStep(3);
+      setSignupStep(2.8);
     }
   };
 
@@ -299,7 +311,7 @@ export default function Login() {
       });
       return;
     }
-    setSignupStep(3);
+    setSignupStep(2.8);
   };
 
   const handleSignupStep3 = async () => {
@@ -374,6 +386,11 @@ export default function Login() {
         if (photoUrl) profilePayload.photo = photoUrl;
         if (bio.trim()) profilePayload.bio = bio.trim();
         if (selectedSegments.size > 0) profilePayload.objectives = [...selectedSegments];
+        if (username.trim()) profilePayload.handle = username.trim().toLowerCase();
+        if (gender) profilePayload.gender = gender;
+        if (age) profilePayload.age = parseInt(age, 10);
+        if (height) profilePayload.height = parseFloat(height);
+        if (weight) profilePayload.weight = parseFloat(weight);
 
         if (Object.keys(profilePayload).length > 0) {
           // Try update first; if the profile row doesn't exist yet (trigger delay), use upsert
@@ -968,8 +985,8 @@ export default function Login() {
                 <TabsContent value="signup" className="mt-4">
                   {/* Step progress indicator */}
                   {(() => {
-                    const totalSteps = 4;
-                    const step = signupStep === 2.5 ? 2 : Math.ceil(signupStep as number);
+                    const totalSteps = 5;
+                    const step = signupStep === 2.5 ? 2 : signupStep === 2.8 ? 3 : signupStep === 3 ? 4 : signupStep === 4 ? 5 : Math.ceil(signupStep as number);
                     return (
                       <div className="mb-4 space-y-1.5">
                         <div className="flex justify-between text-xs text-muted-foreground">
@@ -1086,6 +1103,27 @@ export default function Login() {
                       </div>
 
                       <div className="grid gap-2">
+                        <Label htmlFor="signup_username">@ de usuário</Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm select-none">@</span>
+                          <Input
+                            id="signup_username"
+                            type="text"
+                            value={username}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/[^a-zA-Z0-9_.]/g, "").replace(/\s/g, "");
+                              setUsername(val);
+                            }}
+                            placeholder="seunome"
+                            autoComplete="off"
+                            className="pl-7"
+                            maxLength={30}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">Apenas letras, números, _ e . Sem espaços.</p>
+                      </div>
+
+                      <div className="grid gap-2">
                         <Label>Foto de perfil <span className="text-xs text-muted-foreground font-normal">(opcional)</span></Label>
                         <div className="flex items-center gap-3">
                           {photoPreview ? (
@@ -1153,7 +1191,7 @@ export default function Login() {
                           type="button"
                           className="rounded-full flex-1"
                           onClick={handleSignupStep2}
-                          disabled={!displayName.trim()}
+                          disabled={!displayName.trim() || !username.trim()}
                         >
                           Próximo
                         </Button>
@@ -1168,7 +1206,11 @@ export default function Login() {
                             toast({ title: "Nome obrigatório", description: "Por favor, informe seu nome.", variant: "destructive" });
                             return;
                           }
-                          setSignupStep(3);
+                          if (!username.trim()) {
+                            toast({ title: "@usuário obrigatório", description: "Por favor, informe seu @.", variant: "destructive" });
+                            return;
+                          }
+                          setSignupStep(2.8);
                         }}
                       >
                         Personalizar foto e bio depois →
@@ -1398,6 +1440,100 @@ export default function Login() {
                     </div>
                   )}
 
+                  {/* Step 2.8: Physical Data */}
+                  {signupStep === 2.8 && (
+                    <div className="grid gap-4">
+                      <div className="text-center space-y-1 mb-1">
+                        <h3 className="font-semibold text-sm">Dados físicos</h3>
+                        <p className="text-xs text-muted-foreground">Ajuda a personalizar sua experiência <span className="font-medium">(opcional)</span></p>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label>Sexo</Label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            { value: "male", label: "Masculino" },
+                            { value: "female", label: "Feminino" },
+                            { value: "other", label: "Outro" },
+                          ].map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => setGender(gender === opt.value ? "" : opt.value)}
+                              className={`rounded-lg border-2 py-2 px-3 text-sm font-medium transition-all ${
+                                gender === opt.value
+                                  ? "border-brand bg-brand/10 text-brand"
+                                  : "border-border/60 hover:border-border"
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="grid gap-2">
+                          <Label htmlFor="signup_age">Idade</Label>
+                          <Input
+                            id="signup_age"
+                            type="number"
+                            inputMode="numeric"
+                            min={1}
+                            max={120}
+                            value={age}
+                            onChange={(e) => setAge(e.target.value)}
+                            placeholder="Ex: 25"
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="signup_height">Altura (cm)</Label>
+                          <Input
+                            id="signup_height"
+                            type="number"
+                            inputMode="decimal"
+                            min={50}
+                            max={300}
+                            value={height}
+                            onChange={(e) => setHeight(e.target.value)}
+                            placeholder="Ex: 175"
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="signup_weight">Peso (kg)</Label>
+                          <Input
+                            id="signup_weight"
+                            type="number"
+                            inputMode="decimal"
+                            min={10}
+                            max={500}
+                            value={weight}
+                            onChange={(e) => setWeight(e.target.value)}
+                            placeholder="Ex: 70"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 mt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-full flex-1"
+                          onClick={() => setSignupStep(hasCommercialProfile ? 2.5 : 2)}
+                        >
+                          Voltar
+                        </Button>
+                        <Button
+                          type="button"
+                          className="rounded-full flex-1"
+                          onClick={() => setSignupStep(3)}
+                        >
+                          Próximo
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Step 3: Select Segments */}
                   {signupStep === 3 && (
                     <div className="grid gap-3">
@@ -1436,7 +1572,7 @@ export default function Login() {
                           type="button"
                           variant="outline"
                           className="rounded-full flex-1"
-                          onClick={() => setSignupStep(2)}
+                          onClick={() => setSignupStep(2.8)}
                         >
                           Voltar
                         </Button>

@@ -55,7 +55,7 @@ Tela de entrada do aplicativo. Permite ao usuário fazer login com email e senha
 
 ## Tab: Criar Conta (Signup)
 
-Fluxo multi-etapas com 4 passos:
+Fluxo multi-etapas com 5 passos:
 
 ### Step 1 — Dados da Conta
 | Campo | Tipo | Validação |
@@ -73,7 +73,9 @@ Fluxo multi-etapas com 4 passos:
 ### Step 2 — Perfil
 | Campo | Tipo | Descrição |
 |---|---|---|
-| Foto de perfil | File upload | Imagem (upload para Supabase Storage) |
+| Nome completo | Input text | Obrigatório |
+| @ de usuário | Input text | Obrigatório. Só permite letras, números, `_` e `.`. Sem espaços ou caracteres especiais. Salvo no campo `handle` de `profiles`. |
+| Foto de perfil | File upload | Imagem (upload para Supabase Storage), opcional |
 | Bio | Textarea | Descrição pessoal, opcional |
 | Perfil comercial | Toggle | Ativa campos de negócio |
 
@@ -103,6 +105,19 @@ Exibe resumo do perfil comercial antes de concluir. Botão "Pular por agora" dis
 
 ---
 
+### Step 2.8 — Dados Físicos (nova etapa após Step 2 / 2.5)
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| Sexo | Botões de seleção (Masculino / Feminino / Outro) | Opcional. Salvo em `profiles.gender`. |
+| Idade | Input number | Opcional. Salvo em `profiles.age`. |
+| Altura (cm) | Input number | Opcional. Salvo em `profiles.height`. |
+| Peso (kg) | Input number | Opcional. Salvo em `profiles.weight`. |
+
+Todos os campos são opcionais. O botão "Próximo" sempre avança para o Step 3 (objetivos).
+
+---
+
 ### Step 3 — Objetivos
 Seleção de objetivos fitness (múltipla escolha). Os valores selecionados são salvos no campo `objectives` (text[]) da tabela `profiles` e também no `localStorage` para personalização do feed.
 
@@ -119,7 +134,7 @@ Seleção de objetivos fitness (múltipla escolha). Os valores selecionados são
 
 ---
 
-### Step 4 — Seguir Pessoas
+### Step 4 — Seguir Pessoas (antigo Step 4, agora Step 5)
 - Lista de usuários sugeridos carregada via `getAllUsersDb()`, filtrada para excluir o próprio usuário
 - Carregamento com guard de cancelamento (`cancelled` flag) para evitar atualizações de estado após desmontagem
 - Campo de busca para filtrar usuários
@@ -151,13 +166,16 @@ Login
        └─ Erro "email not confirmed" → alerta de verificação de email
 
 Cadastro
-  └─ Steps 1–2 coletam dados localmente
+  └─ Step 1: email, senha
+  └─ Step 2: nome, @handle, foto, bio, perfil comercial
+  └─ Step 2.5 (opcional): wizard comercial (3 sub-etapas)
+  └─ Step 2.8: dados físicos (sexo, idade, altura, peso) — todos opcionais
   └─ Step 3 (handleSignupStep3):
        ├─ isCompletingSignup = true  ← inibe navegação automática
        ├─ supabase.auth.signUp()
        │    └─ Erro "User already registered" → toast + abort
        ├─ supabase.auth.signInWithPassword()
-       ├─ upsert profiles (photo, bio, objectives)
+       ├─ upsert profiles (photo, bio, objectives, handle, gender, age, height, weight)
        ├─ insert commercial_profiles (se aplicável)
        └─ setSignupStep(4)
   └─ Step 4 (handleSignupComplete):

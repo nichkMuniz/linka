@@ -78,7 +78,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
@@ -91,6 +91,7 @@ type ViewMode = "conversations" | "conversation";
 export default function Community() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { layoutMode } = useLayoutMode();
   const { t } = useLanguage();
@@ -345,6 +346,34 @@ export default function Community() {
 
     loadData();
   }, []);
+
+  // Open a specific check-in when navigating from a notification (state.openCheckIn = checkInId)
+  React.useEffect(() => {
+    const state = location.state as { openCheckIn?: string } | null;
+    if (!state?.openCheckIn) return;
+    // Clear nav state so back-navigation doesn't re-trigger
+    window.history.replaceState({}, "");
+    const checkInId = state.openCheckIn;
+    (async () => {
+      try {
+        const [detail, comments, reactions] = await Promise.all([
+          getGroupCheckInDetailDb(checkInId),
+          getCheckInCommentsDb(checkInId),
+          getCheckInReactionsDb([checkInId]),
+        ]);
+        if (detail) {
+          setSelectedCheckInForDetail(detail);
+          setCheckInComments(comments);
+          setCheckInReactions((prev) => ({ ...prev, ...reactions }));
+          setIsCheckInDetailOpen(true);
+          // Switch to the duels tab so the check-in is visible
+          setActiveTab("duels");
+        }
+      } catch (err) {
+        console.error("Error opening check-in from notification:", err);
+      }
+    })();
+  }, [location.state]);
 
   // Load user nickname and groups when user changes
   React.useEffect(() => {
@@ -2611,7 +2640,7 @@ export default function Community() {
                               <span className="text-[10px] text-muted-foreground">{new Date(comment.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                             </div>
                             <p className="text-xs text-foreground/90 break-words">{comment.text}</p>
-                            <CommentReactions commentType="checkin" commentId={comment.id} />
+                            <CommentReactions commentType="checkin" commentId={comment.id} commentOwnerId={comment.userId} sourceId={selectedCheckInForDetail?.id} isOwnComment={!!(user?.id === comment.userId)} />
                           </div>
                         </div>
                       ))}

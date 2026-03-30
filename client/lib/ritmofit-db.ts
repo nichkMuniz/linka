@@ -1102,6 +1102,12 @@ export type Diet = {
   name: string;
   description: string;
   photo: string | null;
+  calories?: number | null;
+  protein_g?: number | null;
+  carbs_g?: number | null;
+  fat_g?: number | null;
+  fiber_g?: number | null;
+  food_quality?: "in_natura" | "processado" | "ultraprocessado" | null;
 };
 
 export async function getDietsDb(): Promise<Diet[]> {
@@ -1109,7 +1115,7 @@ export async function getDietsDb(): Promise<Diet[]> {
 
   const { data, error } = await supabase
     .from("diets")
-    .select("id, name, description, photo")
+    .select("id, name, description, photo, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -1123,7 +1129,13 @@ export async function getDietsDb(): Promise<Diet[]> {
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
-    photo: row.photo ? String(row.photo) : null
+    photo: row.photo ? String(row.photo) : null,
+    calories: row.calories != null ? Number(row.calories) : null,
+    protein_g: row.protein_g != null ? Number(row.protein_g) : null,
+    carbs_g: row.carbs_g != null ? Number(row.carbs_g) : null,
+    fat_g: row.fat_g != null ? Number(row.fat_g) : null,
+    fiber_g: row.fiber_g != null ? Number(row.fiber_g) : null,
+    food_quality: row.food_quality ?? null,
   }));
 }
 
@@ -1173,16 +1185,28 @@ export async function createCustomDietDb(
   name: string,
   description: string,
   photo?: string | null,
+  calories?: number | null,
+  protein_g?: number | null,
+  carbs_g?: number | null,
+  fat_g?: number | null,
+  fiber_g?: number | null,
+  food_quality?: "in_natura" | "processado" | "ultraprocessado" | null,
 ): Promise<Diet> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
 
   const insertData: Record<string, any> = { name, description };
   if (photo) insertData.photo = photo;
+  if (calories != null) insertData.calories = calories;
+  if (protein_g != null) insertData.protein_g = protein_g;
+  if (carbs_g != null) insertData.carbs_g = carbs_g;
+  if (fat_g != null) insertData.fat_g = fat_g;
+  if (fiber_g != null) insertData.fiber_g = fiber_g;
+  if (food_quality) insertData.food_quality = food_quality;
 
   const { data, error } = await supabase
     .from("diets")
     .insert(insertData)
-    .select("id, name, description, photo")
+    .select("id, name, description, photo, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
     .single();
 
   if (error) {
@@ -1194,7 +1218,13 @@ export async function createCustomDietDb(
     id: String(data.id),
     name: String(data.name),
     description: String(data.description ?? ""),
-    photo: data.photo ? String(data.photo) : null
+    photo: data.photo ? String(data.photo) : null,
+    calories: data.calories != null ? Number(data.calories) : null,
+    protein_g: data.protein_g != null ? Number(data.protein_g) : null,
+    carbs_g: data.carbs_g != null ? Number(data.carbs_g) : null,
+    fat_g: data.fat_g != null ? Number(data.fat_g) : null,
+    fiber_g: data.fiber_g != null ? Number(data.fiber_g) : null,
+    food_quality: data.food_quality ?? null,
   };
 }
 
@@ -1799,6 +1829,12 @@ export type UserDietWithDetails = {
   dietName?: string;
   dietPhoto?: string | null;
   dietDescription?: string;
+  dietCalories?: number | null;
+  dietProtein?: number | null;
+  dietCarbs?: number | null;
+  dietFat?: number | null;
+  dietFiber?: number | null;
+  dietFoodQuality?: "in_natura" | "processado" | "ultraprocessado" | null;
   is_completed?: boolean | null;
   completed_at?: string | null;
 };
@@ -1811,7 +1847,7 @@ export async function getUserDietsDb(
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, diet_id, user_id, name, is_completed, completed_at, diets(name, photo, description)",
+      "id, diet_id, user_id, name, is_completed, completed_at, diets(name, photo, description, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -1847,7 +1883,7 @@ export async function getUserDietsDb(
         if (dietIds.length > 0) {
           const { data: dietsData } = await supabase
             .from("diets")
-            .select("id, name, photo, description")
+            .select("id, name, photo, description, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
             .in("id", dietIds);
 
           if (dietsData) {
@@ -1867,6 +1903,12 @@ export async function getUserDietsDb(
             dietName: dietDetails?.name || "Dieta desconhecida",
             dietPhoto: dietDetails?.photo || null,
             dietDescription: dietDetails?.description || undefined,
+            dietCalories: dietDetails?.calories != null ? Number(dietDetails.calories) : null,
+            dietProtein: dietDetails?.protein_g != null ? Number(dietDetails.protein_g) : null,
+            dietCarbs: dietDetails?.carbs_g != null ? Number(dietDetails.carbs_g) : null,
+            dietFat: dietDetails?.fat_g != null ? Number(dietDetails.fat_g) : null,
+            dietFiber: dietDetails?.fiber_g != null ? Number(dietDetails.fiber_g) : null,
+            dietFoodQuality: dietDetails?.food_quality ?? null,
             is_completed: row.is_completed ?? false,
             completed_at: row.completed_at ?? null,
           };
@@ -1898,6 +1940,12 @@ export async function getUserDietsDb(
         dietName: (row.diets as any)?.name || "Dieta desconhecida",
         dietPhoto: (row.diets as any)?.photo || null,
         dietDescription: (row.diets as any)?.description || undefined,
+        dietCalories: (row.diets as any)?.calories != null ? Number((row.diets as any).calories) : null,
+        dietProtein: (row.diets as any)?.protein_g != null ? Number((row.diets as any).protein_g) : null,
+        dietCarbs: (row.diets as any)?.carbs_g != null ? Number((row.diets as any).carbs_g) : null,
+        dietFat: (row.diets as any)?.fat_g != null ? Number((row.diets as any).fat_g) : null,
+        dietFiber: (row.diets as any)?.fiber_g != null ? Number((row.diets as any).fiber_g) : null,
+        dietFoodQuality: (row.diets as any)?.food_quality ?? null,
         is_completed: false,
         completed_at: null,
       }));
@@ -1915,6 +1963,12 @@ export async function getUserDietsDb(
     dietName: (row.diets as any)?.name || "Dieta desconhecida",
     dietPhoto: (row.diets as any)?.photo || null,
     dietDescription: (row.diets as any)?.description || undefined,
+    dietCalories: (row.diets as any)?.calories != null ? Number((row.diets as any).calories) : null,
+    dietProtein: (row.diets as any)?.protein_g != null ? Number((row.diets as any).protein_g) : null,
+    dietCarbs: (row.diets as any)?.carbs_g != null ? Number((row.diets as any).carbs_g) : null,
+    dietFat: (row.diets as any)?.fat_g != null ? Number((row.diets as any).fat_g) : null,
+    dietFiber: (row.diets as any)?.fiber_g != null ? Number((row.diets as any).fiber_g) : null,
+    dietFoodQuality: (row.diets as any)?.food_quality ?? null,
     is_completed: row.is_completed ?? false,
     completed_at: row.completed_at ?? null,
   }));
@@ -2776,36 +2830,33 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
     const followingIds = await getFollowingIdsDb();
     const userIdsToShow = [viewer.id, ...followingIds];
 
-    const { data, error } = await supabase
-      .from("flow")
-      .select("*")
-      .in("user_id", userIdsToShow)
-      .gte("created_at", twentyFourHoursAgo)
-      .order("created_at", { ascending: false });
+    // Fetch flows and profiles in parallel
+    const [flowResult, profilesResult] = await Promise.all([
+      supabase
+        .from("flow")
+        .select("id, user_id, description, media_url, created_at")
+        .in("user_id", userIdsToShow)
+        .gte("created_at", twentyFourHoursAgo)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .in("user_id", userIdsToShow),
+    ]);
 
-    if (error) {
-      console.error("Error fetching stories:", error);
+    if (flowResult.error) {
+      console.error("Error fetching stories:", flowResult.error);
       return [];
     }
 
-    // Batch-fetch all story author profiles in a single query
-    const storyList = data ?? [];
-    const uniqueUserIds = [...new Set(storyList.map((s: any) => s.user_id).filter(Boolean))];
+    const storyList = flowResult.data ?? [];
     const profileMap = new Map<string, { nickname: string; photo: string | null }>();
-
-    if (uniqueUserIds.length > 0) {
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("user_id, nickname, photo")
-        .in("user_id", uniqueUserIds);
-
-      (profiles ?? []).forEach((p: any) => {
-        profileMap.set(String(p.user_id), {
-          nickname: String(p.nickname ?? "Usuário"),
-          photo: p.photo ? String(p.photo) : null,
-        });
+    (profilesResult.data ?? []).forEach((p: any) => {
+      profileMap.set(String(p.user_id), {
+        nickname: String(p.nickname ?? "Usuário"),
+        photo: p.photo ? String(p.photo) : null,
       });
-    }
+    });
 
     return storyList.map((story: any) => {
       const profile = profileMap.get(story.user_id) ?? { nickname: "Usuário", photo: null };
@@ -2829,24 +2880,25 @@ export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithU
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   try {
-    const { data, error } = await supabase
-      .from("flow")
-      .select("*")
-      .eq("user_id", userId)
-      .gte("created_at", twentyFourHoursAgo)
-      .order("created_at", { ascending: true });
+    const [flowResult, profileResult] = await Promise.all([
+      supabase
+        .from("flow")
+        .select("id, user_id, description, media_url, created_at")
+        .eq("user_id", userId)
+        .gte("created_at", twentyFourHoursAgo)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .eq("user_id", userId)
+        .limit(1),
+    ]);
 
-    if (error || !data?.length) return [];
+    if (flowResult.error || !flowResult.data?.length) return [];
 
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("user_id, nickname, photo")
-      .eq("user_id", userId)
-      .limit(1);
+    const profile = profileResult.data?.[0];
 
-    const profile = profiles?.[0];
-
-    return data.map((story: any) => ({
+    return flowResult.data.map((story: any) => ({
       ...story,
       id: String(story.id),
       user_id: String(story.user_id),
@@ -2868,24 +2920,25 @@ export async function getExpiredUserFlowsDb(): Promise<StoryWithUser[]> {
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   try {
-    const { data, error } = await supabase
-      .from("flow")
-      .select("*")
-      .eq("user_id", viewer.id)
-      .lt("created_at", twentyFourHoursAgo)
-      .order("created_at", { ascending: false });
+    const [flowResult, profileResult] = await Promise.all([
+      supabase
+        .from("flow")
+        .select("id, user_id, description, media_url, created_at")
+        .eq("user_id", viewer.id)
+        .lt("created_at", twentyFourHoursAgo)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .eq("user_id", viewer.id)
+        .limit(1),
+    ]);
 
-    if (error || !data?.length) return [];
+    if (flowResult.error || !flowResult.data?.length) return [];
 
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("user_id, nickname, photo")
-      .eq("user_id", viewer.id)
-      .limit(1);
+    const profile = profileResult.data?.[0];
 
-    const profile = profiles?.[0];
-
-    return data.map((story: any) => ({
+    return flowResult.data.map((story: any) => ({
       ...story,
       id: String(story.id),
       user_id: String(story.user_id),
@@ -3215,11 +3268,15 @@ export async function recordFlowViewDb(storyId: string, storyOwnerId: string): P
   _recordingInFlight.add(key);
 
   try {
+    // Convert to number for bigint column compatibility
+    const numericFlowId = Number(storyId);
+    const flowIdValue = Number.isFinite(numericFlowId) ? numericFlowId : storyId;
+
     // Check DB first to avoid duplicates across sessions/screens
     const { data: existing } = await supabase
       .from("flow_user_viewed")
       .select("flow_id")
-      .eq("flow_id", storyId)
+      .eq("flow_id", flowIdValue)
       .eq("follower_id", viewer.id)
       .maybeSingle();
 
@@ -3233,12 +3290,17 @@ export async function recordFlowViewDb(storyId: string, storyOwnerId: string): P
       .insert({
         user_id: storyOwnerId,
         follower_id: viewer.id,
-        flow_id: storyId,
+        flow_id: flowIdValue,
         updated_at: new Date().toISOString(),
       });
 
     if (error) {
-      console.error("Error inserting flow view:", error.message);
+      // 23505 = duplicate key — record already exists, treat as success
+      if (error.code === "23505") {
+        _recordedFlowViews.add(key);
+      } else {
+        console.error("Error inserting flow view:", error.message);
+      }
     } else {
       _recordedFlowViews.add(key);
     }
@@ -3250,22 +3312,28 @@ export async function recordFlowViewDb(storyId: string, storyOwnerId: string): P
 }
 
 /**
- * Returns the set of story owner user_ids whose flows the current viewer has already seen.
- * Uses flow_user_viewed where follower_id = current viewer.
+ * Returns the set of flow_ids (from the provided active list) that the current viewer has already seen.
+ * Filters by the provided active flow IDs so that new flows reset the "viewed" state.
  */
-export async function getMyViewedFlowUserIdsDb(): Promise<Set<string>> {
+export async function getMyViewedFlowUserIdsDb(activeFlowIds: string[]): Promise<Set<string>> {
   if (!hasSupabaseConfig || !supabase) return new Set();
+  if (activeFlowIds.length === 0) return new Set();
   const viewer = await getViewer();
   if (!viewer) return new Set();
 
   try {
+    // Convert to numbers for bigint column compatibility
+    const numericIds = activeFlowIds.map(Number).filter(Number.isFinite);
+    if (numericIds.length === 0) return new Set();
+
     const { data, error } = await supabase
       .from("flow_user_viewed")
-      .select("user_id")
-      .eq("follower_id", viewer.id);
+      .select("flow_id")
+      .eq("follower_id", viewer.id)
+      .in("flow_id", numericIds);
 
     if (error) throw error;
-    return new Set((data ?? []).map((r: any) => String(r.user_id)));
+    return new Set((data ?? []).map((r: any) => String(r.flow_id)));
   } catch (err: any) {
     console.error("Error fetching viewed flow user ids:", err?.message || err);
     return new Set();
@@ -3724,6 +3792,8 @@ export async function toggleCommentReactionDb(
   commentType: string,
   commentId: string,
   emoji: string,
+  commentOwnerId?: string,
+  sourceId?: string,
 ): Promise<"added" | "removed" | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
@@ -3752,6 +3822,35 @@ export async function toggleCommentReactionDb(
       .from("comment_reactions")
       .insert({ comment_type: commentType, comment_id: commentId, user_id: viewer.id, emoji });
     if (error) { console.error("Error adding comment reaction:", error); return null; }
+
+    // Notify comment owner (type 6 = comment reaction), skip if owner is self
+    if (commentOwnerId && commentOwnerId !== viewer.id && sourceId) {
+      const notifPayload: Record<string, any> = {
+        user_id: commentOwnerId,
+        follower_id: viewer.id,
+        type: 6,
+        read: false,
+      };
+      // Encode commentType into the ID fields so navigation knows where to go:
+      // - post  → post_id = sourceId (postId, UUID)
+      // - shot  → shots_id = sourceId (shotId, UUID)
+      // - flow  → shots_id = "flow:<flowId>"   (prefixed, so UI can detect)
+      // - checkin → shots_id = "checkin:<checkInId>" (prefixed)
+      if (commentType === "shot") {
+        notifPayload.shots_id = sourceId;
+      } else if (commentType === "flow") {
+        notifPayload.shots_id = `flow:${sourceId}`;
+      } else if (commentType === "checkin") {
+        notifPayload.shots_id = `checkin:${sourceId}`;
+      } else {
+        notifPayload.post_id = sourceId;
+      }
+      const { error: notifError } = await supabase.from("notifications").insert(notifPayload);
+      if (notifError) {
+        console.error("Error inserting comment reaction notification:", notifError);
+      }
+    }
+
     return "added";
   }
 }
@@ -4273,7 +4372,7 @@ export async function addShotCommentDb(shotId: string, text: string, shotOwnerId
         user_id: shotOwnerId,
         follower_id: viewer.id,
         type: 3,
-        post_id: shotId,
+        shots_id: shotId,
         read: false,
       });
       if (notifError) {
@@ -4691,12 +4790,14 @@ export async function saveWorkoutSeriesDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request
+  type: 1 | 2 | 3 | 4 | 5 | 6; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction
   userId: string;
   userNickname: string;
   userPhoto: string | null;
   postId?: string;
   shotId?: string; // Present when notification relates to a shot (from shots_id column in notifications)
+  flowId?: string; // Present when type=6 and reaction was on a flow comment (decoded from shots_id "flow:<id>")
+  checkInId?: string; // Present when type=6 and reaction was on a checkin comment (decoded from shots_id "checkin:<id>")
   postPhoto?: string;
   incentiveType?: number; // For type 2 (incentive): 1=apoio, 2=continua, 3=ganhador, 4=consegueMais, 5=limiteMaior, 6=maisAlgum
   groupName?: string; // For type 4 (duel invite)
@@ -4741,54 +4842,47 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     // Get all follower IDs and post IDs to fetch related data
     const followerIds = [...new Set(notificationsData.map((n: any) => n.follower_id))];
     const postIds = [...new Set(notificationsData.filter((n: any) => n.type !== 4 && n.type !== 5 && !n.shots_id).map((n: any) => n.post_id).filter(Boolean))];
-    const shotNotifIds = [...new Set(notificationsData.filter((n: any) => n.shots_id).map((n: any) => n.shots_id).filter(Boolean))];
+    // shots_id may contain "flow:<id>" or "checkin:<id>" prefixed values for type-6 reactions — exclude those from the shots DB query
+    const shotNotifIds = [...new Set(notificationsData.filter((n: any) => n.shots_id && !String(n.shots_id).startsWith("flow:") && !String(n.shots_id).startsWith("checkin:")).map((n: any) => n.shots_id).filter(Boolean))];
     const groupIds = [...new Set(notificationsData.filter((n: any) => n.type === 4 || n.type === 5).map((n: any) => n.post_id).filter(Boolean))];
     const incentiveNotifications = notificationsData.filter((n: any) => n.type === 2);
 
-    // Fetch follower profiles, post photos (posts + shots), group names, and like data in parallel
-    const [profilesResult, postsResult, shotsResult, shotNotifResult, groupsResult] = await Promise.all([
-      supabase
+    // Fetch follower profiles, post photos, group names, and like data in parallel
+    // Each query uses .catch() so a single failure doesn't abort the whole batch
+    const safeQuery = (q: Promise<any>) => q.then((r) => r).catch(() => ({ data: [] as any[] }));
+
+    const [profilesResult, postsResult, shotNotifResult, groupsResult] = await Promise.all([
+      safeQuery(supabase
         .from("profiles")
         .select("user_id, nickname, photo")
-        .in("user_id", followerIds),
+        .in("user_id", followerIds)),
       postIds.length > 0
-        ? supabase
+        ? safeQuery(supabase
           .from("posts")
           .select("id, photo")
-          .in("id", postIds)
-        : Promise.resolve({ data: [] as any[] }),
-      postIds.length > 0
-        ? supabase
-          .from("shots")
-          .select("id, video_url")
-          .in("id", postIds)
+          .in("id", postIds))
         : Promise.resolve({ data: [] as any[] }),
       shotNotifIds.length > 0
-        ? supabase
+        ? safeQuery(supabase
           .from("shots")
           .select("id, video_url")
-          .in("id", shotNotifIds)
+          .in("id", shotNotifIds))
         : Promise.resolve({ data: [] as any[] }),
       groupIds.length > 0
-        ? supabase
+        ? safeQuery(supabase
           .from("duel_groups")
           .select("id, name")
-          .in("id", groupIds)
+          .in("id", groupIds))
         : Promise.resolve({ data: [] as any[] }),
     ]);
 
     const { data: profiles } = profilesResult as any;
     const { data: posts } = postsResult as any;
-    const { data: shots } = shotsResult as any;
     const { data: shotNotifs } = shotNotifResult as any;
     const { data: groups } = groupsResult as any;
 
     const profileMap = new Map<string, any>((profiles ?? []).map((p: any) => [p.user_id, p]));
-    // Merge posts and shots into one map (shots use thumbnail_url as photo)
-    const postMap = new Map<string, any>([
-      ...(posts ?? []).map((p: any) => [p.id, { photo: p.photo }] as [string, any]),
-      ...(shots ?? []).map((s: any) => [s.id, { photo: s.video_url }] as [string, any]),
-    ]);
+    const postMap = new Map<string, any>((posts ?? []).map((p: any) => [p.id, { photo: p.photo }] as [string, any]));
     // Map for shots coming via shots_id column
     const shotNotifMap = new Map<string, any>((shotNotifs ?? []).map((s: any) => [s.id, { photo: s.video_url }]));
     const groupMap = new Map<string, any>((groups ?? []).map((g: any) => [g.id, g]));
@@ -4898,12 +4992,21 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           notification.incentiveType = likesMap.get(notif.id);
         }
 
-        // Add shot-related fields when shots_id is present (from DB trigger)
+        // Add shot/flow/checkin-related fields when shots_id is present
         if (notif.shots_id && notif.type !== 4 && notif.type !== 5) {
-          notification.shotId = notif.shots_id;
-          const shot = shotNotifMap.get(notif.shots_id);
-          if (shot?.photo) {
-            notification.postPhoto = shot.photo;
+          const shotsIdVal: string = String(notif.shots_id);
+          if (shotsIdVal.startsWith("flow:")) {
+            // Type 6 comment reaction on a flow
+            notification.flowId = shotsIdVal.slice(5);
+          } else if (shotsIdVal.startsWith("checkin:")) {
+            // Type 6 comment reaction on a check-in
+            notification.checkInId = shotsIdVal.slice(8);
+          } else {
+            notification.shotId = shotsIdVal;
+            const shot = shotNotifMap.get(shotsIdVal);
+            if (shot?.photo) {
+              notification.postPhoto = shot.photo;
+            }
           }
         }
         // Add post-related fields for non-duel notifications (regular posts)
@@ -7405,39 +7508,40 @@ export async function getUserBadgesDb(userId: string): Promise<UserBadge[]> {
 export async function awardBadgesForCheckInsDb(userId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
   try {
-    // Busca total de check-ins acumulados (contagem de todas as datas únicas)
     const { count, error: countError } = await supabase
       .from("check_ins")
-      .select("id", { count: "exact", head: true })
+      .select("*", { count: "exact", head: true })
       .eq("user_id", userId);
-
     if (countError) throw countError;
 
     const totalCheckIns = count ?? 0;
 
-    const [allBadges, existingRows] = await Promise.all([
-      getAllBadgesDb(),
-      supabase.from("user_badges").select("badge_id").eq("user_id", userId),
-    ]);
+    const allBadges = await getAllBadgesDb();
 
-    const alreadyEarned = new Set(
-      (existingRows.data ?? []).map((r: any) => String(r.badge_id))
-    );
+    // Find the highest badge earned
+    const earnedBadges = allBadges
+      .filter((b) => b.required_checkins <= totalCheckIns)
+      .sort((a, b) => b.required_checkins - a.required_checkins);
 
-    // Insere apenas badges que o usuário ainda não tem mas já merece
-    const toInsert = allBadges
-      .filter((b) => totalCheckIns >= b.required_checkins && !alreadyEarned.has(b.id))
-      .map((b) => ({ user_id: userId, badge_id: b.id }));
+    if (earnedBadges.length === 0) return;
 
-    if (toInsert.length === 0) return;
+    const highestBadge = earnedBadges[0];
 
-    const { error } = await supabase
+    // Check if user already has a badge row
+    const { data: existingRows } = await supabase
       .from("user_badges")
-      .insert(toInsert);
+      .select("id, badge_id")
+      .eq("user_id", userId);
 
-    if (error && error.code !== "23505") {
-      // 23505 = unique violation (corrida entre requisições, seguro ignorar)
-      console.error("Error awarding badges:", error);
+    if (!existingRows || existingRows.length === 0) {
+      // Insert the highest badge
+      await supabase.from("user_badges").insert({ user_id: userId, badge_id: highestBadge.id });
+    } else {
+      // Update the existing row to the highest badge
+      const existingRow = existingRows[0];
+      if (String(existingRow.badge_id) !== String(highestBadge.id)) {
+        await supabase.from("user_badges").update({ badge_id: highestBadge.id, earned_at: new Date().toISOString() }).eq("id", existingRow.id);
+      }
     }
   } catch (err) {
     console.error("Error in awardBadgesForCheckInsDb:", err);
@@ -7473,4 +7577,258 @@ export async function getTopUserBadgeDb(userId: string): Promise<Badge | null> {
     console.error("Error fetching top user badge:", err);
     return null;
   }
+}
+
+// ─── Hidratação ───────────────────────────────────────────────────────────────
+
+export type HydrationLog = {
+  id: string;
+  user_id: string;
+  amount_ml: number;
+  log_date: string;
+  created_at: string;
+};
+
+/** Retorna o total de ml bebido hoje pelo usuário. */
+export async function getTodayHydrationDb(userId: string): Promise<number> {
+  if (!hasSupabaseConfig || !supabase) return 0;
+  assertUUID(userId, "userId");
+
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("hydration_logs")
+    .select("amount_ml")
+    .eq("user_id", userId)
+    .eq("log_date", today);
+
+  if (error) {
+    console.error("Error fetching hydration:", error);
+    return 0;
+  }
+
+  return (data ?? []).reduce((sum: number, row: any) => sum + (Number(row.amount_ml) || 0), 0);
+}
+
+/** Registra uma entrada de hidratação (padrão: 250ml). */
+export async function addHydrationDb(
+  userId: string,
+  amountMl: number = 250,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  assertUUID(userId, "userId");
+
+  const today = new Date().toISOString().slice(0, 10);
+  const { error } = await supabase.from("hydration_logs").insert({
+    user_id: userId,
+    amount_ml: amountMl,
+    log_date: today,
+  });
+
+  if (error) {
+    console.error("Error adding hydration:", error);
+    throw error;
+  }
+}
+
+/** Remove a última entrada de hidratação do dia (desfazer). */
+export async function undoLastHydrationDb(userId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  assertUUID(userId, "userId");
+
+  const today = new Date().toISOString().slice(0, 10);
+  const { data } = await supabase
+    .from("hydration_logs")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("log_date", today)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (data?.id) {
+    await supabase.from("hydration_logs").delete().eq("id", data.id);
+  }
+}
+
+/** Retorna o histórico de hidratação dos últimos N dias. */
+export async function getHydrationHistoryDb(
+  userId: string,
+  days: number = 7,
+): Promise<Array<{ date: string; total_ml: number }>> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  assertUUID(userId, "userId");
+
+  const since = new Date();
+  since.setDate(since.getDate() - days + 1);
+  const sinceStr = since.toISOString().slice(0, 10);
+
+  const { data, error } = await supabase
+    .from("hydration_logs")
+    .select("log_date, amount_ml")
+    .eq("user_id", userId)
+    .gte("log_date", sinceStr)
+    .order("log_date", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching hydration history:", error);
+    return [];
+  }
+
+  // Agrupa por data
+  const grouped: Record<string, number> = {};
+  for (const row of data ?? []) {
+    const d = String(row.log_date);
+    grouped[d] = (grouped[d] ?? 0) + (Number(row.amount_ml) || 0);
+  }
+
+  return Object.entries(grouped).map(([date, total_ml]) => ({ date, total_ml }));
+}
+
+// ─── Nutrição: macro diário acumulado ────────────────────────────────────────
+
+/**
+ * Calcula o macro total das dietas marcadas como concluídas hoje.
+ * Retorna soma de proteína, carbo, gordura, fibra e calorias das dietas do usuário.
+ */
+export async function getTodayMacroSummaryDb(userId: string): Promise<{
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  fiber_g: number;
+  quality_counts: { in_natura: number; processado: number; ultraprocessado: number };
+}> {
+  const empty = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fiber_g: 0, quality_counts: { in_natura: 0, processado: 0, ultraprocessado: 0 } };
+  if (!hasSupabaseConfig || !supabase) return empty;
+  assertUUID(userId, "userId");
+
+  const today = new Date().toDateString();
+
+  // Busca dietas concluídas hoje com detalhes macro
+  const { data, error } = await supabase
+    .from("user_diets")
+    .select("is_completed, completed_at, diets(calories, protein_g, carbs_g, fat_g, fiber_g, food_quality)")
+    .eq("user_id", userId)
+    .eq("is_completed", true);
+
+  if (error) {
+    console.error("Error fetching today macro:", error);
+    return empty;
+  }
+
+  const todayRows = (data ?? []).filter((row: any) => {
+    if (!row.completed_at) return false;
+    return new Date(row.completed_at).toDateString() === today;
+  });
+
+  const result = { ...empty };
+  for (const row of todayRows) {
+    const d = row.diets as any;
+    if (!d) continue;
+    result.calories += Number(d.calories ?? 0);
+    result.protein_g += Number(d.protein_g ?? 0);
+    result.carbs_g += Number(d.carbs_g ?? 0);
+    result.fat_g += Number(d.fat_g ?? 0);
+    result.fiber_g += Number(d.fiber_g ?? 0);
+    const q = d.food_quality as string | null;
+    if (q === "in_natura") result.quality_counts.in_natura++;
+    else if (q === "processado") result.quality_counts.processado++;
+    else if (q === "ultraprocessado") result.quality_counts.ultraprocessado++;
+  }
+
+  return result;
+}
+
+// ─── Badges nutricionais ─────────────────────────────────────────────────────
+
+/**
+ * Verifica e concede badges nutricionais baseados em comportamento alimentar.
+ * Badges verificados:
+ *  - "semana_nutritiva": completou dieta em 5+ dias distintos nos últimos 7 dias
+ *  - "hidratacao_7dias": atingiu meta de hidratação (≥2000ml) em 7 dias consecutivos
+ *  - "sem_ultraprocessado_7d": nenhuma dieta ultraprocessada completada nos últimos 7 dias (tendo completado ≥5 dias)
+ */
+export async function awardNutritionBadgesDb(userId: string): Promise<string[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  assertUUID(userId, "userId");
+
+  const awarded: string[] = [];
+
+  try {
+    const since7 = new Date();
+    since7.setDate(since7.getDate() - 6);
+    const since7Str = since7.toISOString().slice(0, 10);
+
+    // 1. Semana Nutritiva — completou dieta em 5+ dias distintos nos últimos 7 dias
+    const { data: dietHist } = await supabase
+      .from("user_diets_hist")
+      .select("created_at")
+      .eq("user_id", userId)
+      .gte("created_at", since7.toISOString());
+
+    const uniqueDietDays = new Set(
+      (dietHist ?? []).map((r: any) => String(r.created_at).slice(0, 10))
+    );
+
+    if (uniqueDietDays.size >= 5) {
+      await _grantNutritionBadgeIfNew(userId, "semana_nutritiva");
+      awarded.push("semana_nutritiva");
+    }
+
+    // 2. Hidratação 7 dias — meta ≥2000ml em 7 dias distintos nos últimos 7 dias
+    const { data: hydHist } = await supabase
+      .from("hydration_logs")
+      .select("log_date, amount_ml")
+      .eq("user_id", userId)
+      .gte("log_date", since7Str);
+
+    const hydByDay: Record<string, number> = {};
+    for (const row of hydHist ?? []) {
+      const d = String(row.log_date);
+      hydByDay[d] = (hydByDay[d] ?? 0) + (Number(row.amount_ml) || 0);
+    }
+    const daysWithGoal = Object.values(hydByDay).filter((ml) => ml >= 2000).length;
+    if (daysWithGoal >= 7) {
+      await _grantNutritionBadgeIfNew(userId, "hidratacao_7dias");
+      awarded.push("hidratacao_7dias");
+    }
+
+    // 3. Sem ultraprocessado 7 dias
+    const { data: ultraRows } = await supabase
+      .from("user_diets")
+      .select("is_completed, completed_at, diets(food_quality)")
+      .eq("user_id", userId)
+      .eq("is_completed", true)
+      .gte("completed_at", since7.toISOString());
+
+    const hasUltra = (ultraRows ?? []).some((r: any) => (r.diets as any)?.food_quality === "ultraprocessado");
+    const totalDietDays = uniqueDietDays.size;
+
+    if (!hasUltra && totalDietDays >= 5) {
+      await _grantNutritionBadgeIfNew(userId, "sem_ultraprocessado_7d");
+      awarded.push("sem_ultraprocessado_7d");
+    }
+  } catch (err) {
+    console.error("Error awarding nutrition badges:", err);
+  }
+
+  return awarded;
+}
+
+async function _grantNutritionBadgeIfNew(userId: string, badgeKey: string): Promise<void> {
+  if (!supabase) return;
+
+  // Busca o badge pela key
+  const { data: badge } = await supabase
+    .from("badges")
+    .select("id")
+    .eq("key", badgeKey)
+    .maybeSingle();
+
+  if (!badge?.id) return;
+
+  // Insere ignorando duplicate
+  await supabase
+    .from("user_badges")
+    .upsert({ user_id: userId, badge_id: badge.id }, { onConflict: "user_id,badge_id", ignoreDuplicates: true });
 }

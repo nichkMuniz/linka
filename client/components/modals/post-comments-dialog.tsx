@@ -213,7 +213,7 @@ export function PostCommentsDialog({
                     <div className="mt-1 text-xs text-muted-foreground">
                       {new Date(comment.createdAt).toLocaleString("pt-BR")}
                     </div>
-                    <CommentReactions commentType="post" commentId={comment.id} />
+                    <CommentReactions commentType="post" commentId={comment.id} commentOwnerId={comment.userId} sourceId={postId} isOwnComment={!!(user && user.id === comment.userId)} />
                   </div>
 
                   {user && user.id === comment.userId && (

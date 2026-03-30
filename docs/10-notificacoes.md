@@ -45,18 +45,14 @@ Cada item exibe:
 
 ## Tipos de Notificações e Ícones
 
-| Tipo | Ícone | Cor | Descrição |
+| Tipo (DB) | Ícone | Cor | Descrição |
 |---|---|---|---|
-| `like` | `Heart` | Vermelho | Alguém curtiu seu post |
-| `comment` | `MessageCircle` | Azul | Alguém comentou no seu post |
-| `follow` | `UserPlus` | Verde | Alguém começou a te seguir |
-| `incentive` | `Zap` | Amarelo | Alguém incentivou seu post |
-| `support` | `HeartHandshake` | Rosa | Tipo de incentivo "Apoio" |
-| `streak` | `Flame` | Laranja | Conquista de sequência |
-| `achievement` | `Trophy` | Dourado | Nova conquista desbloqueada |
-| `goal` | `Rocket` | Roxo | Progresso em meta |
-| `challenge` | `Target` | Ciano | Desafio/meta concluída |
-| `duel` | `Swords` | Índigo | Atividade em duelo |
+| 1 `follow` | `UserPlus` | Azul | Alguém começou a te seguir |
+| 2 `incentive` | Ícone do incentivo | Amarelo | Alguém incentivou seu post/shot |
+| 3 `comment` | `MessageCircle` | Roxo | Alguém comentou no seu post/shot |
+| 4 `duel_invite` | `Swords` | Laranja | Convite para duelo |
+| 5 `join_request` | `Swords` | Amarelo | Solicitação de entrada no duelo |
+| 6 `comment_reaction` | `SmilePlus` | Rosa | Alguém reagiu ao seu comentário |
 
 ### Tipos de Incentivo (subtipo)
 Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não um ícone genérico):
@@ -87,11 +83,15 @@ Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não
 
 ### Navegar para a origem
 - Clicar em uma notificação navega para o contexto relacionado:
-  - Notificação de follow → `/usuario/:userId`
+  - Notificação de follow (tipo 1) → `/usuario/:userId`
   - Notificação de incentivo em **post** (tipo 2, `postId` presente) → `/post/:postId` com `state.openLikes = true`
   - Notificação de comentário em **post** (tipo 3, `postId` presente) → `/post/:postId` com `state.openComments = true`
   - Notificação de incentivo em **shot** (tipo 2, `shotId` presente) → `/shots` com `state.shotId`
-  - Notificação de comentário em **shot** (tipo 3, `shotId` presente) → `/shots` com `state.openComments = true` e `state.shotId` (abre drawer de comentários automaticamente)
+  - Notificação de comentário em **shot** (tipo 3, `shotId` presente) → `/shots` com `state.openComments = true` e `state.shotId` (abre drawer de comentários automaticamente). **Nota:** a notificação usa `shots_id` na tabela — corrigido para não confundir com posts.
+  - Notificação de reação em comentário de **post** (tipo 6, `postId`) → `/post/:postId` com `state.openComments = true`
+  - Notificação de reação em comentário de **shot** (tipo 6, `shotId`) → `/shots` com `state.openComments = true` e `state.shotId`
+  - Notificação de reação em comentário de **flow** (tipo 6, `flowId`) → `/` (feed) com `state.openFlow = flowId` (abre FlowViewerModal)
+  - Notificação de reação em comentário de **check-in** (tipo 6, `checkInId`) → `/comunidade` com `state.openCheckIn = checkInId` (abre drawer do check-in)
   - Notificação de duelo (tipo 4 ou 5) → `/comunidade?tab=requests` (abre aba "Solicitações")
 
 ---
@@ -150,6 +150,7 @@ supabase
 - **Agrupamento de incentivos:** notificações do tipo 2 (incentivo) para o mesmo `postId`/`shotId` são colapsadas em uma entrada única via `collapseIncentives()`, independente do tipo de incentivo ou do remetente. O campo `groupedUsers` rastreia cada usuário com seus respectivos tipos enviados. A label exibida segue o padrão `"UsuarioX te deu "Vencedor" e outras N reações na sua postagem"`, onde N = total de reações do grupo menos 1. Com apenas 1 reação, exibe a descrição padrão sem agrupamento.
 - **Contador do badge de notificações:** `getUnreadNotificationsCountDb()` aplica a mesma lógica de agrupamento: notificações de incentivo (tipo 2) para o mesmo `post_id`/`shots_id` são contadas como **1**, refletindo exatamente o número de itens que o usuário verá na lista.
 - **Convite de duelo via modal de Participantes:** `addMembersToGroupDb` agora envia notificações tipo 4 para os novos membros adicionados (mesmo comportamento de `createDuelGroupDb`)
-- Notificações de shots são inseridas pelo **trigger do banco** com o campo `shots_id` populado (em vez de `post_id`). O `NotificationItem` expõe isso como `shotId`. O `getNotificationsDb` lê `shots_id` do select e popula `shotId` no retorno
+- Notificações de shots (incentivos) são inseridas pelo cliente com `post_id: shotId` (comportamento legado). Notificações de comentário em shots usam `shots_id: shotId` (corrigido). O `NotificationItem` expõe `shotId` quando `shots_id` está presente. O `getNotificationsDb` lê `shots_id` do select e popula `shotId` no retorno
+- **Reações a comentários (tipo 6):** inseridas pelo cliente em `toggleCommentReactionDb` quando `commentOwnerId` e `sourceId` são passados. O `CommentReactions` aceita `commentOwnerId` e `sourceId` (ID do post/shot/flow/checkIn pai). O `commentType` é codificado no campo `shots_id` com prefixos `flow:` e `checkin:` para distinção de navegação sem alterar o schema da tabela. A navegação: post → `/post/:id?openComments`, shot → `/shots?openComments+shotId`, flow → `/` com `state.openFlow`, checkin → `/comunidade` com `state.openCheckIn`
 - O `PostCommentsDialog` usa `useRef` para garantir que `defaultOpen` abre o drawer apenas uma vez (evita dupla abertura por re-render do React.lazy/Suspense)
 - O `PostDetail` usa `useRef` para garantir que o `PostLikesModal` seja aberto apenas uma vez ao navegar de uma notificação

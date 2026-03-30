@@ -1,8 +1,9 @@
 import * as React from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { getPostByIdDb, getPostLikeUsersDb, getUserGoalByIdDb, type PostWithUser, type UserGoal } from "@/lib/ritmofit-db";
+import { getPostByIdDb, getPostLikeUsersDb, getUserGoalByIdDb, deletePostDb, updatePostDb, type PostWithUser, type UserGoal } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,6 +17,23 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 // Module-level flag: survives StrictMode remount cycles, resets on navigation
 let _likesAutoOpenConsumed = false;
@@ -31,6 +49,15 @@ export default function PostDetail() {
   const [loading, setLoading] = React.useState(true);
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [postLikes, setPostLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; type: number }>>([]);
+
+  // Edit post state
+  const [editDialogOpen, setEditDialogOpen] = React.useState(false);
+  const [editDescription, setEditDescription] = React.useState("");
+  const [isSavingEdit, setIsSavingEdit] = React.useState(false);
+
+  // Delete post state
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+  const [isDeleting, setIsDeleting] = React.useState(false);
 
   // Consume nav state synchronously before any render — clear history so back-navigation doesn't re-trigger
   const navState = React.useRef((() => {
@@ -86,6 +113,42 @@ export default function PostDetail() {
     })();
   }, [postId]);
 
+  const handleEditOpen = () => {
+    if (!post) return;
+    setEditDescription(post.description ?? "");
+    setEditDialogOpen(true);
+  };
+
+  const handleEditSave = async () => {
+    if (!post) return;
+    setIsSavingEdit(true);
+    try {
+      await updatePostDb(post.id, editDescription, post.user_goal_id ? String(post.user_goal_id) : null);
+      setPost((prev) => prev ? { ...prev, description: editDescription } : prev);
+      setEditDialogOpen(false);
+      toast({ title: "Post atualizado com sucesso" });
+    } catch (err: any) {
+      toast({ title: "Erro ao editar post", description: err?.message, variant: "destructive" });
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleDeletePost = async () => {
+    if (!post) return;
+    setIsDeleting(true);
+    try {
+      await deletePostDb(post.id);
+      toast({ title: "Post excluído" });
+      navigate(-1);
+    } catch (err: any) {
+      toast({ title: "Erro ao excluir post", description: err?.message, variant: "destructive" });
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -132,27 +195,34 @@ export default function PostDetail() {
                 className="w-full max-h-96 object-cover"
               />
 
-              {/* Settings Menu Icon - Top Right */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="absolute top-3 right-3 bg-black/40 hover:bg-black/60 text-white p-2 rounded-full transition-colors z-10"
-                    aria-label="Configurações do post"
-                  >
-                    <MoreVertical className="h-5 w-5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
-                  <DropdownMenuItem>
-                    <Edit2 className="h-4 w-4 mr-2" />
-                    Editar
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950">
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Excluir
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* Settings Menu Icon - Top Right (only for post owner) */}
+              {post.user_id === user?.id && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="absolute top-3 right-3 bg-black/40 hover:bg-black/60 text-white p-2 rounded-full transition-colors z-10"
+                      aria-label="Configurações do post"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MoreVertical className="h-5 w-5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem onSelect={handleEditOpen}>
+                      <Edit2 className="h-4 w-4 mr-2" />
+                      Editar
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => setDeleteDialogOpen(true)}
+                      className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Excluir
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
 
             {/* Content */}
@@ -207,6 +277,52 @@ export default function PostDetail() {
         onOpenChange={setLikesModalOpen}
         likes={postLikes}
       />
+
+      {/* Edit Post Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar post</DialogTitle>
+          </DialogHeader>
+          <Textarea
+            value={editDescription}
+            onChange={(e) => setEditDescription(e.target.value)}
+            placeholder="Descrição do post..."
+            className="min-h-[120px]"
+            maxLength={500}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={isSavingEdit}>
+              Cancelar
+            </Button>
+            <Button onClick={handleEditSave} disabled={isSavingEdit}>
+              {isSavingEdit ? "Salvando..." : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Post Confirmation */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir post</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este post? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeletePost}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -69,12 +69,13 @@ import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
 import { PostCarousel } from "@/components/post/post-carousel";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { useAuth } from "@/hooks/useAuth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 
 export default function Index() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [posts, setPosts] = React.useState<PostWithStats[]>([]);
   const [stories, setStories] = React.useState<StoryWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -155,13 +156,14 @@ export default function Index() {
   const loadFeed = React.useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      const [postsData, storiesData, viewedUserIds] = await Promise.all([
+      const [postsData, storiesData] = await Promise.all([
         getFeedPosts(),
         getActiveStoriesDb(),
-        getMyViewedFlowUserIdsDb(),
       ]);
       setPosts(postsData);
       setStories(storiesData);
+      const activeFlowIds = storiesData.map((s: StoryWithUser) => s.id);
+      const viewedUserIds = await getMyViewedFlowUserIdsDb(activeFlowIds);
       setViewedStoryIds(viewedUserIds);
 
       // Get current user's story for flow viewer count (photo is loaded separately in the useEffect below)
@@ -194,6 +196,18 @@ export default function Index() {
   React.useEffect(() => {
     loadFeed();
   }, [loadFeed]);
+
+  // Open a specific flow when navigating from a notification (state.openFlow = flowId)
+  React.useEffect(() => {
+    const state = location.state as { openFlow?: string } | null;
+    if (!state?.openFlow || stories.length === 0) return;
+    window.history.replaceState({}, "");
+    const targetStory = stories.find((s) => String(s.id) === String(state.openFlow));
+    if (targetStory) {
+      setSelectedStory(targetStory);
+      setStoryViewerOpen(true);
+    }
+  }, [stories, location.state]);
 
   React.useEffect(() => {
     const handler = () => {
@@ -331,7 +345,7 @@ export default function Index() {
       setOwnerHasViewedFlow(true);
     } else {
       // Optimistically mark as viewed and persist to DB
-      setViewedStoryIds((prev) => new Set(prev).add(story.user_id));
+      setViewedStoryIds((prev) => new Set(prev).add(story.id));
       recordFlowViewDb(story.id, story.user_id).catch((err) =>
         console.error("Error recording flow view:", err),
       );
@@ -397,20 +411,15 @@ export default function Index() {
   }, [user]);
 
   const handleToggleLinkedRoutine = React.useCallback(async (groupKey: string, type: number, name: string | undefined, targetUserId: string) => {
-    if (expandedLinkedRoutine === groupKey) {
-      setExpandedLinkedRoutine(null);
-      return;
-    }
-    setExpandedLinkedRoutine(groupKey);
-    if (linkedRoutineItems[groupKey]) return; // already loaded
-    try {
-      const items = await getRoutineItemsForViewDb(targetUserId, type, name);
-      setLinkedRoutineItems((prev) => ({ ...prev, [groupKey]: items }));
-    } catch (err) {
-      console.error("[linkedRoutine] error", err);
-      setLinkedRoutineItems((prev) => ({ ...prev, [groupKey]: [] }));
-    }
-  }, [expandedLinkedRoutine, linkedRoutineItems]);
+    setExpandedLinkedRoutine((prev) => (prev === groupKey ? null : groupKey));
+    setLinkedRoutineItems((prev) => {
+      if (prev[groupKey] !== undefined) return prev; // already loaded, no re-render
+      getRoutineItemsForViewDb(targetUserId, type, name)
+        .then((items) => setLinkedRoutineItems((p) => ({ ...p, [groupKey]: items })))
+        .catch(() => setLinkedRoutineItems((p) => ({ ...p, [groupKey]: [] })));
+      return prev;
+    });
+  }, []);
 
   const handleCopyGoal = React.useCallback(async () => {
     if (!selectedGoalPost?.userGoal || !user) return;
@@ -922,7 +931,7 @@ export default function Index() {
                   {/* Descrição + Meta */}
                   <div className="px-3 pb-3 space-y-2">
                     {post.description && (
-                      <p className="text-sm leading-relaxed text-foreground">
+                      <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
                         {post.description}
                       </p>
                     )}
@@ -1096,7 +1105,7 @@ export default function Index() {
                     {/* Descrição + Meta */}
                     <div className="px-3 pb-3 space-y-2">
                       {post.description && (
-                        <p className="text-sm leading-relaxed text-foreground">
+                        <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
                           {post.description}
                         </p>
                       )}
@@ -1222,7 +1231,7 @@ export default function Index() {
                       {/* Descrição + Meta */}
                       <div className="px-3 pb-3 space-y-2">
                         {post.description && (
-                          <p className="text-sm leading-relaxed text-foreground line-clamp-2">{post.description}</p>
+                          <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap line-clamp-2">{post.description}</p>
                         )}
                         {post.userGoal && (
                           <button onClick={() => openGoalModal(post)} className="w-full text-left">

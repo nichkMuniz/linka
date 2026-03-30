@@ -122,6 +122,8 @@
   body {
     @apply bg-background text-foreground;
     overflow-x: hidden;
+    /* Prevent Radix UI from injecting padding-right when locking scroll on modal open */
+    padding-right: 0 !important;
   }
 
   :where(p, span, li, h1, h2, h3, h4, h5, h6, a, button, label, td, th) {

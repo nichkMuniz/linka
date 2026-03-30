@@ -28,8 +28,9 @@ const BADGE_COLORS: Record<string, { active: string; check: string; bar: string 
 export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, totalCheckIns }: InsigniasDrawerProps) {
   const earnedIds = new Set(userBadges.map((ub) => ub.badge_id));
 
-  // Próximo badge ainda não conquistado (para mostrar meta no overview)
-  const maxRequired = allBadges.length > 0 ? allBadges[allBadges.length - 1].required_checkins : 7;
+  // Sort badges by required_checkins to ensure correct order
+  const sortedBadges = [...allBadges].sort((a, b) => a.required_checkins - b.required_checkins);
+  const maxRequired = sortedBadges.length > 0 ? sortedBadges[sortedBadges.length - 1].required_checkins : 7;
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -63,7 +64,7 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
           </div>
 
           <div className="space-y-3 pb-8">
-            {allBadges.map((badge) => {
+            {sortedBadges.map((badge) => {
               const unlocked = earnedIds.has(badge.id);
               const color = BADGE_COLORS[badge.key] ?? BADGE_COLORS["iniciante"];
               return (

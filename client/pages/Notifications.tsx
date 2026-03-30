@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, MessageCircle, UserPlus, Zap, Flame, Trophy, TrendingUp, Dumbbell, Swords, Video } from "lucide-react";
+import { Heart, MessageCircle, UserPlus, Zap, Flame, Trophy, TrendingUp, Dumbbell, Swords, Video, SmilePlus } from "lucide-react";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -151,6 +151,14 @@ export default function Notifications() {
           bgColor: "bg-yellow-500/10",
           borderColor: "border-yellow-200/50",
         };
+      case 6:
+        return {
+          icon: <SmilePlus className="h-5 w-5 text-pink-500" />,
+          title: "Reação no comentário",
+          description: `${notification.userNickname} reagiu ao seu comentário`,
+          bgColor: "bg-pink-500/10",
+          borderColor: "border-pink-200/50",
+        };
       default:
         return {
           icon: <Zap className="h-5 w-5 text-gray-500" />,
@@ -289,6 +297,24 @@ export default function Notifications() {
     // Type 4 (duel invite) or type 5 (join request) - navigate to community requests tab
     else if (notification.type === 4 || notification.type === 5) {
       navigate("/comunidade?tab=requests");
+    }
+    // Type 6 (comment reaction) — navigate to the exact screen/modal where the comment lives
+    else if (notification.type === 6) {
+      if (notification.shotId) {
+        // Reaction on a shot comment → open shots with comment drawer
+        navigate("/shots", { state: { openComments: true, shotId: notification.shotId } });
+      } else if (notification.flowId) {
+        // Reaction on a flow comment → go to feed, which hosts flows
+        navigate("/", { state: { openFlow: notification.flowId } });
+      } else if (notification.checkInId) {
+        // Reaction on a check-in comment → open community with that check-in expanded
+        navigate("/comunidade", { state: { openCheckIn: notification.checkInId } });
+      } else if (notification.postId) {
+        // Reaction on a post comment → open post with comments modal
+        navigate(`/post/${notification.postId}`, { state: { openComments: true } });
+      } else {
+        navigate(`/usuario/${notification.userId}`);
+      }
     }
     // Shot notifications (shots_id populated)
     else if (notification.shotId) {

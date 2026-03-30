@@ -468,7 +468,7 @@ export function FlowViewerModal({
                         <div className="flex-1">
                           <span className="font-semibold text-white">{comment.userName}</span>
                           <span className="text-white/70 ml-2">{comment.text}</span>
-                          <CommentReactions commentType="flow" commentId={comment.id} dark />
+                          <CommentReactions commentType="flow" commentId={comment.id} commentOwnerId={comment.userId} sourceId={story?.id != null ? String(story.id) : undefined} dark isOwnComment={!!(user?.id === comment.userId)} />
                         </div>
                         {user?.id === comment.userId && (
                           <button

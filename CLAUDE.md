@@ -56,7 +56,8 @@ O projeto tem agentes especializados na pasta `skills/`. **Use o agente que faz 
 
 | Situação | Skill a usar | Arquivo |
 |---|---|---|
-| Nova funcionalidade, novo recurso, melhoria de produto | `fitness-growth-agent` ou `product-growth-agent` | `skills/fitness-growth-agent.md` / `skills/product-growth-agent.md` |
+| Nova funcionalidade, novo recurso, melhoria de produto (fitness/treinos) | `fitness-growth-agent` ou `product-growth-agent` | `skills/fitness-growth-agent.md` / `skills/product-growth-agent.md` |
+| Nova funcionalidade de nutrição, alimentação, dieta ou modo profissional para nutricionistas | `nutrition-growth-agent` | `skills/nutrition-growth-agent.md` |
 | Reorganizar arquivos, mover componentes, criar estrutura de pastas por feature | `file-organizer-agent` | `skills/file-organizer-agent.md` |
 | Design de interface, experiência do usuário, fluxos de tela | `uiux-senior-agent` | `skills/uiux-senior-agent.md` |
 | Problemas de desempenho, lentidão, otimização de queries | `performance-agent` | `skills/performance-agent.md` |

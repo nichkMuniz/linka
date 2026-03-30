@@ -19,6 +19,8 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
+import { useWorkout } from "@/lib/workout-context";
+import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 
@@ -36,11 +38,13 @@ function isActivePath(currentPath: string, to: string) {
 
 export function AppLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { layoutMode } = useLayoutMode();
   const { t } = useLanguage();
   const { resolvedTheme } = useTheme();
   const logoSrc = resolvedTheme === "dark" ? "/logo-branco.png" : "/logo.png";
+  const { workoutMinimized, setPendingReopen } = useWorkout();
 
   const [headerHidden, setHeaderHidden] = React.useState(false);
   const [unreadCount, setUnreadCount] = React.useState(0);
@@ -52,6 +56,10 @@ export function AppLayout() {
   const sessionStartRef = React.useRef<number>(Date.now());
   const [timerBlockVisible, setTimerBlockVisible] = React.useState(false);
   const [timerSnoozeSeconds, setTimerSnoozeSeconds] = React.useState(0); // extra snooze time added
+  const [limitIgnoredToday, setLimitIgnoredToday] = React.useState(() => {
+    const ignored = localStorage.getItem("ritmofit_limit_ignored_date");
+    return ignored === new Date().toDateString();
+  });
   const [dailyLimitMinutes, setDailyLimitMinutes] = React.useState(() => {
     const stored = localStorage.getItem("ritmofit_daily_limit_minutes");
     const date = localStorage.getItem("ritmofit_daily_limit_date");
@@ -69,6 +77,12 @@ export function AppLayout() {
     const handleStorage = () => {
       const stored = localStorage.getItem("ritmofit_daily_limit_minutes");
       setDailyLimitMinutes(stored ? parseInt(stored, 10) : 0);
+      // Reset ignored flag if it's a new day
+      const ignoredDate = localStorage.getItem("ritmofit_limit_ignored_date");
+      if (ignoredDate && ignoredDate !== new Date().toDateString()) {
+        localStorage.removeItem("ritmofit_limit_ignored_date");
+        setLimitIgnoredToday(false);
+      }
     };
     window.addEventListener("storage", handleStorage);
     // Also poll every 5s to catch same-tab changes
@@ -195,19 +209,19 @@ export function AppLayout() {
 
   const limitSeconds = dailyLimitMinutes * 60;
   const remainingSeconds = Math.max(0, limitSeconds + timerSnoozeSeconds - usageSecondsElapsed);
-  const showTimer = dailyLimitMinutes > 0;
+  const showTimer = dailyLimitMinutes > 0 && !limitIgnoredToday;
   const timerMins = Math.floor(remainingSeconds / 60);
   const timerSecs = remainingSeconds % 60;
   const timerLabel = remainingSeconds <= 0 ? "00:00" : `${String(timerMins).padStart(2, "0")}:${String(timerSecs).padStart(2, "0")}`;
   const timerUrgent = remainingSeconds <= 300 && remainingSeconds > 0; // last 5 min
   const timerExpired = remainingSeconds <= 0 && dailyLimitMinutes > 0;
 
-  // Show block screen when timer expires
+  // Show block screen when timer expires (not if user ignored limit today)
   React.useEffect(() => {
-    if (timerExpired && !timerBlockVisible) {
+    if (timerExpired && !timerBlockVisible && !limitIgnoredToday) {
       setTimerBlockVisible(true);
     }
-  }, [timerExpired]);
+  }, [timerExpired, limitIgnoredToday]);
 
   const mainNavItems: NavItem[] = React.useMemo(() => [
     { to: "/", label: t("nav_home"), icon: Home },
@@ -450,6 +464,23 @@ export function AppLayout() {
         )}
       </div>
 
+      {/* Minimized Workout FAB — visible on all pages */}
+      {workoutMinimized && (
+        <button
+          onClick={() => {
+            setPendingReopen(true);
+            if (location.pathname !== "/metas") {
+              navigate("/metas");
+            }
+          }}
+          className="fixed bottom-24 right-4 z-[150] flex items-center gap-2 bg-brand text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm transition-all active:scale-95 animate-pulse"
+          style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.3)" }}
+        >
+          <Dumbbell className="h-4 w-4" />
+          Treino em andamento
+        </button>
+      )}
+
       {/* Timer Expired Full-Screen Block */}
       {timerBlockVisible && (
         <div className="fixed inset-0 z-[500] bg-background flex flex-col items-center justify-center gap-6 px-6 text-center">
@@ -479,12 +510,9 @@ export function AppLayout() {
             <Button
               className="w-full rounded-full"
               onClick={() => {
-                // Ignore limit for today: set snooze to remaining day
-                const now = new Date();
-                const midnight = new Date(now);
-                midnight.setHours(24, 0, 0, 0);
-                const secsUntilMidnight = Math.floor((midnight.getTime() - now.getTime()) / 1000);
-                setTimerSnoozeSeconds((s) => s + secsUntilMidnight);
+                // Ignore limit for today: save flag and hide timer
+                localStorage.setItem("ritmofit_limit_ignored_date", new Date().toDateString());
+                setLimitIgnoredToday(true);
                 setTimerBlockVisible(false);
               }}
             >

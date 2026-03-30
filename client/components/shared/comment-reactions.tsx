@@ -14,11 +14,17 @@ const QUICK_EMOJIS = ["❤️", "🔥", "💪", "😂", "👏", "🥇"];
 interface CommentReactionsProps {
   commentType: "post" | "shot" | "flow" | "checkin";
   commentId: string;
+  /** ID do dono do comentário — usado para enviar notificação de reação */
+  commentOwnerId?: string;
+  /** ID do conteúdo pai (postId, shotId, flowId ou checkInId) — necessário para a notificação navegar corretamente */
+  sourceId?: string;
   /** Se true, usa estilo claro (fundo dark como no FlowViewer) */
   dark?: boolean;
+  /** Se true, oculta o botão de reagir (próprio comentário do usuário) */
+  isOwnComment?: boolean;
 }
 
-export function CommentReactions({ commentType, commentId, dark = false }: CommentReactionsProps) {
+export function CommentReactions({ commentType, commentId, commentOwnerId, sourceId, dark = false, isOwnComment = false }: CommentReactionsProps) {
   const { user } = useAuth();
   const [reactions, setReactions] = React.useState<CommentReactionSummary[]>([]);
   const [showPicker, setShowPicker] = React.useState(false);
@@ -69,7 +75,7 @@ export function CommentReactions({ commentType, commentId, dark = false }: Comme
     });
 
     try {
-      await toggleCommentReactionDb(commentType, commentId, emoji);
+      await toggleCommentReactionDb(commentType, commentId, emoji, commentOwnerId, sourceId);
     } catch {
       // Reverte em caso de erro — rebusca do servidor
       getCommentReactionsDb(commentType, [commentId]).then((records) => {
@@ -106,8 +112,8 @@ export function CommentReactions({ commentType, commentId, dark = false }: Comme
         </button>
       ))}
 
-      {/* Botão para abrir o picker de emojis rápidos */}
-      {user && (
+      {/* Botão para abrir o picker de emojis rápidos — oculto no próprio comentário */}
+      {user && !isOwnComment && (
         <div ref={pickerRef} className="relative">
           <button
             type="button"

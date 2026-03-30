@@ -167,3 +167,5 @@ Cada post exibe:
 - Incentivos têm estado otimístico (UI atualiza imediatamente antes da confirmação do servidor)
 - Rotinas vinculadas a posts carregam sob demanda (lazy load) ao expandir
 - Stories do usuário logado mostram contagem de visualizadores
+- Descrições de posts usam `whitespace-pre-wrap` para preservar quebras de linha
+- O `body` tem `padding-right: 0 !important` no CSS global para evitar layout shift ao abrir modals/drawers (Radix UI injeta padding-right ao bloquear scroll)

@@ -46,6 +46,11 @@ import {
   addGroupCheckInDb,
   getEnrichedDuelGroupsDb,
   getUserProfileDb,
+  getTodayHydrationDb,
+  addHydrationDb,
+  undoLastHydrationDb,
+  getTodayMacroSummaryDb,
+  awardNutritionBadgesDb,
   type CompletedRoutineExercise,
   type ProgrammedGoal,
   type Workout,
@@ -104,6 +109,12 @@ import {
   ImageIcon,
   Tag,
   Swords,
+  Droplets,
+  Minus,
+  Salad,
+  Zap,
+  Apple,
+  AlertCircle,
 } from "lucide-react";
 import {
   Dialog,
@@ -135,12 +146,40 @@ import { Progress } from "@/components/ui/progress";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
 import { useLanguage } from "@/lib/language-context";
+import { useWorkout } from "@/lib/workout-context";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 export default function Goals() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const { t } = useLanguage();
+  const {
+    workoutMinimized, setWorkoutMinimized,
+    pendingReopen, setPendingReopen,
+    workoutModalOpen, setWorkoutModalOpen,
+    workoutSeries, setWorkoutSeries,
+    workoutDuration, setWorkoutDuration,
+    workoutStartTime, setWorkoutStartTime,
+    selectedRoutineName, setSelectedRoutineName,
+    workoutExerciseRestTimes, setWorkoutExerciseRestTimes,
+    currentWorkoutIndex, setCurrentWorkoutIndex,
+    resetWorkoutState,
+  } = useWorkout();
+
+  // Abre o modal de treino quando o FAB global disparar pendingReopen
+  React.useEffect(() => {
+    if (pendingReopen && !workoutModalOpen) {
+      setPendingReopen(false);
+      setWorkoutMinimized(false);
+      setWorkoutModalOpen(true);
+    } else if (pendingReopen && workoutModalOpen) {
+      // Modal já está aberto (navegou para /metas com modal aberto), só limpa o flag
+      setPendingReopen(false);
+      setWorkoutMinimized(false);
+    }
+  }, [pendingReopen]);
+
   const initialTab = searchParams.get("tab") === "metas" ? "metas" : "rotinas";
 
   // Metas tab state
@@ -184,27 +223,6 @@ export default function Goals() {
     string | null
   >(null); // Start with all routines closed
 
-  // Workout modal state
-  const [workoutModalOpen, setWorkoutModalOpen] = React.useState(false);
-  const [selectedRoutineName, setSelectedRoutineName] = React.useState<string | null>(null);
-  const [workoutSeries, setWorkoutSeries] = React.useState<
-    Record<
-      string,
-      Array<{
-        series: number;
-        kg: number;
-        reps: number;
-        completed: boolean;
-      }>
-    >
-  >({});
-  const [workoutExerciseRestTimes, setWorkoutExerciseRestTimes] = React.useState<
-    Record<string, number>
-  >({}); // Rest time per exercise, not per series
-  const [workoutDuration, setWorkoutDuration] = React.useState(0);
-  const [workoutStartTime, setWorkoutStartTime] = React.useState<number | null>(
-    null,
-  );
   const [restTimerModalOpen, setRestTimerModalOpen] = React.useState(false);
   const [restTimerExerciseId, setRestTimerExerciseId] = React.useState<
     string | null
@@ -213,7 +231,6 @@ export default function Goals() {
   const [restTimerPaused, setRestTimerPaused] = React.useState(false);
   const [swipedSeriesId, setSwipedSeriesId] = React.useState<string | null>(null);
   const [finishWorkoutConfirmOpen, setFinishWorkoutConfirmOpen] = React.useState(false);
-  const [currentWorkoutIndex, setCurrentWorkoutIndex] = React.useState(0);
   const [workoutSummaryOpen, setWorkoutSummaryOpen] = React.useState(false);
   const [workoutRating, setWorkoutRating] = React.useState(0);
   const [workoutSummaryData, setWorkoutSummaryData] = React.useState<{
@@ -240,9 +257,12 @@ export default function Goals() {
     reps: number;
   } | null>(null);
   const [isSharingWorkout, setIsSharingWorkout] = React.useState(false);
-  const [workoutCoverFile, setWorkoutCoverFile] = React.useState<File | null>(null);
-  const [workoutCoverPreview, setWorkoutCoverPreview] = React.useState<string | null>(null);
+  const [workoutCoverFiles, setWorkoutCoverFiles] = React.useState<File[]>([]);
+  const [workoutCoverPreviews, setWorkoutCoverPreviews] = React.useState<string[]>([]);
+  const [coverCarouselIndex, setCoverCarouselIndex] = React.useState(0);
+  const [canvasPreviewUrl, setCanvasPreviewUrl] = React.useState<string | null>(null);
   const workoutCanvasRef = React.useRef<HTMLCanvasElement>(null);
+  const prCanvasRef = React.useRef<HTMLCanvasElement>(null);
 
   // Edit goal modal state
   const [editGoalModalOpen, setEditGoalModalOpen] = React.useState(false);
@@ -267,6 +287,25 @@ export default function Goals() {
   const lastSeenBadgeCountRef = React.useRef<number | null>(null);
   // Mutex ref to prevent concurrent check-ins from parallel calls (diet/habit toggles, workout finish)
   const checkInInProgressRef = React.useRef(false);
+
+  // ─── Hidratação ───────────────────────────────────────────────────────────
+  const [hydrationMl, setHydrationMl] = React.useState(0);
+  const [hydrationGoalMl] = React.useState(2000); // meta padrão: 2L/dia
+  const [isAddingHydration, setIsAddingHydration] = React.useState(false);
+
+  // ─── Macro diário ─────────────────────────────────────────────────────────
+  const [todayMacro, setTodayMacro] = React.useState<{
+    calories: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+    fiber_g: number;
+    quality_counts: { in_natura: number; processado: number; ultraprocessado: number };
+  } | null>(null);
+
+  // ─── Timing nutricional pós-treino ────────────────────────────────────────
+  const [showPostWorkoutNutrition, setShowPostWorkoutNutrition] = React.useState(false);
+  const [nutritionExpanded, setNutritionExpanded] = React.useState(true);
 
   const getBadgeCount = (size: number) =>
     [1, 3, 5, 7].filter((t) => size >= t).length;
@@ -384,21 +423,7 @@ export default function Goals() {
   const [editAvailableGoalQuantity, setEditAvailableGoalQuantity] = React.useState(1);
   const [isAddingGoal, setIsAddingGoal] = React.useState(false);
 
-  // Timer effect for workout duration
-  React.useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (workoutModalOpen && workoutStartTime === null) {
-      setWorkoutStartTime(Date.now());
-    }
-    if (workoutModalOpen && workoutStartTime !== null) {
-      interval = setInterval(() => {
-        setWorkoutDuration((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [workoutModalOpen, workoutStartTime]);
+  // Timer effect moved to WorkoutContext — runs even when Goals is unmounted
 
   // Draw workout cover on canvas when summary opens
   React.useEffect(() => {
@@ -450,6 +475,73 @@ export default function Goals() {
     // Branding
     ctx.fillStyle = "rgba(134,239,172,0.6)"; ctx.font = "bold 28px system-ui, sans-serif"; ctx.fillText("Linka", 400, 720);
     ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.font = "22px system-ui, sans-serif"; ctx.fillText("#Fitness #Treino", 400, 758);
+    // Capture preview URL after drawing
+    setCanvasPreviewUrl(canvas.toDataURL("image/png"));
+  }, [workoutSummaryOpen, workoutSummaryData]);
+
+  // Draw PR cover on canvas when summary opens and PRs exist
+  React.useEffect(() => {
+    if (!workoutSummaryOpen || !workoutSummaryData?.prs.length) return;
+    const canvas = prCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const { prs } = workoutSummaryData;
+
+    // Background: dark gold gradient
+    const grad = ctx.createLinearGradient(0, 0, 800, 800);
+    grad.addColorStop(0, "#1a1200");
+    grad.addColorStop(1, "#2d1f00");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 800, 800);
+
+    // Glow circles (gold tones)
+    ctx.beginPath(); ctx.arc(700, 120, 250, 0, Math.PI * 2); ctx.fillStyle = "rgba(251,191,36,0.07)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(80, 680, 200, 0, Math.PI * 2); ctx.fillStyle = "rgba(251,191,36,0.05)"; ctx.fill();
+
+    // Top badge band
+    ctx.fillStyle = "rgba(251,191,36,0.15)";
+    ctx.fillRect(0, 0, 800, 8);
+    ctx.fillRect(0, 792, 800, 8);
+
+    // Trophy emoji
+    ctx.font = "110px serif"; ctx.textAlign = "center";
+    ctx.fillText("🏆", 400, 195);
+
+    // "NOVO RECORDE" tag
+    ctx.fillStyle = "#fbbf24";
+    ctx.beginPath();
+    ctx.roundRect(240, 218, 320, 52, 26);
+    ctx.fill();
+    ctx.fillStyle = "#1a1200";
+    ctx.font = "bold 26px system-ui, sans-serif";
+    ctx.fillText("NOVO RECORDE PESSOAL", 400, 251);
+
+    // Divider
+    ctx.strokeStyle = "rgba(251,191,36,0.35)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(80, 300); ctx.lineTo(720, 300); ctx.stroke();
+
+    // PR list
+    const maxPRs = Math.min(prs.length, 4);
+    const startY = prs.length === 1 ? 430 : 340;
+    const lineH = prs.length === 1 ? 0 : Math.min(100, (600 - startY) / (maxPRs - 1 || 1));
+
+    for (let i = 0; i < maxPRs; i++) {
+      const pr = prs[i];
+      const y = startY + i * lineH;
+      // Exercise name (truncate if long)
+      const nameText = pr.exerciseName.length > 28 ? pr.exerciseName.slice(0, 26) + "…" : pr.exerciseName;
+      ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.font = "30px system-ui, sans-serif";
+      ctx.fillText(nameText, 400, y);
+      // kg value
+      const valueText = `${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`;
+      ctx.fillStyle = "#fbbf24"; ctx.font = "bold 38px system-ui, sans-serif";
+      ctx.fillText(valueText, 400, y + 46);
+    }
+
+    // Branding
+    ctx.fillStyle = "rgba(251,191,36,0.6)"; ctx.font = "bold 28px system-ui, sans-serif"; ctx.fillText("Linka", 400, 730);
+    ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.font = "22px system-ui, sans-serif"; ctx.fillText("#PR #RecordePessoal #Fitness", 400, 766);
   }, [workoutSummaryOpen, workoutSummaryData]);
 
   // Load all data on mount
@@ -509,6 +601,12 @@ export default function Goals() {
             toggleUserHabitCompletionDb(h.id, false).catch(() => {});
           }
         }
+        // Carrega hidratação e macro do dia (fire-and-forget — não bloqueia UI)
+        if (user) {
+          getTodayHydrationDb(user.id).then(setHydrationMl).catch(() => {});
+          getTodayMacroSummaryDb(user.id).then(setTodayMacro).catch(() => {});
+        }
+
         setLoading(false); // unblock UI immediately after critical data
       } catch (err: any) {
         const errorMessage = err instanceof Error ? err.message : String(err);
@@ -1001,6 +1099,8 @@ export default function Goals() {
         // Create check-in in database
         await createCheckInDb(user.id);
         setDailyCheckInDone(true);
+        // Incrementa streak imediatamente para feedback visual instantâneo
+        setStreakCount((prev) => prev + 1);
         // Award points for daily check-in
         try {
           await addPointsDb(5);
@@ -1023,15 +1123,52 @@ export default function Goals() {
           console.error("Error awarding badges:", badgeErr);
         }
 
+        // Refresh check-in history and recalculate streak (confirma valor correto do banco)
+        try {
+          const freshHistory = await getCheckInHistoryDb(user.id, 60);
+          setCheckInHistory(freshHistory);
+          if (freshHistory.length > 0) {
+            const sorted = [...freshHistory].sort((a, b) =>
+              new Date(b.check_in_date).getTime() - new Date(a.check_in_date).getTime()
+            );
+            const localDateStr = (d: Date) => {
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, "0");
+              const day = String(d.getDate()).padStart(2, "0");
+              return `${y}-${m}-${day}`;
+            };
+            const today = localDateStr(new Date());
+            const yesterdayDate = new Date();
+            yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+            const yesterday = localDateStr(yesterdayDate);
+            const mostRecent = sorted[0]?.check_in_date;
+            if (mostRecent === today || mostRecent === yesterday) {
+              let streak = 0;
+              let current = mostRecent;
+              for (const ci of sorted) {
+                if (ci.check_in_date === current) {
+                  streak++;
+                  const d = new Date(current + "T12:00:00");
+                  d.setDate(d.getDate() - 1);
+                  current = localDateStr(d);
+                } else break;
+              }
+              setStreakCount(streak);
+            }
+          }
+        } catch (historyErr) {
+          console.error("Error refreshing check-in history:", historyErr);
+        }
+
         // Update week check-ins
         const dayOfWeek = new Date().getDay();
         const newWeekCheckIns = new Set(weekCheckIns);
         newWeekCheckIns.add(dayOfWeek);
         setWeekCheckIns(newWeekCheckIns);
 
-        // Update goal progress - increment by 1 and recalculate percentage
+        // Update goal progress - increment by 1 and recalculate percentage based on duration
         const newProgress = goal.days_completed + 1;
-        const newPercentage = goal.quantity > 0 ? Math.min(100, (newProgress / goal.quantity) * 100) : 0;
+        const newPercentage = goal.duration > 0 ? Math.min(100, (newProgress / goal.duration) * 100) : 0;
 
         await updateUserGoalDb(goal.id, {
           days_completed: newProgress,
@@ -1069,6 +1206,8 @@ export default function Goals() {
         // Create check-in in database
         const checkIn = await createCheckInDb(user.id);
         setDailyCheckInDone(true);
+        // Incrementa streak imediatamente para feedback visual instantâneo
+        setStreakCount((prev) => prev + 1);
         // Award points for daily check-in
         try {
           await addPointsDb(5);
@@ -1089,6 +1228,43 @@ export default function Goals() {
           setTotalCheckIns(total);
         } catch (badgeErr) {
           console.error("Error awarding badges:", badgeErr);
+        }
+
+        // Refresh check-in history and recalculate streak (confirma valor correto do banco)
+        try {
+          const freshHistory = await getCheckInHistoryDb(user.id, 60);
+          setCheckInHistory(freshHistory);
+          if (freshHistory.length > 0) {
+            const sorted = [...freshHistory].sort((a, b) =>
+              new Date(b.check_in_date).getTime() - new Date(a.check_in_date).getTime()
+            );
+            const localDateStr = (d: Date) => {
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, "0");
+              const day = String(d.getDate()).padStart(2, "0");
+              return `${y}-${m}-${day}`;
+            };
+            const today = localDateStr(new Date());
+            const yesterdayDate = new Date();
+            yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+            const yesterday = localDateStr(yesterdayDate);
+            const mostRecent = sorted[0]?.check_in_date;
+            if (mostRecent === today || mostRecent === yesterday) {
+              let streak = 0;
+              let current = mostRecent;
+              for (const ci of sorted) {
+                if (ci.check_in_date === current) {
+                  streak++;
+                  const d = new Date(current + "T12:00:00");
+                  d.setDate(d.getDate() - 1);
+                  current = localDateStr(d);
+                } else break;
+              }
+              setStreakCount(streak);
+            }
+          }
+        } catch (historyErr) {
+          console.error("Error refreshing check-in history:", historyErr);
         }
 
         // Update week check-ins
@@ -1125,6 +1301,8 @@ export default function Goals() {
       // Create check-in in database
       await createCheckInDb(user.id);
       setDailyCheckInDone(true);
+      // Incrementa streak imediatamente para feedback visual instantâneo
+      setStreakCount((prev) => prev + 1);
       // Award points for daily check-in
       try {
         await addPointsDb(5);
@@ -1135,8 +1313,53 @@ export default function Goals() {
       // Award badges based on week check-ins
       try {
         await awardBadgesForCheckInsDb(user.id);
+        const [earned, catalog, total] = await Promise.all([
+          getUserBadgesDb(user.id),
+          getAllBadgesDb(),
+          getTotalCheckInsDb(user.id),
+        ]);
+        setUserBadges(earned);
+        setAllBadges(catalog);
+        setTotalCheckIns(total);
       } catch (badgeErr) {
         console.error("Error awarding badges:", badgeErr);
+      }
+
+      // Refresh check-in history and recalculate streak (confirma valor correto do banco)
+      try {
+        const freshHistory = await getCheckInHistoryDb(user.id, 60);
+        setCheckInHistory(freshHistory);
+        if (freshHistory.length > 0) {
+          const sorted = [...freshHistory].sort((a, b) =>
+            new Date(b.check_in_date).getTime() - new Date(a.check_in_date).getTime()
+          );
+          const localDateStr = (d: Date) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, "0");
+            const day = String(d.getDate()).padStart(2, "0");
+            return `${y}-${m}-${day}`;
+          };
+          const today = localDateStr(new Date());
+          const yesterdayDate = new Date();
+          yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+          const yesterday = localDateStr(yesterdayDate);
+          const mostRecent = sorted[0]?.check_in_date;
+          if (mostRecent === today || mostRecent === yesterday) {
+            let streak = 0;
+            let current = mostRecent;
+            for (const ci of sorted) {
+              if (ci.check_in_date === current) {
+                streak++;
+                const d = new Date(current + "T12:00:00");
+                d.setDate(d.getDate() - 1);
+                current = localDateStr(d);
+              } else break;
+            }
+            setStreakCount(streak);
+          }
+        }
+      } catch (historyErr) {
+        console.error("Error refreshing check-in history:", historyErr);
       }
 
       // Update week check-ins
@@ -1145,9 +1368,9 @@ export default function Goals() {
       newWeekCheckIns.add(dayOfWeek);
       setWeekCheckIns(newWeekCheckIns);
 
-      // Update goal progress - increment by 1 and recalculate percentage
+      // Update goal progress - increment by 1 and recalculate percentage based on duration
       const newProgress = selectedCheckInGoal.days_completed + 1;
-      const newPercentage = selectedCheckInGoal.quantity > 0 ? Math.min(100, (newProgress / selectedCheckInGoal.quantity) * 100) : 0;
+      const newPercentage = selectedCheckInGoal.duration > 0 ? Math.min(100, (newProgress / selectedCheckInGoal.duration) * 100) : 0;
 
       await updateUserGoalDb(selectedCheckInGoal.id, {
         days_completed: newProgress,
@@ -1537,7 +1760,7 @@ export default function Goals() {
       const activeGoals = userGoals.filter((g) => g.perc < 100);
       for (const goal of activeGoals) {
         const newProgress = goal.days_completed + 1;
-        const newPercentage = goal.quantity > 0 ? Math.min(100, (newProgress / goal.quantity) * 100) : 0;
+        const newPercentage = goal.duration > 0 ? Math.min(100, (newProgress / goal.duration) * 100) : 0;
         await updateUserGoalDb(goal.id, { days_completed: newProgress, perc: newPercentage });
       }
       if (activeGoals.length > 0) {
@@ -1670,13 +1893,12 @@ export default function Goals() {
       });
       setFinishWorkoutConfirmOpen(false);
       setWorkoutModalOpen(false);
+      setWorkoutMinimized(false);
       setWorkoutSummaryOpen(true);
+      setShowPostWorkoutNutrition(true);
 
       // Reset workout state
-      setWorkoutSeries({});
-      setCurrentWorkoutIndex(0);
-      setWorkoutDuration(0);
-      setWorkoutStartTime(null);
+      resetWorkoutState();
 
       // Refresh data in background
       Promise.all([
@@ -1840,6 +2062,8 @@ export default function Goals() {
       </div>
     );
   }
+
+  const hasWaterHabit = userHabits.some((h) => String(h.habit_id) === "1");
 
   return (
     <div className="mx-auto grid w-full max-w-3xl gap-6 overflow-x-hidden">
@@ -2300,6 +2524,152 @@ export default function Goals() {
             </CardContent>
           </Card>
 
+          {/* ─── Card de Hidratação ──────────────────────────────────────── */}
+          {hasWaterHabit && <Card className="border border-blue-500/30 bg-blue-500/5">
+            <CardContent className="pt-4 pb-4">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Droplets className="h-4 w-4 text-blue-500" />
+                    <span className="text-sm font-semibold">Hidratação</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {hydrationMl}ml / {hydrationGoalMl}ml
+                  </span>
+                </div>
+
+                {/* Barra de progresso */}
+                <Progress
+                  value={Math.min(100, (hydrationMl / hydrationGoalMl) * 100)}
+                  className="h-2"
+                />
+
+                {/* Botões de ação */}
+                <div className="flex items-center gap-2">
+                  {[250, 350, 500].map((ml) => (
+                    <Button
+                      key={ml}
+                      size="sm"
+                      variant="outline"
+                      disabled={isAddingHydration}
+                      className="flex-1 h-8 text-xs border-blue-500/30 hover:bg-blue-500/10"
+                      onClick={async () => {
+                        if (!user) return;
+                        setIsAddingHydration(true);
+                        const prev = hydrationMl;
+                        setHydrationMl((v) => v + ml);
+                        try {
+                          await addHydrationDb(user.id, ml);
+                          if (hydrationMl + ml >= hydrationGoalMl && prev < hydrationGoalMl) {
+                            toast({ title: "Meta de hidratação atingida! 💧", description: "Ótimo trabalho!" });
+                            awardNutritionBadgesDb(user.id).catch(() => {});
+                          }
+                        } catch {
+                          setHydrationMl(prev);
+                          toast({ title: "Erro ao registrar hidratação", variant: "destructive" });
+                        } finally {
+                          setIsAddingHydration(false);
+                        }
+                      }}
+                    >
+                      +{ml}ml
+                    </Button>
+                  ))}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={isAddingHydration}
+                    className="h-8 px-2"
+                    title="Desfazer"
+                    onClick={async () => {
+                      if (!user) return;
+                      setIsAddingHydration(true);
+                      try {
+                        await undoLastHydrationDb(user.id);
+                        const updated = await getTodayHydrationDb(user.id);
+                        setHydrationMl(updated);
+                      } catch {
+                        toast({ title: "Erro ao desfazer", variant: "destructive" });
+                      } finally {
+                        setIsAddingHydration(false);
+                      }
+                    }}
+                  >
+                    <Minus className="h-3 w-3" />
+                  </Button>
+                </div>
+
+                {hydrationMl >= hydrationGoalMl && (
+                  <p className="text-xs text-blue-600 dark:text-blue-400 font-medium text-center">
+                    Meta atingida hoje! 💧
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>}
+
+          {/* ─── Card de Macro do Dia ─────────────────────────────────────── */}
+          {todayMacro && (todayMacro.calories > 0 || todayMacro.protein_g > 0) && (
+            <Card className="border border-emerald-500/30 bg-emerald-500/5">
+              <CardContent className="pt-4 pb-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Salad className="h-4 w-4 text-emerald-500" />
+                      <span className="text-sm font-semibold">Macro de Hoje</span>
+                    </div>
+                    {todayMacro.calories > 0 && (
+                      <span className="text-xs text-muted-foreground">{Math.round(todayMacro.calories)} kcal</span>
+                    )}
+                  </div>
+
+                  {/* Macro chips */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded-lg bg-blue-500/10 p-2 text-center">
+                      <p className="text-xs text-muted-foreground">Proteína</p>
+                      <p className="text-sm font-bold text-blue-600 dark:text-blue-400">{Math.round(todayMacro.protein_g)}g</p>
+                    </div>
+                    <div className="rounded-lg bg-amber-500/10 p-2 text-center">
+                      <p className="text-xs text-muted-foreground">Carboidrato</p>
+                      <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{Math.round(todayMacro.carbs_g)}g</p>
+                    </div>
+                    <div className="rounded-lg bg-red-500/10 p-2 text-center">
+                      <p className="text-xs text-muted-foreground">Gordura</p>
+                      <p className="text-sm font-bold text-red-600 dark:text-red-400">{Math.round(todayMacro.fat_g)}g</p>
+                    </div>
+                  </div>
+
+                  {/* Score de qualidade */}
+                  {(todayMacro.quality_counts.in_natura + todayMacro.quality_counts.processado + todayMacro.quality_counts.ultraprocessado) > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground font-medium">Qualidade da dieta</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {todayMacro.quality_counts.in_natura > 0 && (
+                          <span className="text-xs bg-green-500/10 text-green-700 dark:text-green-400 px-2 py-1 rounded-full flex items-center gap-1">
+                            <Apple className="h-3 w-3" /> {todayMacro.quality_counts.in_natura}x Natural
+                          </span>
+                        )}
+                        {todayMacro.quality_counts.processado > 0 && (
+                          <span className="text-xs bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 px-2 py-1 rounded-full">
+                            {todayMacro.quality_counts.processado}x Processado
+                          </span>
+                        )}
+                        {todayMacro.quality_counts.ultraprocessado > 0 && (
+                          <span className="text-xs bg-orange-500/10 text-orange-700 dark:text-orange-400 px-2 py-1 rounded-full flex items-center gap-1">
+                            <AlertCircle className="h-3 w-3" /> {todayMacro.quality_counts.ultraprocessado}x Ultra
+                          </span>
+                        )}
+                      </div>
+                      {todayMacro.quality_counts.ultraprocessado === 0 && (todayMacro.quality_counts.in_natura + todayMacro.quality_counts.processado) > 0 && (
+                        <p className="text-xs text-green-600 dark:text-green-400">Sem ultraprocessados hoje! 🥗</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {(userWorkouts.length > 0 || userDiets.length > 0 || userHabits.length > 0) ? (
             <div className="space-y-4">
               {/* Group items by name directly from user items (no dependency on routines table) */}
@@ -2565,8 +2935,20 @@ export default function Goals() {
                                                 item.quantity ?? null,
                                               );
                                               await performAutoCheckIn();
+                                              // Atualiza macro do dia e verifica badges nutricionais
+                                              getTodayMacroSummaryDb(user.id).then(setTodayMacro).catch(() => {});
+                                              awardNutritionBadgesDb(user.id).catch(() => {});
+                                              // Feedback de qualidade para ultraprocessados
+                                              if (item.dietFoodQuality === "ultraprocessado") {
+                                                toast({
+                                                  title: "Registrado 📝",
+                                                  description: "Lembre-se: equilíbrio é a chave, não perfeição.",
+                                                });
+                                              }
                                             }
                                             if (!isCompleting) {
+                                              // Atualiza macro ao desmarcar
+                                              if (user) getTodayMacroSummaryDb(user.id).then(setTodayMacro).catch(() => {});
                                               toast({
                                                 title: "Dieta desmarcada",
                                               });
@@ -2698,9 +3080,30 @@ export default function Goals() {
                                             </p>
                                           )}
                                         {typeCode === 2 && (
-                                          <p className="text-xs text-muted-foreground mt-1">
-                                            {item.dietCalories ? `${item.dietCalories} cal` : "Calorias não informadas"}
-                                          </p>
+                                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                                            {item.dietCalories != null && (
+                                              <span className="text-xs text-muted-foreground">{item.dietCalories} cal</span>
+                                            )}
+                                            {item.dietProtein != null && (
+                                              <span className="text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">P {item.dietProtein}g</span>
+                                            )}
+                                            {item.dietCarbs != null && (
+                                              <span className="text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">C {item.dietCarbs}g</span>
+                                            )}
+                                            {item.dietFat != null && (
+                                              <span className="text-xs bg-red-500/10 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded">G {item.dietFat}g</span>
+                                            )}
+                                            {item.dietFoodQuality === "ultraprocessado" && (
+                                              <span className="text-xs bg-orange-500/10 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                                                <AlertCircle className="h-2.5 w-2.5" /> Ultra
+                                              </span>
+                                            )}
+                                            {item.dietFoodQuality === "in_natura" && (
+                                              <span className="text-xs bg-green-500/10 text-green-600 dark:text-green-400 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                                                <Apple className="h-2.5 w-2.5" /> Natural
+                                              </span>
+                                            )}
+                                          </div>
                                         )}
                                       </div>
                                     </div>
@@ -3270,7 +3673,7 @@ export default function Goals() {
       </Drawer>
 
       {/* Workout Modal */}
-      <Drawer open={workoutModalOpen} onOpenChange={(open) => { setWorkoutModalOpen(open); if (!open) { setWorkoutDuration(0); setWorkoutStartTime(null); } }}>
+      <Drawer open={workoutModalOpen} onOpenChange={(open) => { if (!open) { if (workoutStartTime !== null) { setWorkoutMinimized(true); setWorkoutModalOpen(false); } else { setWorkoutModalOpen(false); setWorkoutDuration(0); setWorkoutStartTime(null); } } else { setWorkoutModalOpen(true); } }}>
         <DrawerContent className="max-h-[80dvh] overflow-hidden flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Registrar Treino</DrawerTitle>
@@ -3445,6 +3848,27 @@ export default function Goals() {
                             ))}
                           </select>
                         </div>
+
+                        {/* Load suggestion: best kg from last session */}
+                        {(() => {
+                          const isCardio = (workout.muscle_group || "").toLowerCase() === "cardio";
+                          if (isCardio) return null;
+                          const history = workoutHistoriesMap[workout.workout_id] || [];
+                          if (history.length === 0) return null;
+                          const bestLastKg = Math.max(...history.slice(0, 3).map((h) => h.kilos || 0));
+                          if (bestLastKg <= 0) return null;
+                          const suggested = Math.round((bestLastKg + 2.5) * 10) / 10;
+                          return (
+                            <div className="flex items-center gap-2 mb-3">
+                              {/* Meta de hoje */}
+                              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-brand/10 border border-brand/30">
+                                <TrendingUp className="h-3 w-3 text-brand flex-shrink-0" />
+                                <span className="text-[11px] text-brand/70 leading-none">Meta hoje</span>
+                                <span className="text-[11px] font-bold text-brand leading-none">{suggested} kg</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {/* Table Header */}
                         {(() => {
@@ -3712,8 +4136,8 @@ export default function Goals() {
                       setIsUpdatingGoal(true);
                       try {
                         const currentActualProgress = editingGoal.days_completed ?? 0;
-                        const newPerc = editGoalQuantity > 0
-                          ? Math.min(100, Math.round((currentActualProgress / editGoalQuantity) * 100))
+                        const newPerc = editGoalDuration > 0
+                          ? Math.min(100, Math.round((currentActualProgress / editGoalDuration) * 100))
                           : 0;
 
                         await updateUserGoalDb(editingGoal.id, {
@@ -3846,12 +4270,15 @@ export default function Goals() {
           setWorkoutSummaryOpen(false);
           setWorkoutSummaryData(null);
           setSelectedRoutineName(null);
-          setWorkoutCoverFile(null);
-          setWorkoutCoverPreview(null);
+          setWorkoutCoverFiles([]);
+          setWorkoutCoverPreviews([]);
+          setCoverCarouselIndex(0);
+          setCanvasPreviewUrl(null);
           setWorkoutRating(0);
           setIsDuelShareModalOpen(false);
           setSelectedDuelGroupId(null);
           setDuelGroups([]);
+          setNutritionExpanded(true);
         };
 
         const handleOpenDuelShare = async () => {
@@ -3875,7 +4302,8 @@ export default function Goals() {
             const userPhotoUrl = userProfile?.photo || null;
 
             let photoUrl: string | null = null;
-            if (workoutCoverFile && supabase) {
+            if (workoutCoverFiles.length > 0 && supabase) {
+              const workoutCoverFile = workoutCoverFiles[0];
               const ext = workoutCoverFile.name.split(".").pop() || "jpg";
               const filePath = `${user.id}/${Date.now()}-duel-checkin.${ext}`;
               const { error: uploadError } = await supabase.storage
@@ -3885,7 +4313,7 @@ export default function Goals() {
                 const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
                 photoUrl = urlData.publicUrl;
               }
-            } else if (!workoutCoverFile && workoutCanvasRef.current && supabase) {
+            } else if (workoutCoverFiles.length === 0 && workoutCanvasRef.current && supabase) {
               const canvas = workoutCanvasRef.current;
               const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
               if (blob) {
@@ -3930,20 +4358,41 @@ export default function Goals() {
         };
 
         const handlePickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          if (!file.type.startsWith("image/")) {
-            toast({ title: "Selecione uma imagem válida", variant: "destructive" });
-            return;
+          const files = Array.from(e.target.files || []);
+          if (!files.length) return;
+          const valid = files.filter((f) => f.type.startsWith("image/") && f.size <= 10 * 1024 * 1024);
+          if (valid.length < files.length) {
+            toast({ title: "Alguns arquivos foram ignorados (tipo inválido ou >10MB)", variant: "destructive" });
           }
-          if (file.size > 10 * 1024 * 1024) {
-            toast({ title: "Imagem muito grande (máx 10MB)", variant: "destructive" });
-            return;
-          }
-          setWorkoutCoverFile(file);
-          const reader = new FileReader();
-          reader.onloadend = () => setWorkoutCoverPreview(reader.result as string);
-          reader.readAsDataURL(file);
+          if (!valid.length) return;
+          const newFiles = [...workoutCoverFiles, ...valid].slice(0, 10);
+          setWorkoutCoverFiles(newFiles);
+          // +1 to account for canvas slide at index 0
+          setCoverCarouselIndex(1 + newFiles.length - 1);
+          const previews: string[] = [...workoutCoverPreviews];
+          let loaded = 0;
+          newFiles.forEach((file, i) => {
+            if (i < workoutCoverPreviews.length) {
+              loaded++;
+              if (loaded === newFiles.length) setWorkoutCoverPreviews([...previews]);
+            } else {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                previews[i] = reader.result as string;
+                loaded++;
+                if (loaded === newFiles.length) setWorkoutCoverPreviews([...previews]);
+              };
+              reader.readAsDataURL(file);
+            }
+          });
+        };
+
+        const handleRemoveCoverPhoto = (index: number) => {
+          const newFiles = workoutCoverFiles.filter((_, i) => i !== index);
+          const newPreviews = workoutCoverPreviews.filter((_, i) => i !== index);
+          setWorkoutCoverFiles(newFiles);
+          setWorkoutCoverPreviews(newPreviews);
+          setCoverCarouselIndex(Math.min(coverCarouselIndex, Math.max(0, newFiles.length - 1)));
         };
 
         const handleShare = async () => {
@@ -3958,37 +4407,37 @@ export default function Goals() {
               : "";
             const description = `💪 ${routineStr}!\n⏱️ ${durationStr}${volumeStr}\n✅ ${workoutSummaryData.totalSeries} séries${exerciseList}\n\n#Linka #Fitness #Treino`;
 
-            let photoUrl: string | null = null;
+            let photoUrls: string[] = [];
 
-            // If user picked a custom photo, upload it
-            if (workoutCoverFile) {
-              const ext = workoutCoverFile.name.split(".").pop() || "jpg";
-              const filePath = `${user.id}/${Date.now()}-workout.${ext}`;
-              const { error: uploadError } = await supabase.storage
-                .from("posts")
-                .upload(filePath, workoutCoverFile, { contentType: workoutCoverFile.type, upsert: false });
-              if (uploadError) throw uploadError;
-              const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
-              photoUrl = urlData.publicUrl;
-            } else {
-              // Generate cover image from canvas
-              const canvas = workoutCanvasRef.current;
-              if (canvas) {
-                const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
-                if (blob) {
-                  const filePath = `${user.id}/${Date.now()}-workout-cover.png`;
-                  const { error: uploadError } = await supabase.storage
-                    .from("posts")
-                    .upload(filePath, blob, { contentType: "image/png", upsert: false });
-                  if (!uploadError) {
-                    const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
-                    photoUrl = urlData.publicUrl;
-                  }
+            // Always upload the canvas card as the first photo
+            const canvas = workoutCanvasRef.current;
+            if (canvas) {
+              const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
+              if (blob) {
+                const filePath = `${user.id}/${Date.now()}-workout-cover.png`;
+                const { error: uploadError } = await supabase.storage
+                  .from("posts")
+                  .upload(filePath, blob, { contentType: "image/png", upsert: false });
+                if (!uploadError) {
+                  const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                  photoUrls.push(urlData.publicUrl);
                 }
               }
             }
 
-            await createPostDb(photoUrl, description);
+            // Then upload any user-picked photos
+            for (const file of workoutCoverFiles) {
+              const ext = file.name.split(".").pop() || "jpg";
+              const filePath = `${user.id}/${Date.now()}-workout.${ext}`;
+              const { error: uploadError } = await supabase.storage
+                .from("posts")
+                .upload(filePath, file, { contentType: file.type, upsert: false });
+              if (uploadError) throw uploadError;
+              const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+              photoUrls.push(urlData.publicUrl);
+            }
+
+            await createPostDb(photoUrls.length > 0 ? photoUrls : null, description);
 
             toast({ title: "Postado no feed! 🎉", description: "Seu treino foi compartilhado." });
             closeSummary();
@@ -4000,10 +4449,54 @@ export default function Goals() {
           }
         };
 
+        const handleSharePR = async () => {
+          if (!workoutSummaryData?.prs.length || !user || !supabase) return;
+          setIsSharingWorkout(true);
+          try {
+            const prLines = workoutSummaryData.prs
+              .map((pr) => `🏆 ${pr.exerciseName}: ${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`)
+              .join("\n");
+            const prVolumeStr = workoutSummaryData.isAllCardio
+              ? (workoutSummaryData.totalKm > 0 ? `📍 Distância: ${workoutSummaryData.totalKm} km` : "")
+              : (workoutSummaryData.totalVolume > 0 ? `📦 Volume: ${workoutSummaryData.totalVolume} kg` : "");
+            const prStats = [`⏱️ Duração: ${durationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`]
+              .filter(Boolean)
+              .join("  ·  ");
+            const description = `🔥 Novo recorde pessoal!\n\n${prLines}\n\n${prStats}\n\n#Linka #PR #RecordePessoal #Fitness`;
+
+            // Generate PR card image from canvas
+            let photoUrl: string | null = null;
+            const canvas = prCanvasRef.current;
+            if (canvas) {
+              const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
+              if (blob) {
+                const filePath = `${user.id}/${Date.now()}-pr-card.png`;
+                const { error: uploadError } = await supabase.storage
+                  .from("posts")
+                  .upload(filePath, blob, { contentType: "image/png", upsert: false });
+                if (!uploadError) {
+                  const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                  photoUrl = urlData.publicUrl;
+                }
+              }
+            }
+
+            await createPostDb(photoUrl, description);
+            toast({ title: "PR compartilhado! 🏆", description: "Seu recorde foi postado no feed." });
+            closeSummary();
+            navigate("/");
+          } catch (err: any) {
+            toast({ title: "Erro ao compartilhar PR", description: err?.message || "Tente novamente.", variant: "destructive" });
+          } finally {
+            setIsSharingWorkout(false);
+          }
+        };
+
         return (
           <div className="fixed inset-0 z-[200] flex flex-col bg-background overflow-y-auto">
-            {/* Hidden canvas for cover generation — drawn via useEffect below */}
+            {/* Hidden canvases for cover generation */}
             <canvas ref={workoutCanvasRef} width={800} height={800} className="hidden" />
+            <canvas ref={prCanvasRef} width={800} height={800} className="hidden" />
 
             {/* Header */}
             <div className="flex items-center justify-between px-4 pt-12 pb-4 flex-shrink-0">
@@ -4014,58 +4507,83 @@ export default function Goals() {
               <div className="w-9" />
             </div>
 
-            {/* Cover image preview */}
-            <div className="mx-4 mb-4 relative rounded-2xl overflow-hidden aspect-square bg-gradient-to-br from-slate-900 to-emerald-950 border border-brand/20 flex-shrink-0">
-              {workoutCoverPreview ? (
-                <img src={workoutCoverPreview} alt="Capa do treino" className="w-full h-full object-cover" />
-              ) : (
-                /* Generated cover preview (mirrors canvas) */
-                <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-6 text-center select-none">
-                  <div className="text-6xl">💪</div>
-                  <p className="text-xl font-bold text-white">Treino Concluído!</p>
-                  {workoutSummaryData.routineName && (
-                    <p className="text-sm text-emerald-400">{workoutSummaryData.routineName}</p>
-                  )}
-                  <div className="w-full h-px bg-emerald-500/30 my-1" />
-                  <div className="flex gap-6 text-center">
-                    <div>
-                      <p className="text-lg font-bold text-emerald-400">{durationStr}</p>
-                      <p className="text-xs text-white/50">Duração</p>
+            {/* Cover image carousel */}
+            {(() => {
+              // Slide 0 is always the canvas card; slides 1..N are user photos
+              const allSlides: { src: string; isCanvas: boolean }[] = [
+                ...(canvasPreviewUrl ? [{ src: canvasPreviewUrl, isCanvas: true }] : []),
+                ...workoutCoverPreviews.map((src) => ({ src, isCanvas: false })),
+              ];
+              const safeIndex = Math.min(coverCarouselIndex, Math.max(0, allSlides.length - 1));
+              const currentSlide = allSlides[safeIndex];
+              // Index of current slide in userPhotos array (offset by canvas slide)
+              const userPhotoIndex = safeIndex - (canvasPreviewUrl ? 1 : 0);
+              return (
+                <div className="mx-4 mb-4 relative rounded-2xl overflow-hidden aspect-square bg-gradient-to-br from-slate-900 to-emerald-950 border border-brand/20 flex-shrink-0">
+                  {/* Current slide */}
+                  {currentSlide ? (
+                    <img src={currentSlide.src} alt={`Slide ${safeIndex + 1}`} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Camera className="h-10 w-10 text-white/30" />
                     </div>
-                    {workoutSummaryData.isAllCardio ? (
-                      workoutSummaryData.totalKm > 0 && (
-                        <div>
-                          <p className="text-lg font-bold text-emerald-400">{workoutSummaryData.totalKm} km</p>
-                          <p className="text-xs text-white/50">Distância</p>
-                        </div>
-                      )
-                    ) : (
-                      workoutSummaryData.totalVolume > 0 && (
-                        <div>
-                          <p className="text-lg font-bold text-emerald-400">{workoutSummaryData.totalVolume} kg</p>
-                          <p className="text-xs text-white/50">Volume</p>
-                        </div>
-                      )
-                    )}
-                    <div>
-                      <p className="text-lg font-bold text-emerald-400">{workoutSummaryData.totalSeries}</p>
-                      <p className="text-xs text-white/50">Séries</p>
-                    </div>
-                  </div>
-                  {workoutSummaryData.exerciseNames.length > 0 && (
-                    <p className="text-xs text-white/60 mt-1">{workoutSummaryData.exerciseNames.slice(0, 3).join("  ·  ")}</p>
                   )}
-                  <p className="text-xs text-emerald-400/60 mt-2 font-semibold">Linka</p>
-                </div>
-              )}
 
-              {/* Change photo button overlay */}
-              <label className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full cursor-pointer transition-colors">
-                <Camera className="h-3.5 w-3.5" />
-                {workoutCoverPreview ? "Trocar foto" : "Adicionar foto"}
-                <input type="file" accept="image/*" className="hidden" onChange={handlePickPhoto} />
-              </label>
-            </div>
+                  {/* Carousel navigation arrows */}
+                  {allSlides.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => setCoverCarouselIndex((i) => (i - 1 + allSlides.length) % allSlides.length)}
+                        className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors"
+                        aria-label="Foto anterior"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => setCoverCarouselIndex((i) => (i + 1) % allSlides.length)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors"
+                        aria-label="Próxima foto"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </>
+                  )}
+
+                  {/* Dots indicator */}
+                  {allSlides.length > 1 && (
+                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-1.5">
+                      {allSlides.map((_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setCoverCarouselIndex(i)}
+                          className={`h-1.5 rounded-full transition-all ${i === safeIndex ? "bg-white w-3" : "bg-white/50 w-1.5"}`}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Remove button — only for user photos, not the canvas slide */}
+                  {currentSlide && !currentSlide.isCanvas && (
+                    <button
+                      onClick={() => handleRemoveCoverPhoto(userPhotoIndex)}
+                      className="absolute top-3 right-3 bg-black/60 hover:bg-red-600/80 text-white rounded-full p-1.5 transition-colors"
+                      aria-label="Remover foto"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+
+                  {/* Add photo button */}
+                  {workoutCoverPreviews.length < 10 && (
+                    <label className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full cursor-pointer transition-colors">
+                      <Camera className="h-3.5 w-3.5" />
+                      {workoutCoverPreviews.length > 0 ? `+foto (${workoutCoverPreviews.length}/10)` : "Adicionar foto"}
+                      <input type="file" accept="image/*" multiple className="hidden" onChange={handlePickPhoto} />
+                    </label>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Stats row */}
             <div className="mx-4 grid grid-cols-3 gap-2 mb-4">
@@ -4111,9 +4629,19 @@ export default function Goals() {
             {/* PRs achieved this session */}
             {workoutSummaryData.prs.length > 0 && (
               <div className="mx-4 mb-4 rounded-xl bg-brand/10 border border-brand/30 p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-lg">🏆</span>
-                  <p className="text-sm font-semibold text-brand">Novos Recordes!</p>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🏆</span>
+                    <p className="text-sm font-semibold text-brand">Novos Recordes!</p>
+                  </div>
+                  <button
+                    onClick={handleSharePR}
+                    disabled={isSharingWorkout}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-brand border border-brand/40 rounded-full px-3 py-1 hover:bg-brand/10 transition-colors disabled:opacity-50"
+                  >
+                    <Share2 className="h-3.5 w-3.5" />
+                    Compartilhar
+                  </button>
                 </div>
                 <div className="space-y-1.5">
                   {workoutSummaryData.prs.map((pr, i) => (
@@ -4127,28 +4655,6 @@ export default function Goals() {
                 </div>
               </div>
             )}
-
-            {/* Workout Rating */}
-            <div className="mx-4 mb-4 rounded-xl bg-card border border-border/50 p-4">
-              <p className="text-sm font-semibold mb-3 text-center">Como foi o treino?</p>
-              <div className="flex justify-center gap-3">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    onClick={() => setWorkoutRating(star)}
-                    className={`text-2xl transition-transform active:scale-110 ${star <= workoutRating ? "opacity-100" : "opacity-30"}`}
-                    aria-label={`${star} estrela${star > 1 ? "s" : ""}`}
-                  >
-                    ⭐
-                  </button>
-                ))}
-              </div>
-              {workoutRating > 0 && (
-                <p className="text-xs text-center text-muted-foreground mt-2">
-                  {workoutRating === 1 ? "Difícil hoje..." : workoutRating === 2 ? "Poderia ser melhor" : workoutRating === 3 ? "Treino ok!" : workoutRating === 4 ? "Bom treino! 💪" : "Treino incrível! 🔥"}
-                </p>
-              )}
-            </div>
 
             {/* Actions */}
             <div className="mx-4 pb-10 space-y-3 mt-2">
@@ -4212,6 +4718,49 @@ export default function Goals() {
                       {isSharingDuel ? "Enviando..." : <><Swords className="h-3.5 w-3.5" /> Confirmar</>}
                     </Button>
                   </div>
+                </div>
+              )}
+
+              {/* ─── Timing Nutricional Pós-Treino ─── */}
+              {showPostWorkoutNutrition && (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Zap className="h-4 w-4 text-emerald-500" />
+                      <span className="text-sm font-semibold">Nutrição Pós-Treino</span>
+                    </div>
+                    <button
+                      onClick={() => setNutritionExpanded((v) => !v)}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      {nutritionExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                  {nutritionExpanded && (
+                    <>
+                      <p className="text-xs text-muted-foreground">
+                        Para maximizar a recuperação, consuma dentro de 30–60 min:
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-lg bg-blue-500/10 p-2.5">
+                          <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">Proteína</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">20–40g · whey, ovo, frango</p>
+                        </div>
+                        <div className="rounded-lg bg-amber-500/10 p-2.5">
+                          <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">Carboidrato</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">30–60g · arroz, banana, batata</p>
+                        </div>
+                        <div className="rounded-lg bg-blue-400/10 p-2.5">
+                          <p className="text-xs font-semibold text-blue-500 dark:text-blue-300">Hidratação</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">500ml+ de água</p>
+                        </div>
+                        <div className="rounded-lg bg-purple-500/10 p-2.5">
+                          <p className="text-xs font-semibold text-purple-600 dark:text-purple-400">Timing</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Janela anabólica: até 2h</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -4474,6 +5023,73 @@ export default function Goals() {
                       </div>
                     </div>
 
+                    {/* Progression Chart */}
+                    {(() => {
+                      // Build one point per day: max kg of that day
+                      const chartData = sortedDates.slice().reverse().map((dateKey) => {
+                        const dayKilos = groupedByDay[dateKey]
+                          .map((r) => r.kilos || 0)
+                          .filter((k) => k > 0);
+                        const maxKg = dayKilos.length > 0 ? Math.max(...dayKilos) : 0;
+                        const parts = dateKey.split("/");
+                        const label = `${parts[0]}/${parts[1]}`;
+                        return { date: label, kg: maxKg };
+                      }).filter((d) => d.kg > 0);
+
+                      if (chartData.length < 2) return null;
+
+                      return (
+                        <div className="mb-5 rounded-xl bg-muted/30 border border-border/40 p-3">
+                          <p className="text-xs font-semibold text-muted-foreground mb-3 flex items-center gap-1.5">
+                            <TrendingUp className="h-3.5 w-3.5" />
+                            Progressão de carga (kg)
+                          </p>
+                          <ResponsiveContainer width="100%" height={120}>
+                            <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                              <XAxis
+                                dataKey="date"
+                                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                                tickLine={false}
+                                axisLine={false}
+                              />
+                              <YAxis
+                                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                                tickLine={false}
+                                axisLine={false}
+                                domain={["auto", "auto"]}
+                              />
+                              <Tooltip
+                                contentStyle={{
+                                  background: "hsl(var(--card))",
+                                  border: "1px solid hsl(var(--border))",
+                                  borderRadius: 8,
+                                  fontSize: 12,
+                                }}
+                                formatter={(value: number) => [`${value} kg`, "Carga"]}
+                                labelStyle={{ color: "hsl(var(--muted-foreground))", marginBottom: 2 }}
+                              />
+                              {prKg && (
+                                <ReferenceLine
+                                  y={prKg}
+                                  stroke="hsl(var(--brand))"
+                                  strokeDasharray="4 3"
+                                  label={{ value: "PR", position: "insideTopRight", fontSize: 9, fill: "hsl(var(--brand))" }}
+                                />
+                              )}
+                              <Line
+                                type="monotone"
+                                dataKey="kg"
+                                stroke="hsl(var(--brand))"
+                                strokeWidth={2}
+                                dot={{ r: 3, fill: "hsl(var(--brand))", strokeWidth: 0 }}
+                                activeDot={{ r: 5 }}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      );
+                    })()}
+
                     {sortedDates.map((dateKey) => {
                   const dayRecords = groupedByDay[dateKey];
                   const totalKilos = dayRecords
@@ -4484,9 +5100,44 @@ export default function Goals() {
                     <div key={dateKey} className="mb-6">
                       {/* Date Header */}
                       <div className="sticky top-0 bg-background/95 py-2 mb-2">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase">
-                          {dateKey}
-                        </p>
+                        <button
+                          className="text-xs font-semibold text-muted-foreground uppercase hover:text-brand transition-colors flex items-center gap-1"
+                          onClick={() => {
+                            const totalVolume = dayRecords.reduce((sum, r) => sum + (r.kilos || 0), 0);
+                            const totalSeries = dayRecords.length;
+                            const kgValues = dayRecords.map((r) => r.kilos || 0).filter((k) => k > 0);
+                            const bestKg = kgValues.length > 0 ? Math.max(...kgValues) : 0;
+                            const prHistorical = workoutHistory
+                              .filter((r) => new Date(r.dateCompleted).toLocaleDateString("pt-BR") !== dateKey)
+                              .map((r) => r.kilos || 0);
+                            const bestHistorical = prHistorical.length > 0 ? Math.max(...prHistorical) : 0;
+                            const prs = bestKg > bestHistorical && selectedWorkoutForHistory?.name
+                              ? [{ exerciseName: selectedWorkoutForHistory.name, kg: bestKg, reps: (() => { const rec = dayRecords.find((r) => r.kilos === bestKg); return rec?.volume ? parseInt(rec.volume) || 0 : 0; })() }]
+                              : [];
+                            setWorkoutSummaryData({
+                              duration: 0,
+                              totalVolume,
+                              totalSeries,
+                              exerciseNames: selectedWorkoutForHistory?.name ? [selectedWorkoutForHistory.name] : [],
+                              exercises: dayRecords.map((r) => ({
+                                workoutId: selectedWorkoutForHistory?.id || "",
+                                workoutName: selectedWorkoutForHistory?.name || "",
+                                muscleGroup: selectedWorkoutForHistory?.muscle_group || null,
+                                kilos: r.kilos || null,
+                                volume: r.volume || null,
+                              })),
+                              routineName: selectedWorkoutForHistory?.name || null,
+                              prs,
+                              isAllCardio: (selectedWorkoutForHistory?.muscle_group || "").toLowerCase() === "cardio",
+                              totalKm: (selectedWorkoutForHistory?.muscle_group || "").toLowerCase() === "cardio" ? totalVolume : 0,
+                            });
+                            setWorkoutHistoryModalOpen(false);
+                            setWorkoutSummaryOpen(true);
+                            setShowPostWorkoutNutrition(false);
+                          }}
+                        >
+                          {dateKey} <span className="text-brand/60 font-normal ml-1">· ver resumo</span>
+                        </button>
                         <div className="flex gap-4 mt-1">
                           <div>
                             <p className="text-xs text-muted-foreground">
@@ -4593,10 +5244,10 @@ export default function Goals() {
                     <Progress value={goal.perc} className="h-2" />
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">
-                        {goal.days_completed} de {goal.quantity}
+                        {goal.days_completed} de {goal.duration} dias
                       </span>
                       <span className="font-medium text-foreground">
-                        {goal.quantity - goal.days_completed} para concluir
+                        {Math.max(0, goal.duration - goal.days_completed)} para concluir
                       </span>
                     </div>
                   </div>
@@ -5369,6 +6020,7 @@ export default function Goals() {
           </div>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }

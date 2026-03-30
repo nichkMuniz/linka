@@ -37,6 +37,7 @@ import {
   isFollowingDb,
   getCommercialProfileDb,
   createOrUpdateCommercialProfileDb,
+  deleteCommercialProfileDb,
   getWorkoutHistoryDb,
   getUserActiveStoriesDb,
   getExpiredUserFlowsDb,
@@ -748,6 +749,28 @@ export default function Profile() {
       setIsSavingCommercial(false);
     }
   }, [user, commercialFormData]);
+
+  const handleDeleteCommercialProfile = React.useCallback(async () => {
+    if (!user) return;
+    if (!confirm("Tem certeza que deseja excluir seu perfil comercial? Esta ação não pode ser desfeita.")) return;
+
+    try {
+      await deleteCommercialProfileDb(user.id);
+      setCommercialProfile(null);
+      setIsCommercialDashboardOpen(false);
+      toast({
+        title: "Perfil comercial excluído",
+        description: "Seus dados comerciais foram removidos.",
+      });
+    } catch (err: any) {
+      console.error("Error deleting commercial profile:", err);
+      toast({
+        title: "Erro ao excluir",
+        description: err?.message || "Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  }, [user]);
 
   React.useEffect(() => {
     checkFollowingStatus();
@@ -1649,14 +1672,16 @@ export default function Profile() {
                       open={isCommercialProfileOpen}
                       onOpenChange={setIsCommercialProfileOpen}
                     >
-                        <Button
-                          onClick={handleOpenCommercialProfile}
-                          variant="outline"
-                          className="gap-2 justify-between"
-                        >
-                          <span>Perfil Comercial</span>
-                          <span className="text-lg">🏪</span>
-                        </Button>
+                        {!commercialProfile && (
+                          <Button
+                            onClick={handleOpenCommercialProfile}
+                            variant="outline"
+                            className="gap-2 justify-between"
+                          >
+                            <span>Perfil Comercial</span>
+                            <span className="text-lg">🏪</span>
+                          </Button>
+                        )}
 
                       <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
                         <DrawerHeader className="shrink-0">
@@ -3926,7 +3951,33 @@ export default function Profile() {
       <Drawer open={isCommercialDashboardOpen} onOpenChange={setIsCommercialDashboardOpen}>
         <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>🏪 {commercialProfile?.business_name || "Perfil Comercial"}</DrawerTitle>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setIsCommercialDashboardOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+                <DrawerTitle>🏪 {commercialProfile?.business_name || "Perfil Comercial"}</DrawerTitle>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    setIsCommercialDashboardOpen(false);
+                    handleOpenCommercialProfile();
+                  }}
+                  className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                  aria-label="Editar perfil comercial"
+                >
+                  <Edit2 className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={handleDeleteCommercialProfile}
+                  className="p-1.5 rounded-full hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
+                  aria-label="Excluir perfil comercial"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
           </DrawerHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-5">
             {/* Segment badge */}

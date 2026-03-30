@@ -649,7 +649,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                   className="inline-flex shrink-0 items-center gap-1 transition-opacity hover:opacity-80 min-h-[44px] min-w-[44px] justify-center"
                 >
                   <div className="flex flex-col items-center gap-1">
-                    <MessageCircle className="h-7 w-7 text-white hover:scale-110 transition-transform" />
+                    <MessageCircle className="h-[18px] w-[18px] text-white hover:scale-110 transition-transform" />
                     {(shot.commentCount || 0) > 0 && (
                       <span className="text-xs text-white/70 font-medium">
                         {shot.commentCount}
@@ -818,7 +818,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     <p className="text-xs text-muted-foreground mt-1">
                       {new Date(comment.createdAt).toLocaleString("pt-BR")}
                     </p>
-                    <CommentReactions commentType="shot" commentId={comment.id} />
+                    <CommentReactions commentType="shot" commentId={comment.id} commentOwnerId={comment.userId} sourceId={selectedShot?.id} isOwnComment={!!(user?.id === comment.userId)} />
                   </div>
                   {user?.id === comment.userId && (
                     <button

@@ -16,6 +16,7 @@ import {
 import { AppLayout } from "@/components/layout/app-layout";
 import { ThemeProvider } from "@/components/layout/theme-provider";
 import { LanguageProvider } from "@/lib/language-context";
+import { WorkoutProvider } from "@/lib/workout-context";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -23,6 +24,7 @@ import { FloatingActionMenu } from "@/components/layout/floating-action-menu";
 
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
+import { useTheme } from "next-themes";
 
 // Lazy-load heavy pages to split the initial bundle
 const Index        = React.lazy(() => import("@/pages/Index"));
@@ -43,10 +45,12 @@ import NotFound from "@/pages/NotFound";
 const queryClient = new QueryClient();
 
 function AuthLoadingScreen() {
+  const { resolvedTheme } = useTheme();
+  const logoSrc = resolvedTheme === "dark" ? "/logo-branco.png" : "/logo.png";
   return (
     <div className="grid min-h-dvh place-items-center bg-background p-6">
       <div className="text-center">
-        <img src="/logo.png" alt="LinKa" className="h-12 mx-auto" />
+        <img src={logoSrc} alt="LinKa" className="h-12 mx-auto" />
         <div className="mt-1 text-sm text-muted-foreground">Carregando…</div>
       </div>
     </div>
@@ -130,6 +134,7 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <LanguageProvider>
+      <WorkoutProvider>
       <ThemeProvider>
         <TooltipProvider>
           <Toaster />
@@ -169,6 +174,7 @@ const App = () => {
           </BrowserRouter>
         </TooltipProvider>
       </ThemeProvider>
+      </WorkoutProvider>
       </LanguageProvider>
     </QueryClientProvider>
   );
