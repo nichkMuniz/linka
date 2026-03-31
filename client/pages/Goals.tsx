@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   getProgrammedGoalsDb,
@@ -1911,7 +1912,20 @@ export default function Goals() {
         const dStr = mins2 > 0 ? `${mins2}m ${secs2 > 0 ? `${secs2}s` : ""}`.trim() : `${secs2}s`;
         const exList = exerciseNames.length > 0 ? `\n🏋️ ${exerciseNames.join(" · ")}` : "";
         const volStr = Math.round(totalVolume * 10) / 10 > 0 ? `\n📦 Volume: ${Math.round(totalVolume * 10) / 10} kg` : "";
-        setWorkoutPostDescription(`💪 ${rStr}!\n⏱️ ${dStr}${volStr}\n✅ ${Math.round(totalSeries)} séries${exList}\n\n#Linka #Fitness #Treino`);
+        if (prs.length > 0) {
+          const prLines = prs
+            .map((pr) => `🏆 ${pr.exerciseName}: ${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`)
+            .join("\n");
+          const prVolumeStr = (allCardio && exerciseNames.length > 0)
+            ? (Math.round(totalKm * 10) / 10 > 0 ? `📍 Distância: ${Math.round(totalKm * 10) / 10} km` : "")
+            : (Math.round(totalVolume * 10) / 10 > 0 ? `📦 Volume: ${Math.round(totalVolume * 10) / 10} kg` : "");
+          const prStats = [`⏱️ Duração: ${dStr}`, prVolumeStr, `✅ Séries: ${Math.round(totalSeries)}`]
+            .filter(Boolean)
+            .join("  ·  ");
+          setWorkoutPostDescription(`🔥 Novo recorde pessoal!\n\n${prLines}\n\n${prStats}\n\n#Linka #PR #RecordePessoal #Fitness`);
+        } else {
+          setWorkoutPostDescription(`💪 ${rStr}!\n⏱️ ${dStr}${volStr}\n✅ ${Math.round(totalSeries)} séries${exList}\n\n#Linka #Fitness #Treino`);
+        }
         // Find user_goal id linked to this routine (for post goal bar)
         const linkedRoutine = routines.find((r) => r.type === 1 && (rName ? r.name === rName : !r.name) && r.goal_id);
         const linkedUserGoal = linkedRoutine?.goal_id
@@ -4073,7 +4087,7 @@ export default function Goals() {
       </Drawer>
 
       {/* PR Celebration Banner — floats above everything during workout */}
-      {prCelebration && (
+      {prCelebration && typeof document !== "undefined" && createPortal(
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[300] animate-in slide-in-from-top-4 fade-in duration-300">
           <div className="flex items-center gap-3 bg-brand text-white rounded-2xl px-5 py-3 shadow-2xl shadow-brand/40 border border-white/20">
             <span className="text-2xl">🏆</span>
@@ -4085,7 +4099,8 @@ export default function Goals() {
               </p>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Rest Timer Modal */}
@@ -4488,6 +4503,18 @@ export default function Goals() {
           setIsSharingWorkout(true);
           try {
             const description = workoutPostDescription || (() => {
+              if (workoutSummaryData.prs.length > 0) {
+                const prLines = workoutSummaryData.prs
+                  .map((pr) => `🏆 ${pr.exerciseName}: ${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`)
+                  .join("\n");
+                const prVolumeStr = workoutSummaryData.isAllCardio
+                  ? (workoutSummaryData.totalKm > 0 ? `📍 Distância: ${workoutSummaryData.totalKm} km` : "")
+                  : (workoutSummaryData.totalVolume > 0 ? `📦 Volume: ${workoutSummaryData.totalVolume} kg` : "");
+                const prStats = [`⏱️ Duração: ${durationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`]
+                  .filter(Boolean)
+                  .join("  ·  ");
+                return `🔥 Novo recorde pessoal!\n\n${prLines}\n\n${prStats}\n\n#Linka #PR #RecordePessoal #Fitness`;
+              }
               const exerciseList = workoutSummaryData.exerciseNames.length > 0
                 ? `\n🏋️ ${workoutSummaryData.exerciseNames.join(" · ")}`
                 : "";
@@ -4499,7 +4526,23 @@ export default function Goals() {
 
             let photoUrls: string[] = [];
 
-            // Always upload the canvas card as the first photo
+            // 1. Upload the PR canvas card as the first photo if there's a PR
+            const prCanvas = prCanvasRef.current;
+            if (prCanvas && workoutSummaryData.prs.length > 0) {
+              const blob = await new Promise<Blob | null>((res) => prCanvas.toBlob(res, "image/png"));
+              if (blob) {
+                const filePath = `${user.id}/${Date.now()}-pr-cover.png`;
+                const { error: uploadError } = await supabase.storage
+                  .from("posts")
+                  .upload(filePath, blob, { contentType: "image/png", upsert: false });
+                if (!uploadError) {
+                  const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                  photoUrls.push(urlData.publicUrl);
+                }
+              }
+            }
+
+            // 2. Upload the workout canvas card as the next photo
             const canvas = workoutCanvasRef.current;
             if (canvas) {
               const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
@@ -4582,7 +4625,7 @@ export default function Goals() {
           }
         };
 
-        return (
+        return createPortal(
           <div className="fixed inset-0 z-[200] flex flex-col bg-background overflow-y-auto">
             {/* Hidden canvases for cover generation */}
             <canvas ref={workoutCanvasRef} width={800} height={800} className="hidden" />
@@ -4870,7 +4913,8 @@ export default function Goals() {
                 Fechar
               </Button>
             </div>
-          </div>
+          </div>,
+          document.body
         );
       })()}
 

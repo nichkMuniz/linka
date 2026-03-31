@@ -43,7 +43,6 @@ export default function NewPost() {
   const [selectedVideoFile, setSelectedVideoFile] = React.useState<File | null>(() => videoDraft.file);
   const [videoPreview, setVideoPreview] = React.useState<string | null>(() => videoDraft.preview);
   const [videoDescription, setVideoDescription] = React.useState(() => sessionStorage.getItem("newpost_video_description") || "");
-  const [videoSelectedGoalId, setVideoSelectedGoalId] = React.useState<string>(() => sessionStorage.getItem("newpost_video_goal_id") || "");
 
   // Shared state
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
@@ -63,7 +62,6 @@ export default function NewPost() {
   React.useEffect(() => { sessionStorage.setItem("newpost_description", description); }, [description]);
   React.useEffect(() => { sessionStorage.setItem("newpost_goal_id", selectedGoalId); }, [selectedGoalId]);
   React.useEffect(() => { sessionStorage.setItem("newpost_video_description", videoDescription); }, [videoDescription]);
-  React.useEffect(() => { sessionStorage.setItem("newpost_video_goal_id", videoSelectedGoalId); }, [videoSelectedGoalId]);
   React.useEffect(() => { sessionStorage.setItem("newpost_tab", activeTab); }, [activeTab]);
 
   // Keep module-level image draft in sync with state
@@ -354,18 +352,8 @@ export default function NewPost() {
       const shot = await createShotDb(
         urlData.publicUrl,
         videoDescription,
-        videoSelectedGoalId || null,
+        null,
       );
-
-      // If a goal was linked, increment its progress
-      if (videoSelectedGoalId) {
-        try {
-          await incrementGoalProgressDb(videoSelectedGoalId);
-        } catch (err) {
-          console.error("Error incrementing goal progress:", err);
-          // Don't fail the entire shot creation if goal update fails
-        }
-      }
 
       toast({
         title: "Sucesso!",
@@ -378,9 +366,7 @@ export default function NewPost() {
       setSelectedVideoFile(null);
       setVideoPreview(null);
       setVideoDescription("");
-      setVideoSelectedGoalId("");
       sessionStorage.removeItem("newpost_video_description");
-      sessionStorage.removeItem("newpost_video_goal_id");
 
       // Redirect to shots after a short delay
       redirectTimerRef.current = setTimeout(() => navigate("/shots"), 1500);
@@ -394,7 +380,7 @@ export default function NewPost() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [user, selectedVideoFile, videoDescription, videoSelectedGoalId, navigate]);
+  }, [user, selectedVideoFile, videoDescription, navigate]);
 
   if (authLoading) {
     return (
@@ -730,44 +716,6 @@ export default function NewPost() {
                 </p>
               </div>
 
-              {/* Goal Selection */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Meta Vinculada (Opcional)</label>
-                {isLoadingGoals ? (
-                  <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
-                    Carregando metas...
-                  </div>
-                ) : userGoals.length > 0 ? (
-                  <Select value={videoSelectedGoalId} onValueChange={setVideoSelectedGoalId}>
-                    <SelectTrigger className="rounded-lg">
-                      <SelectValue
-                        placeholder={
-                          videoSelectedGoalId
-                            ? userGoals.find((g) => g.id === videoSelectedGoalId)?.description
-                            : "Selecione uma meta"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {userGoals.map((goal) => (
-                        <SelectItem key={goal.id} value={goal.id}>
-                          <div className="flex flex-col">
-                            <span>{goal.description}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div
-                    className="flex h-10 cursor-pointer items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground hover:bg-muted transition-colors"
-                    onClick={() => navigate("/metas?tab=metas")}
-                  >
-                    Nenhuma meta criada.{" "}
-                    <span className="ml-1 text-primary underline">Criar meta</span>
-                  </div>
-                )}
-              </div>
 
               {/* Action Buttons */}
               <div className="flex gap-3 pt-4">

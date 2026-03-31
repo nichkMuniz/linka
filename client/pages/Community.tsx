@@ -52,7 +52,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import {
   Drawer,
@@ -173,6 +173,7 @@ export default function Community() {
   const [leaveGroupConfirmOpen, setLeaveGroupConfirmOpen] = React.useState(false);
   const [isClassificationsOpen, setIsClassificationsOpen] = React.useState(false);
   const [isParticipantsModalOpen, setIsParticipantsModalOpen] = React.useState(false);
+  const [participantDetailsId, setParticipantDetailsId] = React.useState<string | null>(null);
   const [isAddMembersModalOpen, setIsAddMembersModalOpen] = React.useState(false);
   const [selectedMembers, setSelectedMembers] = React.useState<Set<string>>(new Set());
   const [addMembersSearch, setAddMembersSearch] = React.useState("");
@@ -671,7 +672,7 @@ export default function Community() {
       : "bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:bottom-0";
 
     return (
-      <div className={`fixed top-0 left-0 md:left-[244px] right-0 md:right-auto md:w-[680px] ${bottomClass} bg-background flex flex-col z-[60]`}>
+      <div className={`fixed top-0 left-0 md:left-[244px] right-0 md:right-0 ${bottomClass} bg-background flex flex-col z-[60]`}>
         {/* Header */}
         <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3">
           <button
@@ -3023,7 +3024,10 @@ export default function Community() {
       </Drawer>
 
       {/* Participants Modal */}
-      <Drawer open={isParticipantsModalOpen} onOpenChange={setIsParticipantsModalOpen}>
+      <Drawer open={isParticipantsModalOpen} onOpenChange={(open) => {
+        setIsParticipantsModalOpen(open);
+        if (!open) setParticipantDetailsId(null);
+      }}>
         <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Participantes ({groupParticipants.length})</DrawerTitle>
@@ -3031,12 +3035,76 @@ export default function Community() {
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
+            {/* Estatísticas do Grupo */}
+            {(() => {
+              const totalCheckIns = groupCheckIns.length;
+              
+              let avgCheckInsPerDay = 0;
+              if (selectedGroupForView?.createdAt) {
+                const start = new Date(selectedGroupForView.createdAt).getTime();
+                const now = new Date().getTime();
+                const diffDays = Math.max(1, Math.ceil((now - start) / (1000 * 60 * 60 * 24)));
+                avgCheckInsPerDay = totalCheckIns / diffDays;
+              }
+
+              const userReactionsCount: Record<string, { count: number; userName: string; userPhoto: string | null }> = {};
+              groupCheckIns.forEach(checkIn => {
+                const reactions = checkInReactions[checkIn.id] || [];
+                if (!userReactionsCount[checkIn.userId]) {
+                  userReactionsCount[checkIn.userId] = {
+                    count: 0,
+                    userName: checkIn.userName,
+                    userPhoto: checkIn.userPhoto
+                  };
+                }
+                userReactionsCount[checkIn.userId].count += reactions.length;
+              });
+
+              const topReactionUser = Object.values(userReactionsCount).sort((a, b) => b.count - a.count)[0];
+
+              return (
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 flex flex-col items-center justify-center text-center">
+                    <span className="text-xl font-bold text-brand mb-1">{totalCheckIns}</span>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Total Check-ins</span>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 flex flex-col items-center justify-center text-center">
+                    <span className="text-xl font-bold text-brand mb-1">{avgCheckInsPerDay.toFixed(1)}</span>
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Média / Dia</span>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/30 border border-border/40 flex flex-col items-center justify-center text-center">
+                    {topReactionUser && topReactionUser.count > 0 ? (
+                      <>
+                        <div className="flex items-center justify-center gap-1.5 mb-1">
+                          <span className="text-xl font-bold text-brand leading-none">{topReactionUser.count}</span>
+                          <div className="h-6 w-6 rounded-full overflow-hidden bg-muted flex items-center justify-center border border-border/40" title={topReactionUser.userName}>
+                            {topReactionUser.userPhoto ? (
+                              <ImageWithFallback src={topReactionUser.userPhoto} alt={topReactionUser.userName} className="w-full h-full object-cover" fallback="/placeholder.svg" />
+                            ) : (
+                              <span className="text-[10px] font-bold text-muted-foreground">{topReactionUser.userName.charAt(0).toUpperCase()}</span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Mais Reações</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-xl font-bold text-brand mb-1">0</span>
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Mais Reações</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="space-y-2">
               {groupParticipants.length > 0 ? (
                 groupParticipants.map((participant) => (
                   <div
                     key={participant.userId}
-                    className="p-3 rounded-lg bg-muted/30 border border-border/40 flex items-center gap-3"
+                    onClick={() => setParticipantDetailsId(participant.userId)}
+                    className="p-3 rounded-lg bg-muted/30 border border-border/40 flex items-center gap-3 cursor-pointer hover:bg-muted/50 transition-colors"
                   >
                     {participant.userPhoto ? (
                       <img
@@ -3052,7 +3120,7 @@ export default function Community() {
                     <p className="text-sm font-medium flex-1">{participant.userNickname}</p>
                     {selectedGroupForView?.createdBy === user?.id && participant.userId !== user?.id && (
                       <button
-                        onClick={() => setRemoveMemberConfirm({ open: true, participant })}
+                        onClick={(e) => { e.stopPropagation(); setRemoveMemberConfirm({ open: true, participant }); }}
                         className="p-1.5 rounded-full hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive flex-shrink-0"
                         title="Remover do grupo"
                       >
@@ -3082,6 +3150,119 @@ export default function Community() {
               </Button>
             </div>
           )}
+        </DrawerContent>
+      </Drawer>
+
+      {/* Participant Details Modal */}
+      <Drawer open={!!participantDetailsId} onOpenChange={(open) => !open && setParticipantDetailsId(null)}>
+        <DrawerContent className="h-[95dvh] flex flex-col z-[110]">
+          {(() => {
+            if (!participantDetailsId) return null;
+            const pInfo = groupParticipants.find(p => p.userId === participantDetailsId);
+            const pCheckIns = groupCheckIns.filter(c => c.userId === participantDetailsId);
+            
+            // Get month dates
+            const now = new Date();
+            const currentMonth = now.getMonth();
+            const currentYear = now.getFullYear();
+            const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            
+            const monthNames = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+            const dayNames = ['dom.', 'seg.', 'ter.', 'qua.', 'qui.', 'sex.', 'sáb.'];
+
+            const monthTitle = `${monthNames[currentMonth]} ${currentYear}`;
+            
+            const checkInsByDay: Record<number, GroupCheckIn> = {};
+            pCheckIns.forEach(c => {
+              const d = new Date(c.createdAt);
+              if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
+                checkInsByDay[d.getDate()] = c;
+              }
+            });
+
+            const activeDays = new Set(pCheckIns.map(c => {
+              const d = new Date(c.createdAt);
+              return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+            })).size;
+            
+            const totalDurationMins = pCheckIns.reduce((acc, c) => acc + (c.exercises?.length || 1) * 15, 0); 
+            const hours = Math.floor(totalDurationMins / 60);
+            const mins = totalDurationMins % 60;
+            const durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+            return (
+              <>
+                <DrawerHeader className="shrink-0 flex items-center justify-between pb-2">
+                   <button onClick={() => setParticipantDetailsId(null)} className="p-2 -ml-2 rounded-full hover:bg-muted/50 transition-colors"><ChevronLeft className="h-6 w-6" /></button>
+                   <div className="flex-1" />
+                </DrawerHeader>
+
+                <div className="flex-1 overflow-y-auto px-4 py-3 bg-background flex flex-col justify-center">
+                  <div className="flex flex-col items-center mb-4">
+                    <div className="w-16 h-16 rounded-full overflow-hidden mb-2 border-2 border-border/40 flex items-center justify-center bg-muted">
+                       {pInfo?.userPhoto ? (
+                         <ImageWithFallback src={pInfo.userPhoto} alt={pInfo?.userNickname || ""} className="w-full h-full object-cover" fallback="/placeholder.svg" />
+                       ) : (
+                         <span className="text-2xl font-bold text-muted-foreground">{pInfo?.userNickname.charAt(0).toUpperCase()}</span>
+                       )}
+                    </div>
+                    <h2 className="text-lg font-bold">{pInfo?.userNickname}</h2>
+                  </div>
+                  
+                  <div className="flex justify-between w-full mb-6 px-2">
+                    <div className="text-center flex-1">
+                      <p className="text-lg font-bold leading-none mb-1">{pCheckIns.length}</p>
+                      <p className="text-[11px] text-muted-foreground">Check-ins</p>
+                    </div>
+                    <div className="text-center flex-1">
+                      <p className="text-lg font-bold leading-none mb-1">{activeDays}</p>
+                      <p className="text-[11px] text-muted-foreground">Dias ativos</p>
+                    </div>
+                    <div className="text-center flex-1">
+                      <p className="text-lg font-bold leading-none mb-1">{durationStr}</p>
+                      <p className="text-[11px] text-muted-foreground">Duração</p>
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                     <h3 className="text-center font-bold text-base mb-3">{monthTitle}</h3>
+                     <div className="grid grid-cols-7 gap-y-2 text-center mb-1">
+                        {dayNames.map(d => (
+                          <div key={d} className="text-[10px] text-muted-foreground">{d}</div>
+                        ))}
+                     </div>
+                     <div className="grid grid-cols-7 gap-y-2 text-center items-center justify-items-center">
+                        {Array.from({length: firstDayOfMonth}).map((_, i) => (
+                          <div key={`empty-${i}`} className="w-8 h-8" />
+                        ))}
+                        {Array.from({length: daysInMonth}).map((_, i) => {
+                          const day = i + 1;
+                          const checkIn = checkInsByDay[day];
+                          return (
+                            <div key={day} className="w-8 h-8 flex items-center justify-center relative">
+                              {checkIn ? (
+                                 <div className="w-8 h-8 rounded-full overflow-hidden border border-brand/50 flex-shrink-0">
+                                   <ImageWithFallback src={checkIn.photo} alt="Check-in" className="w-8 h-8 object-cover" fallback="/placeholder.svg" />
+                                 </div>
+                              ) : (
+                                 <span className="text-xs font-medium opacity-80">{day}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                     </div>
+                  </div>
+
+                  <div className="flex justify-center mt-2 pb-2">
+                     <Button variant="secondary" size="sm" className="rounded-full px-8 opacity-50 cursor-not-allowed">
+                       Ver todos os check-ins
+                     </Button>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </DrawerContent>
       </Drawer>
 
