@@ -165,6 +165,9 @@ export default function Goals() {
     workoutExerciseRestTimes, setWorkoutExerciseRestTimes,
     currentWorkoutIndex, setCurrentWorkoutIndex,
     resetWorkoutState,
+    globalRestTimerRemaining, setGlobalRestTimerRemaining,
+    globalRestTimerActive, setGlobalRestTimerActive,
+    globalRestTimerTotal, setGlobalRestTimerTotal,
   } = useWorkout();
 
   // Abre o modal de treino quando o FAB global disparar pendingReopen
@@ -249,6 +252,8 @@ export default function Goals() {
   const [isSharingDuel, setIsSharingDuel] = React.useState(false);
   const [duelGroups, setDuelGroups] = React.useState<Array<{ id: string; name: string; goal: string }>>([]);
   const [selectedDuelGroupId, setSelectedDuelGroupId] = React.useState<string | null>(null);
+  const [workoutPostDescription, setWorkoutPostDescription] = React.useState<string>("");
+  const [workoutLinkedUserGoalId, setWorkoutLinkedUserGoalId] = React.useState<string | null>(null);
 
   // PR celebration state
   const [prCelebration, setPrCelebration] = React.useState<{
@@ -384,6 +389,8 @@ export default function Goals() {
   // Completion tracking for Rotinas tab items
   const [completedDietIds, setCompletedDietIds] = React.useState<Set<string>>(new Set());
   const [completedHabitIds, setCompletedHabitIds] = React.useState<Set<string>>(new Set());
+  // Keys of routine cards that should show completed items
+  const [showCompletedForRoutine, setShowCompletedForRoutine] = React.useState<Set<string>>(new Set());
 
   // Collapsed section state for Rotinas tab (stores type codes of collapsed sections)
   const [collapsedSections, setCollapsedSections] = React.useState<Set<number>>(new Set());
@@ -1652,6 +1659,10 @@ export default function Goals() {
         setRestTimerExerciseId(workoutId);
         setRestTimerRemaining(restSeconds);
         setRestTimerModalOpen(true);
+        // Sync to global context so FAB can show timer
+        setGlobalRestTimerRemaining(restSeconds);
+        setGlobalRestTimerTotal(restSeconds);
+        setGlobalRestTimerActive(true);
       }
     }
   };
@@ -1679,28 +1690,22 @@ export default function Goals() {
     setUserWorkouts(reordered);
   };
 
-  // Rest timer effect
+  // Sync local restTimerRemaining display from global context countdown
   React.useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (restTimerModalOpen && restTimerRemaining > 0 && !restTimerPaused) {
-      interval = setInterval(() => {
-        setRestTimerRemaining((prev) => {
-          if (prev <= 1) {
-            // Timer finished - play sound or show notification
-            toast({
-              title: "Tempo de descanso terminou!",
-              description: "Pronto para a próxima série?",
-            });
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    setRestTimerRemaining(globalRestTimerRemaining);
+  }, [globalRestTimerRemaining]);
+
+  // When rest timer finishes: show toast and reopen dialog (only when workout modal is open, not minimized)
+  React.useEffect(() => {
+    if (!globalRestTimerActive && globalRestTimerTotal > 0 && globalRestTimerRemaining === 0 && workoutModalOpen) {
+      toast({
+        title: "Tempo de descanso terminou!",
+        description: "Pronto para a próxima série?",
+      });
+      setRestTimerModalOpen(true);
     }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [restTimerModalOpen, restTimerRemaining, restTimerPaused]);
+  }, [globalRestTimerActive]);
+
 
   const handleFinishWorkout = () => {
     if (!user) return;
@@ -1896,6 +1901,27 @@ export default function Goals() {
       setWorkoutMinimized(false);
       setWorkoutSummaryOpen(true);
       setShowPostWorkoutNutrition(true);
+
+      // Pre-build post description with linked goal if any
+      if (user) {
+        const rName = selectedRoutineName === "__unnamed__" ? null : selectedRoutineName;
+        const rStr = rName ? `Treino de ${rName}` : "Treino concluído";
+        const mins2 = Math.floor(workoutDuration / 60);
+        const secs2 = workoutDuration % 60;
+        const dStr = mins2 > 0 ? `${mins2}m ${secs2 > 0 ? `${secs2}s` : ""}`.trim() : `${secs2}s`;
+        const exList = exerciseNames.length > 0 ? `\n🏋️ ${exerciseNames.join(" · ")}` : "";
+        const volStr = Math.round(totalVolume * 10) / 10 > 0 ? `\n📦 Volume: ${Math.round(totalVolume * 10) / 10} kg` : "";
+        setWorkoutPostDescription(`💪 ${rStr}!\n⏱️ ${dStr}${volStr}\n✅ ${Math.round(totalSeries)} séries${exList}\n\n#Linka #Fitness #Treino`);
+        // Find user_goal id linked to this routine (for post goal bar)
+        const linkedRoutine = routines.find((r) => r.type === 1 && (rName ? r.name === rName : !r.name) && r.goal_id);
+        const linkedUserGoal = linkedRoutine?.goal_id
+          ? userGoals.find((ug) => String(ug.goal_id) === String(linkedRoutine.goal_id))
+          : null;
+        setWorkoutLinkedUserGoalId(linkedUserGoal?.id ?? null);
+        getEnrichedDuelGroupsDb(user.id).then(({ myGroups }) => {
+          setDuelGroups(myGroups.map((g) => ({ id: g.id, name: g.name, goal: g.goal })));
+        }).catch(() => setDuelGroups([]));
+      }
 
       // Reset workout state
       resetWorkoutState();
@@ -2177,6 +2203,21 @@ export default function Goals() {
                                   <p className="font-bold">{quantity}</p>
                                 </div>
                               </div>
+
+                              {userGoal && (
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="text-muted-foreground">Progresso</span>
+                                    <span className="font-bold text-brand">{Math.round(userGoal.perc)}%</span>
+                                  </div>
+                                  <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                                    <div
+                                      className="bg-brand h-full rounded-full transition-all duration-500"
+                                      style={{ width: `${userGoal.perc}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
 
                               <div className="flex gap-2 mt-auto">
                                 {(() => {
@@ -2885,6 +2926,27 @@ export default function Goals() {
                                   Vincular Meta
                                 </DropdownMenuItem>
                               )}
+                              {(typeCode === 2 || typeCode === 3) && (() => {
+                                const completedIds = typeCode === 2 ? completedDietIds : completedHabitIds;
+                                const hasCompleted = itemsForRoutine.some((item: any) => completedIds.has(item.id));
+                                if (!hasCompleted) return null;
+                                const isShowing = showCompletedForRoutine.has(key);
+                                return (
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setShowCompletedForRoutine((prev) => {
+                                        const next = new Set(prev);
+                                        if (isShowing) next.delete(key);
+                                        else next.add(key);
+                                        return next;
+                                      });
+                                    }}
+                                  >
+                                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                                    {isShowing ? "Ocultar Concluídas" : "Mostrar Concluídas"}
+                                  </DropdownMenuItem>
+                                );
+                              })()}
                               <DropdownMenuItem
                                 onClick={() => handleDeleteRoutineType(typeCode, isNamed ? displayLabel : null)}
                                 className="text-red-500"
@@ -2900,11 +2962,13 @@ export default function Goals() {
                         {isExpanded && (
                           <div className="border-t border-border/60 bg-muted/20 p-2.5 space-y-1.5 overflow-hidden">
                             {(() => {
+                              const showCompleted = showCompletedForRoutine.has(key);
                               const visibleItems = itemsForRoutine.filter((item: any) => {
-                                if (typeCode === 2) return !completedDietIds.has(item.id);
-                                if (typeCode === 3) return !completedHabitIds.has(item.id);
+                                if (typeCode === 2) return showCompleted || !completedDietIds.has(item.id);
+                                if (typeCode === 3) return showCompleted || !completedHabitIds.has(item.id);
                                 return true;
                               });
+                              const allCompleted = visibleItems.length === 0 && itemsForRoutine.length > 0 && (typeCode === 2 || typeCode === 3);
                               return visibleItems.length > 0 ? (
                               visibleItems.map((item: any) => (
                                 <div
@@ -3143,7 +3207,7 @@ export default function Goals() {
                               ))
                             ) : (
                               <p className="text-xs text-muted-foreground text-center py-2">
-                                Nenhum item adicionado
+                                {allCompleted ? "Todas as tarefas concluídas ✓" : "Nenhum item adicionado"}
                               </p>
                             );
                             })()}
@@ -4025,7 +4089,13 @@ export default function Goals() {
       )}
 
       {/* Rest Timer Modal */}
-      <Dialog open={restTimerModalOpen} onOpenChange={setRestTimerModalOpen}>
+      <Dialog
+        open={restTimerModalOpen}
+        onOpenChange={(open) => {
+          // Closing by click-outside or ESC just hides the dialog — timer keeps running in context
+          if (!open) setRestTimerModalOpen(false);
+        }}
+      >
         <DialogContent className="w-full max-w-xs rounded-2xl">
           <DialogHeader className="text-center">
             <DialogTitle>Tempo de Descanso</DialogTitle>
@@ -4069,6 +4139,9 @@ export default function Goals() {
                 onClick={() => {
                   setRestTimerModalOpen(false);
                   setRestTimerPaused(false);
+                  setGlobalRestTimerActive(false);
+                  setGlobalRestTimerRemaining(0);
+                  setGlobalRestTimerTotal(0);
                 }}
                 variant="outline"
                 className="flex-1 rounded-full"
@@ -4077,16 +4150,29 @@ export default function Goals() {
               </Button>
               <Button
                 onClick={() => {
+                  // Minimize: hide modal but keep timer running
+                  setRestTimerModalOpen(false);
+                }}
+                variant="outline"
+                className="flex-1 rounded-full"
+              >
+                Minimizar
+              </Button>
+              <Button
+                onClick={() => {
                   if (restTimerRemaining === 0) {
                     setRestTimerModalOpen(false);
-                    setRestTimerPaused(false);
+                    setGlobalRestTimerActive(false);
+                    setGlobalRestTimerRemaining(0);
+                    setGlobalRestTimerTotal(0);
                   } else {
-                    setRestTimerPaused(!restTimerPaused);
+                    // Toggle pause: active=false pauses, active=true resumes
+                    setGlobalRestTimerActive(!globalRestTimerActive);
                   }
                 }}
                 className="flex-1 rounded-full"
               >
-                {restTimerRemaining === 0 ? "Próxima" : (restTimerPaused ? "Retomar" : "Pausar")}
+                {restTimerRemaining === 0 ? "Próxima" : (globalRestTimerActive ? "Pausar" : "Retomar")}
               </Button>
             </div>
           </div>
@@ -4279,6 +4365,8 @@ export default function Goals() {
           setSelectedDuelGroupId(null);
           setDuelGroups([]);
           setNutritionExpanded(true);
+          setWorkoutPostDescription("");
+          setWorkoutLinkedUserGoalId(null);
         };
 
         const handleOpenDuelShare = async () => {
@@ -4399,13 +4487,15 @@ export default function Goals() {
           if (!workoutSummaryData || !supabase || !user) return;
           setIsSharingWorkout(true);
           try {
-            const exerciseList = workoutSummaryData.exerciseNames.length > 0
-              ? `\n🏋️ ${workoutSummaryData.exerciseNames.join(" · ")}`
-              : "";
-            const volumeStr = workoutSummaryData.totalVolume > 0
-              ? `\n📦 Volume: ${workoutSummaryData.totalVolume} kg`
-              : "";
-            const description = `💪 ${routineStr}!\n⏱️ ${durationStr}${volumeStr}\n✅ ${workoutSummaryData.totalSeries} séries${exerciseList}\n\n#Linka #Fitness #Treino`;
+            const description = workoutPostDescription || (() => {
+              const exerciseList = workoutSummaryData.exerciseNames.length > 0
+                ? `\n🏋️ ${workoutSummaryData.exerciseNames.join(" · ")}`
+                : "";
+              const volumeStr = workoutSummaryData.totalVolume > 0
+                ? `\n📦 Volume: ${workoutSummaryData.totalVolume} kg`
+                : "";
+              return `💪 ${routineStr}!\n⏱️ ${durationStr}${volumeStr}\n✅ ${workoutSummaryData.totalSeries} séries${exerciseList}\n\n#Linka #Fitness #Treino`;
+            })();
 
             let photoUrls: string[] = [];
 
@@ -4437,7 +4527,7 @@ export default function Goals() {
               photoUrls.push(urlData.publicUrl);
             }
 
-            await createPostDb(photoUrls.length > 0 ? photoUrls : null, description);
+            await createPostDb(photoUrls.length > 0 ? photoUrls : null, description, workoutLinkedUserGoalId);
 
             toast({ title: "Postado no feed! 🎉", description: "Seu treino foi compartilhado." });
             closeSummary();
@@ -4658,6 +4748,18 @@ export default function Goals() {
 
             {/* Actions */}
             <div className="mx-4 pb-10 space-y-3 mt-2">
+              {/* Editable post description */}
+              <div className="rounded-xl border border-border/50 bg-card p-3 space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">Descrição da postagem</p>
+                <textarea
+                  value={workoutPostDescription}
+                  onChange={(e) => setWorkoutPostDescription(e.target.value)}
+                  rows={4}
+                  className="w-full bg-transparent text-sm resize-none outline-none text-foreground placeholder:text-muted-foreground"
+                  placeholder="Escreva algo sobre seu treino..."
+                />
+              </div>
+
               <Button className="w-full rounded-full gap-2 h-12 text-base" disabled={isSharingWorkout} onClick={handleShare}>
                 {isSharingWorkout
                   ? "Compartilhando..."
@@ -4665,8 +4767,8 @@ export default function Goals() {
                 }
               </Button>
 
-              {/* Duel share — expandable group selector */}
-              {!isDuelShareModalOpen ? (
+              {/* Duel share — only shown when user has duel groups */}
+              {duelGroups.length > 0 && (!isDuelShareModalOpen ? (
                 <Button
                   variant="outline"
                   className="w-full rounded-full gap-2 h-12 text-base"
@@ -4719,7 +4821,7 @@ export default function Goals() {
                     </Button>
                   </div>
                 </div>
-              )}
+              ))}
 
               {/* ─── Timing Nutricional Pós-Treino ─── */}
               {showPostWorkoutNutrition && (
@@ -5134,6 +5236,15 @@ export default function Goals() {
                             setWorkoutHistoryModalOpen(false);
                             setWorkoutSummaryOpen(true);
                             setShowPostWorkoutNutrition(false);
+                            // Pre-build description for history summary (no linked goal lookup needed)
+                            const hName = selectedWorkoutForHistory?.name || null;
+                            const hStr = hName ? `Treino de ${hName}` : "Treino concluído";
+                            setWorkoutPostDescription(`💪 ${hStr}!\n✅ ${dayRecords.length} séries\n\n#Linka #Fitness #Treino`);
+                            if (user) {
+                              getEnrichedDuelGroupsDb(user.id).then(({ myGroups }) => {
+                                setDuelGroups(myGroups.map((g) => ({ id: g.id, name: g.name, goal: g.goal })));
+                              }).catch(() => setDuelGroups([]));
+                            }
                           }}
                         >
                           {dateKey} <span className="text-brand/60 font-normal ml-1">· ver resumo</span>

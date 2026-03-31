@@ -372,7 +372,9 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `post_id` | uuid | — | — | Post relacionado (se aplicável) |
 | `read` | boolean | — | `false` | Notificação lida ou não |
-
+| `shots_id` | uuid | — | — | Shot relacionado (se aplicável) |
+| `flow_id` | uuid | — | — | Flow relacionado (se aplicável) |
+| `duel_check_in_id` | uuid | — | — | Check-in relacionado (se aplicável) |
 > **Tipos de notificação comuns:** follow, like, comment, duel invite, etc. (verificar constantes no código).
 
 ---

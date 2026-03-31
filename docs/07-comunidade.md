@@ -33,7 +33,7 @@ Hub social do aplicativo. Reúne mensagens diretas, duelos em grupo (desafios co
 
 **Header:**
 - Título "Mensagens"
-- Botão `PenSquare` (nova conversa / iniciar conversa)
+- Botão `PenSquare` → abre drawer "Nova mensagem" com lista de seguidores e campo de busca; ao selecionar um seguidor, abre a conversa diretamente (`setViewMode("conversation")`)
 
 **Busca:**
 - Input de pesquisa para filtrar conversas por nome
@@ -145,7 +145,7 @@ Desafios em grupo onde os participantes fazem check-ins para registrar progresso
 
 **Subseções:**
 1. **Convites Pendentes** — grupos para os quais o usuário foi convidado
-2. **Meus Grupos** — grupos criados pelo usuário
+2. **Meus Grupos** — grupos criados pelo usuário **e grupos em que o usuário participa**
 3. **Grupos Disponíveis** — grupos públicos que o usuário pode entrar
 
 ---
@@ -157,6 +157,8 @@ Cada grupo exibe:
 |---|---|
 | Foto do grupo | Imagem customizável |
 | Nome do grupo | Título do desafio |
+| Tag de papel | "Seu Grupo" (criador) / "Participante" (membro) |
+| Criador | Frame com foto e nome do criador (visível nos cards de "Meus Grupos" apenas para grupos em que o usuário é participante, e em "Todos os Grupos") |
 | Descrição | Objetivo do grupo |
 | Participantes | Contagem + lista de avatares |
 | Progresso coletivo | Barra ou percentual |
@@ -242,7 +244,7 @@ Fluxo em 4 etapas com barra de progresso visual no topo:
 - Tag de grupo muscular
 - Lista de exercícios realizados com nome, grupo muscular e carga (kg)
 - Volume total e número de exercícios como stats
-- **Reações de emoji** — 6 emojis rápidos (❤️ 🔥 💪 😮 👏 🏆), toggle por usuário, contador de reações (`duel_check_in_reactions`)
+- **Reações de emoji** — 6 emojis rápidos (❤️ 🔥 💪 😮 👏 🏆), toggle por usuário, contador de reações (`duel_check_in_reactions`); sincronizadas em tempo real via Supabase Realtime (canal `checkin-reactions:{groupId}`) — todos os membros veem as reações atualizadas sem precisar recarregar
 - **Seção de comentários** — lista de comentários com avatar + nome + horário, input para enviar novo comentário (`duel_check_in_comments`)
 
 > **Tabelas necessárias:** `duel_check_in_comments` e `duel_check_in_reactions` — ver migration em `docs/migrations/20260327-community-features.sql`

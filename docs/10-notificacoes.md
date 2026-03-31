@@ -53,6 +53,7 @@ Cada item exibe:
 | 4 `duel_invite` | `Swords` | Laranja | Convite para duelo |
 | 5 `join_request` | `Swords` | Amarelo | Solicitação de entrada no duelo |
 | 6 `comment_reaction` | `SmilePlus` | Rosa | Alguém reagiu ao seu comentário |
+| 7 `checkin_reaction` | `SmilePlus` | Laranja | Alguém reagiu ao seu check-in de duelo |
 
 ### Tipos de Incentivo (subtipo)
 Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não um ícone genérico):
@@ -93,6 +94,7 @@ Quando o tipo é incentivo, o ícone exibido é o do incentivo específico (não
   - Notificação de reação em comentário de **flow** (tipo 6, `flowId`) → `/` (feed) com `state.openFlow = flowId` (abre FlowViewerModal)
   - Notificação de reação em comentário de **check-in** (tipo 6, `checkInId`) → `/comunidade` com `state.openCheckIn = checkInId` (abre drawer do check-in)
   - Notificação de duelo (tipo 4 ou 5) → `/comunidade?tab=requests` (abre aba "Solicitações")
+  - Notificação de reação em check-in de duelo (tipo 7) → `/comunidade` com `state.openCheckIn = checkInId` (abre drawer do check-in)
 
 ---
 
@@ -151,6 +153,7 @@ supabase
 - **Contador do badge de notificações:** `getUnreadNotificationsCountDb()` aplica a mesma lógica de agrupamento: notificações de incentivo (tipo 2) para o mesmo `post_id`/`shots_id` são contadas como **1**, refletindo exatamente o número de itens que o usuário verá na lista.
 - **Convite de duelo via modal de Participantes:** `addMembersToGroupDb` agora envia notificações tipo 4 para os novos membros adicionados (mesmo comportamento de `createDuelGroupDb`)
 - Notificações de shots (incentivos) são inseridas pelo cliente com `post_id: shotId` (comportamento legado). Notificações de comentário em shots usam `shots_id: shotId` (corrigido). O `NotificationItem` expõe `shotId` quando `shots_id` está presente. O `getNotificationsDb` lê `shots_id` do select e popula `shotId` no retorno
-- **Reações a comentários (tipo 6):** inseridas pelo cliente em `toggleCommentReactionDb` quando `commentOwnerId` e `sourceId` são passados. O `CommentReactions` aceita `commentOwnerId` e `sourceId` (ID do post/shot/flow/checkIn pai). O `commentType` é codificado no campo `shots_id` com prefixos `flow:` e `checkin:` para distinção de navegação sem alterar o schema da tabela. A navegação: post → `/post/:id?openComments`, shot → `/shots?openComments+shotId`, flow → `/` com `state.openFlow`, checkin → `/comunidade` com `state.openCheckIn`
+- **Reações a comentários (tipo 6):** inseridas pelo cliente em `toggleCommentReactionDb`. Para flows usa o campo `flow_id` (uuid). Para check-ins de comentário usa `duel_check_in_id` (uuid). Para shots usa `shots_id`. Para posts usa `post_id`. Suporte legado a prefixos `flow:` e `checkin:` em `shots_id` mantido para notificações antigas.
+- **Reações a check-ins de duelo (tipo 7):** inseridas em `sendCheckInReactionNotificationDb` usando o campo `duel_check_in_id`. Deduplicadas por `(user_id, follower_id, type, duel_check_in_id)`.
 - O `PostCommentsDialog` usa `useRef` para garantir que `defaultOpen` abre o drawer apenas uma vez (evita dupla abertura por re-render do React.lazy/Suspense)
 - O `PostDetail` usa `useRef` para garantir que o `PostLikesModal` seja aberto apenas uma vez ao navegar de uma notificação

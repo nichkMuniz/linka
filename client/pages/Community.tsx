@@ -32,8 +32,10 @@ import {
   removeGroupMemberDb,
   getCheckInCommentsDb,
   addCheckInCommentDb,
+  deleteCheckInCommentDb,
   getCheckInReactionsDb,
   setCheckInReactionDb,
+  sendCheckInReactionNotificationDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
@@ -109,6 +111,8 @@ export default function Community() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const [isNewConversationDrawerOpen, setIsNewConversationDrawerOpen] = React.useState(false);
+  const [newConvSearch, setNewConvSearch] = React.useState("");
 
   // Group creation state
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = React.useState(false);
@@ -192,6 +196,7 @@ export default function Community() {
   const [isLoadingComments, setIsLoadingComments] = React.useState(false);
   const [commentText, setCommentText] = React.useState("");
   const [isSendingComment, setIsSendingComment] = React.useState(false);
+  const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
 
   // Check-in emoji reactions state
   const [checkInReactions, setCheckInReactions] = React.useState<Record<string, CheckInReaction[]>>({});
@@ -272,6 +277,20 @@ export default function Community() {
       setIsSendingComment(false);
     }
   }, [commentText, isSendingComment]);
+
+  const handleDeleteCheckInComment = React.useCallback(async (commentId: string) => {
+    setDeletingCommentId(commentId);
+    try {
+      await deleteCheckInCommentDb(commentId);
+      setCheckInComments((prev) => prev.filter((c) => c.id !== commentId));
+      toast({ title: "Comentário excluído" });
+    } catch (err: any) {
+      toast({ title: "Erro ao excluir comentário", description: err?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setDeletingCommentId(null);
+    }
+  }, []);
+
   const [userPhoto, setUserPhoto] = React.useState<string | null>(null);
   const [isLoadingCheckIns, setIsLoadingCheckIns] = React.useState(false);
   const [isLoadingRoutines, setIsLoadingRoutines] = React.useState(false);
@@ -605,6 +624,14 @@ export default function Community() {
     return () => { supabase.removeChannel(channel); };
   }, [selectedConversation?.userId, user?.id]);
 
+  // Reload reactions whenever the group view is open and check-ins are loaded
+  React.useEffect(() => {
+    if (groupCheckIns.length === 0) return;
+    getCheckInReactionsDb(groupCheckIns.map((c) => c.id))
+      .then(setCheckInReactions)
+      .catch(() => {});
+  }, [groupCheckIns]);
+
   const handleOpenConversation = React.useCallback(
     (conversation: Conversation) => {
       setSelectedConversation(conversation);
@@ -655,7 +682,7 @@ export default function Community() {
           </button>
           <button
             onClick={() => navigate(`/usuario/${selectedConversation.userId}`)}
-            className="flex-1 flex items-center gap-3 min-w-0 hover:opacity-80 transition-opacity text-left"
+            className="flex items-center gap-3 min-w-0 hover:opacity-80 transition-opacity text-left"
           >
             {selectedConversation.userPhoto && (
               <ImageWithFallback
@@ -665,17 +692,32 @@ export default function Community() {
                 fallback="/placeholder.svg"
               />
             )}
-            <div className="min-w-0 flex items-center gap-1.5">
-              <p className="text-sm font-medium truncate">
-                {selectedConversation.userNickname}
-              </p>
-              <UserInsignias userId={selectedConversation.userId} />
-            </div>
+            <p className="text-sm font-medium truncate">
+              {selectedConversation.userNickname}
+            </p>
           </button>
+          <UserInsignias userId={selectedConversation.userId} />
         </div>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto space-y-4 px-4 py-4">
+          {/* Profile card — always shown at top of conversation */}
+          <div className="flex flex-col items-center gap-3 py-6 mb-2">
+            <ImageWithFallback
+              src={selectedConversation.userPhoto}
+              alt={selectedConversation.userNickname}
+              className="w-20 h-20 rounded-full object-cover ring-2 ring-border"
+              fallback="/placeholder.svg"
+            />
+            <p className="font-semibold text-base">{selectedConversation.userNickname}</p>
+            <button
+              onClick={() => navigate(`/usuario/${selectedConversation.userId}`)}
+              className="px-5 py-2 rounded-xl bg-muted hover:bg-muted/70 text-sm font-medium transition-colors"
+            >
+              Ver perfil
+            </button>
+          </div>
+
           {messages.length > 0 ? (
             messages.map((message) => {
               const isOwn = message.id_user === user?.id;
@@ -882,10 +924,10 @@ export default function Community() {
           </div>
 
           {/* Nova conversa — só aparece na aba de mensagens */}
-          {activeTab === "messages" && followers.length > 0 && (
+          {activeTab === "messages" && (
             <button
               aria-label="Nova conversa"
-              onClick={() => { setSearchQuery(""); setTimeout(() => { document.querySelector<HTMLInputElement>('[placeholder="Buscar conversa..."]')?.focus(); }, 50); }}
+              onClick={() => { setNewConvSearch(""); setIsNewConversationDrawerOpen(true); }}
               className="p-2 rounded-full hover:bg-muted/50 transition-colors"
             >
               <PenSquare className="h-5 w-5 text-muted-foreground" />
@@ -1263,7 +1305,10 @@ export default function Community() {
                         <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">{group.label}</p>
                         <div className="space-y-2">
                           {group.items.map((checkIn) => {
-                            const myReaction = (checkInReactions[checkIn.id] ?? []).find((r) => r.userId === user?.id);
+                            const reactions = checkInReactions[checkIn.id] ?? [];
+                            const groupedReactions = CHECKIN_QUICK_EMOJIS
+                              .map((emoji) => ({ emoji, count: reactions.filter((r) => r.emoji === emoji).length }))
+                              .filter((g) => g.count > 0);
                             return (
                               <div
                                 key={checkIn.id}
@@ -1323,11 +1368,15 @@ export default function Community() {
                                     <span className="text-[11px] text-muted-foreground">{new Date(checkIn.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                                   </div>
                                 </div>
-                                {/* Emoji reaction badge */}
-                                {myReaction && (
-                                  <span className="absolute -bottom-1 left-6 text-sm bg-background border border-border/60 rounded-full px-1 shadow-sm leading-none py-0.5">
-                                    {myReaction.emoji}
-                                  </span>
+                                {/* Emoji reactions — all users */}
+                                {groupedReactions.length > 0 && (
+                                  <div className="flex items-center gap-1 flex-wrap pt-1 pl-11">
+                                    {groupedReactions.map(({ emoji, count }) => (
+                                      <span key={emoji} className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs bg-muted/50 border border-border/40 leading-none">
+                                        {emoji} {count > 1 && <span className="font-medium">{count}</span>}
+                                      </span>
+                                    ))}
+                                  </div>
                                 )}
                               </div>
                             );
@@ -1424,13 +1473,23 @@ export default function Community() {
                         onClick={async () => {
                           const newEmoji = isActive ? null : emoji;
                           const checkInId = longPressedCheckIn.id;
+                          const checkInOwnerId = longPressedCheckIn.userId;
                           setLongPressedCheckIn(null);
+                          // Optimistic update
                           setCheckInReactions((prev) => {
                             const current = (prev[checkInId] ?? []).filter((r) => r.userId !== user?.id);
                             if (newEmoji) current.push({ checkInId, userId: user!.id, emoji: newEmoji });
                             return { ...prev, [checkInId]: current };
                           });
                           await setCheckInReactionDb(checkInId, newEmoji);
+                          // Notify check-in owner when adding a reaction (not removing)
+                          if (newEmoji && checkInOwnerId) {
+                            sendCheckInReactionNotificationDb(checkInId, checkInOwnerId).catch(() => {});
+                          }
+                          // Reload from DB so reactions from all users are up to date
+                          getCheckInReactionsDb([checkInId]).then((fresh) => {
+                            setCheckInReactions((prev) => ({ ...prev, ...fresh }));
+                          }).catch(() => {});
                         }}
                         className={`text-2xl active:scale-125 transition-transform relative ${isActive ? "scale-110" : ""}`}
                       >
@@ -1481,11 +1540,32 @@ export default function Community() {
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold text-xs line-clamp-2">{group.name}</p>
                             <span className="inline-block text-xs bg-brand/20 text-brand px-1.5 py-0.5 rounded-full mt-0.5">
-                              Seu Grupo
+                              {group.createdBy === user?.id ? "Seu Grupo" : "Participante"}
                             </span>
                           </div>
                         </div>
-                        <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{group.description}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{group.description}</p>
+                        {/* Creator info (only for groups where user is a participant, not creator) */}
+                        {group.createdBy !== user?.id && (
+                          <div className="flex items-center gap-1.5 mb-2">
+                            {group.creatorPhoto ? (
+                              <img
+                                src={group.creatorPhoto}
+                                alt={group.creatorNickname}
+                                className="h-5 w-5 rounded-full object-cover flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                                <span className="text-[9px] font-semibold text-muted-foreground">
+                                  {group.creatorNickname?.[0]?.toUpperCase() || "?"}
+                                </span>
+                              </div>
+                            )}
+                            <span className="text-xs text-muted-foreground truncate">
+                              por <span className="font-medium">{group.creatorNickname}</span>
+                            </span>
+                          </div>
+                        )}
                         <div className="space-y-2 mb-3 flex-1">
                           <div className="flex items-center justify-between">
                             <span className="text-xs text-muted-foreground">👥 {group.participants}</span>
@@ -2479,6 +2559,59 @@ export default function Community() {
         </DrawerContent>
       </Drawer>
 
+      {/* Nova Conversa Drawer */}
+      <Drawer open={isNewConversationDrawerOpen} onOpenChange={setIsNewConversationDrawerOpen}>
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Nova mensagem</DrawerTitle>
+          </DrawerHeader>
+          <div className="px-4 pb-3 shrink-0">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="Buscar seguidor..."
+                value={newConvSearch}
+                onChange={(e) => setNewConvSearch(e.target.value)}
+                className="rounded-full pl-9 bg-muted/30 border-transparent"
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            {followers.length === 0 ? (
+              <p className="text-center text-muted-foreground text-sm py-8">Você ainda não segue ninguém.</p>
+            ) : (
+              followers
+                .filter((f) => f.nickname.toLowerCase().includes(newConvSearch.toLowerCase()))
+                .map((follower) => (
+                  <button
+                    key={follower.id}
+                    className="w-full flex items-center gap-3 py-3 hover:bg-muted/30 rounded-lg px-2 transition-colors"
+                    onClick={() => {
+                      setSelectedConversation({
+                        userId: follower.id,
+                        userNickname: follower.nickname,
+                        userPhoto: follower.photo,
+                        lastMessage: "",
+                        lastMessageTime: new Date().toISOString(),
+                        unreadCount: 0,
+                      });
+                      setViewMode("conversation");
+                      setIsNewConversationDrawerOpen(false);
+                    }}
+                  >
+                    <ImageWithFallback
+                      src={follower.photo}
+                      alt={follower.nickname}
+                      className="w-10 h-10 rounded-full object-cover shrink-0"
+                    />
+                    <span className="font-medium text-sm">{follower.nickname}</span>
+                  </button>
+                ))
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
       {/* Check-in Detail Modal */}
       <Drawer open={isCheckInDetailOpen} onOpenChange={setIsCheckInDetailOpen}>
         <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
@@ -2586,25 +2719,6 @@ export default function Community() {
                   </div>
                 )}
 
-                {/* Reactions summary (read-only, shows totals per emoji) */}
-                {(() => {
-                  const reactions = checkInReactions[selectedCheckInForDetail.id] ?? [];
-                  const grouped = CHECKIN_QUICK_EMOJIS.map((emoji) => ({
-                    emoji,
-                    count: reactions.filter((r) => r.emoji === emoji).length,
-                  })).filter((g) => g.count > 0);
-                  if (grouped.length === 0) return null;
-                  return (
-                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-border/40">
-                      {grouped.map(({ emoji, count }) => (
-                        <span key={emoji} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-sm bg-muted/40 border border-border/40">
-                          {emoji} <span className="text-xs font-medium">{count}</span>
-                        </span>
-                      ))}
-                    </div>
-                  );
-                })()}
-
                 {/* Comments Section */}
                 <div className="pt-2 border-t border-border/40 space-y-3">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
@@ -2635,9 +2749,22 @@ export default function Community() {
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-baseline gap-1.5 flex-wrap">
-                              <span className="text-xs font-semibold">{comment.userNickname}</span>
-                              <span className="text-[10px] text-muted-foreground">{new Date(comment.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                            <div className="flex items-start justify-between gap-1">
+                              <div className="flex items-baseline gap-1.5 flex-wrap flex-1 min-w-0">
+                                <span className="text-xs font-semibold">{comment.userNickname}</span>
+                                <span className="text-[10px] text-muted-foreground">{new Date(comment.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                              </div>
+                              {user?.id === comment.userId && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCheckInComment(comment.id)}
+                                  disabled={deletingCommentId === comment.id}
+                                  className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+                                  aria-label="Excluir comentário"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
                             </div>
                             <p className="text-xs text-foreground/90 break-words">{comment.text}</p>
                             <CommentReactions commentType="checkin" commentId={comment.id} commentOwnerId={comment.userId} sourceId={selectedCheckInForDetail?.id} isOwnComment={!!(user?.id === comment.userId)} />

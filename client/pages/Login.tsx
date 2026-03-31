@@ -66,6 +66,14 @@ const FITNESS_SEGMENTS = [
 export default function Login() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
+  const { resolvedTheme } = useTheme();
+
+  const [showSplash, setShowSplash] = React.useState(true);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 5500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const [tab, setTab] = React.useState<"login" | "signup">("login");
   const [email, setEmail] = React.useState("");
@@ -703,6 +711,22 @@ export default function Login() {
     }
   };
 
+  if (showSplash) {
+    const splashLogo = resolvedTheme === "dark" ? "/logo-animada-preto.mp4" : "/logo-animada.mp4";
+    return (
+      <div className="grid min-h-dvh place-items-center bg-background">
+        <video
+          src={splashLogo}
+          alt="LinKa"
+          className="w-50 h-50 object-contain"
+          autoPlay
+          muted
+          loop
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="grid min-h-dvh place-items-center bg-background p-6">
       <div className="mx-auto grid w-full max-w-md gap-6">
@@ -1236,13 +1260,12 @@ export default function Login() {
                         {[1, 2, 3].map((s) => (
                           <div
                             key={s}
-                            className={`h-2 rounded-full transition-all duration-300 ${
-                              s === commercialWizardStep
-                                ? "w-6 bg-brand"
-                                : s < commercialWizardStep
+                            className={`h-2 rounded-full transition-all duration-300 ${s === commercialWizardStep
+                              ? "w-6 bg-brand"
+                              : s < commercialWizardStep
                                 ? "w-2 bg-brand/60"
                                 : "w-2 bg-muted"
-                            }`}
+                              }`}
                           />
                         ))}
                       </div>
@@ -1460,11 +1483,10 @@ export default function Login() {
                               key={opt.value}
                               type="button"
                               onClick={() => setGender(gender === opt.value ? "" : opt.value)}
-                              className={`rounded-lg border-2 py-2 px-3 text-sm font-medium transition-all ${
-                                gender === opt.value
-                                  ? "border-brand bg-brand/10 text-brand"
-                                  : "border-border/60 hover:border-border"
-                              }`}
+                              className={`rounded-lg border-2 py-2 px-3 text-sm font-medium transition-all ${gender === opt.value
+                                ? "border-brand bg-brand/10 text-brand"
+                                : "border-border/60 hover:border-border"
+                                }`}
                             >
                               {opt.label}
                             </button>

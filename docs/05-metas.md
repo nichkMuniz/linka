@@ -33,8 +33,8 @@ Lista as metas que o usuário está perseguindo atualmente.
 
 Cada meta exibe:
 - Nome e descrição da meta
-- Barra de progresso visual
-- Porcentagem de conclusão
+- Barra de progresso visual com percentual (padrão igual ao feed: label "Progresso" + `X%` + barra `bg-brand`)
+- Porcentagem de conclusão calculada via `userGoal.perc`
 - Botão de check-in diário
 - Botão para expandir detalhes (rotinas vinculadas)
 - Menu de opções: Editar | Excluir
@@ -53,6 +53,8 @@ Cada meta exibe:
 - `is_completed` + `completed_at` são salvos juntos ao marcar como concluído
 - No carregamento, itens com `is_completed = true` mas `completed_at` de dia anterior têm o campo resetado automaticamente (fire-and-forget)
 - Itens concluídos hoje somem da lista de rotinas até o dia seguinte
+- Quando todos os itens de uma rotina de dieta/hábito estão concluídos, o dropdown exibe "Todas as tarefas concluídas ✓" em vez de "Nenhum item adicionado"
+- O menu de edição das rotinas de dieta e hábito exibe "Mostrar Concluídas" quando há itens concluídos, alternando para "Ocultar Concluídas" quando ativo; state `showCompletedForRoutine: Set<string>` (key do card)
 
 **Modal vincular rotinas:**
 - Modo "link": oculta rotinas já vinculadas à meta selecionada
@@ -60,8 +62,10 @@ Cada meta exibe:
 
 **Modal resumo do treino:**
 - "Compartilhar no Feed" → navega para `/` após postar
-- "Compartilhar no Duelo" → navega para `/comunidade` após postar
+- "Compartilhar no Duelo" → navega para `/comunidade` após postar; **botão só aparece se o usuário tiver ao menos 1 grupo de duelo** (grupos carregados ao abrir o modal via `getEnrichedDuelGroupsDb`)
 - Grupos de duelo incluem grupos onde o usuário é participante (não só criador)
+- **Campo de descrição editável** exibido antes do botão "Compartilhar no Feed"; pré-preenchido com texto padrão (inclui meta vinculada se houver: `🎯 Meta: ...`); state `workoutPostDescription`
+- **Meta vinculada**: ao terminar treino de rotina com `goal_id`, o `user_goals.id` é armazenado em `workoutLinkedUserGoalId` e passado como terceiro argumento ao `createPostDb` — o post aparece com a barra de progresso da meta igual ao fluxo do NewPost
 - Frame "Como foi o treino?" **removido**
 - Frame de PRs exibe mini-row com Duração / Volume / Séries acima da lista de recordes
 - Frame de Nutrição Pós-Treino tem **dropdown** (ChevronUp/Down) para ocultar/expandir — sem botão de fechar

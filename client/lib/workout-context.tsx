@@ -31,6 +31,13 @@ interface WorkoutContextValue {
   setCurrentWorkoutIndex: (v: number) => void;
   // Reset all workout state
   resetWorkoutState: () => void;
+  // Rest timer (shared so FAB can display it)
+  globalRestTimerRemaining: number;
+  setGlobalRestTimerRemaining: React.Dispatch<React.SetStateAction<number>>;
+  globalRestTimerActive: boolean;
+  setGlobalRestTimerActive: (v: boolean) => void;
+  globalRestTimerTotal: number;
+  setGlobalRestTimerTotal: (v: number) => void;
 }
 
 const WorkoutContext = React.createContext<WorkoutContextValue>({
@@ -53,6 +60,12 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   currentWorkoutIndex: 0,
   setCurrentWorkoutIndex: () => {},
   resetWorkoutState: () => {},
+  globalRestTimerRemaining: 0,
+  setGlobalRestTimerRemaining: () => {},
+  globalRestTimerActive: false,
+  setGlobalRestTimerActive: () => {},
+  globalRestTimerTotal: 0,
+  setGlobalRestTimerTotal: () => {},
 });
 
 export function WorkoutProvider({ children }: { children: React.ReactNode }) {
@@ -65,8 +78,11 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [selectedRoutineName, setSelectedRoutineName] = React.useState<string | null>(null);
   const [workoutExerciseRestTimes, setWorkoutExerciseRestTimes] = React.useState<Record<string, number>>({});
   const [currentWorkoutIndex, setCurrentWorkoutIndex] = React.useState(0);
+  const [globalRestTimerRemaining, setGlobalRestTimerRemaining] = React.useState(0);
+  const [globalRestTimerActive, setGlobalRestTimerActive] = React.useState(false);
+  const [globalRestTimerTotal, setGlobalRestTimerTotal] = React.useState(0);
 
-  // Timer effect — keeps running even when modal is minimized
+  // Workout duration timer — keeps running even when modal is minimized
   React.useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     const isActive = workoutModalOpen || workoutMinimized;
@@ -83,6 +99,25 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     };
   }, [workoutModalOpen, workoutMinimized, workoutStartTime]);
 
+  // Rest timer countdown — always runs in context so it persists when dialog is closed/minimized
+  const restTimerFinishedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!globalRestTimerActive || globalRestTimerRemaining <= 0) return;
+    restTimerFinishedRef.current = false;
+    const interval = setInterval(() => {
+      setGlobalRestTimerRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setGlobalRestTimerActive(false);
+          restTimerFinishedRef.current = true;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [globalRestTimerActive, globalRestTimerTotal]); // re-run when a new timer starts
+
   const resetWorkoutState = React.useCallback(() => {
     setWorkoutSeries({});
     setWorkoutDuration(0);
@@ -92,6 +127,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     setCurrentWorkoutIndex(0);
     setWorkoutMinimized(false);
     setWorkoutModalOpen(false);
+    setGlobalRestTimerRemaining(0);
+    setGlobalRestTimerActive(false);
+    setGlobalRestTimerTotal(0);
   }, []);
 
   return (
@@ -106,6 +144,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       workoutExerciseRestTimes, setWorkoutExerciseRestTimes,
       currentWorkoutIndex, setCurrentWorkoutIndex,
       resetWorkoutState,
+      globalRestTimerRemaining, setGlobalRestTimerRemaining,
+      globalRestTimerActive, setGlobalRestTimerActive,
+      globalRestTimerTotal, setGlobalRestTimerTotal,
     }}>
       {children}
     </WorkoutContext.Provider>

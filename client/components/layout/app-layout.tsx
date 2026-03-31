@@ -8,6 +8,7 @@ import {
   Video,
   ShoppingBag,
   Timer,
+  Trash2,
 } from "lucide-react";
 import * as React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
@@ -44,7 +45,26 @@ export function AppLayout() {
   const { t } = useLanguage();
   const { resolvedTheme } = useTheme();
   const logoSrc = resolvedTheme === "dark" ? "/logo-branco.png" : "/logo.png";
-  const { workoutMinimized, setPendingReopen } = useWorkout();
+  const {
+    workoutMinimized, setWorkoutMinimized, setPendingReopen, setWorkoutModalOpen,
+    globalRestTimerRemaining, setGlobalRestTimerRemaining, globalRestTimerActive, setGlobalRestTimerActive, globalRestTimerTotal, setGlobalRestTimerTotal,
+    workoutSeries, resetWorkoutState,
+  } = useWorkout();
+
+  // Auto-reopen workout modal when rest timer reaches 0 while minimized
+  const prevRestTimerActiveRef = React.useRef(globalRestTimerActive);
+  React.useEffect(() => {
+    const wasActive = prevRestTimerActiveRef.current;
+    prevRestTimerActiveRef.current = globalRestTimerActive;
+    if (wasActive && !globalRestTimerActive && workoutMinimized && globalRestTimerTotal > 0) {
+      setGlobalRestTimerTotal(0);
+      setWorkoutMinimized(false);
+      setPendingReopen(true);
+      if (location.pathname !== "/metas") {
+        navigate("/metas");
+      }
+    }
+  }, [globalRestTimerActive]);
 
   const [headerHidden, setHeaderHidden] = React.useState(false);
   const [unreadCount, setUnreadCount] = React.useState(0);
@@ -465,21 +485,57 @@ export function AppLayout() {
       </div>
 
       {/* Minimized Workout FAB — visible on all pages */}
-      {workoutMinimized && (
-        <button
-          onClick={() => {
-            setPendingReopen(true);
-            if (location.pathname !== "/metas") {
-              navigate("/metas");
-            }
-          }}
-          className="fixed bottom-24 right-4 z-[150] flex items-center gap-2 bg-brand text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm transition-all active:scale-95 animate-pulse"
-          style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.3)" }}
-        >
-          <Dumbbell className="h-4 w-4" />
-          Treino em andamento
-        </button>
-      )}
+      {workoutMinimized && (() => {
+        const hasAnyValues = Object.values(workoutSeries).some((series) =>
+          series.some((s) => (s.kg > 0 || s.reps > 0))
+        );
+        const showTimer = globalRestTimerActive && globalRestTimerRemaining > 0;
+        const timerPercent = globalRestTimerTotal > 0
+          ? (globalRestTimerRemaining / globalRestTimerTotal) * 100
+          : 0;
+
+        return (
+          <div className="fixed bottom-24 right-4 z-[150] flex items-center gap-2">
+            {!hasAnyValues && (
+              <button
+                onClick={() => resetWorkoutState()}
+                className="flex items-center justify-center bg-destructive text-white rounded-full shadow-lg w-10 h-10 transition-all active:scale-95"
+                title="Cancelar treino"
+                aria-label="Cancelar treino"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setPendingReopen(true);
+                if (location.pathname !== "/metas") {
+                  navigate("/metas");
+                }
+              }}
+              className="flex items-center gap-2 bg-brand text-white rounded-full shadow-lg px-4 py-3 font-semibold text-sm transition-all active:scale-95 animate-pulse relative overflow-hidden"
+              style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.3)" }}
+            >
+              {showTimer ? (
+                <>
+                  <Timer className="h-4 w-4 shrink-0" />
+                  <span>{globalRestTimerRemaining}s</span>
+                  {/* progress bar */}
+                  <span
+                    className="absolute bottom-0 left-0 h-1 bg-white/40 rounded-full transition-all"
+                    style={{ width: `${timerPercent}%` }}
+                  />
+                </>
+              ) : (
+                <>
+                  <Dumbbell className="h-4 w-4" />
+                  Treino em andamento
+                </>
+              )}
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Timer Expired Full-Screen Block */}
       {timerBlockVisible && (

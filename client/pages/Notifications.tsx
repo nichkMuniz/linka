@@ -159,6 +159,14 @@ export default function Notifications() {
           bgColor: "bg-pink-500/10",
           borderColor: "border-pink-200/50",
         };
+      case 7:
+        return {
+          icon: <SmilePlus className="h-5 w-5 text-orange-400" />,
+          title: "Reação no check-in",
+          description: `${notification.userNickname} reagiu ao seu check-in`,
+          bgColor: "bg-orange-400/10",
+          borderColor: "border-orange-200/50",
+        };
       default:
         return {
           icon: <Zap className="h-5 w-5 text-gray-500" />,
@@ -297,6 +305,10 @@ export default function Notifications() {
     // Type 4 (duel invite) or type 5 (join request) - navigate to community requests tab
     else if (notification.type === 4 || notification.type === 5) {
       navigate("/comunidade?tab=requests");
+    }
+    // Type 7 (duel check-in reaction) — navigate to duels tab, no modal
+    else if (notification.type === 7) {
+      navigate("/comunidade?tab=duels");
     }
     // Type 6 (comment reaction) — navigate to the exact screen/modal where the comment lives
     else if (notification.type === 6) {

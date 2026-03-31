@@ -3839,9 +3839,9 @@ export async function toggleCommentReactionDb(
       if (commentType === "shot") {
         notifPayload.shots_id = sourceId;
       } else if (commentType === "flow") {
-        notifPayload.shots_id = `flow:${sourceId}`;
+        notifPayload.flow_id = sourceId;
       } else if (commentType === "checkin") {
-        notifPayload.shots_id = `checkin:${sourceId}`;
+        notifPayload.duel_check_in_id = sourceId;
       } else {
         notifPayload.post_id = sourceId;
       }
@@ -4822,6 +4822,8 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
         type,
         post_id,
         shots_id,
+        flow_id,
+        duel_check_in_id,
         created_at,
         read
       `
@@ -4841,8 +4843,8 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
 
     // Get all follower IDs and post IDs to fetch related data
     const followerIds = [...new Set(notificationsData.map((n: any) => n.follower_id))];
-    const postIds = [...new Set(notificationsData.filter((n: any) => n.type !== 4 && n.type !== 5 && !n.shots_id).map((n: any) => n.post_id).filter(Boolean))];
-    // shots_id may contain "flow:<id>" or "checkin:<id>" prefixed values for type-6 reactions — exclude those from the shots DB query
+    const postIds = [...new Set(notificationsData.filter((n: any) => n.type !== 4 && n.type !== 5 && n.type !== 7 && !n.shots_id).map((n: any) => n.post_id).filter(Boolean))];
+    // shots_id may contain "flow:<id>" or "checkin:<id>" prefixed values — exclude those from the shots DB query
     const shotNotifIds = [...new Set(notificationsData.filter((n: any) => n.shots_id && !String(n.shots_id).startsWith("flow:") && !String(n.shots_id).startsWith("checkin:")).map((n: any) => n.shots_id).filter(Boolean))];
     const groupIds = [...new Set(notificationsData.filter((n: any) => n.type === 4 || n.type === 5).map((n: any) => n.post_id).filter(Boolean))];
     const incentiveNotifications = notificationsData.filter((n: any) => n.type === 2);
@@ -4992,14 +4994,20 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           notification.incentiveType = likesMap.get(notif.id);
         }
 
-        // Add shot/flow/checkin-related fields when shots_id is present
+        // Map new dedicated columns
+        if (notif.flow_id) {
+          notification.flowId = notif.flow_id;
+        }
+        if (notif.duel_check_in_id) {
+          notification.checkInId = notif.duel_check_in_id;
+        }
+
+        // Add shot/flow/checkin-related fields when shots_id is present (legacy prefix support)
         if (notif.shots_id && notif.type !== 4 && notif.type !== 5) {
           const shotsIdVal: string = String(notif.shots_id);
           if (shotsIdVal.startsWith("flow:")) {
-            // Type 6 comment reaction on a flow
             notification.flowId = shotsIdVal.slice(5);
           } else if (shotsIdVal.startsWith("checkin:")) {
-            // Type 6 comment reaction on a check-in
             notification.checkInId = shotsIdVal.slice(8);
           } else {
             notification.shotId = shotsIdVal;
@@ -6418,6 +6426,7 @@ export async function getEnrichedDuelGroupsDb(
       });
     }
 
+
     const toBase = (g: any): DuelGroup => ({
       id: g.id,
       createdBy: g.created_by,
@@ -6447,6 +6456,19 @@ export async function getEnrichedDuelGroupsDb(
       participantGroups = pgData ?? [];
     }
 
+    // Fetch creator profiles for participant groups (they have a different creator than the current user)
+    const participantGroupCreatorIds = [...new Set(participantGroups.map((g: any) => g.created_by).filter(Boolean))];
+    const participantCreatorProfileMap: Record<string, { nickname: string; photo: string | null }> = {};
+    if (participantGroupCreatorIds.length > 0) {
+      const { data: pgProfiles } = await supabase
+        .from("profiles")
+        .select("user_id, nickname, photo")
+        .in("user_id", participantGroupCreatorIds);
+      (pgProfiles ?? []).forEach((p: any) => {
+        participantCreatorProfileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null };
+      });
+    }
+
     const myGroups: EnrichedDuelGroup[] = [
       ...createdGroups.map((g: any) => ({
         ...toBase(g),
@@ -6456,14 +6478,17 @@ export async function getEnrichedDuelGroupsDb(
         isAlreadyMember: true,
         isPending: false,
       })),
-      ...participantGroups.map((g: any) => ({
-        ...toBase(g),
-        creatorNickname: "",
-        creatorPhoto: null,
-        participants: countMap[g.id] ?? 1,
-        isAlreadyMember: true,
-        isPending: false,
-      })),
+      ...participantGroups.map((g: any) => {
+        const creator = participantCreatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null };
+        return {
+          ...toBase(g),
+          creatorNickname: creator.nickname,
+          creatorPhoto: creator.photo,
+          participants: countMap[g.id] ?? 1,
+          isAlreadyMember: true,
+          isPending: false,
+        };
+      }),
     ];
 
     const availableGroups: EnrichedDuelGroup[] = availGroups.map((g: any) => {
@@ -7365,6 +7390,30 @@ export async function setCheckInReactionDb(checkInId: string, emoji: string | nu
   }
 }
 
+// Notify the check-in owner when someone reacts to their check-in (type 7)
+export async function sendCheckInReactionNotificationDb(checkInId: string, checkInOwnerId: string): Promise<void> {
+  if (!supabase) return;
+  const viewer = await getViewer();
+  if (!viewer || viewer.id === checkInOwnerId) return;
+  // Avoid duplicate: only notify once per reactor per check-in
+  const { data: existing } = await supabase
+    .from("notifications")
+    .select("id")
+    .eq("user_id", checkInOwnerId)
+    .eq("follower_id", viewer.id)
+    .eq("type", 7)
+    .eq("duel_check_in_id", checkInId)
+    .maybeSingle();
+  if (existing) return;
+  await supabase.from("notifications").insert({
+    user_id: checkInOwnerId,
+    follower_id: viewer.id,
+    type: 7,
+    duel_check_in_id: checkInId,
+    read: false,
+  });
+}
+
 export async function addCheckInCommentDb(checkInId: string, text: string): Promise<CheckInComment> {
   if (!supabase) throw new Error("Supabase não configurado");
   assertUUID(checkInId, "ID do check-in");
@@ -7388,6 +7437,22 @@ export async function addCheckInCommentDb(checkInId: string, text: string): Prom
     .eq("user_id", viewer.id)
     .maybeSingle();
 
+  // Notify check-in owner (type 6, commentType "checkin") — skip if commenting on own check-in
+  const { data: checkInRow } = await supabase
+    .from("duel_check_ins")
+    .select("user_id")
+    .eq("id", checkInId)
+    .maybeSingle();
+  if (checkInRow?.user_id && checkInRow.user_id !== viewer.id) {
+    await supabase.from("notifications").insert({
+      user_id: checkInRow.user_id,
+      follower_id: viewer.id,
+      type: 6,
+      duel_check_in_id: checkInId,
+      read: false,
+    });
+  }
+
   return {
     id: data.id,
     checkInId: data.check_in_id,
@@ -7397,6 +7462,20 @@ export async function addCheckInCommentDb(checkInId: string, text: string): Prom
     text: data.text,
     createdAt: data.created_at,
   };
+}
+
+export async function deleteCheckInCommentDb(commentId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const { error } = await supabase
+    .from("duel_check_in_comments")
+    .delete()
+    .eq("id", commentId);
+
+  if (error) {
+    console.error("Error deleting check-in comment:", error);
+    throw error;
+  }
 }
 
 // ─── Access Sessions ────────────────────────────────────────────────────────

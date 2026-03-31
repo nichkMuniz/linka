@@ -1,4 +1,4 @@
-# CLAUDE.md — Guia de Trabalho para o Projeto RitmoFit / LinKa
+# CLAUDE.md — Guia de Trabalho para o Projeto LinKa
 
 Este arquivo define como o Claude deve trabalhar neste projeto. Leia sempre antes de iniciar qualquer tarefa.
 
