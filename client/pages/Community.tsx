@@ -54,6 +54,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
+import { PostCarousel } from "@/components/post/post-carousel";
 import {
   Drawer,
   DrawerContent,
@@ -149,19 +150,24 @@ export default function Community() {
   const [isAddCheckInModalOpen, setIsAddCheckInModalOpen] = React.useState(false);
   const [isSubmittingCheckIn, setIsSubmittingCheckIn] = React.useState(false);
   const [checkInForm, setCheckInForm] = React.useState({
-    photo: "",
+    photo: "", // Legacy first photo string
+    photos: [] as string[], // Multiple photo strings
     description: "",
     workoutId: "",
   });
-  const [checkInPhotoFile, setCheckInPhotoFile] = React.useState<File | null>(null);
-  const [checkInPhotoPreviewUrl, setCheckInPhotoPreviewUrl] = React.useState<string | null>(null);
+  const [checkInPhotoFiles, setCheckInPhotoFiles] = React.useState<File[]>([]);
+  const [checkInPhotoPreviewUrls, setCheckInPhotoPreviewUrls] = React.useState<string[]>([]);
+  const [activePhotoPreviewIndex, setActivePhotoPreviewIndex] = React.useState(0);
 
   React.useEffect(() => {
-    if (!checkInPhotoFile) { setCheckInPhotoPreviewUrl(null); return; }
-    const url = URL.createObjectURL(checkInPhotoFile);
-    setCheckInPhotoPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [checkInPhotoFile]);
+    if (checkInPhotoFiles.length === 0) { 
+      setCheckInPhotoPreviewUrls([]); 
+      return; 
+    }
+    const urls = checkInPhotoFiles.map(file => URL.createObjectURL(file));
+    setCheckInPhotoPreviewUrls(urls);
+    return () => urls.forEach(url => URL.revokeObjectURL(url));
+  }, [checkInPhotoFiles]);
   const [completedRoutines, setCompletedRoutines] = React.useState<CompletedRoutine[]>([]);
   const [selectedRoutineKey, setSelectedRoutineKey] = React.useState<string | null>(null);
   const [participantsSearch, setParticipantsSearch] = React.useState("");
@@ -1430,7 +1436,8 @@ export default function Community() {
                 // Open modal immediately — load routines in background
                 setSelectedRoutineKey(null);
                 setCheckInForm({ photo: "", description: "", workoutId: "" });
-                setCheckInPhotoFile(null);
+                setCheckInPhotoFiles([]);
+                setCheckInPhotoPreviewUrls([]);
                 setCompletedRoutines([]);
                 setIsAddCheckInModalOpen(true);
                 setIsLoadingRoutines(true);
@@ -2361,45 +2368,89 @@ export default function Community() {
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
             <div className="space-y-4">
-              {/* Photo Upload */}
+              {/* Photo Upload Carousel */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Foto do Treino</label>
-                <div className="border-2 border-dashed border-brand/40 rounded-lg p-4 text-center">
-                  {checkInPhotoFile && checkInPhotoPreviewUrl ? (
-                    <div className="space-y-2">
-                      <img
-                        src={checkInPhotoPreviewUrl}
-                        alt="preview"
-                        className="w-full h-32 object-cover rounded"
-                      />
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setCheckInPhotoFile(null)}
-                        className="w-full text-xs"
-                      >
-                        Remover Foto
-                      </Button>
+                <label className="text-sm font-medium">Fotos do Treino ({checkInPhotoFiles.length})</label>
+                <div className="relative border-2 border-dashed border-brand/40 rounded-xl overflow-hidden bg-muted/10">
+                  {checkInPhotoPreviewUrls.length > 0 ? (
+                    <div className="space-y-3 p-4">
+                      {/* Preview Carousel */}
+                      <div className="relative group aspect-square rounded-lg overflow-hidden border border-border/40 bg-black/5">
+                        <img
+                          src={checkInPhotoPreviewUrls[activePhotoPreviewIndex]}
+                          alt={`Preview ${activePhotoPreviewIndex + 1}`}
+                          className="w-full h-full object-contain"
+                        />
+                        
+                        {/* Remove Current Photo */}
+                        <button
+                          onClick={() => {
+                            const newFiles = [...checkInPhotoFiles];
+                            newFiles.splice(activePhotoPreviewIndex, 1);
+                            setCheckInPhotoFiles(newFiles);
+                            if (activePhotoPreviewIndex >= newFiles.length && newFiles.length > 0) {
+                              setActivePhotoPreviewIndex(newFiles.length - 1);
+                            }
+                          }}
+                          className="absolute top-2 right-2 bg-destructive/80 hover:bg-destructive text-white p-1.5 rounded-full shadow-lg transition-colors"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+
+                        {/* Navigation */}
+                        {checkInPhotoPreviewUrls.length > 1 && (
+                          <div className="absolute inset-x-0 bottom-3 flex justify-center gap-1.5">
+                            {checkInPhotoPreviewUrls.map((_, i) => (
+                              <div 
+                                key={i} 
+                                className={`h-1.5 rounded-full transition-all ${i === activePhotoPreviewIndex ? "w-4 bg-brand" : "w-1.5 bg-brand/30"}`} 
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Thumbnails + Add More */}
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {checkInPhotoPreviewUrls.map((url, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setActivePhotoPreviewIndex(i)}
+                            className={`relative shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all ${i === activePhotoPreviewIndex ? "border-brand scale-95" : "border-transparent opacity-60"}`}
+                          >
+                            <img src={url} alt={`Thumb ${i}`} className="w-full h-full object-cover" />
+                          </button>
+                        ))}
+                        <label className="shrink-0 w-14 h-14 rounded-lg border-2 border-dashed border-brand/40 flex items-center justify-center cursor-pointer hover:bg-brand/5">
+                          <Plus className="h-5 w-5 text-brand" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={(e) => {
+                              const files = Array.from(e.target.files || []);
+                              setCheckInPhotoFiles(prev => [...prev, ...files]);
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
                     </div>
                   ) : (
-                    <label className="cursor-pointer block">
-                      <div className="text-3xl mb-2">📸</div>
-                      <p className="text-sm text-muted-foreground mb-2">Clique para selecionar uma foto</p>
+                    <label className="cursor-pointer block p-8 text-center transition-colors hover:bg-brand/5 group">
+                      <div className="w-16 h-16 bg-brand/10 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                        <Plus className="h-8 w-8 text-brand" />
+                      </div>
+                      <p className="text-sm font-medium">Adicionar Fotos</p>
+                      <p className="text-xs text-muted-foreground mt-1">Selecione uma ou mais imagens</p>
                       <input
                         type="file"
                         accept="image/*"
+                        multiple
                         onChange={(e) => {
-                          if (e.target.files?.[0]) {
-                            setCheckInPhotoFile(e.target.files[0]);
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setCheckInForm({
-                                ...checkInForm,
-                                photo: reader.result as string,
-                              });
-                            };
-                            reader.readAsDataURL(e.target.files[0]);
-                          }
+                          const files = Array.from(e.target.files || []);
+                          setCheckInPhotoFiles(files);
+                          setActivePhotoPreviewIndex(0);
                         }}
                         className="hidden"
                       />
@@ -2516,11 +2567,34 @@ export default function Community() {
                     const selectedRoutine = completedRoutines[parseInt(selectedRoutineKey)];
                     const exerciseName = selectedRoutine?.routineName || "Treino";
 
+                    // Upload all photos to storage
+                    const uploadedUrls: string[] = [];
+                    for (let i = 0; i < checkInPhotoFiles.length; i++) {
+                      const file = checkInPhotoFiles[i];
+                      const timestamp = Date.now();
+                      const extension = file.name.split(".").pop() || "jpg";
+                      const filePath = `checkins/${user.id}/${timestamp}-${i}.${extension}`;
+
+                      const { error: uploadError } = await supabase.storage
+                        .from("posts") // Re-using the posts bucket
+                        .upload(filePath, file, {
+                          contentType: file.type,
+                          upsert: false,
+                        });
+
+                      if (!uploadError) {
+                        const { data: urlData } = supabase.storage
+                          .from("posts")
+                          .getPublicUrl(filePath);
+                        uploadedUrls.push(urlData.publicUrl);
+                      }
+                    }
+
                     const checkIn = await addGroupCheckInDb(
                       selectedGroupForView.id,
                       user.id,
                       userNickname || "Usuário",
-                      checkInForm.photo,
+                      uploadedUrls[0] || "",
                       checkInForm.description,
                       exerciseName,
                       selectedRoutine?.totalSeries || 0,
@@ -2528,12 +2602,15 @@ export default function Community() {
                       selectedRoutine?.primaryMuscleGroup || null,
                       selectedRoutine?.exercises || [],
                       userPhoto,
+                      uploadedUrls,
                     );
 
                     setGroupCheckIns((prev) => [checkIn, ...prev]);
                     setIsAddCheckInModalOpen(false);
-                    setCheckInForm({ photo: "", description: "", workoutId: "" });
-                    setCheckInPhotoFile(null);
+                    setCheckInForm({ photo: "", photos: [], description: "", workoutId: "" });
+                    setCheckInPhotoFiles([]);
+                    setCheckInPhotoPreviewUrls([]);
+                    setActivePhotoPreviewIndex(0);
                     setSelectedRoutineKey(null);
 
                     toast({
@@ -2642,10 +2719,15 @@ export default function Community() {
                       showConfirm(
                         "Excluir check-in",
                         "Tem certeza que deseja excluir este check-in? Esta ação é irreversível.",
-                        () => {
-                          setGroupCheckIns(groupCheckIns.filter((c) => c.id !== selectedCheckInForDetail.id));
-                          setIsCheckInDetailOpen(false);
-                          toast({ title: "Check-in excluído!", description: "O check-in foi removido com sucesso." });
+                        async () => {
+                          try {
+                            await deleteGroupCheckInDb(selectedCheckInForDetail.id);
+                            setGroupCheckIns(groupCheckIns.filter((c) => c.id !== selectedCheckInForDetail.id));
+                            setIsCheckInDetailOpen(false);
+                            toast({ title: "Check-in excluído!", description: "O check-in foi removido com sucesso." });
+                          } catch (error: any) {
+                            toast({ title: "Erro ao excluir check-in", description: error.message || "Tente novamente.", variant: "destructive" });
+                          }
                         },
                       );
                     }
@@ -2684,12 +2766,21 @@ export default function Community() {
                   </div>
                 </div>
 
-                {/* Photo — proportional, no fixed height */}
-                {selectedCheckInForDetail.photo && (
-                  <div className="rounded-xl overflow-hidden bg-muted">
-                    <img src={selectedCheckInForDetail.photo} alt="check-in" className="w-full object-cover max-h-56" />
+                {/* Photo — Carousel support for multiple images */}
+                {(selectedCheckInForDetail.photos?.length || 0) > 0 ? (
+                  <PostCarousel 
+                    photos={selectedCheckInForDetail.photos || [selectedCheckInForDetail.photo]} 
+                    alt="check-in" 
+                  />
+                ) : selectedCheckInForDetail.photo ? (
+                  <div className="relative rounded-2xl overflow-hidden aspect-square md:aspect-auto md:h-[400px] bg-slate-950/40 flex-shrink-0 flex items-center justify-center">
+                    <img 
+                      src={selectedCheckInForDetail.photo} 
+                      alt="check-in" 
+                      className="max-w-full max-h-full w-auto h-auto object-contain" 
+                    />
                   </div>
-                )}
+                ) : null}
 
                 {/* Description */}
                 {selectedCheckInForDetail.description && (

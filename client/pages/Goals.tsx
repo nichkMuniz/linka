@@ -267,6 +267,7 @@ export default function Goals() {
   const [workoutCoverPreviews, setWorkoutCoverPreviews] = React.useState<string[]>([]);
   const [coverCarouselIndex, setCoverCarouselIndex] = React.useState(0);
   const [canvasPreviewUrl, setCanvasPreviewUrl] = React.useState<string | null>(null);
+  const [prCanvasPreviewUrl, setPrCanvasPreviewUrl] = React.useState<string | null>(null);
   const workoutCanvasRef = React.useRef<HTMLCanvasElement>(null);
   const prCanvasRef = React.useRef<HTMLCanvasElement>(null);
 
@@ -550,6 +551,8 @@ export default function Goals() {
     // Branding
     ctx.fillStyle = "rgba(251,191,36,0.6)"; ctx.font = "bold 28px system-ui, sans-serif"; ctx.fillText("Linka", 400, 730);
     ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.font = "22px system-ui, sans-serif"; ctx.fillText("#PR #RecordePessoal #Fitness", 400, 766);
+    // Capture PR canvas preview URL for carousel
+    setPrCanvasPreviewUrl(canvas.toDataURL("image/png"));
   }, [workoutSummaryOpen, workoutSummaryData]);
 
   // Load all data on mount
@@ -603,16 +606,16 @@ export default function Goals() {
             (h: any) => h.is_completed && (!h.completed_at || new Date(h.completed_at).toDateString() !== todayStr)
           );
           for (const d of staleCompletedDiets) {
-            toggleUserDietCompletionDb(d.id, false).catch(() => {});
+            toggleUserDietCompletionDb(d.id, false).catch(() => { });
           }
           for (const h of staleCompletedHabits) {
-            toggleUserHabitCompletionDb(h.id, false).catch(() => {});
+            toggleUserHabitCompletionDb(h.id, false).catch(() => { });
           }
         }
         // Carrega hidratação e macro do dia (fire-and-forget — não bloqueia UI)
         if (user) {
-          getTodayHydrationDb(user.id).then(setHydrationMl).catch(() => {});
-          getTodayMacroSummaryDb(user.id).then(setTodayMacro).catch(() => {});
+          getTodayHydrationDb(user.id).then(setHydrationMl).catch(() => { });
+          getTodayMacroSummaryDb(user.id).then(setTodayMacro).catch(() => { });
         }
 
         setLoading(false); // unblock UI immediately after critical data
@@ -2470,8 +2473,8 @@ export default function Goals() {
         <TabsContent value="rotinas" className="space-y-4 fade-in px-2">
           {/* Daily Check-in Block */}
           <Card className={`border-2 ${dailyCheckInDone
-              ? "border-green-500/50 bg-green-500/5"
-              : "border-brand/30 bg-brand/5"
+            ? "border-green-500/50 bg-green-500/5"
+            : "border-brand/30 bg-brand/5"
             }`}>
             <CardContent className="pt-6 pb-6">
               <div className="space-y-4">
@@ -2537,8 +2540,8 @@ export default function Goals() {
                           <div
                             key={index}
                             className={`flex flex-col items-center justify-center aspect-square rounded-lg transition-all ${daysToShow.has(index)
-                                ? "bg-brand text-white font-bold"
-                                : "bg-muted text-muted-foreground"
+                              ? "bg-brand text-white font-bold"
+                              : "bg-muted text-muted-foreground"
                               }`}
                           >
                             <span className="text-[10px] font-medium">{day}</span>
@@ -2549,32 +2552,31 @@ export default function Goals() {
                   );
                 })()}
 
-              {/* Streak inside check-in card */}
-              {streakCount > 0 && (
-                <div className={`flex items-center gap-3 rounded-xl px-3 py-2.5 mt-1 ${
-                  streakCount >= 30
+                {/* Streak inside check-in card */}
+                {streakCount > 0 && (
+                  <div className={`flex items-center gap-3 rounded-xl px-3 py-2.5 mt-1 ${streakCount >= 30
                     ? "bg-purple-500/10 border border-purple-500/30"
                     : streakCount >= 7
-                    ? "bg-orange-500/10 border border-orange-500/30"
-                    : "bg-brand/10 border border-brand/20"
-                }`}>
-                  <span className="text-2xl leading-none">
-                    {streakCount >= 30 ? "👑" : streakCount >= 7 ? "🔥" : "⭐"}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold leading-tight">
-                      {streakCount} {streakCount === 1 ? "dia" : "dias"} consecutivos!
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {streakCount >= 30
-                        ? "Você é lendário!"
-                        : streakCount >= 7
-                        ? "Uma semana inteira! 💪"
-                        : "Continue todos os dias!"}
-                    </p>
+                      ? "bg-orange-500/10 border border-orange-500/30"
+                      : "bg-brand/10 border border-brand/20"
+                    }`}>
+                    <span className="text-2xl leading-none">
+                      {streakCount >= 30 ? "👑" : streakCount >= 7 ? "🔥" : "⭐"}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold leading-tight">
+                        {streakCount} {streakCount === 1 ? "dia" : "dias"} consecutivos!
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {streakCount >= 30
+                          ? "Você é lendário!"
+                          : streakCount >= 7
+                            ? "Uma semana inteira! 💪"
+                            : "Continue todos os dias!"}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
               </div>
             </CardContent>
           </Card>
@@ -2617,7 +2619,7 @@ export default function Goals() {
                           await addHydrationDb(user.id, ml);
                           if (hydrationMl + ml >= hydrationGoalMl && prev < hydrationGoalMl) {
                             toast({ title: "Meta de hidratação atingida! 💧", description: "Ótimo trabalho!" });
-                            awardNutritionBadgesDb(user.id).catch(() => {});
+                            awardNutritionBadgesDb(user.id).catch(() => { });
                           }
                         } catch {
                           setHydrationMl(prev);
@@ -2824,14 +2826,14 @@ export default function Goals() {
                     const isExpanded = expandedRoutineId === key;
                     const lastDateLabel = typeCode === 1 && lastDate
                       ? (() => {
-                          const d = new Date(lastDate);
-                          const today = new Date();
-                          const diffMs = today.getTime() - d.getTime();
-                          const diffDays = Math.floor(diffMs / 86400000);
-                          if (diffDays === 0) return "Hoje";
-                          if (diffDays === 1) return "Ontem";
-                          return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-                        })()
+                        const d = new Date(lastDate);
+                        const today = new Date();
+                        const diffMs = today.getTime() - d.getTime();
+                        const diffDays = Math.floor(diffMs / 86400000);
+                        if (diffDays === 0) return "Hoje";
+                        if (diffDays === 1) return "Ontem";
+                        return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+                      })()
                       : null;
 
                     return (
@@ -2930,16 +2932,16 @@ export default function Goals() {
                                   (isNamed ? r.name === displayLabel : !r.name) &&
                                   r.goal_id
                               ) && (
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setLinkGoalRoutineKey({ typeCode, name: isNamed ? displayLabel : null });
-                                    setLinkGoalForRoutineOpen(true);
-                                  }}
-                                >
-                                  <Tag className="h-4 w-4 mr-2" />
-                                  Vincular Meta
-                                </DropdownMenuItem>
-                              )}
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setLinkGoalRoutineKey({ typeCode, name: isNamed ? displayLabel : null });
+                                      setLinkGoalForRoutineOpen(true);
+                                    }}
+                                  >
+                                    <Tag className="h-4 w-4 mr-2" />
+                                    Vincular Meta
+                                  </DropdownMenuItem>
+                                )}
                               {(typeCode === 2 || typeCode === 3) && (() => {
                                 const completedIds = typeCode === 2 ? completedDietIds : completedHabitIds;
                                 const hasCompleted = itemsForRoutine.some((item: any) => completedIds.has(item.id));
@@ -2984,246 +2986,246 @@ export default function Goals() {
                               });
                               const allCompleted = visibleItems.length === 0 && itemsForRoutine.length > 0 && (typeCode === 2 || typeCode === 3);
                               return visibleItems.length > 0 ? (
-                              visibleItems.map((item: any) => (
-                                <div
-                                  key={item.id}
-                                  className="space-y-1.5"
-                                >
-                                  <div className="flex items-start gap-2.5 rounded-lg min-w-0 overflow-hidden">
-                                    {/* Mark as completed checkbox for diets (left side) */}
-                                    {typeCode === 2 && (
-                                      <button
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          const isCompleting = !completedDietIds.has(item.id);
-                                          const newCompletedIds = new Set(completedDietIds);
-                                          if (isCompleting) {
-                                            newCompletedIds.add(item.id);
-                                          } else {
-                                            newCompletedIds.delete(item.id);
-                                          }
-                                          setCompletedDietIds(newCompletedIds);
-                                          try {
-                                            await toggleUserDietCompletionDb(item.id, isCompleting);
-                                            if (isCompleting && user) {
-                                              await saveDietHistoryDb(
-                                                user.id,
-                                                item.id,
-                                                Number(item.diet_id),
-                                                item.quantity ?? null,
-                                              );
-                                              await performAutoCheckIn();
-                                              // Atualiza macro do dia e verifica badges nutricionais
-                                              getTodayMacroSummaryDb(user.id).then(setTodayMacro).catch(() => {});
-                                              awardNutritionBadgesDb(user.id).catch(() => {});
-                                              // Feedback de qualidade para ultraprocessados
-                                              if (item.dietFoodQuality === "ultraprocessado") {
-                                                toast({
-                                                  title: "Registrado 📝",
-                                                  description: "Lembre-se: equilíbrio é a chave, não perfeição.",
-                                                });
-                                              }
-                                            }
-                                            if (!isCompleting) {
-                                              // Atualiza macro ao desmarcar
-                                              if (user) getTodayMacroSummaryDb(user.id).then(setTodayMacro).catch(() => {});
-                                              toast({
-                                                title: "Dieta desmarcada",
-                                              });
-                                            }
-                                          } catch (err) {
-                                            // Rollback optimistic update
-                                            setCompletedDietIds(completedDietIds);
-                                            toast({
-                                              title: "Erro ao atualizar status da dieta",
-                                              variant: "destructive",
-                                            });
-                                          }
-                                        }}
-                                        className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${completedDietIds.has(item.id)
-                                            ? "bg-green-500/20 text-green-700"
-                                            : "bg-muted text-muted-foreground hover:bg-muted/80"
-                                          }`}
-                                      >
-                                        {completedDietIds.has(item.id) ? "✓" : "○"}
-                                      </button>
-                                    )}
-
-                                    {typeCode === 3 && (
-                                      <button
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          const isCompleting = !completedHabitIds.has(item.id);
-                                          const newCompletedIds = new Set(completedHabitIds);
-                                          if (isCompleting) {
-                                            newCompletedIds.add(item.id);
-                                          } else {
-                                            newCompletedIds.delete(item.id);
-                                          }
-                                          setCompletedHabitIds(newCompletedIds);
-                                          try {
-                                            await toggleUserHabitCompletionDb(item.id, isCompleting);
-                                            if (isCompleting && user) {
-                                              await saveHabitHistoryDb(
-                                                user.id,
-                                                item.id,
-                                                Number(item.habit_id),
-                                                item.quantity ?? null,
-                                                item.frequency ?? null,
-                                              );
-                                              await performAutoCheckIn();
-                                            }
-                                            if (!isCompleting) {
-                                              toast({
-                                                title: "Hábito desmarcado",
-                                              });
-                                            }
-                                          } catch (err) {
-                                            // Rollback optimistic update
-                                            setCompletedHabitIds(completedHabitIds);
-                                            toast({
-                                              title: "Erro ao atualizar status do hábito",
-                                              variant: "destructive",
-                                            });
-                                          }
-                                        }}
-                                        className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${completedHabitIds.has(item.id)
-                                            ? "bg-green-500/20 text-green-700"
-                                            : "bg-muted text-muted-foreground hover:bg-muted/80"
-                                          }`}
-                                      >
-                                        {completedHabitIds.has(item.id) ? "✓" : "○"}
-                                      </button>
-                                    )}
-
-                                    {/* Item content */}
-                                    <div className="flex-1 flex items-start gap-3 p-2 rounded-lg min-w-0">
-                                      {/* Image thumbnail */}
-                                      {typeCode === 1 && (
-                                        <button
-                                          type="button"
-                                          className="flex-shrink-0 rounded overflow-hidden"
-                                          onClick={(e) => { e.stopPropagation(); setImageZoom({ src: item.workoutPhoto || null, name: item.workoutName || "", description: item.workoutDescription || undefined }); }}
-                                        >
-                                          <ExerciseImage
-                                            photo={item.workoutPhoto || null}
-                                            name={item.workoutName || ""}
-                                            muscleGroup={item.muscle_group || null}
-                                            className="h-10 w-10"
-                                          />
-                                        </button>
-                                      )}
+                                visibleItems.map((item: any) => (
+                                  <div
+                                    key={item.id}
+                                    className="space-y-1.5"
+                                  >
+                                    <div className="flex items-start gap-2.5 rounded-lg min-w-0 overflow-hidden">
+                                      {/* Mark as completed checkbox for diets (left side) */}
                                       {typeCode === 2 && (
                                         <button
-                                          type="button"
-                                          className="flex-shrink-0 rounded overflow-hidden"
-                                          onClick={(e) => { e.stopPropagation(); setImageZoom({ src: item.dietPhoto || null, name: item.dietName || "", description: item.dietDescription || undefined }); }}
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            const isCompleting = !completedDietIds.has(item.id);
+                                            const newCompletedIds = new Set(completedDietIds);
+                                            if (isCompleting) {
+                                              newCompletedIds.add(item.id);
+                                            } else {
+                                              newCompletedIds.delete(item.id);
+                                            }
+                                            setCompletedDietIds(newCompletedIds);
+                                            try {
+                                              await toggleUserDietCompletionDb(item.id, isCompleting);
+                                              if (isCompleting && user) {
+                                                await saveDietHistoryDb(
+                                                  user.id,
+                                                  item.id,
+                                                  Number(item.diet_id),
+                                                  item.quantity ?? null,
+                                                );
+                                                await performAutoCheckIn();
+                                                // Atualiza macro do dia e verifica badges nutricionais
+                                                getTodayMacroSummaryDb(user.id).then(setTodayMacro).catch(() => { });
+                                                awardNutritionBadgesDb(user.id).catch(() => { });
+                                                // Feedback de qualidade para ultraprocessados
+                                                if (item.dietFoodQuality === "ultraprocessado") {
+                                                  toast({
+                                                    title: "Registrado 📝",
+                                                    description: "Lembre-se: equilíbrio é a chave, não perfeição.",
+                                                  });
+                                                }
+                                              }
+                                              if (!isCompleting) {
+                                                // Atualiza macro ao desmarcar
+                                                if (user) getTodayMacroSummaryDb(user.id).then(setTodayMacro).catch(() => { });
+                                                toast({
+                                                  title: "Dieta desmarcada",
+                                                });
+                                              }
+                                            } catch (err) {
+                                              // Rollback optimistic update
+                                              setCompletedDietIds(completedDietIds);
+                                              toast({
+                                                title: "Erro ao atualizar status da dieta",
+                                                variant: "destructive",
+                                              });
+                                            }
+                                          }}
+                                          className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${completedDietIds.has(item.id)
+                                            ? "bg-green-500/20 text-green-700"
+                                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                                            }`}
                                         >
-                                          <DietImage
-                                            photo={item.dietPhoto || null}
-                                            name={item.dietName || ""}
-                                            className="h-10 w-10"
-                                          />
+                                          {completedDietIds.has(item.id) ? "✓" : "○"}
                                         </button>
                                       )}
-                                      <div className="flex-1 min-w-0 text-left">
-                                        {typeCode === 1 ? (
+
+                                      {typeCode === 3 && (
+                                        <button
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            const isCompleting = !completedHabitIds.has(item.id);
+                                            const newCompletedIds = new Set(completedHabitIds);
+                                            if (isCompleting) {
+                                              newCompletedIds.add(item.id);
+                                            } else {
+                                              newCompletedIds.delete(item.id);
+                                            }
+                                            setCompletedHabitIds(newCompletedIds);
+                                            try {
+                                              await toggleUserHabitCompletionDb(item.id, isCompleting);
+                                              if (isCompleting && user) {
+                                                await saveHabitHistoryDb(
+                                                  user.id,
+                                                  item.id,
+                                                  Number(item.habit_id),
+                                                  item.quantity ?? null,
+                                                  item.frequency ?? null,
+                                                );
+                                                await performAutoCheckIn();
+                                              }
+                                              if (!isCompleting) {
+                                                toast({
+                                                  title: "Hábito desmarcado",
+                                                });
+                                              }
+                                            } catch (err) {
+                                              // Rollback optimistic update
+                                              setCompletedHabitIds(completedHabitIds);
+                                              toast({
+                                                title: "Erro ao atualizar status do hábito",
+                                                variant: "destructive",
+                                              });
+                                            }
+                                          }}
+                                          className={`py-1 px-2 rounded text-xs font-semibold transition-all flex-shrink-0 ${completedHabitIds.has(item.id)
+                                            ? "bg-green-500/20 text-green-700"
+                                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                                            }`}
+                                        >
+                                          {completedHabitIds.has(item.id) ? "✓" : "○"}
+                                        </button>
+                                      )}
+
+                                      {/* Item content */}
+                                      <div className="flex-1 flex items-start gap-3 p-2 rounded-lg min-w-0">
+                                        {/* Image thumbnail */}
+                                        {typeCode === 1 && (
                                           <button
-                                            className="text-sm font-medium truncate block text-left hover:opacity-80 transition-opacity"
-                                            onClick={() => handleOpenWorkoutHistory({
-                                              id: item.workout_id,
-                                              name: item.workoutName,
-                                              description: item.workoutDescription || undefined,
-                                              photo: item.workoutPhoto || undefined,
-                                            } as any)}
+                                            type="button"
+                                            className="flex-shrink-0 rounded overflow-hidden"
+                                            onClick={(e) => { e.stopPropagation(); setImageZoom({ src: item.workoutPhoto || null, name: item.workoutName || "", description: item.workoutDescription || undefined }); }}
                                           >
-                                            {item.workoutName?.length > 35 ? item.workoutName.slice(0, 35) + "…" : item.workoutName}
+                                            <ExerciseImage
+                                              photo={item.workoutPhoto || null}
+                                              name={item.workoutName || ""}
+                                              muscleGroup={item.muscle_group || null}
+                                              className="h-10 w-10"
+                                            />
                                           </button>
-                                        ) : (
-                                          <p className="text-sm font-medium truncate">
-                                            {(typeCode === 2 ? item.dietName : item.habitName)?.length > 35
-                                              ? (typeCode === 2 ? item.dietName : item.habitName).slice(0, 35) + "…"
-                                              : (typeCode === 2 ? item.dietName : item.habitName)}
-                                          </p>
                                         )}
-                                        {(item.workoutDescription ||
-                                          item.dietDescription ||
-                                          item.habitDescription) && (
-                                            <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                                              {typeCode === 1
-                                                ? item.workoutDescription
-                                                : typeCode === 2
-                                                  ? item.dietDescription
-                                                  : item.habitDescription}
+                                        {typeCode === 2 && (
+                                          <button
+                                            type="button"
+                                            className="flex-shrink-0 rounded overflow-hidden"
+                                            onClick={(e) => { e.stopPropagation(); setImageZoom({ src: item.dietPhoto || null, name: item.dietName || "", description: item.dietDescription || undefined }); }}
+                                          >
+                                            <DietImage
+                                              photo={item.dietPhoto || null}
+                                              name={item.dietName || ""}
+                                              className="h-10 w-10"
+                                            />
+                                          </button>
+                                        )}
+                                        <div className="flex-1 min-w-0 text-left">
+                                          {typeCode === 1 ? (
+                                            <button
+                                              className="text-sm font-medium truncate block text-left hover:opacity-80 transition-opacity"
+                                              onClick={() => handleOpenWorkoutHistory({
+                                                id: item.workout_id,
+                                                name: item.workoutName,
+                                                description: item.workoutDescription || undefined,
+                                                photo: item.workoutPhoto || undefined,
+                                              } as any)}
+                                            >
+                                              {item.workoutName?.length > 35 ? item.workoutName.slice(0, 35) + "…" : item.workoutName}
+                                            </button>
+                                          ) : (
+                                            <p className="text-sm font-medium truncate">
+                                              {(typeCode === 2 ? item.dietName : item.habitName)?.length > 35
+                                                ? (typeCode === 2 ? item.dietName : item.habitName).slice(0, 35) + "…"
+                                                : (typeCode === 2 ? item.dietName : item.habitName)}
                                             </p>
                                           )}
-                                        {typeCode === 2 && (
-                                          <div className="flex flex-wrap items-center gap-2 mt-1">
-                                            {item.dietCalories != null && (
-                                              <span className="text-xs text-muted-foreground">{item.dietCalories} cal</span>
+                                          {(item.workoutDescription ||
+                                            item.dietDescription ||
+                                            item.habitDescription) && (
+                                              <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                                {typeCode === 1
+                                                  ? item.workoutDescription
+                                                  : typeCode === 2
+                                                    ? item.dietDescription
+                                                    : item.habitDescription}
+                                              </p>
                                             )}
-                                            {item.dietProtein != null && (
-                                              <span className="text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">P {item.dietProtein}g</span>
-                                            )}
-                                            {item.dietCarbs != null && (
-                                              <span className="text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">C {item.dietCarbs}g</span>
-                                            )}
-                                            {item.dietFat != null && (
-                                              <span className="text-xs bg-red-500/10 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded">G {item.dietFat}g</span>
-                                            )}
-                                            {item.dietFoodQuality === "ultraprocessado" && (
-                                              <span className="text-xs bg-orange-500/10 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                                                <AlertCircle className="h-2.5 w-2.5" /> Ultra
-                                              </span>
-                                            )}
-                                            {item.dietFoodQuality === "in_natura" && (
-                                              <span className="text-xs bg-green-500/10 text-green-600 dark:text-green-400 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                                                <Apple className="h-2.5 w-2.5" /> Natural
-                                              </span>
-                                            )}
-                                          </div>
-                                        )}
+                                          {typeCode === 2 && (
+                                            <div className="flex flex-wrap items-center gap-2 mt-1">
+                                              {item.dietCalories != null && (
+                                                <span className="text-xs text-muted-foreground">{item.dietCalories} cal</span>
+                                              )}
+                                              {item.dietProtein != null && (
+                                                <span className="text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded">P {item.dietProtein}g</span>
+                                              )}
+                                              {item.dietCarbs != null && (
+                                                <span className="text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">C {item.dietCarbs}g</span>
+                                              )}
+                                              {item.dietFat != null && (
+                                                <span className="text-xs bg-red-500/10 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded">G {item.dietFat}g</span>
+                                              )}
+                                              {item.dietFoodQuality === "ultraprocessado" && (
+                                                <span className="text-xs bg-orange-500/10 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                                                  <AlertCircle className="h-2.5 w-2.5" /> Ultra
+                                                </span>
+                                              )}
+                                              {item.dietFoodQuality === "in_natura" && (
+                                                <span className="text-xs bg-green-500/10 text-green-600 dark:text-green-400 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                                                  <Apple className="h-2.5 w-2.5" /> Natural
+                                                </span>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
                                       </div>
-                                    </div>
 
-                                    {/* Delete button */}
-                                    <button
-                                      onClick={async (e) => {
-                                        e.stopPropagation();
-                                        if (typeCode === 1) {
-                                          handleDeleteExercise(item.id);
-                                        } else {
-                                          const table = typeCode === 2 ? "user_diets" : "user_habits";
-                                          const { error } = await supabase.from(table).delete().eq("id", item.id);
-                                          if (error) {
-                                            toast({ title: "Erro ao remover", description: error.message, variant: "destructive" });
-                                            return;
+                                      {/* Delete button */}
+                                      <button
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          if (typeCode === 1) {
+                                            handleDeleteExercise(item.id);
+                                          } else {
+                                            const table = typeCode === 2 ? "user_diets" : "user_habits";
+                                            const { error } = await supabase.from(table).delete().eq("id", item.id);
+                                            if (error) {
+                                              toast({ title: "Erro ao remover", description: error.message, variant: "destructive" });
+                                              return;
+                                            }
+                                            if (typeCode === 2) setUserDiets((prev) => prev.filter((d) => d.id !== item.id));
+                                            else setUserHabits((prev) => prev.filter((h) => h.id !== item.id));
+                                            if (user) {
+                                              Promise.all([getUserRoutinesDb(user.id), typeCode === 2 ? getUserDietsDb(user.id) : getUserHabitsDb(user.id)]).then(([routinesData, itemsData]) => {
+                                                setRoutines(routinesData);
+                                                if (typeCode === 2) setUserDiets(itemsData as any);
+                                                else setUserHabits(itemsData as any);
+                                              });
+                                            }
+                                            toast({ title: typeCode === 2 ? "Dieta removida" : "Hábito removido" });
                                           }
-                                          if (typeCode === 2) setUserDiets((prev) => prev.filter((d) => d.id !== item.id));
-                                          else setUserHabits((prev) => prev.filter((h) => h.id !== item.id));
-                                          if (user) {
-                                            Promise.all([getUserRoutinesDb(user.id), typeCode === 2 ? getUserDietsDb(user.id) : getUserHabitsDb(user.id)]).then(([routinesData, itemsData]) => {
-                                              setRoutines(routinesData);
-                                              if (typeCode === 2) setUserDiets(itemsData as any);
-                                              else setUserHabits(itemsData as any);
-                                            });
-                                          }
-                                          toast({ title: typeCode === 2 ? "Dieta removida" : "Hábito removido" });
-                                        }
-                                      }}
-                                      className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
-                                      title="Remover item"
-                                    >
-                                      <Trash2 className="h-4 w-4 text-red-500" />
-                                    </button>
+                                        }}
+                                        className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
+                                        title="Remover item"
+                                      >
+                                        <Trash2 className="h-4 w-4 text-red-500" />
+                                      </button>
+                                    </div>
                                   </div>
-                                </div>
-                              ))
-                            ) : (
-                              <p className="text-xs text-muted-foreground text-center py-2">
-                                {allCompleted ? "Todas as tarefas concluídas ✓" : "Nenhum item adicionado"}
-                              </p>
-                            );
+                                ))
+                              ) : (
+                                <p className="text-xs text-muted-foreground text-center py-2">
+                                  {allCompleted ? "Todas as tarefas concluídas ✓" : "Nenhum item adicionado"}
+                                </p>
+                              );
                             })()}
                           </div>
                         )}
@@ -3410,11 +3412,10 @@ export default function Goals() {
                                 <button
                                   key={cat}
                                   onClick={() => handleToggleDietCategory(cat)}
-                                  className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
-                                    selectedDietCategories.has(cat)
-                                      ? "border-brand bg-brand/20 text-brand"
-                                      : "border-border/60 text-muted-foreground hover:border-border/80"
-                                  }`}
+                                  className={`px-3 py-1.5 text-xs rounded-full border transition-all ${selectedDietCategories.has(cat)
+                                    ? "border-brand bg-brand/20 text-brand"
+                                    : "border-border/60 text-muted-foreground hover:border-border/80"
+                                    }`}
                                 >
                                   {cat}
                                 </button>
@@ -3478,11 +3479,10 @@ export default function Goals() {
                                   <button
                                     key={muscleGroup}
                                     onClick={() => handleToggleMuscleGroup(muscleGroup)}
-                                    className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl border text-center transition-all ${
-                                      isActive
-                                        ? "border-brand bg-brand/15 text-brand shadow-sm"
-                                        : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
-                                    }`}
+                                    className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl border text-center transition-all ${isActive
+                                      ? "border-brand bg-brand/15 text-brand shadow-sm"
+                                      : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
+                                      }`}
                                   >
                                     <span className="text-base leading-none">{groupIcons[muscleGroup] || "💪"}</span>
                                     <span className="text-[10px] font-medium leading-tight">{muscleGroup}</span>
@@ -3533,10 +3533,10 @@ export default function Goals() {
                               }
                             }}
                             className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
-                                ? "border-brand bg-brand/10"
-                                : isAlreadySelected
-                                  ? "border-green-500/40 bg-green-500/5"
-                                  : "border-border/60 hover:border-border/80"
+                              ? "border-brand bg-brand/10"
+                              : isAlreadySelected
+                                ? "border-green-500/40 bg-green-500/5"
+                                : "border-border/60 hover:border-border/80"
                               }`}
                           >
                             <div className="flex items-center gap-3">
@@ -3592,9 +3592,9 @@ export default function Goals() {
                           size="sm"
                           className="rounded-full gap-2 text-xs"
                           onClick={() => {
-                              setNewWorkoutName(addToRoutineCardName || routineName.trim() || "");
-                              setCreateWorkoutDrawerOpen(true);
-                            }}
+                            setNewWorkoutName(addToRoutineCardName || routineName.trim() || "");
+                            setCreateWorkoutDrawerOpen(true);
+                          }}
                         >
                           <Plus className="h-3.5 w-3.5" />
                           Não encontrei meu exercício
@@ -3639,10 +3639,10 @@ export default function Goals() {
                               }
                             }}
                             className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
-                                ? "border-brand bg-brand/10"
-                                : isAlreadyInRoutine
-                                  ? "border-green-500/40 bg-green-500/5"
-                                  : "border-border/60 hover:border-border/80"
+                              ? "border-brand bg-brand/10"
+                              : isAlreadyInRoutine
+                                ? "border-green-500/40 bg-green-500/5"
+                                : "border-border/60 hover:border-border/80"
                               }`}
                           >
                             <div className="flex items-center gap-3">
@@ -3701,10 +3701,10 @@ export default function Goals() {
                             key={habit.id}
                             onClick={() => handleSelectItem(habit.id)}
                             className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
-                                ? "border-brand bg-brand/10"
-                                : isAlreadyInRoutine
-                                  ? "border-green-500/40 bg-green-500/5"
-                                  : "border-border/60 hover:border-border/80"
+                              ? "border-brand bg-brand/10"
+                              : isAlreadyInRoutine
+                                ? "border-green-500/40 bg-green-500/5"
+                                : "border-border/60 hover:border-border/80"
                               }`}
                           >
                             <div className="flex items-center justify-between gap-2">
@@ -3797,13 +3797,13 @@ export default function Goals() {
                         <p className="text-base font-bold text-foreground">
                           {allWorkoutsCardio
                             ? `${Math.round(activeWorkouts.reduce((total, workout) => {
-                                const series = workoutSeries[workout.workout_id] || [];
-                                return total + series.filter(s => s.completed).reduce((sum, s) => sum + (s.kg || 0), 0);
-                              }, 0) * 10) / 10} km`
+                              const series = workoutSeries[workout.workout_id] || [];
+                              return total + series.filter(s => s.completed).reduce((sum, s) => sum + (s.kg || 0), 0);
+                            }, 0) * 10) / 10} km`
                             : `${Math.round(activeWorkouts.reduce((total, workout) => {
-                                const series = workoutSeries[workout.workout_id] || [];
-                                return total + series.filter(s => s.completed).reduce((sum, s) => sum + (s.kg || 0) * (s.reps || 0), 0);
-                              }, 0) * 10) / 10} kg`
+                              const series = workoutSeries[workout.workout_id] || [];
+                              return total + series.filter(s => s.completed).reduce((sum, s) => sum + (s.kg || 0) * (s.reps || 0), 0);
+                            }, 0) * 10) / 10} kg`
                           }
                         </p>
                       </div>
@@ -4020,36 +4020,36 @@ export default function Goals() {
                                         className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
                                       />
 
-                                {/* Checkbox */}
-                                <button
-                                  onClick={() =>
-                                    handleToggleSerieCompleted(
-                                      workout.workout_id,
-                                      index,
-                                    )
-                                  }
-                                  className="h-6 w-6 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors mx-auto"
-                                >
-                                  {s.completed ? (
-                                    <CheckCircle2 className="h-4 w-4 text-brand" />
-                                  ) : (
-                                    <Circle className="h-4 w-4 text-muted-foreground" />
-                                  )}
-                                </button>
+                                      {/* Checkbox */}
+                                      <button
+                                        onClick={() =>
+                                          handleToggleSerieCompleted(
+                                            workout.workout_id,
+                                            index,
+                                          )
+                                        }
+                                        className="h-6 w-6 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors mx-auto"
+                                      >
+                                        {s.completed ? (
+                                          <CheckCircle2 className="h-4 w-4 text-brand" />
+                                        ) : (
+                                          <Circle className="h-4 w-4 text-muted-foreground" />
+                                        )}
+                                      </button>
 
-                                {/* Delete Serie */}
-                                <button
-                                  onClick={() => handleDeleteSerie(workout.workout_id, index)}
-                                  className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 rounded-full bg-destructive/80 hover:bg-destructive flex items-center justify-center mx-auto"
-                                  title="Deletar série"
-                                  aria-label="Deletar série"
-                                >
-                                  <Trash2 className="h-3 w-3 text-white" />
-                                </button>
+                                      {/* Delete Serie */}
+                                      <button
+                                        onClick={() => handleDeleteSerie(workout.workout_id, index)}
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 rounded-full bg-destructive/80 hover:bg-destructive flex items-center justify-center mx-auto"
+                                        title="Deletar série"
+                                        aria-label="Deletar série"
+                                      >
+                                        <Trash2 className="h-3 w-3 text-white" />
+                                      </button>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            );
-                          })}
-                        </div>
                             </>
                           );
                         })()}
@@ -4375,6 +4375,7 @@ export default function Goals() {
           setWorkoutCoverPreviews([]);
           setCoverCarouselIndex(0);
           setCanvasPreviewUrl(null);
+          setPrCanvasPreviewUrl(null);
           setWorkoutRating(0);
           setIsDuelShareModalOpen(false);
           setSelectedDuelGroupId(null);
@@ -4405,28 +4406,60 @@ export default function Goals() {
             const userPhotoUrl = userProfile?.photo || null;
 
             let photoUrl: string | null = null;
-            if (workoutCoverFiles.length > 0 && supabase) {
-              const workoutCoverFile = workoutCoverFiles[0];
-              const ext = workoutCoverFile.name.split(".").pop() || "jpg";
-              const filePath = `${user.id}/${Date.now()}-duel-checkin.${ext}`;
-              const { error: uploadError } = await supabase.storage
-                .from("posts")
-                .upload(filePath, workoutCoverFile, { contentType: workoutCoverFile.type, upsert: false });
-              if (!uploadError) {
-                const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
-                photoUrl = urlData.publicUrl;
+            const uploadedUrls: string[] = [];
+
+            if (supabase) {
+              // 1. Upload the PR canvas card as the first photo if there's a PR
+              const prCanvas = prCanvasRef.current;
+              if (prCanvas && workoutSummaryData.prs.length > 0) {
+                const blob = await new Promise<Blob | null>((res) => prCanvas.toBlob(res, "image/png"));
+                if (blob) {
+                  const filePath = `${user.id}/${Date.now()}-duel-pr-cover.png`;
+                  const { error: uploadError } = await supabase.storage
+                    .from("posts")
+                    .upload(filePath, blob, { contentType: "image/png", upsert: false });
+                  if (!uploadError) {
+                    const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                    const publicUrl = urlData.publicUrl;
+                    photoUrl = publicUrl;
+                    uploadedUrls.push(publicUrl);
+                  }
+                }
               }
-            } else if (workoutCoverFiles.length === 0 && workoutCanvasRef.current && supabase) {
-              const canvas = workoutCanvasRef.current;
-              const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
-              if (blob) {
-                const filePath = `${user.id}/${Date.now()}-duel-checkin-cover.png`;
-                const { error: uploadError } = await supabase.storage
-                  .from("posts")
-                  .upload(filePath, blob, { contentType: "image/png", upsert: false });
-                if (!uploadError) {
-                  const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
-                  photoUrl = urlData.publicUrl;
+
+              // 2. Upload the regular Workout Summary canvas card
+              if (workoutCanvasRef.current) {
+                const canvas = workoutCanvasRef.current;
+                const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
+                if (blob) {
+                  const filePath = `${user.id}/${Date.now()}-duel-checkin-cover.png`;
+                  const { error: uploadError } = await supabase.storage
+                    .from("posts")
+                    .upload(filePath, blob, { contentType: "image/png", upsert: false });
+                  if (!uploadError) {
+                    const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                    const publicUrl = urlData.publicUrl;
+                    if (!photoUrl) photoUrl = publicUrl;
+                    uploadedUrls.push(publicUrl);
+                  }
+                }
+              }
+
+              // 3. Upload all user-selected photos
+              if (workoutCoverFiles.length > 0) {
+                for (let i = 0; i < workoutCoverFiles.length; i++) {
+                  const file = workoutCoverFiles[i];
+                  const ext = file.name.split(".").pop() || "jpg";
+                  const filePath = `${user.id}/${Date.now()}-duel-checkin-${i}.${ext}`;
+                  const { error: uploadError } = await supabase.storage
+                    .from("posts")
+                    .upload(filePath, file, { contentType: file.type, upsert: false });
+                  if (!uploadError) {
+                    const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                    const publicUrl = urlData.publicUrl;
+                    if (!photoUrl) photoUrl = publicUrl;
+                    uploadedUrls.push(publicUrl);
+                  }
                 }
               }
             }
@@ -4440,7 +4473,7 @@ export default function Goals() {
               selectedDuelGroupId,
               user.id,
               userName,
-              photoUrl || "",
+              photoUrl || uploadedUrls[0] || "",
               description,
               workoutSummaryData.routineName || "Treino",
               workoutSummaryData.totalSeries,
@@ -4448,6 +4481,7 @@ export default function Goals() {
               primaryMuscle,
               workoutSummaryData.exercises,
               userPhotoUrl,
+              uploadedUrls,
             );
 
             toast({ title: "Check-in no duelo! ⚔️", description: "Seu treino foi registrado no grupo." });
@@ -4626,294 +4660,302 @@ export default function Goals() {
         };
 
         return createPortal(
-          <div className="fixed inset-0 z-[200] flex flex-col bg-background overflow-y-auto">
-            {/* Hidden canvases for cover generation */}
-            <canvas ref={workoutCanvasRef} width={800} height={800} className="hidden" />
-            <canvas ref={prCanvasRef} width={800} height={800} className="hidden" />
+          <>
+            {/* Desktop Backdrop */}
+            <div className="hidden md:block fixed inset-0 z-[190] bg-black/80 backdrop-blur-sm" onClick={closeSummary} />
 
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 pt-12 pb-4 flex-shrink-0">
-              <button onClick={closeSummary} className="p-2 rounded-full hover:bg-muted transition-colors" aria-label="Fechar">
-                <X className="h-5 w-5" />
-              </button>
-              <h1 className="text-base font-bold">Resumo do Treino</h1>
-              <div className="w-9" />
-            </div>
+            <div className="fixed inset-0 z-[200] flex flex-col bg-background overflow-y-auto md:top-[5vh] md:bottom-[5vh] md:left-[244px] md:right-0 md:mx-auto md:w-full md:max-w-[680px] md:rounded-2xl md:border md:border-border/50 md:shadow-2xl">
+              {/* Hidden canvases for cover generation */}
+              <canvas ref={workoutCanvasRef} width={800} height={800} className="hidden" />
+              <canvas ref={prCanvasRef} width={800} height={800} className="hidden" />
 
-            {/* Cover image carousel */}
-            {(() => {
-              // Slide 0 is always the canvas card; slides 1..N are user photos
-              const allSlides: { src: string; isCanvas: boolean }[] = [
-                ...(canvasPreviewUrl ? [{ src: canvasPreviewUrl, isCanvas: true }] : []),
-                ...workoutCoverPreviews.map((src) => ({ src, isCanvas: false })),
-              ];
-              const safeIndex = Math.min(coverCarouselIndex, Math.max(0, allSlides.length - 1));
-              const currentSlide = allSlides[safeIndex];
-              // Index of current slide in userPhotos array (offset by canvas slide)
-              const userPhotoIndex = safeIndex - (canvasPreviewUrl ? 1 : 0);
-              return (
-                <div className="mx-4 mb-4 relative rounded-2xl overflow-hidden aspect-square bg-gradient-to-br from-slate-900 to-emerald-950 border border-brand/20 flex-shrink-0">
-                  {/* Current slide */}
-                  {currentSlide ? (
-                    <img src={currentSlide.src} alt={`Slide ${safeIndex + 1}`} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Camera className="h-10 w-10 text-white/30" />
-                    </div>
-                  )}
-
-                  {/* Carousel navigation arrows */}
-                  {allSlides.length > 1 && (
-                    <>
-                      <button
-                        onClick={() => setCoverCarouselIndex((i) => (i - 1 + allSlides.length) % allSlides.length)}
-                        className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors"
-                        aria-label="Foto anterior"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => setCoverCarouselIndex((i) => (i + 1) % allSlides.length)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors"
-                        aria-label="Próxima foto"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                    </>
-                  )}
-
-                  {/* Dots indicator */}
-                  {allSlides.length > 1 && (
-                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-1.5">
-                      {allSlides.map((_, i) => (
-                        <button
-                          key={i}
-                          onClick={() => setCoverCarouselIndex(i)}
-                          className={`h-1.5 rounded-full transition-all ${i === safeIndex ? "bg-white w-3" : "bg-white/50 w-1.5"}`}
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Remove button — only for user photos, not the canvas slide */}
-                  {currentSlide && !currentSlide.isCanvas && (
-                    <button
-                      onClick={() => handleRemoveCoverPhoto(userPhotoIndex)}
-                      className="absolute top-3 right-3 bg-black/60 hover:bg-red-600/80 text-white rounded-full p-1.5 transition-colors"
-                      aria-label="Remover foto"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-
-                  {/* Add photo button */}
-                  {workoutCoverPreviews.length < 10 && (
-                    <label className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full cursor-pointer transition-colors">
-                      <Camera className="h-3.5 w-3.5" />
-                      {workoutCoverPreviews.length > 0 ? `+foto (${workoutCoverPreviews.length}/10)` : "Adicionar foto"}
-                      <input type="file" accept="image/*" multiple className="hidden" onChange={handlePickPhoto} />
-                    </label>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Stats row */}
-            <div className="mx-4 grid grid-cols-3 gap-2 mb-4">
-              <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3">
-                <Timer className="h-4 w-4 text-brand" />
-                <p className="text-[11px] text-muted-foreground">Duração</p>
-                <p className="text-sm font-bold">{durationStr}</p>
-              </div>
-              <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3">
-                <TrendingUp className="h-4 w-4 text-brand" />
-                <p className="text-[11px] text-muted-foreground">{workoutSummaryData.isAllCardio ? "Distância" : "Volume"}</p>
-                <p className="text-sm font-bold">
-                  {workoutSummaryData.isAllCardio
-                    ? (workoutSummaryData.totalKm > 0 ? `${workoutSummaryData.totalKm} km` : "—")
-                    : (workoutSummaryData.totalVolume > 0 ? `${workoutSummaryData.totalVolume} kg` : "—")}
-                </p>
-              </div>
-              <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3">
-                <Flame className="h-4 w-4 text-brand" />
-                <p className="text-[11px] text-muted-foreground">Séries</p>
-                <p className="text-sm font-bold">{workoutSummaryData.totalSeries}</p>
-              </div>
-            </div>
-
-            {/* Exercises */}
-            {workoutSummaryData.exerciseNames.length > 0 && (
-              <div className="mx-4 mb-4 rounded-xl bg-card border border-border/50 p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Dumbbell className="h-4 w-4 text-brand" />
-                  <p className="text-sm font-semibold">Exercícios realizados</p>
-                </div>
-                <div className="space-y-1">
-                  {workoutSummaryData.exerciseNames.map((name, i) => (
-                    <div key={i} className="flex items-center gap-2 text-sm">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-brand flex-shrink-0" />
-                      <span>{name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* PRs achieved this session */}
-            {workoutSummaryData.prs.length > 0 && (
-              <div className="mx-4 mb-4 rounded-xl bg-brand/10 border border-brand/30 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">🏆</span>
-                    <p className="text-sm font-semibold text-brand">Novos Recordes!</p>
-                  </div>
-                  <button
-                    onClick={handleSharePR}
-                    disabled={isSharingWorkout}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-brand border border-brand/40 rounded-full px-3 py-1 hover:bg-brand/10 transition-colors disabled:opacity-50"
-                  >
-                    <Share2 className="h-3.5 w-3.5" />
-                    Compartilhar
-                  </button>
-                </div>
-                <div className="space-y-1.5">
-                  {workoutSummaryData.prs.map((pr, i) => (
-                    <div key={i} className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{pr.exerciseName}</span>
-                      <span className="text-brand font-bold">
-                        {pr.kg} kg{pr.reps > 0 ? ` × ${pr.reps}` : ""}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="mx-4 pb-10 space-y-3 mt-2">
-              {/* Editable post description */}
-              <div className="rounded-xl border border-border/50 bg-card p-3 space-y-1.5">
-                <p className="text-xs font-medium text-muted-foreground">Descrição da postagem</p>
-                <textarea
-                  value={workoutPostDescription}
-                  onChange={(e) => setWorkoutPostDescription(e.target.value)}
-                  rows={4}
-                  className="w-full bg-transparent text-sm resize-none outline-none text-foreground placeholder:text-muted-foreground"
-                  placeholder="Escreva algo sobre seu treino..."
-                />
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 pt-12 pb-4 flex-shrink-0">
+                <button onClick={closeSummary} className="p-2 rounded-full hover:bg-muted transition-colors" aria-label="Fechar">
+                  <X className="h-5 w-5" />
+                </button>
+                <h1 className="text-base font-bold">Resumo do Treino</h1>
+                <div className="w-9" />
               </div>
 
-              <Button className="w-full rounded-full gap-2 h-12 text-base" disabled={isSharingWorkout} onClick={handleShare}>
-                {isSharingWorkout
-                  ? "Compartilhando..."
-                  : <><Share2 className="h-5 w-5" /> Compartilhar no Feed</>
-                }
-              </Button>
-
-              {/* Duel share — only shown when user has duel groups */}
-              {duelGroups.length > 0 && (!isDuelShareModalOpen ? (
-                <Button
-                  variant="outline"
-                  className="w-full rounded-full gap-2 h-12 text-base"
-                  onClick={handleOpenDuelShare}
-                >
-                  <Swords className="h-5 w-5" /> Compartilhar no Duelo
-                </Button>
-              ) : (
-                <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Swords className="h-4 w-4 text-brand" />
-                    <p className="text-sm font-semibold">Escolha o grupo</p>
-                  </div>
-                  {duelGroups.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-2">Você não tem grupos de duelo. Crie um na aba Comunidade.</p>
-                  ) : (
-                    <div className="space-y-2 max-h-40 overflow-y-auto">
-                      {duelGroups.map((g) => (
-                        <button
-                          key={g.id}
-                          onClick={() => setSelectedDuelGroupId(g.id)}
-                          className={`w-full text-left px-3 py-2.5 rounded-xl border transition-colors ${
-                            selectedDuelGroupId === g.id
-                              ? "border-brand bg-brand/10"
-                              : "border-border/50 hover:border-brand/40"
-                          }`}
-                        >
-                          <p className="text-sm font-medium truncate">{g.name}</p>
-                          {g.goal && <p className="text-xs text-muted-foreground truncate">{g.goal}</p>}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex gap-2 pt-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="flex-1 rounded-full h-9 text-xs"
-                      onClick={() => { setIsDuelShareModalOpen(false); setSelectedDuelGroupId(null); }}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="flex-1 rounded-full h-9 text-xs gap-1.5"
-                      disabled={!selectedDuelGroupId || isSharingDuel}
-                      onClick={handleShareDuel}
-                    >
-                      {isSharingDuel ? "Enviando..." : <><Swords className="h-3.5 w-3.5" /> Confirmar</>}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-
-              {/* ─── Timing Nutricional Pós-Treino ─── */}
-              {showPostWorkoutNutrition && (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Zap className="h-4 w-4 text-emerald-500" />
-                      <span className="text-sm font-semibold">Nutrição Pós-Treino</span>
-                    </div>
-                    <button
-                      onClick={() => setNutritionExpanded((v) => !v)}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      {nutritionExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
-                  {nutritionExpanded && (
-                    <>
-                      <p className="text-xs text-muted-foreground">
-                        Para maximizar a recuperação, consuma dentro de 30–60 min:
-                      </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="rounded-lg bg-blue-500/10 p-2.5">
-                          <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">Proteína</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">20–40g · whey, ovo, frango</p>
-                        </div>
-                        <div className="rounded-lg bg-amber-500/10 p-2.5">
-                          <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">Carboidrato</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">30–60g · arroz, banana, batata</p>
-                        </div>
-                        <div className="rounded-lg bg-blue-400/10 p-2.5">
-                          <p className="text-xs font-semibold text-blue-500 dark:text-blue-300">Hidratação</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">500ml+ de água</p>
-                        </div>
-                        <div className="rounded-lg bg-purple-500/10 p-2.5">
-                          <p className="text-xs font-semibold text-purple-600 dark:text-purple-400">Timing</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">Janela anabólica: até 2h</p>
-                        </div>
+              {/* Cover image carousel */}
+              {(() => {
+                // Slides: [PR card (if any)], [workout summary card], [user photos...]
+                const canvasSlides: { src: string; isCanvas: boolean }[] = [
+                  ...(prCanvasPreviewUrl ? [{ src: prCanvasPreviewUrl, isCanvas: true }] : []),
+                  ...(canvasPreviewUrl ? [{ src: canvasPreviewUrl, isCanvas: true }] : []),
+                ];
+                const allSlides: { src: string; isCanvas: boolean }[] = [
+                  ...canvasSlides,
+                  ...workoutCoverPreviews.map((src) => ({ src, isCanvas: false })),
+                ];
+                const safeIndex = Math.min(coverCarouselIndex, Math.max(0, allSlides.length - 1));
+                const currentSlide = allSlides[safeIndex];
+                // Index of current slide in userPhotos array (offset by canvas slides)
+                const userPhotoIndex = safeIndex - canvasSlides.length;
+                return (
+                  <div className="mx-4 mb-4 relative rounded-2xl overflow-hidden aspect-square md:aspect-auto md:h-[400px] bg-slate-950/40 border border-brand/20 flex-shrink-0 flex items-center justify-center">
+                    {/* Current slide */}
+                    {currentSlide ? (
+                      <img src={currentSlide.src} alt={`Slide ${safeIndex + 1}`} className="max-w-full max-h-full w-auto h-auto object-contain" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Camera className="h-10 w-10 text-white/30" />
                       </div>
-                    </>
-                  )}
+                    )}
+
+                    {/* Carousel navigation arrows */}
+                    {allSlides.length > 1 && (
+                      <>
+                        <button
+                          onClick={() => setCoverCarouselIndex((i) => (i - 1 + allSlides.length) % allSlides.length)}
+                          className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors"
+                          aria-label="Foto anterior"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => setCoverCarouselIndex((i) => (i + 1) % allSlides.length)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1.5 transition-colors"
+                          aria-label="Próxima foto"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
+
+                    {/* Dots indicator */}
+                    {allSlides.length > 1 && (
+                      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-1.5">
+                        {allSlides.map((_, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setCoverCarouselIndex(i)}
+                            className={`h-1.5 rounded-full transition-all ${i === safeIndex ? "bg-white w-3" : "bg-white/50 w-1.5"}`}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Remove button — only for user photos, not the canvas slide */}
+                    {currentSlide && !currentSlide.isCanvas && (
+                      <button
+                        onClick={() => handleRemoveCoverPhoto(userPhotoIndex)}
+                        className="absolute top-3 right-3 bg-black/60 hover:bg-red-600/80 text-white rounded-full p-1.5 transition-colors"
+                        aria-label="Remover foto"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+
+                    {/* Add photo button */}
+                    {workoutCoverPreviews.length < 10 && (
+                      <label className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-3 py-1.5 rounded-full cursor-pointer transition-colors">
+                        <Camera className="h-3.5 w-3.5" />
+                        {workoutCoverPreviews.length > 0 ? `+foto (${workoutCoverPreviews.length}/10)` : "Adicionar foto"}
+                        <input type="file" accept="image/*" multiple className="hidden" onChange={handlePickPhoto} />
+                      </label>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Stats row */}
+              <div className="mx-4 grid grid-cols-3 gap-2 mb-4">
+                <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3 md:py-2">
+                  <Timer className="h-4 w-4 text-brand" />
+                  <p className="text-[11px] text-muted-foreground">Duração</p>
+                  <p className="text-sm font-bold">{durationStr}</p>
+                </div>
+                <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3 md:py-2">
+                  <TrendingUp className="h-4 w-4 text-brand" />
+                  <p className="text-[11px] text-muted-foreground">{workoutSummaryData.isAllCardio ? "Distância" : "Volume"}</p>
+                  <p className="text-sm font-bold">
+                    {workoutSummaryData.isAllCardio
+                      ? (workoutSummaryData.totalKm > 0 ? `${workoutSummaryData.totalKm} km` : "—")
+                      : (workoutSummaryData.totalVolume > 0 ? `${workoutSummaryData.totalVolume} kg` : "—")}
+                  </p>
+                </div>
+                <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3 md:py-2">
+                  <Flame className="h-4 w-4 text-brand" />
+                  <p className="text-[11px] text-muted-foreground">Séries</p>
+                  <p className="text-sm font-bold">{workoutSummaryData.totalSeries}</p>
+                </div>
+              </div>
+
+              {/* Exercises */}
+              {workoutSummaryData.exerciseNames.length > 0 && (
+                <div className="mx-4 mb-4 rounded-xl bg-card border border-border/50 p-4 md:p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Dumbbell className="h-4 w-4 text-brand" />
+                    <p className="text-sm font-semibold">Exercícios realizados</p>
+                  </div>
+                  <div className="space-y-1">
+                    {workoutSummaryData.exerciseNames.map((name, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-brand flex-shrink-0" />
+                        <span>{name}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
-              <Button variant="ghost" className="w-full rounded-full h-12 text-base text-muted-foreground" onClick={closeSummary}>
-                Fechar
-              </Button>
+              {/* PRs achieved this session */}
+              {workoutSummaryData.prs.length > 0 && (
+                <div className="mx-4 mb-4 rounded-xl bg-brand/10 border border-brand/30 p-4 md:p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🏆</span>
+                      <p className="text-sm font-semibold text-brand">Novos Recordes!</p>
+                    </div>
+                    <button
+                      onClick={handleSharePR}
+                      disabled={isSharingWorkout}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-brand border border-brand/40 rounded-full px-3 py-1 hover:bg-brand/10 transition-colors disabled:opacity-50"
+                    >
+                      <Share2 className="h-3.5 w-3.5" />
+                      Compartilhar
+                    </button>
+                  </div>
+                  <div className="space-y-1.5">
+                    {workoutSummaryData.prs.map((pr, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm">
+                        <span className="font-medium">{pr.exerciseName}</span>
+                        <span className="text-brand font-bold">
+                          {pr.kg} kg{pr.reps > 0 ? ` × ${pr.reps}` : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="mx-4 pb-10 space-y-3 mt-2">
+                {/* Editable post description */}
+                <div className="rounded-xl border border-border/50 bg-card p-3 space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">Descrição da postagem</p>
+                  <textarea
+                    value={workoutPostDescription}
+                    onChange={(e) => setWorkoutPostDescription(e.target.value)}
+                    rows={2}
+                    className="w-full bg-transparent text-sm resize-none outline-none text-foreground placeholder:text-muted-foreground min-h-[50px]"
+                    placeholder="Escreva algo sobre seu treino..."
+                  />
+                </div>
+
+                <Button className="w-full rounded-full gap-2 h-10 text-sm" disabled={isSharingWorkout} onClick={handleShare}>
+                  {isSharingWorkout
+                    ? "Compartilhando..."
+                    : <><Share2 className="h-5 w-5" /> Compartilhar no Feed</>
+                  }
+                </Button>
+
+                {/* Duel share — only shown when user has duel groups */}
+                {duelGroups.length > 0 && (!isDuelShareModalOpen ? (
+                  <Button
+                    variant="outline"
+                    className="w-full rounded-full gap-2 h-12 text-base"
+                    onClick={handleOpenDuelShare}
+                  >
+                    <Swords className="h-5 w-5" /> Compartilhar no Duelo
+                  </Button>
+                ) : (
+                  <div className="rounded-2xl border border-border/60 bg-card p-4 md:p-3 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Swords className="h-4 w-4 text-brand" />
+                      <p className="text-sm font-semibold">Escolha o grupo</p>
+                    </div>
+                    {duelGroups.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-2">Você não tem grupos de duelo. Crie um na aba Comunidade.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-40 overflow-y-auto">
+                        {duelGroups.map((g) => (
+                          <button
+                            key={g.id}
+                            onClick={() => setSelectedDuelGroupId(g.id)}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl border transition-colors ${selectedDuelGroupId === g.id
+                              ? "border-brand bg-brand/10"
+                              : "border-border/50 hover:border-brand/40"
+                              }`}
+                          >
+                            <p className="text-sm font-medium truncate">{g.name}</p>
+                            {g.goal && <p className="text-xs text-muted-foreground truncate">{g.goal}</p>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 rounded-full h-9 md:h-8 text-xs"
+                        onClick={() => { setIsDuelShareModalOpen(false); setSelectedDuelGroupId(null); }}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="flex-1 rounded-full h-9 text-xs gap-1.5"
+                        disabled={!selectedDuelGroupId || isSharingDuel}
+                        onClick={handleShareDuel}
+                      >
+                        {isSharingDuel ? "Enviando..." : <><Swords className="h-3.5 w-3.5" /> Confirmar</>}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* ─── Timing Nutricional Pós-Treino ─── */}
+                {showPostWorkoutNutrition && (
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Zap className="h-4 w-4 text-emerald-500" />
+                        <span className="text-sm font-semibold">Nutrição Pós-Treino</span>
+                      </div>
+                      <button
+                        onClick={() => setNutritionExpanded((v) => !v)}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        {nutritionExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                    {nutritionExpanded && (
+                      <>
+                        <p className="text-xs text-muted-foreground">
+                          Para maximizar a recuperação, consuma dentro de 30–60 min:
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="rounded-lg bg-blue-500/10 p-2.5 md:p-2">
+                            <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">Proteína</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">20–40g · whey, ovo, frango</p>
+                          </div>
+                          <div className="rounded-lg bg-amber-500/10 p-2.5 md:p-2">
+                            <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">Carboidrato</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">30–60g · arroz, banana, batata</p>
+                          </div>
+                          <div className="rounded-lg bg-blue-400/10 p-2.5 md:p-2">
+                            <p className="text-xs font-semibold text-blue-500 dark:text-blue-300">Hidratação</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">500ml+ de água</p>
+                          </div>
+                          <div className="rounded-lg bg-purple-500/10 p-2.5 md:p-2">
+                            <p className="text-xs font-semibold text-purple-600 dark:text-purple-400">Timing</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">Janela anabólica: até 2h</p>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <Button variant="ghost" className="w-full rounded-full h-12 md:h-10 text-base md:text-sm text-muted-foreground" onClick={closeSummary}>
+                  Fechar
+                </Button>
+              </div>
             </div>
-          </div>,
+          </>,
           document.body
         );
       })()}
@@ -4927,7 +4969,7 @@ export default function Goals() {
         totalCheckIns={totalCheckIns}
       />
       {/* LEGACY INLINE DRAWER REMOVED — kept below as dead block for reference, delete after QA */}
-      {false && <Drawer open={false} onOpenChange={() => {}}>
+      {false && <Drawer open={false} onOpenChange={() => { }}>
         <DrawerContent className="max-h-[80dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30">
           <DrawerHeader className="shrink-0 border-b border-border/60">
             <DrawerTitle className="flex items-center gap-2">
@@ -4960,8 +5002,8 @@ export default function Goals() {
               {/* 1 Day - Iniciante */}
               <div
                 className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${weekCheckIns.size >= 1
-                    ? "bg-gradient-to-r from-yellow-500/20 to-yellow-500/5 border border-yellow-500/40 shadow-lg shadow-yellow-500/10"
-                    : "bg-muted/40 border border-border/40 opacity-60"
+                  ? "bg-gradient-to-r from-yellow-500/20 to-yellow-500/5 border border-yellow-500/40 shadow-lg shadow-yellow-500/10"
+                  : "bg-muted/40 border border-border/40 opacity-60"
                   }`}
               >
                 <div className="p-4 flex items-start gap-4">
@@ -4994,8 +5036,8 @@ export default function Goals() {
               {/* 3 Days - Sequência */}
               <div
                 className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${weekCheckIns.size >= 3
-                    ? "bg-gradient-to-r from-blue-500/20 to-blue-500/5 border border-blue-500/40 shadow-lg shadow-blue-500/10"
-                    : "bg-muted/40 border border-border/40 opacity-60"
+                  ? "bg-gradient-to-r from-blue-500/20 to-blue-500/5 border border-blue-500/40 shadow-lg shadow-blue-500/10"
+                  : "bg-muted/40 border border-border/40 opacity-60"
                   }`}
               >
                 <div className="p-4 flex items-start gap-4">
@@ -5028,8 +5070,8 @@ export default function Goals() {
               {/* 5 Days - Campeão */}
               <div
                 className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${weekCheckIns.size >= 5
-                    ? "bg-gradient-to-r from-green-500/20 to-green-500/5 border border-green-500/40 shadow-lg shadow-green-500/10"
-                    : "bg-muted/40 border border-border/40 opacity-60"
+                  ? "bg-gradient-to-r from-green-500/20 to-green-500/5 border border-green-500/40 shadow-lg shadow-green-500/10"
+                  : "bg-muted/40 border border-border/40 opacity-60"
                   }`}
               >
                 <div className="p-4 flex items-start gap-4">
@@ -5062,8 +5104,8 @@ export default function Goals() {
               {/* 7 Days - Lendário */}
               <div
                 className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${weekCheckIns.size === 7
-                    ? "bg-gradient-to-r from-purple-500/20 to-purple-500/5 border border-purple-500/40 shadow-lg shadow-purple-500/10"
-                    : "bg-muted/40 border border-border/40 opacity-60"
+                  ? "bg-gradient-to-r from-purple-500/20 to-purple-500/5 border border-purple-500/40 shadow-lg shadow-purple-500/10"
+                  : "bg-muted/40 border border-border/40 opacity-60"
                   }`}
               >
                 <div className="p-4 flex items-start gap-4">
@@ -5237,119 +5279,119 @@ export default function Goals() {
                     })()}
 
                     {sortedDates.map((dateKey) => {
-                  const dayRecords = groupedByDay[dateKey];
-                  const totalKilos = dayRecords
-                    .reduce((sum, r) => sum + (r.kilos || 0), 0);
-                  const totalReps = dayRecords.length;
+                      const dayRecords = groupedByDay[dateKey];
+                      const totalKilos = dayRecords
+                        .reduce((sum, r) => sum + (r.kilos || 0), 0);
+                      const totalReps = dayRecords.length;
 
-                  return (
-                    <div key={dateKey} className="mb-6">
-                      {/* Date Header */}
-                      <div className="sticky top-0 bg-background/95 py-2 mb-2">
-                        <button
-                          className="text-xs font-semibold text-muted-foreground uppercase hover:text-brand transition-colors flex items-center gap-1"
-                          onClick={() => {
-                            const totalVolume = dayRecords.reduce((sum, r) => sum + (r.kilos || 0), 0);
-                            const totalSeries = dayRecords.length;
-                            const kgValues = dayRecords.map((r) => r.kilos || 0).filter((k) => k > 0);
-                            const bestKg = kgValues.length > 0 ? Math.max(...kgValues) : 0;
-                            const prHistorical = workoutHistory
-                              .filter((r) => new Date(r.dateCompleted).toLocaleDateString("pt-BR") !== dateKey)
-                              .map((r) => r.kilos || 0);
-                            const bestHistorical = prHistorical.length > 0 ? Math.max(...prHistorical) : 0;
-                            const prs = bestKg > bestHistorical && selectedWorkoutForHistory?.name
-                              ? [{ exerciseName: selectedWorkoutForHistory.name, kg: bestKg, reps: (() => { const rec = dayRecords.find((r) => r.kilos === bestKg); return rec?.volume ? parseInt(rec.volume) || 0 : 0; })() }]
-                              : [];
-                            setWorkoutSummaryData({
-                              duration: 0,
-                              totalVolume,
-                              totalSeries,
-                              exerciseNames: selectedWorkoutForHistory?.name ? [selectedWorkoutForHistory.name] : [],
-                              exercises: dayRecords.map((r) => ({
-                                workoutId: selectedWorkoutForHistory?.id || "",
-                                workoutName: selectedWorkoutForHistory?.name || "",
-                                muscleGroup: selectedWorkoutForHistory?.muscle_group || null,
-                                kilos: r.kilos || null,
-                                volume: r.volume || null,
-                              })),
-                              routineName: selectedWorkoutForHistory?.name || null,
-                              prs,
-                              isAllCardio: (selectedWorkoutForHistory?.muscle_group || "").toLowerCase() === "cardio",
-                              totalKm: (selectedWorkoutForHistory?.muscle_group || "").toLowerCase() === "cardio" ? totalVolume : 0,
-                            });
-                            setWorkoutHistoryModalOpen(false);
-                            setWorkoutSummaryOpen(true);
-                            setShowPostWorkoutNutrition(false);
-                            // Pre-build description for history summary (no linked goal lookup needed)
-                            const hName = selectedWorkoutForHistory?.name || null;
-                            const hStr = hName ? `Treino de ${hName}` : "Treino concluído";
-                            setWorkoutPostDescription(`💪 ${hStr}!\n✅ ${dayRecords.length} séries\n\n#Linka #Fitness #Treino`);
-                            if (user) {
-                              getEnrichedDuelGroupsDb(user.id).then(({ myGroups }) => {
-                                setDuelGroups(myGroups.map((g) => ({ id: g.id, name: g.name, goal: g.goal })));
-                              }).catch(() => setDuelGroups([]));
-                            }
-                          }}
-                        >
-                          {dateKey} <span className="text-brand/60 font-normal ml-1">· ver resumo</span>
-                        </button>
-                        <div className="flex gap-4 mt-1">
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              {totalReps} série(s)
-                            </p>
-                          </div>
-                          {totalKilos > 0 && (
-                            <div>
-                              <p className="text-xs text-muted-foreground">
-                                {totalKilos} kg total
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Records for this day */}
-                      <div className="space-y-1">
-                        {dayRecords.map((record) => {
-                          const time = new Date(record.dateCompleted).toLocaleTimeString(
-                            "pt-BR",
-                            { hour: "2-digit", minute: "2-digit" }
-                          );
-                          return (
-                            <div
-                              key={record.id}
-                              className="flex items-center justify-between p-2 rounded hover:bg-muted/40 transition-colors"
+                      return (
+                        <div key={dateKey} className="mb-6">
+                          {/* Date Header */}
+                          <div className="sticky top-0 bg-background/95 py-2 mb-2">
+                            <button
+                              className="text-xs font-semibold text-muted-foreground uppercase hover:text-brand transition-colors flex items-center gap-1"
+                              onClick={() => {
+                                const totalVolume = dayRecords.reduce((sum, r) => sum + (r.kilos || 0), 0);
+                                const totalSeries = dayRecords.length;
+                                const kgValues = dayRecords.map((r) => r.kilos || 0).filter((k) => k > 0);
+                                const bestKg = kgValues.length > 0 ? Math.max(...kgValues) : 0;
+                                const prHistorical = workoutHistory
+                                  .filter((r) => new Date(r.dateCompleted).toLocaleDateString("pt-BR") !== dateKey)
+                                  .map((r) => r.kilos || 0);
+                                const bestHistorical = prHistorical.length > 0 ? Math.max(...prHistorical) : 0;
+                                const prs = bestKg > bestHistorical && selectedWorkoutForHistory?.name
+                                  ? [{ exerciseName: selectedWorkoutForHistory.name, kg: bestKg, reps: (() => { const rec = dayRecords.find((r) => r.kilos === bestKg); return rec?.volume ? parseInt(rec.volume) || 0 : 0; })() }]
+                                  : [];
+                                setWorkoutSummaryData({
+                                  duration: 0,
+                                  totalVolume,
+                                  totalSeries,
+                                  exerciseNames: selectedWorkoutForHistory?.name ? [selectedWorkoutForHistory.name] : [],
+                                  exercises: dayRecords.map((r) => ({
+                                    workoutId: selectedWorkoutForHistory?.id || "",
+                                    workoutName: selectedWorkoutForHistory?.name || "",
+                                    muscleGroup: selectedWorkoutForHistory?.muscle_group || null,
+                                    kilos: r.kilos || null,
+                                    volume: r.volume || null,
+                                  })),
+                                  routineName: selectedWorkoutForHistory?.name || null,
+                                  prs,
+                                  isAllCardio: (selectedWorkoutForHistory?.muscle_group || "").toLowerCase() === "cardio",
+                                  totalKm: (selectedWorkoutForHistory?.muscle_group || "").toLowerCase() === "cardio" ? totalVolume : 0,
+                                });
+                                setWorkoutHistoryModalOpen(false);
+                                setWorkoutSummaryOpen(true);
+                                setShowPostWorkoutNutrition(false);
+                                // Pre-build description for history summary (no linked goal lookup needed)
+                                const hName = selectedWorkoutForHistory?.name || null;
+                                const hStr = hName ? `Treino de ${hName}` : "Treino concluído";
+                                setWorkoutPostDescription(`💪 ${hStr}!\n✅ ${dayRecords.length} séries\n\n#Linka #Fitness #Treino`);
+                                if (user) {
+                                  getEnrichedDuelGroupsDb(user.id).then(({ myGroups }) => {
+                                    setDuelGroups(myGroups.map((g) => ({ id: g.id, name: g.name, goal: g.goal })));
+                                  }).catch(() => setDuelGroups([]));
+                                }
+                              }}
                             >
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
-                                <p className="text-xs text-muted-foreground w-10">
-                                  {time}
+                              {dateKey} <span className="text-brand/60 font-normal ml-1">· ver resumo</span>
+                            </button>
+                            <div className="flex gap-4 mt-1">
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  {totalReps} série(s)
                                 </p>
-                                <div className="flex gap-2 flex-1 min-w-0 overflow-x-auto">
-                                  {record.kilos && (
-                                    <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
-                                      {record.kilos} kg
-                                    </span>
-                                  )}
-                                  {record.volume && (
-                                    <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
-                                      {record.volume}
-                                    </span>
-                                  )}
-                                  {record.calories && (
-                                    <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
-                                      {record.calories} cal
-                                    </span>
-                                  )}
-                                </div>
                               </div>
+                              {totalKilos > 0 && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">
+                                    {totalKilos} kg total
+                                  </p>
+                                </div>
+                              )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
+                          </div>
+
+                          {/* Records for this day */}
+                          <div className="space-y-1">
+                            {dayRecords.map((record) => {
+                              const time = new Date(record.dateCompleted).toLocaleTimeString(
+                                "pt-BR",
+                                { hour: "2-digit", minute: "2-digit" }
+                              );
+                              return (
+                                <div
+                                  key={record.id}
+                                  className="flex items-center justify-between p-2 rounded hover:bg-muted/40 transition-colors"
+                                >
+                                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    <p className="text-xs text-muted-foreground w-10">
+                                      {time}
+                                    </p>
+                                    <div className="flex gap-2 flex-1 min-w-0 overflow-x-auto">
+                                      {record.kilos && (
+                                        <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
+                                          {record.kilos} kg
+                                        </span>
+                                      )}
+                                      {record.volume && (
+                                        <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
+                                          {record.volume}
+                                        </span>
+                                      )}
+                                      {record.calories && (
+                                        <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
+                                          {record.calories} cal
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </>
                 );
               })()
@@ -5380,8 +5422,8 @@ export default function Goals() {
                     handleConfirmCheckInGoal();
                   }}
                   className={`w-full p-4 rounded-lg border-2 transition-all text-left space-y-3 ${selectedCheckInGoal?.id === goal.id
-                      ? "border-brand bg-brand/10"
-                      : "border-border/60 hover:border-border/80 hover:bg-muted/30"
+                    ? "border-brand bg-brand/10"
+                    : "border-border/60 hover:border-border/80 hover:bg-muted/30"
                     }`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -5672,8 +5714,8 @@ export default function Goals() {
                                       setGoalRoutineSelection(next);
                                     }}
                                     className={`shrink-0 h-5 w-5 rounded border-2 flex items-center justify-center transition-colors ${isSelected
-                                        ? "border-brand bg-brand"
-                                        : "border-border"
+                                      ? "border-brand bg-brand"
+                                      : "border-border"
                                       }`}
                                   >
                                     {isSelected && (
@@ -5919,11 +5961,10 @@ export default function Goals() {
                       key={opt.value}
                       type="button"
                       onClick={() => setNewGoalType(opt.value)}
-                      className={`rounded-lg border-2 px-3 py-2 text-xs font-semibold transition-all ${
-                        newGoalType === opt.value
-                          ? opt.color + " border-current"
-                          : "border-border/60 text-muted-foreground"
-                      }`}
+                      className={`rounded-lg border-2 px-3 py-2 text-xs font-semibold transition-all ${newGoalType === opt.value
+                        ? opt.color + " border-current"
+                        : "border-border/60 text-muted-foreground"
+                        }`}
                     >
                       {opt.label}
                     </button>
@@ -6001,11 +6042,11 @@ export default function Goals() {
                 onClick={() => {
                   const text = `🏆 Completei minha meta no Linka: "${celebrationGoal.description}"! ${celebrationGoal.quantity} dias de dedicação. Baixe o app e junte-se a mim! 💪`;
                   if (navigator.share) {
-                    navigator.share({ text }).catch(() => {});
+                    navigator.share({ text }).catch(() => { });
                   } else {
                     navigator.clipboard.writeText(text).then(() => {
                       toast({ title: "Copiado!", description: "Texto da conquista copiado para a área de transferência." });
-                    }).catch(() => {});
+                    }).catch(() => { });
                   }
                   setCelebrationGoal(null);
                 }}

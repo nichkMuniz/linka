@@ -6178,6 +6178,7 @@ export type GroupCheckIn = {
   userName: string;
   userPhoto: string | null;
   photo: string;
+  photos?: string[] | null;
   description: string;
   workoutInfo: string;
   muscleGroup: string | null;
@@ -6630,6 +6631,7 @@ export async function addGroupCheckInDb(
   muscleGroup: string | null = null,
   exercises: CompletedRoutineExercise[] = [],
   userPhoto: string | null = null,
+  photos: string[] = [],
 ): Promise<GroupCheckIn> {
   if (!supabase) throw new Error("Supabase not configured");
 
@@ -6642,6 +6644,7 @@ export async function addGroupCheckInDb(
         user_name: userName,
         user_photo: userPhoto,
         photo,
+        photos,
         description,
         workout_info: workoutInfo,
         series,
@@ -6662,6 +6665,7 @@ export async function addGroupCheckInDb(
       userName: data.user_name,
       userPhoto: userPhoto,
       photo: data.photo || "",
+      photos: data.photos || (data.photo ? [data.photo] : []),
       description: data.description || "",
       workoutInfo: data.workout_info || "",
       muscleGroup: data.muscle_group || null,
@@ -6697,6 +6701,12 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
       userName: checkIn.user_name,
       userPhoto: checkIn.user_photo || null,
       photo: checkIn.photo || "",
+      // Ensure photos is always an array, even if it's a string or null from the DB
+      photos: Array.isArray(checkIn.photos) 
+        ? checkIn.photos 
+        : (typeof checkIn.photos === "string" && checkIn.photos.startsWith("[") 
+          ? (() => { try { return JSON.parse(checkIn.photos); } catch { return [checkIn.photo || ""]; } })()
+          : (checkIn.photo ? [checkIn.photo] : [])),
       description: checkIn.description || "",
       workoutInfo: checkIn.workout_info || "",
       muscleGroup: checkIn.muscle_group || null,
@@ -6737,6 +6747,12 @@ export async function getGroupCheckInDetailDb(checkInId: string): Promise<GroupC
       userName: data.user_name,
       userPhoto: profile?.photo ?? null,
       photo: data.photo || "",
+      // Ensure photos is always an array, even if it's a string or null from the DB
+      photos: Array.isArray(data.photos) 
+        ? data.photos 
+        : (typeof data.photos === "string" && data.photos.startsWith("[") 
+          ? (() => { try { return JSON.parse(data.photos); } catch { return [data.photo || ""]; } })()
+          : (data.photo ? [data.photo] : [])),
       description: data.description || "",
       workoutInfo: data.workout_info || "",
       muscleGroup: data.muscle_group || null,

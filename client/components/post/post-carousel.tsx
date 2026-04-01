@@ -11,15 +11,26 @@ export function PostCarousel({ photos, alt }: PostCarouselProps) {
   const touchStartX = React.useRef<number | null>(null);
   const touchStartY = React.useRef<number | null>(null);
 
+  // Final safety check for non-array photos
+  if (!Array.isArray(photos)) {
+    return photos ? (
+      <div className="relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 flex items-center justify-center overflow-hidden rounded-lg">
+        <img src={String(photos)} alt={alt} className="max-w-full max-h-full w-auto h-auto object-contain" />
+      </div>
+    ) : null;
+  }
+
   // Single photo — no carousel needed
   if (photos.length === 1) {
     return (
-      <img
-        src={photos[0]}
-        alt={alt}
-        className="w-full max-h-96 object-cover rounded-lg"
-        loading="lazy"
-      />
+      <div className="relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 flex items-center justify-center overflow-hidden rounded-lg">
+        <img
+          src={photos[0]}
+          alt={alt}
+          className="max-w-full max-h-full w-auto h-auto object-contain"
+          loading="lazy"
+        />
+      </div>
     );
   }
 
@@ -46,7 +57,7 @@ export function PostCarousel({ photos, alt }: PostCarouselProps) {
 
   return (
     <div
-      className="relative group overflow-hidden rounded-lg"
+      className="relative group overflow-hidden rounded-lg bg-slate-900/10"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -56,15 +67,15 @@ export function PostCarousel({ photos, alt }: PostCarouselProps) {
         style={{ transform: `translateX(-${currentIndex * 100}%)` }}
       >
         {photos.map((src, i) => (
-          <img
-            key={i}
-            src={src}
-            alt={`${alt} - ${i + 1}`}
-            className="w-full max-h-96 object-cover flex-shrink-0"
-            style={{ minWidth: "100%" }}
-            loading={i === 0 ? "eager" : "lazy"}
-            decoding="async"
-          />
+          <div key={i} className="w-full aspect-square md:aspect-auto md:h-[450px] flex-shrink-0 flex items-center justify-center overflow-hidden" style={{ minWidth: "100%" }}>
+            <img
+              src={src}
+              alt={`${alt} - ${i + 1}`}
+              className="max-w-full max-h-full w-auto h-auto object-contain"
+              loading={i === 0 ? "eager" : "lazy"}
+              decoding="async"
+            />
+          </div>
         ))}
       </div>
 

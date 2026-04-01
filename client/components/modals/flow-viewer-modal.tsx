@@ -37,7 +37,7 @@ import {
   type StoryComment,
   type FlowViewer,
 } from "@/lib/ritmofit-db";
-import { X, ChevronLeft, Send, Trash2, Eye, Pause, Play } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Heart } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -54,6 +54,7 @@ interface FlowViewerModalProps {
   onNextStory: () => void;
   onPrevStory?: () => void;
   onDeleted?: () => void;
+  onSelectStory?: (story: StoryWithUser) => void;
 }
 
 export function FlowViewerModal({
@@ -64,6 +65,7 @@ export function FlowViewerModal({
   onNextStory,
   onPrevStory,
   onDeleted,
+  onSelectStory,
 }: FlowViewerModalProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -279,246 +281,348 @@ export function FlowViewerModal({
     }
   }, [story, onOpenChange]);
 
-  if (!story) return null;
-
   const isVideo =
-    story.media_url?.includes(".mp4") ||
-    story.media_url?.includes(".webm") ||
-    story.media_url?.includes(".mov") ||
-    (story.media_url?.startsWith("data:") && story.media_url?.includes("video"));
+    story?.media_url?.includes(".mp4") ||
+    story?.media_url?.includes(".webm") ||
+    story?.media_url?.includes(".mov") ||
+    (story?.media_url?.startsWith("data:") && story?.media_url?.includes("video"));
 
-  // Sort stories ascending for in-viewer navigation (oldest first = first posted)
-  const sortedStories = [...stories].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-  );
-  const currentIndex = sortedStories.findIndex((s) => s.id === story.id);
+  // Sort stories: Group by user, sort users by most recent story (DESC), then flatten (ASC within user)
+  const sortedStories = React.useMemo(() => {
+    const groups: Record<string, StoryWithUser[]> = {};
+    stories.forEach((s) => {
+      if (!groups[s.user_id]) groups[s.user_id] = [];
+      groups[s.user_id].push(s);
+    });
+
+    const userLatests = Object.keys(groups).map((uid) => {
+      const group = groups[uid];
+      const latest = Math.max(...group.map((s) => new Date(s.created_at).getTime()));
+      return { uid, latest };
+    });
+
+    // Sort users: Most recent activity first
+    userLatests.sort((a, b) => b.latest - a.latest);
+
+    const result: StoryWithUser[] = [];
+    userLatests.forEach(({ uid }) => {
+      // Within each user, sort oldest to newest
+      const userGroup = [...groups[uid]].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+      result.push(...userGroup);
+    });
+    return result;
+  }, [stories]);
+
+  const currentIndex = story ? sortedStories.findIndex((s) => s.id === story.id) : -1;
   const hasNextStory = currentIndex < sortedStories.length - 1;
   const hasPrevStory = currentIndex > 0;
-  const isOwner = user?.id === story.user_id;
+  const isOwner = story ? user?.id === story.user_id : false;
 
-  // Progress bar segments: one per story in the sorted list
-  const userStories = sortedStories.filter((s) => s.user_id === story.user_id);
-  const storyIndexInUser = userStories.findIndex((s) => s.id === story.id);
+  // User stories grouping & identification
+  const userStories = story ? sortedStories.filter((s) => s.user_id === story.user_id) : [];
+  const storyIndexInUser = story ? userStories.findIndex((s) => s.id === story.id) : -1;
+
+  // Previews: Find the first story of each subsequent user in the list
+  const upcomingUsersFirstStories = React.useMemo(() => {
+    if (!story) return [];
+    const users: StoryWithUser[] = [];
+    const seen = new Set<string>();
+    seen.add(story.user_id); // Exclude current user
+
+    // Start looking from the story after the current index
+    for (let i = currentIndex + 1; i < sortedStories.length; i++) {
+      const s = sortedStories[i];
+      if (!seen.has(s.user_id)) {
+        seen.add(s.user_id);
+        users.push(s);
+      }
+      if (users.length >= 2) break; // Only show next 2 users like Instagram
+    }
+    return users;
+  }, [sortedStories, currentIndex, story?.user_id]);
+
+  if (!story) return null;
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="w-screen h-screen md:w-[680px] md:h-[calc(100dvh-48px)] max-w-none md:max-w-[680px] max-h-none p-0 border-0 bg-black rounded-none md:rounded-xl [&>button]:hidden"
+          className="w-screen h-screen max-w-none p-0 border-0 bg-black md:bg-black/95 rounded-none overflow-hidden [&>button]:hidden flex items-center justify-center md:top-0 md:left-0 md:translate-x-0 md:translate-y-0 md:ml-0"
         >
           <DialogTitle className="sr-only">Flow viewer</DialogTitle>
           <DialogDescription className="sr-only">Visualizando flow</DialogDescription>
-          <div className="relative w-full h-full flex flex-col">
-            {/* Header */}
-            <div className="space-y-2 z-10">
-              {/* Progress Bar segments */}
-              <div className="flex gap-1 px-2 pt-2">
-                {userStories.map((s, idx) => (
-                  <div key={s.id} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-white transition-none"
-                      style={{
-                        width:
-                          idx < storyIndexInUser
-                            ? "100%"
-                            : idx === storyIndexInUser
-                            ? `${100 - timerProgress}%`
-                            : "0%",
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
 
-              {/* Header Content */}
-              <div className="flex items-center justify-between px-4 pb-2">
-                <button
-                  onClick={() => {
-                    onOpenChange(false);
-                    navigate(`/usuario/${story.user_id}`);
-                  }}
-                  className="flex items-center gap-3 hover:opacity-80 transition-opacity flex-1"
-                >
-                  {story.userPhoto && (
-                    <img
-                      src={story.userPhoto}
-                      alt={story.userNickname}
-                      className="h-10 w-10 rounded-full object-cover"
-                    />
-                  )}
-                  <div>
-                    <p className="text-sm font-semibold text-white">{story.userNickname}</p>
-                    <p className="text-xs text-gray-400">{formatTimeAgo(story.created_at)}</p>
-                  </div>
-                </button>
+          <div className="relative h-full w-full flex items-center justify-center">
+            {/* Close Button - Viewport Top Right */}
+            <button
+              onClick={() => onOpenChange(false)}
+              className="absolute top-6 right-6 z-[70] text-gray-400 hover:text-white transition-colors p-2"
+              aria-label="Fechar"
+            >
+              <X className="h-8 w-8" />
+            </button>
 
-                <div className="flex items-center gap-2 shrink-0">
-                  {/* Pause/Play button */}
-                  <button
-                    onClick={handleTogglePause}
-                    className="text-white hover:text-brand transition-colors"
-                    title={isPaused ? "Retomar" : "Pausar"}
-                  >
-                    {isPaused ? <Play className="h-5 w-5" /> : <Pause className="h-5 w-5" />}
-                  </button>
-                  {isOwner && (
-                    <button
-                      onClick={() => { setIsPaused(true); handleOpenViewers(); }}
-                      className="text-white hover:text-brand transition-colors"
-                      title="Ver quem visualizou"
-                    >
-                      <Eye className="h-5 w-5" />
-                    </button>
-                  )}
-                  {isOwner && (
-                    <button
-                      onClick={handleDeleteStory}
-                      disabled={isDeletingStory}
-                      className="text-white hover:text-red-400 transition-colors disabled:opacity-50"
-                      title="Deletar flow"
-                    >
-                      <Trash2 className="h-5 w-5" />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onOpenChange(false)}
-                    className="text-white hover:text-gray-300 transition-colors"
-                  >
-                    <X className="h-6 w-6" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Media - Full Screen */}
-            <div className="flex-1 flex items-center justify-center relative">
-              {isVideo ? (
-                <video src={story.media_url} className="w-full h-full object-cover" autoPlay />
-              ) : (
-                <img src={story.media_url} alt="Flow" className="w-full h-full object-cover" />
-              )}
-
-              {/* Left tap zone - previous story */}
-              {hasPrevStory && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onPrevStory?.(); }}
-                  className="absolute left-0 top-0 bottom-0 w-1/4 z-20"
-                  aria-label="Story anterior"
-                />
-              )}
-
-              {/* Center tap zone - pause/resume */}
+            {/* Navigation Arrows (Desktop Only) */}
+            {hasPrevStory && (
               <button
-                className="absolute left-1/4 right-1/4 top-0 bottom-0 z-20"
-                onClick={handleTogglePause}
-                aria-label={isPaused ? "Retomar" : "Pausar"}
-              />
+                onClick={(e) => { e.stopPropagation(); onPrevStory?.(); }}
+                className="hidden md:flex absolute left-8 lg:left-16 z-50 items-center justify-center h-11 w-11 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-sm"
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+            )}
 
-              {/* Right tap zone - next story */}
-              {hasNextStory && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onNextStory(); }}
-                  className="absolute right-0 top-0 bottom-0 w-1/4 z-20"
-                  aria-label="Próximo story"
-                />
-              )}
+            {hasNextStory && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onNextStory(); }}
+                className="hidden md:flex absolute right-8 lg:right-16 z-50 items-center justify-center h-11 w-11 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-sm"
+              >
+                <ChevronRight className="h-6 w-6" />
+              </button>
+            )}
 
-              {/* Paused indicator */}
-              {isPaused && (
-                <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
-                  <div className="bg-black/40 rounded-full p-4">
-                    <Play className="h-10 w-10 text-white" />
-                  </div>
-                </div>
-              )}
-
-              {/* Incentive Buttons — only shown to non-owners */}
-              {!isOwner && (
-                <div
-                  className="absolute right-4 bottom-20 flex flex-col gap-2 z-30"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                    <PostIncentiveButton
-                      key={type}
-                      type={type}
-                      isActive={userLikes.includes(type)}
-                      onClick={() => handleToggleLike(type)}
-                      loading={togglingLikeId === story.id}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {/* Description Overlay */}
-              {story.description && (
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10 pointer-events-none">
-                  <p className="text-sm text-white">{story.description}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Bottom Section - Comments */}
-            {showCommentInput && (
-              <div className="shrink-0 bg-black/90 border-t border-white/10 p-3 space-y-3 max-h-40 flex flex-col z-20">
-                {comments.length > 0 && (
-                  <div className="overflow-y-auto flex-1 space-y-2 max-h-24">
-                    {comments.map((comment) => (
-                      <div key={comment.id} className="flex items-start gap-2 text-xs">
-                        <div className="flex-1">
-                          <span className="font-semibold text-white">{comment.userName}</span>
-                          <span className="text-white/70 ml-2">{comment.text}</span>
-                          <CommentReactions commentType="flow" commentId={comment.id} commentOwnerId={comment.userId} sourceId={story?.id != null ? String(story.id) : undefined} dark isOwnComment={!!(user?.id === comment.userId)} />
-                        </div>
-                        {user?.id === comment.userId && (
-                          <button
-                            onClick={() => setCommentToDelete(comment.id)}
-                            className="text-red-400 hover:text-red-500 shrink-0"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        )}
+            {/* Layout Wrapper for Previews */}
+            <div className="flex items-center gap-10 lg:gap-14">
+              {/* Main Story Card */}
+              <div className="relative aspect-[9/16] h-full max-h-screen md:max-h-[94vh] w-full md:w-auto bg-black md:rounded-xl overflow-hidden flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] border border-white/5">
+              <div className="relative w-full h-full flex flex-col">
+                {/* Header Overlay */}
+                <div className="absolute top-0 left-0 right-0 z-40 bg-gradient-to-b from-black/60 to-transparent pt-2 pb-8 px-2 space-y-2">
+                  {/* Progress Bar segments */}
+                  <div className="flex gap-1">
+                    {userStories.map((s, idx) => (
+                      <div key={s.id} className="flex-1 h-0.5 bg-white/30 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-white transition-none"
+                          style={{
+                            width:
+                              idx < storyIndexInUser
+                                ? "100%"
+                                : idx === storyIndexInUser
+                                  ? `${100 - timerProgress}%`
+                                  : "0%",
+                          }}
+                        />
                       </div>
                     ))}
                   </div>
-                )}
 
-                {user && (
-                  <div className="flex gap-2 items-center bg-white/10 rounded-full px-3 py-1.5">
-                    <Input
-                      type="text"
-                      placeholder="Comentário..."
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      onFocus={() => setIsTyping(true)}
-                      onBlur={() => setIsTyping(false)}
-                      onKeyPress={(e) => {
-                        if (e.key === "Enter" && newComment.trim()) {
-                          handleAddComment();
-                        }
-                      }}
-                      className="flex-1 bg-transparent border-0 text-xs text-white placeholder-white/50 focus:outline-none focus-visible:ring-0 h-6"
-                      disabled={isAddingComment}
-                    />
-                    <EmojiPicker
-                      placement="top"
-                      onSelect={(emoji) => setNewComment((prev) => prev + emoji)}
-                      triggerClassName="text-white/70 hover:text-white hover:bg-white/10"
-                    />
+                  {/* Header Content */}
+                  <div className="flex items-center justify-between px-2">
                     <button
-                      onClick={handleAddComment}
-                      disabled={!newComment.trim() || isAddingComment}
-                      className="text-white hover:text-brand disabled:opacity-50 shrink-0"
+                      onClick={() => {
+                        onOpenChange(false);
+                        navigate(`/usuario/${story.user_id}`);
+                      }}
+                      className="flex items-center gap-3 hover:opacity-80 transition-opacity flex-1"
                     >
-                      <Send className="h-3 w-3" />
+                      {story.userPhoto && (
+                        <img
+                          src={story.userPhoto}
+                          alt={story.userNickname}
+                          className="h-8 w-8 rounded-full object-cover border border-white/20"
+                        />
+                      )}
+                      <div className="text-left">
+                        <p className="text-sm font-semibold text-white drop-shadow-md">{story.userNickname}</p>
+                        <p className="text-[10px] text-gray-300 drop-shadow-md">{formatTimeAgo(story.created_at)}</p>
+                      </div>
                     </button>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      {/* Pause/Play button */}
+                      <button
+                        onClick={handleTogglePause}
+                        className="text-white/90 hover:text-white transition-colors"
+                        title={isPaused ? "Retomar" : "Pausar"}
+                      >
+                        {isPaused ? <Play className="h-5 w-5 fill-white/20" /> : <Pause className="h-5 w-5 fill-white/20" />}
+                      </button>
+                      {isOwner && (
+                        <button
+                          onClick={() => { setIsPaused(true); handleOpenViewers(); }}
+                          className="text-white/90 hover:text-white transition-colors"
+                          title="Ver quem visualizou"
+                        >
+                          <Eye className="h-5 w-5" />
+                        </button>
+                      )}
+                      {isOwner && (
+                        <button
+                          onClick={handleDeleteStory}
+                          disabled={isDeletingStory}
+                          className="text-white/90 hover:text-red-400 transition-colors disabled:opacity-50"
+                          title="Deletar flow"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Media Container */}
+                <div className="flex-1 flex items-center justify-center relative bg-black">
+                  {isVideo ? (
+                    <video src={story.media_url} className="w-full h-full object-contain" autoPlay loop muted playsInline />
+                  ) : (
+                    <img src={story.media_url} alt="Flow" className="w-full h-full object-contain" />
+                  )}
+
+                  {/* Tap Areas for Navigation (Mobile/Card interaction) */}
+                  <div className="absolute inset-0 flex z-30">
+                    <div
+                      className="flex-1 cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); onPrevStory?.(); }}
+                    />
+                    <div
+                      className="flex-[2] cursor-pointer"
+                      onClick={handleTogglePause}
+                    />
+                    <div
+                      className="flex-1 cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); onNextStory(); }}
+                    />
+                  </div>
+
+                  {/* Paused indicator Overlay */}
+                  {isPaused && (
+                    <div className="absolute inset-0 flex items-center justify-center z-[41] pointer-events-none">
+                      <div className="bg-black/40 rounded-full p-4 backdrop-blur-sm">
+                        <Play className="h-10 w-10 text-white fill-white/20" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Description Overlay */}
+                  {story.description && (
+                    <div className="absolute bottom-20 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent z-[42] pointer-events-none">
+                      <p className="text-sm text-white drop-shadow-md">{story.description}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom Section - Pill Style Input */}
+                {showCommentInput && (
+                  <div className="shrink-0 pt-2 pb-6 px-4 bg-gradient-to-t from-black/90 to-transparent z-[45]">
+                    {/* Compact Comments scroll (if any) */}
+                    {comments.length > 0 && (
+                      <div className="overflow-y-auto max-h-16 mb-3 scrollbar-hide space-y-1">
+                        {comments.slice(-2).map((comment) => (
+                          <div key={comment.id} className="flex items-start gap-2 text-[10px]">
+                            <span className="font-bold text-white">{comment.userName}</span>
+                            <span className="text-white/80 line-clamp-1">{comment.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex gap-3 items-center">
+                      <div className="flex-1 flex gap-2 items-center bg-transparent border border-white/40 rounded-full px-4 py-2.5 focus-within:border-white transition-colors">
+                        <Input
+                          type="text"
+                          placeholder={isOwner ? "Seu flow..." : `Responder a ${story.userNickname}...`}
+                          value={newComment}
+                          onChange={(e) => setNewComment(e.target.value)}
+                          onFocus={() => setIsTyping(true)}
+                          onBlur={() => setIsTyping(false)}
+                          onKeyPress={(e) => {
+                            if (e.key === "Enter" && newComment.trim()) {
+                              handleAddComment();
+                            }
+                          }}
+                          className="flex-1 bg-transparent border-0 text-xs text-white placeholder-white/60 focus:outline-none focus-visible:ring-0 h-auto p-0"
+                          disabled={isAddingComment}
+                        />
+
+                        {user && (
+                          <div className="flex items-center gap-2">
+                             <EmojiPicker
+                              placement="top"
+                              onSelect={(emoji) => setNewComment((prev) => prev + emoji)}
+                              triggerClassName="text-white/60 hover:text-white"
+                            />
+                            {newComment.trim() && (
+                              <button
+                                onClick={handleAddComment}
+                                disabled={isAddingComment}
+                                className="text-white font-semibold text-xs transition-opacity hover:opacity-80"
+                              >
+                                Enviar
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Side Icons like Instagram */}
+                      {!isOwner && (
+                        <div className="flex items-center gap-4">
+                          <button
+                             onClick={() => handleToggleLike(1)}
+                             className={`transition-transform active:scale-125 ${userLikes.length > 0 ? "text-red-500" : "text-white hover:text-white/80"}`}
+                          >
+                            <Heart className={`h-6 w-6 ${userLikes.length > 0 ? "fill-current" : ""}`} />
+                          </button>
+                          <button
+                             onClick={() => {}}
+                             className="text-white hover:text-white/80 transition-colors"
+                          >
+                            <Send className="h-6 w-6" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Previews (Desktop Only) */}
+            {upcomingUsersFirstStories.length > 0 && (
+              <div className="hidden lg:flex items-center gap-6 pr-10">
+                {upcomingUsersFirstStories.map((nextStory, idx) => (
+                  <div
+                    key={nextStory.user_id}
+                    className={`relative aspect-[9/16] h-[280px] bg-black rounded-lg overflow-hidden border border-white/10 shadow-lg cursor-pointer group transition-all duration-300 hover:scale-[1.02] hover:opacity-100 ${idx === 0 ? "opacity-70" : "opacity-40"}`}
+                    onClick={() => onSelectStory?.(nextStory)}
+                  >
+                    {/* Media Preview (blurred/darker) */}
+                    {nextStory.media_url?.includes(".mp4") ? (
+                      <video src={nextStory.media_url} className="w-full h-full object-cover filter brightness-[0.4]" muted playsInline />
+                    ) : (
+                      <img src={nextStory.media_url} className="w-full h-full object-cover filter brightness-[0.4]" alt="" />
+                    )}
+
+                    {/* Profile Overlay */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-4">
+                      <div className="h-14 w-14 rounded-full border-2 border-brand p-0.5 bg-black transition-transform group-hover:scale-110">
+                        {nextStory.userPhoto ? (
+                          <img
+                            src={nextStory.userPhoto}
+                            className="h-full w-full rounded-full object-cover"
+                            alt={nextStory.userNickname}
+                          />
+                        ) : (
+                          <div className="h-full w-full rounded-full bg-muted flex items-center justify-center">
+                            <span className="text-white text-lg">{nextStory.userNickname?.charAt(0).toUpperCase() || "?"}</span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="mt-2 text-white text-[10px] font-bold text-center drop-shadow-md truncate w-full px-2">
+                        {nextStory.userNickname}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </DialogContent>
+    </Dialog>
 
       {/* Viewers Drawer */}
       <Drawer open={viewersModalOpen} onOpenChange={setViewersModalOpen}>

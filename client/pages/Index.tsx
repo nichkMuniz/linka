@@ -97,6 +97,7 @@ export default function Index() {
   const [ownerHasViewedFlow, setOwnerHasViewedFlow] = React.useState(false);
   const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(new Set());
   const [flowViewCount, setFlowViewCount] = React.useState<number | undefined>(undefined);
+  const [activeViewerStories, setActiveViewerStories] = React.useState<StoryWithUser[]>([]);
   const [isLoadingFlowViewers, setIsLoadingFlowViewers] = React.useState(false);
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "post" | null>(
@@ -325,6 +326,7 @@ export default function Index() {
           // Open viewer immediately on the newly created flow
           setStoryCreationOpen(false);
           setSelectedStory(enrichedStory);
+          setActiveViewerStories([enrichedStory, ...stories.filter(s => s.user_id === user.id)]);
           setStoryViewerOpen(true);
         }
       } catch (err: any) {
@@ -339,8 +341,17 @@ export default function Index() {
 
   const handleStoryClick = React.useCallback((story: StoryWithUser) => {
     setSelectedStory(story);
+    
+    // Filter stories based on ownership to separate personal flow from community flow
+    const isOwner = story.user_id === user?.id;
+    const storiesList = isOwner 
+      ? stories.filter(s => s.user_id === user?.id)
+      : stories.filter(s => s.user_id !== user?.id);
+      
+    setActiveViewerStories(storiesList);
     setStoryViewerOpen(true);
-    if (story.user_id === user?.id) {
+
+    if (isOwner) {
       // Mark as viewed so the green dot turns gray for the owner
       setOwnerHasViewedFlow(true);
     } else {
@@ -350,20 +361,40 @@ export default function Index() {
         console.error("Error recording flow view:", err),
       );
     }
-  }, [user?.id]);
+  }, [stories, user?.id]);
 
   // Use refs to avoid stale closures without making stories/selectedStory deps
-  const storiesRef = React.useRef(stories);
+  const viewerStoriesRef = React.useRef(activeViewerStories);
   const selectedStoryRef = React.useRef(selectedStory);
-  React.useEffect(() => { storiesRef.current = stories; }, [stories]);
+  React.useEffect(() => { viewerStoriesRef.current = activeViewerStories; }, [activeViewerStories]);
   React.useEffect(() => { selectedStoryRef.current = selectedStory; }, [selectedStory]);
 
   const handleSkipStory = React.useCallback(() => {
     const current = selectedStoryRef.current;
     if (!current) return;
-    const sortedStories = [...storiesRef.current].sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-    );
+
+    // Use the same Instagram-like sorting logic as the modal
+    const groups: Record<string, StoryWithUser[]> = {};
+    viewerStoriesRef.current.forEach((s) => {
+      if (!groups[s.user_id]) groups[s.user_id] = [];
+      groups[s.user_id].push(s);
+    });
+
+    const userLatests = Object.keys(groups).map((uid) => {
+      const group = groups[uid];
+      const latest = Math.max(...group.map((s) => new Date(s.created_at).getTime()));
+      return { uid, latest };
+    });
+    userLatests.sort((a, b) => b.latest - a.latest);
+
+    const sortedStories: StoryWithUser[] = [];
+    userLatests.forEach(({ uid }) => {
+      const userGroup = [...groups[uid]].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+      sortedStories.push(...userGroup);
+    });
+
     const currentIndex = sortedStories.findIndex((s) => s.id === current.id);
     if (currentIndex < sortedStories.length - 1) {
       setSelectedStory(sortedStories[currentIndex + 1]);
@@ -375,9 +406,29 @@ export default function Index() {
   const handlePrevStory = React.useCallback(() => {
     const current = selectedStoryRef.current;
     if (!current) return;
-    const sortedStories = [...storiesRef.current].sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-    );
+
+    // Use the same Instagram-like sorting logic
+    const groups: Record<string, StoryWithUser[]> = {};
+    viewerStoriesRef.current.forEach((s) => {
+      if (!groups[s.user_id]) groups[s.user_id] = [];
+      groups[s.user_id].push(s);
+    });
+
+    const userLatests = Object.keys(groups).map((uid) => {
+      const group = groups[uid];
+      const latest = Math.max(...group.map((s) => new Date(s.created_at).getTime()));
+      return { uid, latest };
+    });
+    userLatests.sort((a, b) => b.latest - a.latest);
+
+    const sortedStories: StoryWithUser[] = [];
+    userLatests.forEach(({ uid }) => {
+      const userGroup = [...groups[uid]].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+      sortedStories.push(...userGroup);
+    });
+
     const currentIndex = sortedStories.findIndex((s) => s.id === current.id);
     if (currentIndex > 0) {
       setSelectedStory(sortedStories[currentIndex - 1]);
@@ -978,12 +1029,14 @@ export default function Index() {
                       {post.photos && post.photos.length > 0 ? (
                         <PostCarousel photos={post.photos} alt="Post" />
                       ) : (
-                        <ImageWithFallback
-                          src={post.photo}
-                          alt="Post"
-                          fallback="/placeholder.svg"
-                          className="w-full object-cover rounded-lg"
-                        />
+                        <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-lg">
+                          <ImageWithFallback
+                            src={post.photo}
+                            alt="Post"
+                            fallback="/placeholder.svg"
+                            className="max-w-full max-h-full w-auto h-auto object-contain"
+                          />
+                        </div>
                       )}
 
                       {/* User Info Overlay - Bottom Left */}
@@ -1179,7 +1232,9 @@ export default function Index() {
                         {post.photos && post.photos.length > 0 ? (
                           <PostCarousel photos={post.photos} alt="Post" />
                         ) : post.photo ? (
-                          <ImageWithFallback src={post.photo} alt="Post" fallback="/placeholder.svg" className="w-full object-cover rounded-lg" />
+                          <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-lg">
+                            <ImageWithFallback src={post.photo} alt="Post" fallback="/placeholder.svg" className="max-w-full max-h-full w-auto h-auto object-contain" />
+                          </div>
                         ) : null}
                         <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
                           <button onClick={() => navigate(`/usuario/${post.user_id}`)} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
@@ -1273,11 +1328,12 @@ export default function Index() {
       {/* Flow Viewer Modal */}
       <FlowViewerModal
         story={selectedStory}
-        stories={stories}
+        stories={activeViewerStories}
         open={storyViewerOpen}
         onOpenChange={setStoryViewerOpen}
         onNextStory={handleSkipStory}
         onPrevStory={handlePrevStory}
+        onSelectStory={setSelectedStory}
         onDeleted={() => {
           setStoryViewerOpen(false);
           getActiveStoriesDb().then(setStories).catch(console.error);

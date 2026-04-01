@@ -3884,6 +3884,7 @@ export default function Profile() {
           const idx = profileStories.findIndex((s) => s.id === selectedProfileStory.id);
           if (idx > 0) setSelectedProfileStory(profileStories[idx - 1]);
         }}
+        onSelectStory={setSelectedProfileStory}
       />
 
       {/* Delete Account Confirmation Dialog */}
