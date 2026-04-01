@@ -349,7 +349,7 @@ export default function NewPost() {
         .getPublicUrl(filePath);
 
       // Create shot in database
-      const shot = await createShotDb(
+      await createShotDb(
         urlData.publicUrl,
         videoDescription,
         null,

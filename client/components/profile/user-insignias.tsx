@@ -17,7 +17,6 @@ import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
 
 interface UserInsigniasProps {
   userId: string;
-  maxBadges?: number;
   /** When true, shows the badge tier label next to the emoji */
   showStreak?: boolean;
 }

@@ -63,6 +63,7 @@ O projeto tem agentes especializados na pasta `skills/`. **Use o agente que faz 
 | Problemas de desempenho, lentidão, otimização de queries | `performance-agent` | `skills/performance-agent.md` |
 | Testar funcionalidade, validar fluxos, encontrar bugs | `qa-senior-agent` | `skills/qa-senior-agent.md` |
 | Lógica de backend, rotas de API, queries no Supabase, segurança | `backend-senior-agent` | `skills/backend-senior-agent.md` |
+| Remover código morto, imports/variáveis não usadas, melhorias cirúrgicas em código ativo | `frontend-cleanup-agent` | `skills/frontend-cleanup-agent.md` |
 
 ### Como usar uma skill
 

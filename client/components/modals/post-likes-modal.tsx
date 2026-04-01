@@ -19,6 +19,15 @@ const INCENTIVE_ICONS: Record<number, string> = {
   6: "⚡",
 };
 
+const INCENTIVE_NAME_TO_TYPE: Record<string, number> = {
+  "Apoio": 1,
+  "Tá pegando fogo!": 2,
+  "Vencedor!": 3,
+  "Evolução!": 4,
+  "Força total!": 5,
+  "Energia máxima!": 6,
+};
+
 export interface PostLike {
   userId: string;
   userNickname: string;
@@ -87,16 +96,7 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
             {Object.keys(incentiveTypeCounts).length > 0 && (
               <div className="flex flex-wrap gap-3">
                 {Object.entries(incentiveTypeCounts).map(([typeName, count]) => {
-                  // Find the type number to get the icon
-                  const nameToType: Record<string, number> = {
-                    "Apoio": 1,
-                    "Tá pegando fogo!": 2,
-                    "Vencedor!": 3,
-                    "Evolução!": 4,
-                    "Força total!": 5,
-                    "Energia máxima!": 6,
-                  };
-                  const typeNum = nameToType[typeName] ?? 1;
+                  const typeNum = INCENTIVE_NAME_TO_TYPE[typeName] ?? 1;
 
                   return (
                     <div

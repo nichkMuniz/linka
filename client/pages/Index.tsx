@@ -26,7 +26,6 @@ import {
   getUserProfileDb,
   createStoryDb,
   deleteOldStoriesDb,
-  getFlowViewersDb,
   getMyViewedFlowUserIdsDb,
   recordFlowViewDb,
   createUserGoalDb,
@@ -34,9 +33,6 @@ import {
   deletePostDb,
   updatePostDb,
   getPostLikeUsersDb,
-  getUserWorkoutsDb,
-  getUserDietsDb,
-  getUserHabitsDb,
   copyRoutineToUserDb,
   type PostIncentiveType,
   type StoryWithUser,
@@ -96,9 +92,7 @@ export default function Index() {
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
   const [ownerHasViewedFlow, setOwnerHasViewedFlow] = React.useState(false);
   const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(new Set());
-  const [flowViewCount, setFlowViewCount] = React.useState<number | undefined>(undefined);
   const [activeViewerStories, setActiveViewerStories] = React.useState<StoryWithUser[]>([]);
-  const [isLoadingFlowViewers, setIsLoadingFlowViewers] = React.useState(false);
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "post" | null>(
     null,
@@ -108,7 +102,6 @@ export default function Index() {
   );
   const [reportReason, setReportReason] = React.useState<string>("");
   const [isSubmittingReport, setIsSubmittingReport] = React.useState(false);
-  const [unreadCommentsByPost] = React.useState<Record<string, number>>({});
   const [isCopyingGoal, setIsCopyingGoal] = React.useState(false);
   const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
   const [copyingRoutineKeys, setCopyingRoutineKeys] = React.useState<Set<string>>(new Set());
@@ -145,7 +138,7 @@ export default function Index() {
     title: string;
     description: string;
     onConfirm: () => void;
-  }>({ open: false, title: "", description: "", onConfirm: () => {} });
+  }>({ open: false, title: "", description: "", onConfirm: () => { } });
 
   const showConfirm = React.useCallback(
     (title: string, description: string, onConfirm: () => void) => {
@@ -172,11 +165,7 @@ export default function Index() {
       // Fallback: if profile photo not yet loaded, use story photo
       if (userStory?.userPhoto) setCurrentUserPhoto((prev) => prev || userStory.userPhoto);
       if (userStory) {
-        setIsLoadingFlowViewers(true);
-        getFlowViewersDb(userStory.id)
-          .then((viewers) => setFlowViewCount(viewers.length))
-          .catch((err) => console.error("Erro ao carregar visualizações do flow:", err))
-          .finally(() => setIsLoadingFlowViewers(false));
+        // userStory logic here if needed, but the count is gone
       }
 
       // Clean up old stories in background
@@ -253,7 +242,7 @@ export default function Index() {
       .then((profile) => {
         if (profile?.photo) setCurrentUserPhoto(profile.photo);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [user?.id]);
 
   // Sync tab bar visibility with header scroll behavior
@@ -322,14 +311,13 @@ export default function Index() {
           };
           setStories((prev) => [enrichedStory, ...prev]);
           setOwnerHasViewedFlow(false);
-          setFlowViewCount(0);
           // Open viewer immediately on the newly created flow
           setStoryCreationOpen(false);
           setSelectedStory(enrichedStory);
           setActiveViewerStories([enrichedStory, ...stories.filter(s => s.user_id === user.id)]);
           setStoryViewerOpen(true);
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error("Error creating story:", err);
         throw err;
       } finally {
@@ -341,13 +329,13 @@ export default function Index() {
 
   const handleStoryClick = React.useCallback((story: StoryWithUser) => {
     setSelectedStory(story);
-    
+
     // Filter stories based on ownership to separate personal flow from community flow
     const isOwner = story.user_id === user?.id;
-    const storiesList = isOwner 
+    const storiesList = isOwner
       ? stories.filter(s => s.user_id === user?.id)
       : stories.filter(s => s.user_id !== user?.id);
-      
+
     setActiveViewerStories(storiesList);
     setStoryViewerOpen(true);
 
@@ -605,9 +593,9 @@ export default function Index() {
   const handleSharePost = React.useCallback((post: PostWithStats) => {
     const text = `Confira o post de @${post.userNickname} no Linka! 💪${post.description ? `\n"${post.description}"` : ""}`;
     if (navigator.share) {
-      navigator.share({ text }).catch(() => {});
+      navigator.share({ text }).catch(() => { });
     } else {
-      navigator.clipboard.writeText(text).catch(() => {});
+      navigator.clipboard.writeText(text).catch(() => { });
       toast({ title: "Copiado!", description: "Link copiado para a área de transferência." });
     }
   }, []);
@@ -798,8 +786,6 @@ export default function Index() {
           currentUserId={user?.id || ""}
           currentUserPhoto={currentUserPhoto}
           isOwnerViewing={ownerHasViewedFlow}
-          viewCount={flowViewCount}
-          isLoadingViewCount={isLoadingFlowViewers}
           viewedStoryIds={viewedStoryIds}
         />
       </div>
@@ -808,21 +794,19 @@ export default function Index() {
       <div className={`sticky top-16 z-40 bg-background/90 backdrop-blur border-b border-border/60 px-4 py-2.5 flex items-center justify-center gap-6 transition-transform duration-200 ${tabBarHidden ? "-translate-y-[calc(100%+4rem)] pointer-events-none" : "translate-y-0"}`}>
         <button
           onClick={() => setFeedMode("following")}
-          className={`text-sm font-medium pb-0.5 ${
-            feedMode === "following"
+          className={`text-sm font-medium pb-0.5 ${feedMode === "following"
               ? "text-foreground border-b-2 border-foreground"
               : "text-muted-foreground"
-          }`}
+            }`}
         >
           Seguindo
         </button>
         <button
           onClick={handleSwitchToDiscover}
-          className={`text-sm font-medium pb-0.5 ${
-            feedMode === "discover"
+          className={`text-sm font-medium pb-0.5 ${feedMode === "discover"
               ? "text-foreground border-b-2 border-foreground"
               : "text-muted-foreground"
-          }`}
+            }`}
         >
           Descobrir
         </button>
@@ -845,182 +829,8 @@ export default function Index() {
               </div>
             ) : (
               discoverPosts.map((post) => (
-              <Card
-                key={`discover-${post.id}`}
-                className="border-border/60 relative overflow-hidden fade-in"
-              >
-                <CardContent className="space-y-3 p-0">
-                  {/* Image Container with User Info Overlay */}
-                  <div className="relative">
-                    {post.photos && post.photos.length > 0 ? (
-                      <PostCarousel photos={post.photos} alt="Post" />
-                    ) : (
-                      <ImageWithFallback
-                        src={post.photo}
-                        alt="Post"
-                        fallback="/placeholder.svg"
-                        className="w-full object-cover rounded-lg"
-                      />
-                    )}
-
-                    {/* User Info Overlay - Bottom Left */}
-                    <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
-                      <button
-                        onClick={() => navigate(`/usuario/${post.user_id}`)}
-                        className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-                      >
-                        {post.userPhoto ? (
-                          <ImageWithFallback
-                            src={post.userPhoto}
-                            alt={post.userNickname}
-                            fallback="/placeholder.svg"
-                            className="h-8 w-8 rounded-full object-cover border border-white/30"
-                          />
-                        ) : (
-                          <div className="h-8 w-8 rounded-full bg-white/30" />
-                        )}
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs font-medium text-white drop-shadow-sm">
-                            {post.userNickname}
-                          </span>
-                          <span onClick={(e) => e.stopPropagation()}>
-                            <UserInsignias userId={post.user_id} maxBadges={2} />
-                          </span>
-                        </div>
-                      </button>
-                      {/* Menu Button */}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-white hover:bg-white/20"
-                          >
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44">
-                          <DropdownMenuItem onClick={() => handleSharePost(post)}>
-                            <Share2 className="h-4 w-4 mr-2" />
-                            Compartilhar
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          {user?.id === post.user_id ? (
-                            <>
-                              <DropdownMenuItem onClick={() => handleEditPost(post)}>
-                                <Edit2 className="h-4 w-4 mr-2" />
-                                Editar post
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => handleDeletePost(post)}
-                                className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Excluir post
-                              </DropdownMenuItem>
-                            </>
-                          ) : (
-                            <>
-                              <DropdownMenuItem
-                                onClick={() => handleReportUser(post)}
-                              >
-                                <Flag className="h-4 w-4 mr-2" />
-                                Denunciar usuário
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => handleReportPost(post)}
-                              >
-                                <Flag className="h-4 w-4 mr-2" />
-                                Denunciar post
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-
-                  {/* Actions row: incentivos + comentários */}
-                  <div className="flex items-center px-2 pt-1 pb-0.5">
-                    {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                      <PostIncentiveButton
-                        key={type}
-                        type={type}
-                        isActive={post.userLikes.includes(type)}
-                        onClick={() => handleToggleLike(post.id, type)}
-                        loading={togglingIncentives.has(`${post.id}-${type}`)}
-                      />
-                    ))}
-                    <div className="ml-auto">
-                      <PostCommentsDialog
-                        postId={post.id}
-                        commentCount={post.commentCount}
-                        hasActivity={post.hasActivity}
-                        isPostOwner={post.user_id === user?.id}
-                        hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Contador de incentivos + timestamp numa linha só */}
-                  <div className="flex items-center gap-2 px-3 pb-1">
-                    {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 ? (
-                      <button
-                        onClick={() => handleOpenLikesModal(post)}
-                        className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
-                      >
-                        {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} incentivos
-                      </button>
-                    ) : null}
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      {formatTimeAgo(post.created_at)}
-                    </span>
-                  </div>
-
-                  {/* Descrição + Meta */}
-                  <div className="px-3 pb-3 space-y-2">
-                    {post.description && (
-                      <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                        {post.description}
-                      </p>
-                    )}
-
-                    {/* Goal Progress */}
-                    {post.userGoal && (
-                      <button
-                        onClick={() => openGoalModal(post)}
-                        className="w-full text-left group"
-                      >
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <Target className="h-3 w-3 text-brand flex-shrink-0" />
-                          <span className="text-xs font-medium text-foreground truncate flex-1">
-                            {post.userGoal.description}
-                          </span>
-                          <span className="text-xs font-bold text-brand flex-shrink-0">
-                            {Math.round(post.userGoal.perc)}%
-                          </span>
-                        </div>
-                        <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                          <div
-                            className="bg-brand h-full rounded-full transition-all duration-500"
-                            style={{ width: `${post.userGoal.perc}%` }}
-                          />
-                        </div>
-                      </button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-            )
-          ) : (
-            /* Following mode — posts dos seguidos + discover inline no final */
-            <>
-              {posts.map((post) => (
                 <Card
-                  key={post.id}
+                  key={`discover-${post.id}`}
                   className="border-border/60 relative overflow-hidden fade-in"
                 >
                   <CardContent className="space-y-3 p-0">
@@ -1029,14 +839,12 @@ export default function Index() {
                       {post.photos && post.photos.length > 0 ? (
                         <PostCarousel photos={post.photos} alt="Post" />
                       ) : (
-                        <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-lg">
-                          <ImageWithFallback
-                            src={post.photo}
-                            alt="Post"
-                            fallback="/placeholder.svg"
-                            className="max-w-full max-h-full w-auto h-auto object-contain"
-                          />
-                        </div>
+                        <ImageWithFallback
+                          src={post.photo}
+                          alt="Post"
+                          fallback="/placeholder.svg"
+                          className="w-full object-cover rounded-lg"
+                        />
                       )}
 
                       {/* User Info Overlay - Bottom Left */}
@@ -1060,7 +868,7 @@ export default function Index() {
                               {post.userNickname}
                             </span>
                             <span onClick={(e) => e.stopPropagation()}>
-                              <UserInsignias userId={post.user_id} maxBadges={2} />
+                              <UserInsignias userId={post.user_id} />
                             </span>
                           </div>
                         </button>
@@ -1135,7 +943,181 @@ export default function Index() {
                           commentCount={post.commentCount}
                           hasActivity={post.hasActivity}
                           isPostOwner={post.user_id === user?.id}
-                          hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Contador de incentivos + timestamp numa linha só */}
+                    <div className="flex items-center gap-2 px-3 pb-1">
+                      {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 ? (
+                        <button
+                          onClick={() => handleOpenLikesModal(post)}
+                          className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
+                        >
+                          {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} incentivos
+                        </button>
+                      ) : null}
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {formatTimeAgo(post.created_at)}
+                      </span>
+                    </div>
+
+                    {/* Descrição + Meta */}
+                    <div className="px-3 pb-3 space-y-2">
+                      {post.description && (
+                        <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                          {post.description}
+                        </p>
+                      )}
+
+                      {/* Goal Progress */}
+                      {post.userGoal && (
+                        <button
+                          onClick={() => openGoalModal(post)}
+                          className="w-full text-left group"
+                        >
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Target className="h-3 w-3 text-brand flex-shrink-0" />
+                            <span className="text-xs font-medium text-foreground truncate flex-1">
+                              {post.userGoal.description}
+                            </span>
+                            <span className="text-xs font-bold text-brand flex-shrink-0">
+                              {Math.round(post.userGoal.perc)}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className="bg-brand h-full rounded-full transition-all duration-500"
+                              style={{ width: `${post.userGoal.perc}%` }}
+                            />
+                          </div>
+                        </button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )
+          ) : (
+            /* Following mode — posts dos seguidos + discover inline no final */
+            <>
+              {posts.map((post) => (
+                <Card
+                  key={post.id}
+                  className="border-border/60 relative overflow-hidden fade-in"
+                >
+                  <CardContent className="space-y-3 p-0">
+                    {/* Image Container with User Info Overlay */}
+                    <div className="relative">
+                      {post.photos && post.photos.length > 0 ? (
+                        <PostCarousel photos={post.photos} alt="Post" />
+                      ) : (
+                        <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-lg">
+                          <ImageWithFallback
+                            src={post.photo}
+                            alt="Post"
+                            fallback="/placeholder.svg"
+                            className="max-w-full max-h-full w-auto h-auto object-contain"
+                          />
+                        </div>
+                      )}
+
+                      {/* User Info Overlay - Bottom Left */}
+                      <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
+                        <button
+                          onClick={() => navigate(`/usuario/${post.user_id}`)}
+                          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                        >
+                          {post.userPhoto ? (
+                            <ImageWithFallback
+                              src={post.userPhoto}
+                              alt={post.userNickname}
+                              fallback="/placeholder.svg"
+                              className="h-8 w-8 rounded-full object-cover border border-white/30"
+                            />
+                          ) : (
+                            <div className="h-8 w-8 rounded-full bg-white/30" />
+                          )}
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs font-medium text-white drop-shadow-sm">
+                              {post.userNickname}
+                            </span>
+                            <span onClick={(e) => e.stopPropagation()}>
+                              <UserInsignias userId={post.user_id} />
+                            </span>
+                          </div>
+                        </button>
+                        {/* Menu Button */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-white hover:bg-white/20"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem onClick={() => handleSharePost(post)}>
+                              <Share2 className="h-4 w-4 mr-2" />
+                              Compartilhar
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {user?.id === post.user_id ? (
+                              <>
+                                <DropdownMenuItem onClick={() => handleEditPost(post)}>
+                                  <Edit2 className="h-4 w-4 mr-2" />
+                                  Editar post
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleDeletePost(post)}
+                                  className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Excluir post
+                                </DropdownMenuItem>
+                              </>
+                            ) : (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => handleReportUser(post)}
+                                >
+                                  <Flag className="h-4 w-4 mr-2" />
+                                  Denunciar usuário
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleReportPost(post)}
+                                >
+                                  <Flag className="h-4 w-4 mr-2" />
+                                  Denunciar post
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+
+                    {/* Actions row: incentivos + comentários */}
+                    <div className="flex items-center px-2 pt-1 pb-0.5">
+                      {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                        <PostIncentiveButton
+                          key={type}
+                          type={type}
+                          isActive={post.userLikes.includes(type)}
+                          onClick={() => handleToggleLike(post.id, type)}
+                          loading={togglingIncentives.has(`${post.id}-${type}`)}
+                        />
+                      ))}
+                      <div className="ml-auto">
+                        <PostCommentsDialog
+                          postId={post.id}
+                          commentCount={post.commentCount}
+                          hasActivity={post.hasActivity}
+                          isPostOwner={post.user_id === user?.id}
                         />
                       </div>
                     </div>
@@ -1246,7 +1228,7 @@ export default function Index() {
                             <div className="flex items-center gap-1">
                               <span className="text-xs font-medium text-white drop-shadow-sm">{post.userNickname}</span>
                               <span onClick={(e) => e.stopPropagation()}>
-                                <UserInsignias userId={post.user_id} maxBadges={2} />
+                                <UserInsignias userId={post.user_id} />
                               </span>
                             </div>
                           </button>
@@ -1264,7 +1246,7 @@ export default function Index() {
                           />
                         ))}
                         <div className="ml-auto">
-                          <PostCommentsDialog postId={post.id} commentCount={post.commentCount} hasActivity={post.hasActivity} isPostOwner={post.user_id === user?.id} hasUnreadComments={(unreadCommentsByPost[post.id] ?? 0) > 0} />
+                          <PostCommentsDialog postId={post.id} commentCount={post.commentCount} hasActivity={post.hasActivity} isPostOwner={post.user_id === user?.id} />
                         </div>
                       </div>
 
@@ -1419,9 +1401,8 @@ export default function Index() {
                             Rotinas Vinculadas ({new Set(linkedRoutines.map((r: any) => `${r.type}__${r.name ?? ""}`)).size})
                           </h3>
                           <ChevronDown
-                            className={`h-5 w-5 transform transition-transform ${
-                              expandedRoutines ? "rotate-180" : ""
-                            }`}
+                            className={`h-5 w-5 transform transition-transform ${expandedRoutines ? "rotate-180" : ""
+                              }`}
                           />
                         </button>
 
@@ -1504,9 +1485,8 @@ export default function Index() {
                         Rotinas Vinculadas ({new Set(linkedRoutines.map((r: any) => `${r.type}__${r.name ?? ""}`)).size})
                       </h3>
                       <ChevronDown
-                        className={`h-5 w-5 transform transition-transform ${
-                          expandedRoutines ? "rotate-180" : ""
-                        }`}
+                        className={`h-5 w-5 transform transition-transform ${expandedRoutines ? "rotate-180" : ""
+                          }`}
                       />
                     </button>
 
@@ -1730,11 +1710,10 @@ export default function Index() {
                   <button
                     type="button"
                     onClick={() => setEditPostGoalId(null)}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${
-                      !editPostGoalId
+                    className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${!editPostGoalId
                         ? "border-brand bg-brand/10 text-brand font-medium"
                         : "border-border/60 text-muted-foreground hover:border-border"
-                    }`}
+                      }`}
                   >
                     Sem meta vinculada
                   </button>
@@ -1743,11 +1722,10 @@ export default function Index() {
                       key={goal.id}
                       type="button"
                       onClick={() => setEditPostGoalId(goal.id)}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${
-                        editPostGoalId === goal.id
+                      className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${editPostGoalId === goal.id
                           ? "border-brand bg-brand/10 text-brand font-medium"
                           : "border-border/60 hover:border-border"
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center gap-2">
                         <Target className="h-3.5 w-3.5 flex-shrink-0" />

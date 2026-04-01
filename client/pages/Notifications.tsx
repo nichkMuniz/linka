@@ -114,7 +114,7 @@ export default function Notifications() {
           ? getIncentiveIcon(notification.incentiveType)
           : null;
         const IncentiveIconComponent = incentiveIconData?.Icon;
-        const context = notification.shotId ? "no seu reels" : "na sua postagem";
+        const context = notification.shotId ? "no seu reels" : (notification.flowId ? "no seu flow" : "na sua postagem");
         return {
           icon: IncentiveIconComponent
             ? <IncentiveIconComponent className={`h-5 w-5 ${incentiveIconData!.color}`} />
@@ -126,7 +126,7 @@ export default function Notifications() {
         };
       }
       case 3: {
-        const commentContext = notification.shotId ? "no seu reels" : "na sua postagem";
+        const commentContext = notification.shotId ? "no seu reels" : (notification.flowId ? "no seu flow" : "na sua postagem");
         return {
           icon: <MessageCircle className="h-5 w-5 text-purple-500" />,
           title: "Novo comentário",
@@ -178,6 +178,7 @@ export default function Notifications() {
     }
   };
 
+  // Formato compacto para notificações ("5m", "2h", "3d") — diferente do formatTimeAgo de utils.ts que usa "dd/mm/yy"
   const formatTimeAgo = (date: string): string => {
     const now = new Date();
     const notifTime = new Date(date);
@@ -219,8 +220,8 @@ export default function Notifications() {
     const seenPost = new Map<string, number>();
 
     for (const n of notifs) {
-      if (n.type === 2 && n.incentiveType && (n.postId || n.shotId)) {
-        const postKey = n.postId ?? n.shotId ?? "";
+      if (n.type === 2 && n.incentiveType && (n.postId || n.shotId || n.flowId)) {
+        const postKey = n.postId ?? n.shotId ?? n.flowId ?? "";
         if (seenPost.has(postKey)) {
           const idx = seenPost.get(postKey)!;
           const existing = result[idx];
@@ -339,15 +340,29 @@ export default function Notifications() {
       }
     }
     // Type 3 (comment) - navigate to post and open comments modal
-    else if (notification.type === 3 && notification.postId) {
-      navigate(`/post/${notification.postId}`, { state: { openComments: true } });
+    else if (notification.type === 3) {
+      if (notification.postId) {
+        navigate(`/post/${notification.postId}`, { state: { openComments: true } });
+      } else if (notification.flowId) {
+        navigate("/", { state: { openFlow: notification.flowId, openComments: true } });
+      } else {
+        navigate(`/usuario/${notification.userId}`);
+      }
     }
     // Type 2 (incentive) - navigate to post and open likes/incentives modal
-    else if (notification.type === 2 && notification.postId) {
-      navigate(`/post/${notification.postId}`, { state: { openLikes: true } });
+    else if (notification.type === 2) {
+      if (notification.postId) {
+        navigate(`/post/${notification.postId}`, { state: { openLikes: true } });
+      } else if (notification.flowId) {
+        navigate("/", { state: { openFlow: notification.flowId } });
+      } else {
+        navigate(`/usuario/${notification.userId}`);
+      }
     }
     else if (notification.postId) {
       navigate(`/post/${notification.postId}`);
+    } else if (notification.flowId) {
+      navigate("/", { state: { openFlow: notification.flowId } });
     } else {
       navigate(`/usuario/${notification.userId}`);
     }
@@ -444,7 +459,7 @@ export default function Notifications() {
                         const groupedIncentiveTypes: number[] = grouped.groupedIncentiveTypes ?? (notification.incentiveType ? [notification.incentiveType] : []);
                         const groupedUsers: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }> = grouped.groupedUsers ?? [];
                         const rawContent = getNotificationContent(notification);
-                        const context = notification.shotId ? "no seu reels" : "na sua postagem";
+                        const context = notification.shotId ? "no seu reels" : (notification.flowId ? "no seu flow" : "na sua postagem");
 
                         // Build description for grouped incentives
                         let groupedDescription = rawContent.description;

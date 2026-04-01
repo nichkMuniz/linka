@@ -8,6 +8,7 @@ import {
   type CommentReactionSummary,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const QUICK_EMOJIS = ["❤️", "🔥", "💪", "😂", "👏", "🥇"];
 
@@ -27,9 +28,8 @@ interface CommentReactionsProps {
 export function CommentReactions({ commentType, commentId, commentOwnerId, sourceId, dark = false, isOwnComment = false }: CommentReactionsProps) {
   const { user } = useAuth();
   const [reactions, setReactions] = React.useState<CommentReactionSummary[]>([]);
-  const [showPicker, setShowPicker] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState<string | null>(null);
-  const pickerRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -40,22 +40,12 @@ export function CommentReactions({ commentType, commentId, commentOwnerId, sourc
     return () => { cancelled = true; };
   }, [commentType, commentId, user?.id]);
 
-  // Fecha picker ao clicar fora
-  React.useEffect(() => {
-    if (!showPicker) return;
-    const handler = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setShowPicker(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showPicker]);
+
 
   const handleReact = async (emoji: string) => {
     if (!user) return;
     setLoading(emoji);
-    setShowPicker(false);
+    setOpen(false);
 
     // Optimistic update
     setReactions((prev) => {
@@ -114,48 +104,50 @@ export function CommentReactions({ commentType, commentId, commentOwnerId, sourc
 
       {/* Botão para abrir o picker de emojis rápidos — oculto no próprio comentário */}
       {user && !isOwnComment && (
-        <div ref={pickerRef} className="relative">
-          <button
-            type="button"
-            onClick={() => setShowPicker((v) => !v)}
-            className={cn(
-              "inline-flex items-center justify-center rounded-full p-0.5 transition-colors",
-              dark
-                ? "text-white/50 hover:text-white hover:bg-white/10"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
-            )}
-            aria-label="Reagir ao comentário"
-          >
-            <Smile className="h-3.5 w-3.5" />
-          </button>
-
-          {showPicker && (
-            <div
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
               className={cn(
-                "absolute bottom-full mb-1 left-0 z-[300] flex gap-1 rounded-full px-2 py-1.5 shadow-xl",
-                dark ? "bg-zinc-800 border border-white/10" : "bg-popover border border-border/60",
+                "inline-flex items-center justify-center rounded-full p-0.5 transition-colors",
+                dark
+                  ? "text-white/50 hover:text-white hover:bg-white/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
               )}
+              aria-label="Reagir ao comentário"
             >
-              {QUICK_EMOJIS.map((emoji) => {
-                const reaction = reactions.find((r) => r.emoji === emoji);
-                return (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => handleReact(emoji)}
-                    className={cn(
-                      "flex h-7 w-7 items-center justify-center rounded-full text-base transition-all hover:scale-125",
-                      reaction?.userReacted && "scale-110",
-                    )}
-                    aria-label={emoji}
-                  >
-                    {emoji}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+              <Smile className="h-3.5 w-3.5" />
+            </button>
+          </PopoverTrigger>
+
+          <PopoverContent
+            side="top"
+            align="start"
+            sideOffset={8}
+            className={cn(
+              "z-[300] flex w-auto gap-1 rounded-full px-2 py-1.5 shadow-xl border-0 p-0",
+              dark ? "bg-zinc-800" : "bg-popover",
+            )}
+          >
+            {QUICK_EMOJIS.map((emoji) => {
+              const reaction = reactions.find((r) => r.emoji === emoji);
+              return (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => handleReact(emoji)}
+                  className={cn(
+                    "flex h-7 w-7 items-center justify-center rounded-full text-base transition-all hover:scale-125",
+                    reaction?.userReacted && "scale-110",
+                  )}
+                  aria-label={emoji}
+                >
+                  {emoji}
+                </button>
+              );
+            })}
+          </PopoverContent>
+        </Popover>
       )}
     </div>
   );

@@ -4790,14 +4790,14 @@ export async function saveWorkoutSeriesDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction
   userId: string;
   userNickname: string;
   userPhoto: string | null;
   postId?: string;
   shotId?: string; // Present when notification relates to a shot (from shots_id column in notifications)
   flowId?: string; // Present when type=6 and reaction was on a flow comment (decoded from shots_id "flow:<id>")
-  checkInId?: string; // Present when type=6 and reaction was on a checkin comment (decoded from shots_id "checkin:<id>")
+  checkInId?: string; // Present when type=6/7 and reaction was on a checkin comment or checkin itself (decoded from shots_id "checkin:<id>" or from duel_check_in_id column)
   postPhoto?: string;
   incentiveType?: number; // For type 2 (incentive): 1=apoio, 2=continua, 3=ganhador, 4=consegueMais, 5=limiteMaior, 6=maisAlgum
   groupName?: string; // For type 4 (duel invite)
@@ -4843,17 +4843,19 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
 
     // Get all follower IDs and post IDs to fetch related data
     const followerIds = [...new Set(notificationsData.map((n: any) => n.follower_id))];
-    const postIds = [...new Set(notificationsData.filter((n: any) => n.type !== 4 && n.type !== 5 && n.type !== 7 && !n.shots_id).map((n: any) => n.post_id).filter(Boolean))];
+    const postIds = [...new Set(notificationsData.filter((n: any) => n.type !== 4 && n.type !== 5 && n.type !== 7 && !n.shots_id && !n.flow_id).map((n: any) => n.post_id).filter(Boolean))];
     // shots_id may contain "flow:<id>" or "checkin:<id>" prefixed values — exclude those from the shots DB query
     const shotNotifIds = [...new Set(notificationsData.filter((n: any) => n.shots_id && !String(n.shots_id).startsWith("flow:") && !String(n.shots_id).startsWith("checkin:")).map((n: any) => n.shots_id).filter(Boolean))];
     const groupIds = [...new Set(notificationsData.filter((n: any) => n.type === 4 || n.type === 5).map((n: any) => n.post_id).filter(Boolean))];
+    // Direct flow_id column support
+    const flowResultIds = [...new Set(notificationsData.filter((n: any) => n.flow_id).map((n: any) => n.flow_id).filter(Boolean))];
     const incentiveNotifications = notificationsData.filter((n: any) => n.type === 2);
 
-    // Fetch follower profiles, post photos, group names, and like data in parallel
+    // Fetch follower profiles, post photos, flow media, group names, and like data in parallel
     // Each query uses .catch() so a single failure doesn't abort the whole batch
-    const safeQuery = (q: Promise<any>) => q.then((r) => r).catch(() => ({ data: [] as any[] }));
+    const safeQuery = (q: any) => Promise.resolve(q).catch(() => ({ data: [] as any[] }));
 
-    const [profilesResult, postsResult, shotNotifResult, groupsResult] = await Promise.all([
+    const [profilesResult, postsResult, shotNotifResult, groupsResult, flowsResult] = await Promise.all([
       safeQuery(supabase
         .from("profiles")
         .select("user_id, nickname, photo")
@@ -4876,18 +4878,26 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           .select("id, name")
           .in("id", groupIds))
         : Promise.resolve({ data: [] as any[] }),
+      flowResultIds.length > 0
+        ? safeQuery(supabase
+          .from("flow")
+          .select("id, media_url")
+          .in("id", flowResultIds))
+        : Promise.resolve({ data: [] as any[] }),
     ]);
 
     const { data: profiles } = profilesResult as any;
     const { data: posts } = postsResult as any;
     const { data: shotNotifs } = shotNotifResult as any;
     const { data: groups } = groupsResult as any;
+    const { data: flows } = flowsResult as any;
 
     const profileMap = new Map<string, any>((profiles ?? []).map((p: any) => [p.user_id, p]));
     const postMap = new Map<string, any>((posts ?? []).map((p: any) => [p.id, { photo: p.photo }] as [string, any]));
     // Map for shots coming via shots_id column
     const shotNotifMap = new Map<string, any>((shotNotifs ?? []).map((s: any) => [s.id, { photo: s.video_url }]));
     const groupMap = new Map<string, any>((groups ?? []).map((g: any) => [g.id, g]));
+    const flowMap = new Map<string, any>((flows ?? []).map((f: any) => [String(f.id), { photo: f.media_url }]));
 
     // Fetch like types for incentive notifications.
     // Key: notif.id → incentive type number.
@@ -4945,9 +4955,33 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           .then((r: any) => (r.data ?? []) as any[]);
       });
 
-      const [postLikeResults, shotLikeResults] = await Promise.all([
+      // --- Flow incentives (tabela: flow_likes, coluna: flow_id) ---
+      const flowIncentiveNotifs = incentiveNotifications.filter((n: any) => n.flow_id);
+      const groupedFlowNotifs = new Map<string, any[]>();
+      for (const notif of flowIncentiveNotifs) {
+        const key = `${notif.follower_id}:${notif.flow_id}`;
+        if (!groupedFlowNotifs.has(key)) groupedFlowNotifs.set(key, []);
+        groupedFlowNotifs.get(key)!.push(notif);
+      }
+      for (const group of groupedFlowNotifs.values()) {
+        group.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      }
+      const uniqueFlowPairs = [...groupedFlowNotifs.keys()];
+      const flowLikeQueries = uniqueFlowPairs.map((key) => {
+        const [followerId, flowId] = key.split(":");
+        return supabase
+          .from("flow_likes")
+          .select("type, created_at")
+          .eq("flow_id", flowId)
+          .eq("user_id", followerId)
+          .order("created_at", { ascending: true })
+          .then((r: any) => (r.data ?? []) as any[]);
+      });
+
+      const [postLikeResults, shotLikeResults, flowLikeResults] = await Promise.all([
         Promise.all(postLikeQueries),
         Promise.all(shotLikeQueries),
+        Promise.all(flowLikeQueries),
       ]);
 
       uniquePostPairs.forEach((key, idx) => {
@@ -4964,6 +4998,17 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
       uniqueShotPairs.forEach((key, idx) => {
         const likes: any[] = shotLikeResults[idx] ?? [];
         const notifs = groupedShotNotifs.get(key)!;
+        notifs.forEach((notif: any, i: number) => {
+          const like = likes[i];
+          if (like?.type !== undefined && like.type !== null) {
+            likesMap.set(notif.id, Number(like.type));
+          }
+        });
+      });
+
+      uniqueFlowPairs.forEach((key, idx) => {
+        const likes: any[] = flowLikeResults[idx] ?? [];
+        const notifs = groupedFlowNotifs.get(key)!;
         notifs.forEach((notif: any, i: number) => {
           const like = likes[i];
           if (like?.type !== undefined && like.type !== null) {
@@ -4996,7 +5041,11 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
 
         // Map new dedicated columns
         if (notif.flow_id) {
-          notification.flowId = notif.flow_id;
+          notification.flowId = String(notif.flow_id);
+          const f = flowMap.get(String(notif.flow_id));
+          if (f?.photo) {
+            notification.postPhoto = f.photo;
+          }
         }
         if (notif.duel_check_in_id) {
           notification.checkInId = notif.duel_check_in_id;
@@ -5053,7 +5102,7 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
     // Fetch unread notification rows (we need post/shot IDs to apply grouping logic)
     let { data, error } = await supabase
       .from("notifications")
-      .select("id, type, post_id, shots_id, read")
+      .select("id, type, post_id, shots_id, flow_id, read")
       .eq("user_id", viewer.id)
       .eq("read", false);
 
@@ -5062,7 +5111,7 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
       console.warn("Read column might not exist, fetching all notifications count");
       const { data: allData, error: fallbackError } = await supabase
         .from("notifications")
-        .select("id, type, post_id, shots_id")
+        .select("id, type, post_id, shots_id, flow_id")
         .eq("user_id", viewer.id);
 
       if (fallbackError) {
@@ -5070,7 +5119,7 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
         console.error("Error fetching unread count:", errorMsg);
         return 0;
       }
-      data = allData;
+      data = (allData ?? []).map(n => ({ ...n, read: false }));
     } else if (error) {
       const errorMsg = typeof error === 'object' ? JSON.stringify(error) : String(error);
       console.error("Error fetching unread count:", errorMsg);
@@ -5086,7 +5135,7 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
 
     for (const n of data) {
       if (n.type === 2) {
-        const key = n.shots_id ?? n.post_id ?? n.id;
+        const key = n.flow_id ?? n.shots_id ?? n.post_id ?? n.id;
         if (!seenPostKeys.has(key)) {
           seenPostKeys.add(key);
           groupedCount++;

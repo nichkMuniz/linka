@@ -437,7 +437,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     );
   }
 
-  if (!loading && shotsError) {
+  if (shotsError) {
     return (
       <div className="flex items-center justify-center h-full w-full bg-black">
         <p className="text-sm text-muted-foreground">
@@ -447,7 +447,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     );
   }
 
-  if (!loading && shots.length === 0) {
+  if (shots.length === 0) {
     return (
       <div className="flex items-center justify-center h-full w-full bg-black">
         <p className="text-sm text-muted-foreground">

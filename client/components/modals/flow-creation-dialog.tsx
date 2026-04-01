@@ -59,6 +59,14 @@ export function FlowCreationDialog({
     }
   }, []);
 
+  const stopCamera = React.useCallback(() => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+      setUseCamera(false);
+    }
+  }, [cameraStream]);
+
   const capturePhoto = React.useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
 
@@ -73,15 +81,7 @@ export function FlowCreationDialog({
 
     setMediaPreview(dataUrl);
     stopCamera();
-  }, []);
-
-  const stopCamera = React.useCallback(() => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach((track) => track.stop());
-      setCameraStream(null);
-      setUseCamera(false);
-    }
-  }, [cameraStream]);
+  }, [stopCamera]);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];

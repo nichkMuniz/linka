@@ -21,11 +21,10 @@ import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import {
   addNetworkStatusListener,
   getNetworkStatus,
-  checkSupabaseReachability,
 } from "@/lib/network-status";
 import { Fingerprint, Upload, X, Search, Check, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { useTheme } from "next-themes";
-import { getAllUsersDb, searchUsersDb, type SearchUser, followUserDb, createOrUpdateCommercialProfileDb } from "@/lib/ritmofit-db";
+import { getAllUsersDb, type SearchUser, followUserDb, createOrUpdateCommercialProfileDb } from "@/lib/ritmofit-db";
 
 function isEmailNotConfirmed(message: string | undefined) {
   const m = (message ?? "").toLowerCase();

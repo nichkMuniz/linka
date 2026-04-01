@@ -3334,7 +3334,7 @@ export default function Profile() {
                   <div className="h-8 w-8 rounded-full bg-muted" />
                 )}
                 <span className="text-sm font-medium">{selectedPost.userNickname}</span>
-                <UserInsignias userId={selectedPost.user_id} maxBadges={3} />
+                <UserInsignias userId={selectedPost.user_id} />
               </div>
 
               {/* Description */}

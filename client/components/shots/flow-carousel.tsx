@@ -1,6 +1,5 @@
 import * as React from "react";
 import { StoryWithUser } from "@/lib/ritmofit-db";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,8 +15,6 @@ interface FlowCarouselProps {
   currentUserId: string;
   currentUserPhoto?: string | null;
   isOwnerViewing?: boolean;
-  viewCount?: number;
-  isLoadingViewCount?: boolean;
   viewedStoryIds?: Set<string>;
 }
 
@@ -28,8 +25,6 @@ export function FlowCarousel({
   currentUserId,
   currentUserPhoto,
   isOwnerViewing,
-  viewCount,
-  isLoadingViewCount,
   viewedStoryIds,
 }: FlowCarouselProps) {
   // Group stories by user — always overwrite so the last entry (oldest, since array is newest-first) is stored.
@@ -87,14 +82,6 @@ export function FlowCarousel({
                     isOwnerViewing ? "bg-gray-400" : "bg-green-500"
                   } rounded-full ring-1 ring-background`}
                 />
-                {/* View count badge */}
-                {isLoadingViewCount ? (
-                  <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-muted rounded-full ring-1 ring-background animate-pulse" />
-                ) : viewCount !== undefined && viewCount > 0 ? (
-                  <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-brand text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 ring-1 ring-background">
-                    {viewCount > 99 ? "99+" : viewCount}
-                  </div>
-                ) : null}
               </div>
               <span className="text-xs text-center truncate max-w-[60px] font-semibold text-brand">
                 Seu flow

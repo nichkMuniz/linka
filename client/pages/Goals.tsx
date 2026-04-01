@@ -182,7 +182,7 @@ export default function Goals() {
       setPendingReopen(false);
       setWorkoutMinimized(false);
     }
-  }, [pendingReopen]);
+  }, [pendingReopen, workoutModalOpen]);
 
   const initialTab = searchParams.get("tab") === "metas" ? "metas" : "rotinas";
 

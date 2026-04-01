@@ -263,7 +263,6 @@ export default function PostDetail() {
                   commentCount={0}
                   hasActivity={false}
                   isPostOwner={post.user_id === user?.id}
-                  hasUnreadComments={false}
                   defaultOpen={navState?.openComments === true}
                 />
               </div>
