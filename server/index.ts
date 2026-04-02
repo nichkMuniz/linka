@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { handleDemo } from "./routes/demo";
-import { handleGetUser, handleSignOut, handleRefreshSession } from "./routes/auth";
+import { handleGetUser, handleSignOut, handleRefreshSession, handleDeleteAuthUser } from "./routes/auth";
 
 export function createServer() {
   const app = express();
@@ -24,6 +24,7 @@ export function createServer() {
   app.post("/api/auth/user", handleGetUser);
   app.post("/api/auth/sign-out", handleSignOut);
   app.post("/api/auth/refresh", handleRefreshSession);
+  app.post("/api/auth/delete-account", handleDeleteAuthUser);
 
   return app;
 }

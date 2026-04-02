@@ -158,8 +158,8 @@ export default function Messages() {
           const msg = payload.new as any;
           // Only react to messages in this conversation
           const isThisConversation =
-            (msg.id_user === user.id && msg.id_following === selectedConversation.userId) ||
-            (msg.id_user === selectedConversation.userId && msg.id_following === user.id);
+            (msg.user_Id === user.id && msg.following_id === selectedConversation.userId) ||
+            (msg.user_id === selectedConversation.userId && msg.following_id === user.id);
 
           if (!isThisConversation) return;
 
@@ -167,7 +167,7 @@ export default function Messages() {
           setMessages(updatedMessages);
 
           // If the new message is from the other user, mark as read immediately
-          if (msg.id_user === selectedConversation.userId) {
+          if (msg.user_id === selectedConversation.userId) {
             await markMessagesAsReadDb(selectedConversation.userId);
           }
         },
@@ -220,10 +220,10 @@ export default function Messages() {
         prev.map((conv) =>
           conv.userId === selectedConversation.userId
             ? {
-                ...conv,
-                lastMessage: textToSend,
-                lastMessageTime: new Date().toISOString(),
-              }
+              ...conv,
+              lastMessage: textToSend,
+              lastMessageTime: new Date().toISOString(),
+            }
             : conv,
         ),
       );
@@ -364,7 +364,7 @@ export default function Messages() {
           <div className="space-y-4">
             {messages.length > 0 ? (
               messages.map((message) => {
-                const isOwn = message.id_user === user?.id;
+                const isOwn = message.user_id === user?.id;
                 const messageReactions = reactions[message.id] || {};
                 const reactionEntries = Object.values(messageReactions);
                 const isPickerOpen = activePickerMessageId === message.id;
@@ -417,11 +417,10 @@ export default function Messages() {
                       )}
 
                       <div
-                        className={`max-w-xs px-4 py-2 rounded-2xl space-y-1 break-words cursor-pointer select-none ${
-                          isOwn
-                            ? "bg-brand text-white rounded-br-sm"
-                            : "bg-muted rounded-bl-sm"
-                        }`}
+                        className={`max-w-xs px-4 py-2 rounded-2xl space-y-1 break-words cursor-pointer select-none ${isOwn
+                          ? "bg-brand text-white rounded-br-sm"
+                          : "bg-muted rounded-bl-sm"
+                          }`}
                         onClick={() =>
                           setActivePickerMessageId(
                             isPickerOpen ? null : message.id,
@@ -437,9 +436,8 @@ export default function Messages() {
                         <p className="text-sm">{message.text}</p>
                         <div className="flex items-center justify-between gap-2">
                           <p
-                            className={`text-xs ${
-                              isOwn ? "text-white/70" : "text-muted-foreground"
-                            }`}
+                            className={`text-xs ${isOwn ? "text-white/70" : "text-muted-foreground"
+                              }`}
                           >
                             {new Date(message.created_at).toLocaleTimeString(
                               "pt-BR",
@@ -468,11 +466,10 @@ export default function Messages() {
                           <button
                             key={r.emoji}
                             onClick={() => handleReactToMessage(message.id, r.emoji)}
-                            className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${
-                              r.userReacted
-                                ? "bg-brand/10 border-brand/30 text-brand"
-                                : "bg-muted/50 border-border/40"
-                            }`}
+                            className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${r.userReacted
+                              ? "bg-brand/10 border-brand/30 text-brand"
+                              : "bg-muted/50 border-border/40"
+                              }`}
                           >
                             <span>{r.emoji}</span>
                             {r.count > 1 && (
@@ -587,11 +584,10 @@ export default function Messages() {
                     <div className="flex-1 min-w-0 text-left">
                       <div className="flex items-center justify-between gap-2">
                         <p
-                          className={`text-sm truncate ${
-                            conversation.unreadCount > 0
-                              ? "font-semibold text-foreground"
-                              : "font-medium"
-                          }`}
+                          className={`text-sm truncate ${conversation.unreadCount > 0
+                            ? "font-semibold text-foreground"
+                            : "font-medium"
+                            }`}
                         >
                           {conversation.userNickname}
                         </p>
@@ -600,11 +596,10 @@ export default function Messages() {
                         </p>
                       </div>
                       <p
-                        className={`text-sm truncate ${
-                          conversation.unreadCount > 0
-                            ? "font-medium text-foreground"
-                            : "text-muted-foreground"
-                        }`}
+                        className={`text-sm truncate ${conversation.unreadCount > 0
+                          ? "font-medium text-foreground"
+                          : "text-muted-foreground"
+                          }`}
                       >
                         {conversation.lastMessage}
                       </p>

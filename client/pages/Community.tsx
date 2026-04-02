@@ -160,9 +160,9 @@ export default function Community() {
   const [activePhotoPreviewIndex, setActivePhotoPreviewIndex] = React.useState(0);
 
   React.useEffect(() => {
-    if (checkInPhotoFiles.length === 0) { 
-      setCheckInPhotoPreviewUrls([]); 
-      return; 
+    if (checkInPhotoFiles.length === 0) {
+      setCheckInPhotoPreviewUrls([]);
+      return;
     }
     const urls = checkInPhotoFiles.map(file => URL.createObjectURL(file));
     setCheckInPhotoPreviewUrls(urls);
@@ -193,7 +193,7 @@ export default function Community() {
     title: string;
     description: string;
     onConfirm: () => void;
-  }>({ open: false, title: "", description: "", onConfirm: () => {} });
+  }>({ open: false, title: "", description: "", onConfirm: () => { } });
 
   const [pendingInvites, setPendingInvites] = React.useState<Array<{ groupId: string; groupName: string; groupGoal: string; groupLocation: string }>>([]);
   const [pendingGroupRequests, setPendingGroupRequests] = React.useState<GroupJoinRequest[]>([]);
@@ -330,7 +330,7 @@ export default function Community() {
         setGroupParticipants(participants);
         // Load reactions for check-ins
         if (checkIns.length > 0) {
-          getCheckInReactionsDb(checkIns.map((c) => c.id)).then(setCheckInReactions).catch(() => {});
+          getCheckInReactionsDb(checkIns.map((c) => c.id)).then(setCheckInReactions).catch(() => { });
         }
       })
       .catch((err: any) => console.error("Error loading group data:", err))
@@ -456,7 +456,7 @@ export default function Community() {
   // Refresh pending group requests when switching to the requests tab
   React.useEffect(() => {
     if (activeTab === "requests" && user?.id) {
-      getPendingGroupRequestsDb().then(setPendingGroupRequests).catch(() => {});
+      getPendingGroupRequestsDb().then(setPendingGroupRequests).catch(() => { });
     }
   }, [activeTab, user?.id]);
 
@@ -478,7 +478,7 @@ export default function Community() {
         openGroupView(groupCard);
       }
     }).catch((err) => console.error("Error restoring group view:", err));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, userCreatedGroups, availableGroups]);
 
   // Auto-select conversation from URL parameter (?user=<userId>)
@@ -589,10 +589,10 @@ export default function Community() {
           prev.map((conv) =>
             conv.userId === selectedConversation.userId
               ? {
-                  ...conv,
-                  lastMessage: fullText,
-                  lastMessageTime: new Date().toISOString(),
-                }
+                ...conv,
+                lastMessage: fullText,
+                lastMessageTime: new Date().toISOString(),
+              }
               : conv,
           ),
         );
@@ -618,12 +618,12 @@ export default function Community() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
-          const msg = payload.new as { id_user: string; id_receiver: string };
+          const msg = payload.new as { user_id: string; id_receiver: string };
           const isRelevant =
-            (msg.id_user === selectedConversation.userId && msg.id_receiver === user.id) ||
-            (msg.id_user === user.id && msg.id_receiver === selectedConversation.userId);
+            (msg.user_id === selectedConversation.userId && msg.id_receiver === user.id) ||
+            (msg.user_id === user.id && msg.id_receiver === selectedConversation.userId);
           if (isRelevant) {
-            getConversationMessagesDb(selectedConversation.userId).then(setMessages).catch(() => {});
+            getConversationMessagesDb(selectedConversation.userId).then(setMessages).catch(() => { });
           }
         },
       )
@@ -636,7 +636,7 @@ export default function Community() {
     if (groupCheckIns.length === 0) return;
     getCheckInReactionsDb(groupCheckIns.map((c) => c.id))
       .then(setCheckInReactions)
-      .catch(() => {});
+      .catch(() => { });
   }, [groupCheckIns]);
 
   const handleOpenConversation = React.useCallback(
@@ -727,7 +727,7 @@ export default function Community() {
 
           {messages.length > 0 ? (
             messages.map((message) => {
-              const isOwn = message.id_user === user?.id;
+              const isOwn = message.user_id === user?.id;
               // Detect reply prefix: lines starting with "↩ "
               const replyMatch = message.text.match(/^↩ (.+?)\n\n([\s\S]*)$/);
               const replyQuote = replyMatch ? replyMatch[1] : null;
@@ -743,11 +743,10 @@ export default function Community() {
                       onTouchEnd={handleMessageTouchEnd}
                       onTouchMove={handleMessageTouchEnd}
                       onContextMenu={(e) => { e.preventDefault(); handleMessageLongPress(message); }}
-                      className={`max-w-xs px-4 py-2 rounded-lg space-y-1 break-words select-none ${
-                        isOwn
+                      className={`max-w-xs px-4 py-2 rounded-lg space-y-1 break-words select-none ${isOwn
                           ? "bg-brand text-white rounded-br-none"
                           : "bg-muted rounded-bl-none"
-                      }`}
+                        }`}
                     >
                       {replyQuote && (
                         <div className={`text-xs px-2 py-1 rounded mb-1 border-l-2 ${isOwn ? "bg-white/10 border-white/50 text-white/80" : "bg-muted-foreground/10 border-muted-foreground/40 text-muted-foreground"}`}>
@@ -757,9 +756,8 @@ export default function Community() {
                       <p className="text-sm">{mainText}</p>
                       <div className="flex items-center justify-between gap-2">
                         <p
-                          className={`text-xs ${
-                            isOwn ? "text-white/70" : "text-muted-foreground"
-                          }`}
+                          className={`text-xs ${isOwn ? "text-white/70" : "text-muted-foreground"
+                            }`}
                         >
                           {new Date(message.created_at).toLocaleTimeString(
                             "pt-BR",
@@ -904,11 +902,10 @@ export default function Community() {
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`text-sm font-medium pb-1 ${
-                  activeTab === tab
+                className={`text-sm font-medium pb-1 ${activeTab === tab
                     ? "text-foreground border-b-2 border-foreground"
                     : "text-muted-foreground"
-                }`}
+                  }`}
               >
                 {tab === "messages" ? t("community_messages") : tab === "duels" ? t("community_duels") : t("community_ranking")}
               </button>
@@ -916,11 +913,10 @@ export default function Community() {
             {(pendingInvites.length > 0 || pendingGroupRequests.length > 0) && (
               <button
                 onClick={() => setActiveTab("requests")}
-                className={`text-sm font-medium pb-1 relative ${
-                  activeTab === "requests"
+                className={`text-sm font-medium pb-1 relative ${activeTab === "requests"
                     ? "text-foreground border-b-2 border-foreground"
                     : "text-muted-foreground"
-                }`}
+                  }`}
               >
                 Solicitações
                 <span className="absolute -top-1 -right-3 h-4 w-4 rounded-full bg-destructive text-white text-[10px] flex items-center justify-center ring-2 ring-background font-bold">
@@ -1178,38 +1174,38 @@ export default function Community() {
                   // Calculate leader stats
                   const leaderStats = groupCheckIns.length > 0
                     ? Object.entries(
-                        groupCheckIns.reduce((acc: { [key: string]: { userName: string; count: number } }, checkIn) => {
-                          if (!acc[checkIn.userId]) {
-                            acc[checkIn.userId] = { userName: checkIn.userName, count: 0 };
-                          }
-                          acc[checkIn.userId].count++;
-                          return acc;
-                        }, {})
-                      )
-                        .sort((a, b) => b[1].count - a[1].count)
-                        .map(([userId, data]) => ({ userId, ...data }))[0]
+                      groupCheckIns.reduce((acc: { [key: string]: { userName: string; count: number } }, checkIn) => {
+                        if (!acc[checkIn.userId]) {
+                          acc[checkIn.userId] = { userName: checkIn.userName, count: 0 };
+                        }
+                        acc[checkIn.userId].count++;
+                        return acc;
+                      }, {})
+                    )
+                      .sort((a, b) => b[1].count - a[1].count)
+                      .map(([userId, data]) => ({ userId, ...data }))[0]
                     : null;
 
                   // Calculate user ranking position
                   const userRanking = groupCheckIns.length > 0
                     ? Object.entries(
-                        groupCheckIns.reduce((acc: { [key: string]: { userName: string; count: number } }, checkIn) => {
-                          if (!acc[checkIn.userId]) {
-                            acc[checkIn.userId] = { userName: checkIn.userName, count: 0 };
-                          }
-                          acc[checkIn.userId].count++;
-                          return acc;
-                        }, {})
-                      )
-                        .sort((a, b) => b[1].count - a[1].count)
-                        .findIndex(([userId]) => userId === user?.id) + 1
+                      groupCheckIns.reduce((acc: { [key: string]: { userName: string; count: number } }, checkIn) => {
+                        if (!acc[checkIn.userId]) {
+                          acc[checkIn.userId] = { userName: checkIn.userName, count: 0 };
+                        }
+                        acc[checkIn.userId].count++;
+                        return acc;
+                      }, {})
+                    )
+                      .sort((a, b) => b[1].count - a[1].count)
+                      .findIndex(([userId]) => userId === user?.id) + 1
                     : 0;
 
                   // Calculate days remaining
                   const daysRemaining = selectedGroupForView.endDate
                     ? Math.ceil(
-                        (new Date(selectedGroupForView.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
-                      )
+                      (new Date(selectedGroupForView.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
+                    )
                     : null;
 
                   return (
@@ -1265,11 +1261,10 @@ export default function Community() {
               <div className="px-4 py-2 flex gap-4 border-b border-border/40">
                 <button
                   onClick={() => setActiveGroupViewTab("check-ins")}
-                  className={`px-2 py-2 text-sm font-medium transition-colors ${
-                    activeGroupViewTab === "check-ins"
+                  className={`px-2 py-2 text-sm font-medium transition-colors ${activeGroupViewTab === "check-ins"
                       ? "text-foreground border-b-2 border-brand -mb-[2px]"
                       : "text-muted-foreground hover:text-foreground"
-                  }`}
+                    }`}
                 >
                   Histórico ({groupCheckIns.length})
                 </button>
@@ -1492,12 +1487,12 @@ export default function Community() {
                           await setCheckInReactionDb(checkInId, newEmoji);
                           // Notify check-in owner when adding a reaction (not removing)
                           if (newEmoji && checkInOwnerId) {
-                            sendCheckInReactionNotificationDb(checkInId, checkInOwnerId).catch(() => {});
+                            sendCheckInReactionNotificationDb(checkInId, checkInOwnerId).catch(() => { });
                           }
                           // Reload from DB so reactions from all users are up to date
                           getCheckInReactionsDb([checkInId]).then((fresh) => {
                             setCheckInReactions((prev) => ({ ...prev, ...fresh }));
-                          }).catch(() => {});
+                          }).catch(() => { });
                         }}
                         className={`text-2xl active:scale-125 transition-transform relative ${isActive ? "scale-110" : ""}`}
                       >
@@ -1869,7 +1864,7 @@ export default function Community() {
                                   setUserCreatedGroups(myGroups.map(toGroupCard));
                                   setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
                                   setAvailableGroups(enriched.filter((g) => !g.isAlreadyMember).map(toGroupCard));
-                                }).catch(() => {});
+                                }).catch(() => { });
                               }
                               if (updated.length === 0 && pendingGroupRequests.length === 0) setActiveTab("duels");
                               toast({ title: "Convite recusado" });
@@ -1985,9 +1980,8 @@ export default function Community() {
               {[1, 2, 3, 4].map((s) => (
                 <div
                   key={s}
-                  className={`h-1.5 flex-1 rounded-full transition-colors ${
-                    s <= groupStep ? "bg-brand" : "bg-muted"
-                  }`}
+                  className={`h-1.5 flex-1 rounded-full transition-colors ${s <= groupStep ? "bg-brand" : "bg-muted"
+                    }`}
                 />
               ))}
             </div>
@@ -2249,9 +2243,8 @@ export default function Community() {
                               }
                               setSelectedInvitees(newSelected);
                             }}
-                            className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2 ${
-                              selectedInvitees.has(follower.id) ? "border-brand bg-brand/10" : "border-border hover:border-brand/50"
-                            }`}
+                            className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2 ${selectedInvitees.has(follower.id) ? "border-brand bg-brand/10" : "border-border hover:border-brand/50"
+                              }`}
                           >
                             <div className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${selectedInvitees.has(follower.id) ? "bg-brand border-brand" : "border-muted-foreground"}`}>
                               {selectedInvitees.has(follower.id) && <Check className="h-3 w-3 text-white" />}
@@ -2381,7 +2374,7 @@ export default function Community() {
                           alt={`Preview ${activePhotoPreviewIndex + 1}`}
                           className="w-full h-full object-contain"
                         />
-                        
+
                         {/* Remove Current Photo */}
                         <button
                           onClick={() => {
@@ -2401,9 +2394,9 @@ export default function Community() {
                         {checkInPhotoPreviewUrls.length > 1 && (
                           <div className="absolute inset-x-0 bottom-3 flex justify-center gap-1.5">
                             {checkInPhotoPreviewUrls.map((_, i) => (
-                              <div 
-                                key={i} 
-                                className={`h-1.5 rounded-full transition-all ${i === activePhotoPreviewIndex ? "w-4 bg-brand" : "w-1.5 bg-brand/30"}`} 
+                              <div
+                                key={i}
+                                className={`h-1.5 rounded-full transition-all ${i === activePhotoPreviewIndex ? "w-4 bg-brand" : "w-1.5 bg-brand/30"}`}
                               />
                             ))}
                           </div>
@@ -2768,16 +2761,16 @@ export default function Community() {
 
                 {/* Photo — Carousel support for multiple images */}
                 {(selectedCheckInForDetail.photos?.length || 0) > 0 ? (
-                  <PostCarousel 
-                    photos={selectedCheckInForDetail.photos || [selectedCheckInForDetail.photo]} 
-                    alt="check-in" 
+                  <PostCarousel
+                    photos={selectedCheckInForDetail.photos || [selectedCheckInForDetail.photo]}
+                    alt="check-in"
                   />
                 ) : selectedCheckInForDetail.photo ? (
                   <div className="relative rounded-2xl overflow-hidden aspect-square md:aspect-auto md:h-[400px] bg-slate-950/40 flex-shrink-0 flex items-center justify-center">
-                    <img 
-                      src={selectedCheckInForDetail.photo} 
-                      alt="check-in" 
-                      className="max-w-full max-h-full w-auto h-auto object-contain" 
+                    <img
+                      src={selectedCheckInForDetail.photo}
+                      alt="check-in"
+                      className="max-w-full max-h-full w-auto h-auto object-contain"
                     />
                   </div>
                 ) : null}
@@ -3057,7 +3050,7 @@ export default function Community() {
                           setUserCreatedGroups(myGroups.map(toGroupCard));
                           setJoinedGroupIds(new Set(enriched.filter((g) => g.isAlreadyMember).map((g) => g.id)));
                           setAvailableGroups(enriched.filter((g) => !g.isAlreadyMember).map(toGroupCard));
-                        }).catch(() => {});
+                        }).catch(() => { });
                       }
                     } catch (error: any) {
                       toast({ title: "Erro ao sair do grupo", description: error?.message || "Tente novamente.", variant: "destructive" });
@@ -3129,7 +3122,7 @@ export default function Community() {
             {/* Estatísticas do Grupo */}
             {(() => {
               const totalCheckIns = groupCheckIns.length;
-              
+
               let avgCheckInsPerDay = 0;
               if (selectedGroupForView?.createdAt) {
                 const start = new Date(selectedGroupForView.createdAt).getTime();
@@ -3251,19 +3244,19 @@ export default function Community() {
             if (!participantDetailsId) return null;
             const pInfo = groupParticipants.find(p => p.userId === participantDetailsId);
             const pCheckIns = groupCheckIns.filter(c => c.userId === participantDetailsId);
-            
+
             // Get month dates
             const now = new Date();
             const currentMonth = now.getMonth();
             const currentYear = now.getFullYear();
             const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-            
+
             const monthNames = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
             const dayNames = ['dom.', 'seg.', 'ter.', 'qua.', 'qui.', 'sex.', 'sáb.'];
 
             const monthTitle = `${monthNames[currentMonth]} ${currentYear}`;
-            
+
             const checkInsByDay: Record<number, GroupCheckIn> = {};
             pCheckIns.forEach(c => {
               const d = new Date(c.createdAt);
@@ -3276,8 +3269,8 @@ export default function Community() {
               const d = new Date(c.createdAt);
               return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
             })).size;
-            
-            const totalDurationMins = pCheckIns.reduce((acc, c) => acc + (c.exercises?.length || 1) * 15, 0); 
+
+            const totalDurationMins = pCheckIns.reduce((acc, c) => acc + (c.exercises?.length || 1) * 15, 0);
             const hours = Math.floor(totalDurationMins / 60);
             const mins = totalDurationMins % 60;
             const durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
@@ -3285,22 +3278,22 @@ export default function Community() {
             return (
               <>
                 <DrawerHeader className="shrink-0 flex items-center justify-between pb-2">
-                   <button onClick={() => setParticipantDetailsId(null)} className="p-2 -ml-2 rounded-full hover:bg-muted/50 transition-colors"><ChevronLeft className="h-6 w-6" /></button>
-                   <div className="flex-1" />
+                  <button onClick={() => setParticipantDetailsId(null)} className="p-2 -ml-2 rounded-full hover:bg-muted/50 transition-colors"><ChevronLeft className="h-6 w-6" /></button>
+                  <div className="flex-1" />
                 </DrawerHeader>
 
                 <div className="flex-1 overflow-y-auto px-4 py-3 bg-background flex flex-col justify-center">
                   <div className="flex flex-col items-center mb-4">
                     <div className="w-16 h-16 rounded-full overflow-hidden mb-2 border-2 border-border/40 flex items-center justify-center bg-muted">
-                       {pInfo?.userPhoto ? (
-                         <ImageWithFallback src={pInfo.userPhoto} alt={pInfo?.userNickname || ""} className="w-full h-full object-cover" fallback="/placeholder.svg" />
-                       ) : (
-                         <span className="text-2xl font-bold text-muted-foreground">{pInfo?.userNickname.charAt(0).toUpperCase()}</span>
-                       )}
+                      {pInfo?.userPhoto ? (
+                        <ImageWithFallback src={pInfo.userPhoto} alt={pInfo?.userNickname || ""} className="w-full h-full object-cover" fallback="/placeholder.svg" />
+                      ) : (
+                        <span className="text-2xl font-bold text-muted-foreground">{pInfo?.userNickname.charAt(0).toUpperCase()}</span>
+                      )}
                     </div>
                     <h2 className="text-lg font-bold">{pInfo?.userNickname}</h2>
                   </div>
-                  
+
                   <div className="flex justify-between w-full mb-6 px-2">
                     <div className="text-center flex-1">
                       <p className="text-lg font-bold leading-none mb-1">{pCheckIns.length}</p>
@@ -3317,38 +3310,38 @@ export default function Community() {
                   </div>
 
                   <div className="mb-4">
-                     <h3 className="text-center font-bold text-base mb-3">{monthTitle}</h3>
-                     <div className="grid grid-cols-7 gap-y-2 text-center mb-1">
-                        {dayNames.map(d => (
-                          <div key={d} className="text-[10px] text-muted-foreground">{d}</div>
-                        ))}
-                     </div>
-                     <div className="grid grid-cols-7 gap-y-2 text-center items-center justify-items-center">
-                        {Array.from({length: firstDayOfMonth}).map((_, i) => (
-                          <div key={`empty-${i}`} className="w-8 h-8" />
-                        ))}
-                        {Array.from({length: daysInMonth}).map((_, i) => {
-                          const day = i + 1;
-                          const checkIn = checkInsByDay[day];
-                          return (
-                            <div key={day} className="w-8 h-8 flex items-center justify-center relative">
-                              {checkIn ? (
-                                 <div className="w-8 h-8 rounded-full overflow-hidden border border-brand/50 flex-shrink-0">
-                                   <ImageWithFallback src={checkIn.photo} alt="Check-in" className="w-8 h-8 object-cover" fallback="/placeholder.svg" />
-                                 </div>
-                              ) : (
-                                 <span className="text-xs font-medium opacity-80">{day}</span>
-                              )}
-                            </div>
-                          );
-                        })}
-                     </div>
+                    <h3 className="text-center font-bold text-base mb-3">{monthTitle}</h3>
+                    <div className="grid grid-cols-7 gap-y-2 text-center mb-1">
+                      {dayNames.map(d => (
+                        <div key={d} className="text-[10px] text-muted-foreground">{d}</div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-y-2 text-center items-center justify-items-center">
+                      {Array.from({ length: firstDayOfMonth }).map((_, i) => (
+                        <div key={`empty-${i}`} className="w-8 h-8" />
+                      ))}
+                      {Array.from({ length: daysInMonth }).map((_, i) => {
+                        const day = i + 1;
+                        const checkIn = checkInsByDay[day];
+                        return (
+                          <div key={day} className="w-8 h-8 flex items-center justify-center relative">
+                            {checkIn ? (
+                              <div className="w-8 h-8 rounded-full overflow-hidden border border-brand/50 flex-shrink-0">
+                                <ImageWithFallback src={checkIn.photo} alt="Check-in" className="w-8 h-8 object-cover" fallback="/placeholder.svg" />
+                              </div>
+                            ) : (
+                              <span className="text-xs font-medium opacity-80">{day}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   <div className="flex justify-center mt-2 pb-2">
-                     <Button variant="secondary" size="sm" className="rounded-full px-8 opacity-50 cursor-not-allowed">
-                       Ver todos os check-ins
-                     </Button>
+                    <Button variant="secondary" size="sm" className="rounded-full px-8 opacity-50 cursor-not-allowed">
+                      Ver todos os check-ins
+                    </Button>
                   </div>
                 </div>
               </>
@@ -3398,18 +3391,16 @@ export default function Community() {
                         }
                         setSelectedMembers(newSelected);
                       }}
-                      className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2 ${
-                        selectedMembers.has(follower.id)
+                      className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2 ${selectedMembers.has(follower.id)
                           ? "border-brand bg-brand/10"
                           : "border-border hover:border-brand/50"
-                      }`}
+                        }`}
                     >
                       <div
-                        className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                          selectedMembers.has(follower.id)
+                        className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${selectedMembers.has(follower.id)
                             ? "bg-brand border-brand"
                             : "border-muted-foreground"
-                        }`}
+                          }`}
                       >
                         {selectedMembers.has(follower.id) && (
                           <Check className="h-3 w-3 text-white" />
@@ -3555,10 +3546,10 @@ export default function Community() {
                         const updatedCheckIns = groupCheckIns.map((c) =>
                           c.id === selectedCheckInForDetail.id
                             ? {
-                                ...c,
-                                workoutInfo: editCheckInForm.workoutInfo,
-                                description: editCheckInForm.description,
-                              }
+                              ...c,
+                              workoutInfo: editCheckInForm.workoutInfo,
+                              description: editCheckInForm.description,
+                            }
                             : c
                         );
                         setGroupCheckIns(updatedCheckIns);

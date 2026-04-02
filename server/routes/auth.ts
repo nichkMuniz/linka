@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn("Supabase credentials not configured for server auth");
@@ -19,6 +20,18 @@ const supabase = supabaseUrl
       },
     })
   : null;
+
+// Admin client with service role key — only used for privileged operations
+const supabaseAdmin =
+  supabaseUrl && supabaseServiceRoleKey
+    ? createClient(supabaseUrl, supabaseServiceRoleKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      })
+    : null;
 
 export const handleGetUser: RequestHandler = async (req, res) => {
   try {
@@ -84,6 +97,44 @@ export const handleSignOut: RequestHandler = async (req, res) => {
   } catch (error) {
     console.error("[auth/sign-out] Unexpected error:", error);
     res.status(200).json({ success: true });
+  }
+};
+
+export const handleDeleteAuthUser: RequestHandler = async (req, res) => {
+  try {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: "Supabase admin not configured" });
+    }
+
+    // Verify the caller is authenticated and matches the userId being deleted
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
+
+    if (!token) {
+      return res.status(401).json({ error: "Não autorizado" });
+    }
+
+    // Validate the token and get the caller's id
+    const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
+    if (userError || !userData.user) {
+      return res.status(401).json({ error: "Token inválido" });
+    }
+
+    const { userId } = req.body;
+    if (!userId || userId !== userData.user.id) {
+      return res.status(403).json({ error: "Proibido: userId não corresponde ao token" });
+    }
+
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    if (error) {
+      console.error("[auth/delete-account] Error deleting auth user:", error.message);
+      return res.status(500).json({ error: error.message });
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("[auth/delete-account] Unexpected error:", error);
+    res.status(500).json({ error: "Erro interno ao encerrar conta" });
   }
 };
 

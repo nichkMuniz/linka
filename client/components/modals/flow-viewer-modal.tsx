@@ -63,7 +63,7 @@ const formatTimeAgo = (dateStr: string) => {
   const date = new Date(dateStr);
   const now = new Date();
   const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-  
+
   if (seconds < 60) return "agora";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
@@ -101,8 +101,24 @@ export function FlowViewerModal({
   const [isPaused, setIsPaused] = React.useState(false);
   const [direction, setDirection] = React.useState(0);
   const [prevStoryId, setPrevStoryId] = React.useState<string | null>(null);
+  const [activeCommentIndex, setActiveCommentIndex] = React.useState(0);
+  const commentCycleRef = React.useRef<NodeJS.Timeout | null>(null);
+  const [commentsDrawerOpen, setCommentsDrawerOpen] = React.useState(false);
 
   const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  React.useEffect(() => {
+    setActiveCommentIndex(0);
+    if (commentCycleRef.current) clearInterval(commentCycleRef.current);
+    if (comments.length > 1) {
+      commentCycleRef.current = setInterval(() => {
+        setActiveCommentIndex((prev) => (prev + 1) % comments.length);
+      }, 2000);
+    }
+    return () => {
+      if (commentCycleRef.current) clearInterval(commentCycleRef.current);
+    };
+  }, [comments]);
   const isTypingRef = React.useRef(false);
   const isPausedRef = React.useRef(false);
   const onNextStoryRef = React.useRef(onNextStory);
@@ -427,7 +443,7 @@ export function FlowViewerModal({
                         initial="enter"
                         animate="center"
                         exit="exit"
-                        transition={{ 
+                        transition={{
                           x: { type: "spring", stiffness: 350, damping: 35 },
                           opacity: { duration: 0.2 },
                           scale: { duration: 0.3 }
@@ -460,14 +476,18 @@ export function FlowViewerModal({
 
                     {/* Description Overlay */}
                     {story.description && (
-                      <div className="absolute bottom-[100px] left-0 right-16 p-4 bg-gradient-to-t from-black/80 to-transparent z-[56] pointer-events-none">
+                      <div className="absolute bottom-[100px] left-0 right-4 p-4 bg-gradient-to-t from-black/80 to-transparent z-[56] pointer-events-none">
                         <p className="text-sm text-white drop-shadow-md leading-relaxed">{story.description}</p>
                       </div>
                     )}
 
-                    {/* Side Actions (Like Icons) */}
+                  </div>
+
+                  {/* Bottom Comment Section */}
+                  <div className="shrink-0 pt-2 pb-6 px-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-[60]">
+                    {/* Incentive Buttons - Horizontal Row */}
                     {user && (
-                      <motion.div className="absolute right-3 bottom-32 flex flex-col gap-4 z-[57]">
+                      <motion.div className="flex justify-around items-center mb-3">
                         {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
                           const isLiked = userLikes.includes(type);
                           return (
@@ -478,29 +498,38 @@ export function FlowViewerModal({
                         })}
                       </motion.div>
                     )}
-                  </div>
-
-                  {/* Bottom Comment Section */}
-                  <div className="shrink-0 pt-2 pb-6 px-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-[60]">
                     {comments.length > 0 && (
-                      <div className="overflow-y-auto max-h-32 mb-4 scrollbar-hide space-y-4">
-                        {comments.map((comment) => (
-                          <div key={comment.id} className="flex flex-col gap-1.5">
-                            <div className="flex items-start justify-between group">
-                              <div className="flex items-start gap-2.5">
-                                <span className="text-[10px] font-bold text-white shrink-0">{comment.userName}</span>
-                                <span className="text-[10px] text-white/90 leading-normal">{comment.text}</span>
-                              </div>
-                              {user?.id === comment.userId && (
-                                <button onClick={() => setCommentToDelete(comment.id)} className="text-white/30 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <Trash2 className="h-3 w-3" />
-                                </button>
-                              )}
-                            </div>
-                            <CommentReactions commentType="flow" commentId={comment.id} commentOwnerId={comment.userId} sourceId={story.id} dark isOwnComment={user?.id === comment.userId} />
-                          </div>
-                        ))}
-                      </div>
+                      <button
+                        className="mb-3 h-8 w-full relative overflow-hidden text-left"
+                        onClick={() => { setIsPaused(true); isPausedRef.current = true; setCommentsDrawerOpen(true); }}
+                      >
+                        <AnimatePresence mode="popLayout" initial={false}>
+                          {(() => {
+                            const comment = comments[activeCommentIndex];
+                            return (
+                              <motion.div
+                                key={comment.id}
+                                initial={{ opacity: 0, y: 12 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -12 }}
+                                transition={{ duration: 0.35, ease: "easeInOut" }}
+                                className="absolute inset-0 flex items-center gap-1.5"
+                              >
+                                <span className="text-[11px] font-bold text-white shrink-0 drop-shadow">
+                                  {comment.userName}
+                                  {comment.userHandle && (
+                                    <span className="font-normal text-white/60"> @{comment.userHandle}</span>
+                                  )}
+                                </span>
+                                <span className="text-[11px] text-white/85 truncate leading-normal drop-shadow">{comment.text}</span>
+                                {comments.length > 1 && (
+                                  <span className="shrink-0 ml-1 text-[10px] text-white/40">{activeCommentIndex + 1}/{comments.length}</span>
+                                )}
+                              </motion.div>
+                            );
+                          })()}
+                        </AnimatePresence>
+                      </button>
                     )}
 
                     <div className="flex gap-3 items-center">
@@ -558,6 +587,48 @@ export function FlowViewerModal({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Comments Drawer */}
+      <Drawer open={commentsDrawerOpen} onOpenChange={(o) => { setCommentsDrawerOpen(o); if (!o) { setIsPaused(false); isPausedRef.current = false; } }}>
+        <DrawerContent className="max-h-[85vh]">
+          <DrawerHeader>
+            <DrawerTitle className="flex items-center gap-2 pt-2">
+              Comentários ({comments.length})
+            </DrawerTitle>
+            <DrawerDescription className="sr-only">Lista de comentários do flow</DrawerDescription>
+          </DrawerHeader>
+          <div className="overflow-y-auto px-4 pb-12 space-y-4">
+            {comments.length === 0 ? (
+              <p className="text-center text-muted-foreground py-10">Nenhum comentário ainda</p>
+            ) : (
+              comments.map((comment) => (
+                <div key={comment.id} className="flex flex-col gap-1.5">
+                  <div className="flex items-start justify-between group">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <span className="text-sm font-bold shrink-0">
+                        {comment.userName}
+                        {comment.userHandle && (
+                          <span className="font-normal text-muted-foreground"> @{comment.userHandle}</span>
+                        )}
+                      </span>
+                      <span className="text-sm leading-normal break-words">{comment.text}</span>
+                    </div>
+                    {user?.id === comment.userId && (
+                      <button
+                        onClick={() => setCommentToDelete(comment.id)}
+                        className="shrink-0 text-muted-foreground hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  <CommentReactions commentType="flow" commentId={comment.id} commentOwnerId={comment.userId} sourceId={story.id} isOwnComment={user?.id === comment.userId} />
+                </div>
+              ))
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
 
       {/* Viewers Drawer */}
       <Drawer open={viewersModalOpen} onOpenChange={setViewersModalOpen}>

@@ -349,12 +349,12 @@ Mensagens diretas trocadas entre usuários.
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
 | `id` | bigint | PK (identity) | — | Identificador único |
-| `id_user` | uuid | ✓ | — | Remetente da mensagem |
+| `user_id` | uuid | ✓ | — | Remetente da mensagem |
 | `text` | text | ✓ | — | Conteúdo da mensagem |
 | `read` | smallint | — | `0` | Lida (1) ou não (0) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de envio |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
-| `id_following` | uuid | — | — | Destinatário da mensagem |
+| `following_id` | uuid | — | — | Destinatário da mensagem |
 | `emojis` | text | — | — | Emojis da mensagem |
 
 ---
@@ -424,6 +424,11 @@ Perfil público dos usuários da plataforma.
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `photo` | text | — | — | URL da foto de perfil |
 | `objectives` | text[] | — | — | Objetivos fitness selecionados no cadastro (ex: ["fitness", "cardio"]) |
+| `gender` | text[] | — | — | sexo do usuario |
+| `height` | bigint[] | — | — | altura do usuario |
+| `weight` | float[] | — | — | peso do usuario |
+| `age` | bigint[] | — | — | idade do usuario |
+| `handle` | text[] | — | — | handle do usuario |
 
 ---
 
@@ -748,6 +753,41 @@ Catálogo de treinos disponíveis na plataforma.
 | `muscle_group` | text | — | — | Grupo muscular principal |
 | `equipment` | text | — | — | Equipamentos necessários |
 | `wger_id` | integer | — | — | ID de referência no wger |
+
+---
+
+## hydration_logs
+
+Registra entradas de ingestão de água do usuário ao longo do dia.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
+| `user_id` | uuid | FK → `auth.users` | — | Usuário |
+| `amount_ml` | numeric | ✓ | — | Quantidade ingerida em ml |
+| `log_date` | date | ✓ | `current_date` | Data do registro |
+| `created_at` | timestamptz | — | `now()` | Data de criação |
+
+**RLS:** usuário lê e insere apenas seus próprios registros.  
+**Notas:** múltiplos registros por dia são permitidos e somados para calcular o total diário.
+
+---
+
+## mood_logs
+
+Registra o humor diário do usuário. Exibido automaticamente quando o usuário conclui todas as rotinas de Dieta ou Hábitos do dia.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
+| `user_id` | uuid | FK → `auth.users` | — | Usuário |
+| `mood` | text | ✓ | — | Valor do humor: `muito_triste`, `triste`, `neutro`, `feliz`, `muito_feliz` |
+| `log_date` | date | ✓ | `current_date` | Data do registro |
+| `created_at` | timestamptz | — | `now()` | Data de criação |
+
+**Constraint unique:** `(user_id, log_date)` — apenas um registro por usuário por dia (upsert).  
+**RLS:** usuário lê, insere e atualiza apenas seus próprios registros.  
+**Migração:** `docs/migrations/20260402-mood-logs.sql`
 
 ---
 

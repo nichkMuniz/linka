@@ -144,6 +144,8 @@ Aberto pelo botão "Editar perfil":
 |---|---|
 | Nome / Nickname | Input |
 | Bio | Textarea |
+| @ Usuário | Input (apenas letras, números, _ e .) → salvo em `profiles.handle` |
+| Objetivos | Botões de seleção múltipla (mesmos do onboarding) → salvo em `profiles.objectives` |
 | Foto de perfil | Upload de imagem |
 | Banner | Upload de imagem |
 | Segmentos de interesse | Checkbox múltiplo |
@@ -164,17 +166,19 @@ Aberto pelo botão "Configurações":
 | Gerenciamento de Tempo | Botão → Drawer aninhado | Histórico de uso 7 dias + limite diário |
 | Personalização | Botão → Drawer aninhado | Trocar layout e tema dark/light |
 | Arquivo de Flows | Botão → Drawer aninhado | Histórico de flows expirados (> 24h) |
+| Meus Dados | Botão → Drawer aninhado | Dados pessoais: sexo, altura, peso e idade |
 | Desconectar | Botão destrutivo | Logout |
 
 **Perfil Comercial (se ativado):**
 | Campo | Tipo |
 |---|---|
-| Segmento do negócio | Input |
+| Segmento do negócio | Input (Select) |
 | Nome do negócio | Input |
 | Descrição | Textarea |
 | Telefone | Input |
 | Email comercial | Input |
 | Website | Input |
+| Logo do Negócio | Upload de imagem → `business_logo_url` |
 
 Função: `createOrUpdateCommercialProfileDb`
 

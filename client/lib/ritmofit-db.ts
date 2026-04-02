@@ -34,7 +34,7 @@ function cleanHandle(raw: string) {
   return `@${slug || "voce"}`;
 }
 
-async function getViewer() {
+export async function getViewer() {
   if (!hasSupabaseConfig || !supabase) return null;
 
   // Return cached viewer if still valid
@@ -83,18 +83,37 @@ async function ensureProfile(): Promise<DbProfile | null> {
     (user.user_metadata as any)?.avatar_url ?? "",
   ).trim();
 
+  // Check if profile already exists to avoid overwriting user-edited fields
+  const { data: existing } = await supabase
+    .from("profiles")
+    .select("user_id, nickname, handle, photo")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (existing) {
+    // Profile already exists — return it as-is without overwriting user edits
+    return {
+      id: String(existing.user_id),
+      nickname: String(existing.nickname ?? nickname),
+      handle: String(existing.handle ?? handle),
+      avatarUrl: (existing.photo as string | null) ?? undefined,
+    };
+  }
+
+  // First time — create the profile with initial values
+  const upsertPayload: Record<string, any> = {
+    user_id: user.id,
+    nickname: nickname,
+    handle,
+    updated_at: new Date().toISOString(),
+  };
+  if (avatarUrl) {
+    upsertPayload.photo = avatarUrl;
+  }
+
   const { data, error } = await supabase
     .from("profiles")
-    .upsert(
-      {
-        user_id: user.id,
-        nickname: nickname,
-        handle,
-        photo: avatarUrl || null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    )
+    .upsert(upsertPayload, { onConflict: "user_id" })
     .select("user_id, nickname, handle, photo")
     .maybeSingle();
 
@@ -183,9 +202,6 @@ export async function togglePostIncentiveDb(
       type: incentiveType,
     });
     if (insertError) throw insertError;
-
-    // Award 1 point for interacting with a post
-    await addPointsDb(1);
   }
 }
 
@@ -313,9 +329,6 @@ export async function addPostCommentDb(postId: string, text: string) {
     console.error("Error adding comment:", error);
     throw error;
   }
-
-  // Award 1 point for commenting on a post
-  await addPointsDb(1);
 }
 
 export async function getPostCommentsDb(
@@ -338,26 +351,26 @@ export async function getPostCommentsDb(
   const rows = data ?? [];
   if (rows.length === 0) return [];
 
-  // Batch-fetch nicknames from profiles for all comment authors
+  // Batch-fetch nicknames and handles from profiles for all comment authors
   const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("user_id, nickname")
+    .select("user_id, nickname, handle")
     .in("user_id", userIds);
 
   const profileMap = new Map(
-    (profiles ?? []).map((p: any) => [String(p.user_id), String(p.nickname ?? "Usuário")]),
+    (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? "") }]),
   );
 
   return rows.map(
     (row: any) => {
-      const nickname = profileMap.get(String(row.user_id)) ?? String(row.user_name ?? "Usuário");
+      const profile = profileMap.get(String(row.user_id));
       return {
         id: String(row.id),
         postId: String(row.post_id),
         userId: String(row.user_id),
-        userName: nickname,
-        userHandle: nickname ? `@${nickname.toLowerCase().replace(/\s+/g, "")}` : "@usuario",
+        userName: profile?.nickname ?? String(row.user_name ?? "Usuário"),
+        userHandle: profile?.handle ?? "",
         text: String(row.text ?? ""),
         createdAt: String(row.created_at ?? new Date().toISOString()),
       } satisfies PostComment;
@@ -491,6 +504,7 @@ export async function createUserGoalDb(
     type_goal: typeGoal,
     duration,
     quantity,
+    visibility: 1, // Default to visible
   });
 
   if (error) {
@@ -498,8 +512,6 @@ export async function createUserGoalDb(
     throw error;
   }
 
-  // Award 5 points for selecting a new goal
-  await addPointsDb(5);
 }
 
 export async function updateUserGoalDb(
@@ -509,6 +521,7 @@ export async function updateUserGoalDb(
     quantity?: number;
     days_completed?: number;
     perc?: number;
+    visibility?: number;
   },
 ) {
   if (!hasSupabaseConfig || !supabase) return;
@@ -520,6 +533,8 @@ export async function updateUserGoalDb(
   if (updates.quantity !== undefined) updateData.quantity = updates.quantity;
   if (updates.days_completed !== undefined)
     updateData.days_completed = updates.days_completed;
+  if (updates.visibility !== undefined)
+    updateData.visibility = updates.visibility;
 
   // For perc: use provided value, or calculate from days_completed if available
   if (updates.perc !== undefined) {
@@ -546,6 +561,13 @@ export async function updateUserGoalDb(
 export async function deleteUserGoalDb(userGoalId: string) {
   if (!hasSupabaseConfig || !supabase) return;
 
+  // Check if the linked goal was created by the user (custom goal) — if so, delete it too
+  const { data: userGoalRow } = await supabase
+    .from("user_goals")
+    .select("goal_id")
+    .eq("id", userGoalId)
+    .maybeSingle();
+
   const { error } = await supabase
     .from("user_goals")
     .delete()
@@ -554,6 +576,19 @@ export async function deleteUserGoalDb(userGoalId: string) {
   if (error) {
     console.error("Error deleting user goal:", error);
     throw error;
+  }
+
+  // If the goal was user-created, remove it from the goals table as well
+  if (userGoalRow?.goal_id) {
+    const { data: goalRow } = await supabase
+      .from("goals")
+      .select("id, created_by_user")
+      .eq("id", userGoalRow.goal_id)
+      .maybeSingle();
+
+    if (goalRow?.created_by_user === 1) {
+      await supabase.from("goals").delete().eq("id", userGoalRow.goal_id);
+    }
   }
 }
 
@@ -566,6 +601,7 @@ export type UserGoal = {
   type_goal: number;
   perc: number;
   days_completed: number;
+  visibility: number;
 };
 
 export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
@@ -596,6 +632,7 @@ export async function getGoalByIdDb(goalId: string): Promise<UserGoal | null> {
     type_goal: Number(data.type ?? 0),
     perc: 0,
     days_completed: 0,
+    visibility: 1,
   };
 }
 
@@ -620,13 +657,14 @@ export async function getUserGoalsByUserIdDb(
         type_goal: Number(row.type_goal ?? 0),
         perc,
         days_completed,
+        visibility: Number(row.visibility ?? 1),
       } satisfies UserGoal;
     });
 
   // Try with embedded join first
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, goals(description)")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, goals(description)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -638,7 +676,7 @@ export async function getUserGoalsByUserIdDb(
   console.warn(`[getUserGoalsByUserIdDb] Join failed (${error.code}), using fallback`);
   const { data: fallback, error: fbError } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -686,13 +724,14 @@ export async function getUserGoalByIdDb(
       type_goal: Number(row.type_goal ?? 0),
       perc,
       days_completed,
+      visibility: Number(row.visibility ?? 1),
     };
   };
 
   // Try with embedded join first
   const { data, error } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, goals(description)")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility, goals(description)")
     .eq("id", userGoalId)
     .maybeSingle();
 
@@ -705,7 +744,7 @@ export async function getUserGoalByIdDb(
   console.warn(`[getUserGoalByIdDb] Join failed (${error.code}), using fallback`);
   const { data: fb } = await supabase
     .from("user_goals")
-    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed")
+    .select("id, goal_id, duration, quantity, type_goal, perc, days_completed, visibility")
     .eq("id", userGoalId)
     .maybeSingle();
   if (!fb) return null;
@@ -747,7 +786,7 @@ export async function incrementGoalProgressDb(
     .update({ days_completed: newDaysCompleted, perc: Math.round(perc) })
     .eq("id", userGoalId)
     .eq("user_id", viewer.id)
-    .select("id, goal_id, duration, quantity, type_goal, days_completed, perc")
+    .select("id, goal_id, duration, quantity, type_goal, days_completed, perc, visibility")
     .maybeSingle();
 
   if (error) {
@@ -759,9 +798,6 @@ export async function incrementGoalProgressDb(
 
   if (!data) return null;
 
-  // Award 1 point for updating a goal
-  await addPointsDb(1);
-
   return {
     id: String(data.id),
     goal_id: String(data.goal_id ?? ""),
@@ -771,6 +807,7 @@ export async function incrementGoalProgressDb(
     type_goal: Number(data.type_goal ?? 0),
     perc: Number(data.perc ?? Math.round(perc)),
     days_completed: newDaysCompleted,
+    visibility: Number(data.visibility ?? 1),
   };
 }
 
@@ -799,6 +836,11 @@ export type UserProfile = {
   bio: string;
   photo: string | null;
   objectives?: string[] | null;
+  handle?: string;
+  gender?: string | null;
+  height?: string | null;
+  weight?: string | null;
+  age?: string | null;
 };
 
 export async function getUserProfileDb(
@@ -809,7 +851,7 @@ export async function getUserProfileDb(
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, nickname, bio, photo, objectives")
+    .select("id, nickname, bio, photo, objectives, gender, height, weight, age, handle")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -827,12 +869,18 @@ export async function getUserProfileDb(
     nickname: String(data.nickname ?? ""),
     bio: String(data.bio ?? ""),
     photo: data.photo ? String(data.photo) : null,
+    objectives: data.objectives ?? null,
+    handle: data.handle ? String(data.handle) : undefined,
+    gender: data.gender ?? null,
+    height: data.height != null ? String(data.height) : null,
+    weight: data.weight != null ? String(data.weight) : null,
+    age: data.age != null ? String(data.age) : null,
   };
 }
 
 export async function updateUserProfileDb(
   userId: string,
-  updates: { nickname?: string; bio?: string; photo?: string | null },
+  updates: { nickname?: string; bio?: string; photo?: string | null; gender?: string | null; height?: number | null; weight?: number | null; age?: number | null; handle?: string; objectives?: string[] | null },
 ): Promise<UserProfile | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
@@ -840,7 +888,7 @@ export async function updateUserProfileDb(
     .from("profiles")
     .update(updates)
     .eq("user_id", userId)
-    .select("id, nickname, bio, photo")
+    .select("id, nickname, bio, photo, objectives, gender, height, weight, age")
     .maybeSingle();
 
   if (error) {
@@ -857,7 +905,37 @@ export async function updateUserProfileDb(
     nickname: String(data.nickname ?? ""),
     bio: String(data.bio ?? ""),
     photo: data.photo ? String(data.photo) : null,
+    objectives: data.objectives ?? null,
+    handle: data.handle ? String(data.handle) : undefined,
+    gender: data.gender ?? null,
+    height: data.height != null ? String(data.height) : null,
+    weight: data.weight != null ? String(data.weight) : null,
+    age: data.age != null ? String(data.age) : null,
   };
+}
+
+export async function updateUserPersonalDataDb(
+  userId: string,
+  data: { gender?: string; height?: string; weight?: string; age?: string },
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const updates: Record<string, string | number | null> = {};
+  if (data.gender !== undefined) updates.gender = data.gender || null;
+  if (data.height !== undefined) updates.height = data.height ? parseInt(data.height, 10) : null;
+  if (data.weight !== undefined) updates.weight = data.weight ? parseFloat(data.weight) : null;
+  if (data.age !== undefined) updates.age = data.age ? parseInt(data.age, 10) : null;
+
+  const { error } = await supabase
+    .from("profiles")
+    .update(updates)
+    .eq("user_id", userId);
+
+  if (error) {
+    const errorMsg = error?.message || String(error);
+    console.error("Error updating personal data:", errorMsg);
+    throw new Error(`Erro ao salvar dados pessoais: ${errorMsg}`);
+  }
 }
 
 export type PostWithUser = {
@@ -945,7 +1023,7 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
 
   const { data, error } = await supabase
     .from("workouts")
-    .select("id, name, description, photo, muscle_group")
+    .select("id, name, description, photo, muscle_group, type")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -961,6 +1039,7 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
     description: String(row.description ?? ""),
     photo: row.photo ? String(row.photo) : null,
     muscle_group: row.muscle_group ? String(row.muscle_group) : null,
+    type: row.type != null ? Number(row.type) : null,
   }));
 }
 
@@ -1095,6 +1174,7 @@ export type Workout = {
   description: string;
   photo: string | null;
   muscle_group?: string | null;
+  type?: number | null;
 };
 
 export type Diet = {
@@ -1791,6 +1871,7 @@ export async function createUserDietsDb(
   dietIds: string[],
   options?: {
     name?: string;
+    execute_at?: string | null;
   },
 ): Promise<UserDiet[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -1799,6 +1880,7 @@ export async function createUserDietsDb(
     diet_id: dietId,
     user_id: userId,
     name: options?.name || null,
+    execute_at: options?.execute_at || null,
   }));
 
   const { data, error } = await supabase
@@ -1986,6 +2068,7 @@ export async function createUserHabitsDb(
   habitIds: string[],
   options?: {
     name?: string;
+    execute_at?: string | null;
   },
 ): Promise<UserHabit[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -1994,6 +2077,7 @@ export async function createUserHabitsDb(
     habit_id: habitId,
     user_id: userId,
     name: options?.name || null,
+    execute_at: options?.execute_at || null,
   }));
 
   const { data, error } = await supabase
@@ -3066,7 +3150,6 @@ export async function toggleStoryLikeDb(
       console.error("Error inserting story like:", error);
       throw error;
     }
-    await addPointsDb(1);
   }
 }
 
@@ -3134,6 +3217,7 @@ export type StoryComment = {
   storyId: string;
   userId: string;
   userName: string;
+  userHandle: string;
   text: string;
   createdAt: string;
 };
@@ -3168,7 +3252,7 @@ export async function addStoryCommentDb(
     // Fetch nickname in the same round-trip as the insert result (single query)
     const { data: profileData } = await supabase
       .from("profiles")
-      .select("nickname")
+      .select("nickname, handle")
       .eq("user_id", viewer.id)
       .maybeSingle();
 
@@ -3177,6 +3261,7 @@ export async function addStoryCommentDb(
       storyId: storyId,
       userId: viewer.id,
       userName: profileData?.nickname || "Usuário",
+      userHandle: profileData?.handle || "",
       text,
       createdAt: data?.created_at || new Date().toISOString(),
     };
@@ -3209,21 +3294,25 @@ export async function getStoryCommentsDb(
     const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, nickname")
+      .select("user_id, nickname, handle")
       .in("user_id", userIds);
 
     const profileMap = new Map(
-      (profiles ?? []).map((p: any) => [String(p.user_id), String(p.nickname ?? "Usuário")]),
+      (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? "") }]),
     );
 
-    return rows.map((comment: any) => ({
-      id: String(comment.id),
-      storyId: storyId,
-      userId: String(comment.user_id),
-      userName: profileMap.get(String(comment.user_id)) ?? "Usuário",
-      text: String(comment.text ?? ""),
-      createdAt: String(comment.created_at),
-    }));
+    return rows.map((comment: any) => {
+      const profile = profileMap.get(String(comment.user_id));
+      return {
+        id: String(comment.id),
+        storyId: storyId,
+        userId: String(comment.user_id),
+        userName: profile?.nickname ?? "Usuário",
+        userHandle: profile?.handle ?? "",
+        text: String(comment.text ?? ""),
+        createdAt: String(comment.created_at),
+      };
+    });
   } catch (err: any) {
     console.error("Error fetching story comments:", err?.message || err);
     return [];
@@ -3397,8 +3486,8 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
 // Messages functionality
 export type Message = {
   id: string;
-  id_user: string;
-  id_following: string;
+  user_id: string;
+  following_id: string;
   text: string;
   read: 0 | 1;
   created_at: string;
@@ -3452,8 +3541,8 @@ export async function sendMessageDb(
     const { data, error } = await supabase
       .from("messages")
       .insert({
-        id_user: viewer.id,
-        id_following: recipientId,
+        user_id: viewer.id,
+        following_id: recipientId,
         text,
         read: 0,
       })
@@ -3485,7 +3574,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     const { data: messages, error } = await supabase
       .from("messages")
       .select("*")
-      .or(`id_user.eq.${viewer.id},id_following.eq.${viewer.id}`)
+      .or(`user_id.eq.${viewer.id},following_id.eq.${viewer.id}`)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -3497,7 +3586,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     const conversationMap = new Map<string, (typeof messages)[0][]>();
     (messages ?? []).forEach((msg) => {
       const otherUserId =
-        msg.id_user === viewer.id ? msg.id_following : msg.id_user;
+        msg.user_id === viewer.id ? msg.following_id : msg.user_id;
       if (!conversationMap.has(otherUserId)) {
         conversationMap.set(otherUserId, []);
       }
@@ -3528,7 +3617,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     for (const [userId, msgs] of conversationMap.entries()) {
       const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null };
       const unreadCount = msgs.filter(
-        (msg) => msg.id_following === viewer.id && msg.read === 0,
+        (msg) => msg.following_id === viewer.id && msg.read === 0,
       ).length;
 
       conversations.push({
@@ -3562,7 +3651,7 @@ export async function getConversationMessagesDb(
       .from("messages")
       .select("*")
       .or(
-        `and(id_user.eq.${viewer.id},id_following.eq.${otherUserId}),and(id_user.eq.${otherUserId},id_following.eq.${viewer.id})`,
+        `and(user_id.eq.${viewer.id},following_id.eq.${otherUserId}),and(user_id.eq.${otherUserId},following_id.eq.${viewer.id})`,
       )
       .order("created_at", { ascending: true });
 
@@ -3580,19 +3669,19 @@ export async function getConversationMessagesDb(
     return (messages ?? []).map((msg) => ({
       ...msg,
       senderNickname:
-        msg.id_user === viewer.id
+        msg.user_id === viewer.id
           ? senderProfile?.nickname || "Você"
           : recipientProfile?.nickname || "Usuário",
       senderPhoto:
-        msg.id_user === viewer.id
+        msg.user_id === viewer.id
           ? senderProfile?.photo || null
           : recipientProfile?.photo || null,
       recipientNickname:
-        msg.id_following === viewer.id
+        msg.following_id === viewer.id
           ? senderProfile?.nickname || "Você"
           : recipientProfile?.nickname || "Usuário",
       recipientPhoto:
-        msg.id_following === viewer.id
+        msg.following_id === viewer.id
           ? senderProfile?.photo || null
           : recipientProfile?.photo || null,
     }));
@@ -3614,8 +3703,8 @@ export async function markMessagesAsReadDb(
     const { error } = await supabase
       .from("messages")
       .update({ read: 1 })
-      .eq("id_user", senderUserId)
-      .eq("id_following", viewer.id)
+      .eq("user_id", senderUserId)
+      .eq("following_id", viewer.id)
       .eq("read", 0);
 
     if (error) {
@@ -3659,8 +3748,8 @@ export async function getUnreadMessageCountDb(): Promise<number> {
     // Count distinct senders with unread messages (not total unread messages)
     const { data, error } = await supabase
       .from("messages")
-      .select("id_user")
-      .eq("id_following", viewer.id)
+      .select("user_id")
+      .eq("following_id", viewer.id)
       .eq("read", 0);
 
     if (error) {
@@ -3668,7 +3757,7 @@ export async function getUnreadMessageCountDb(): Promise<number> {
       return 0;
     }
 
-    const distinctSenders = new Set((data ?? []).map((row: any) => row.id_user)).size;
+    const distinctSenders = new Set((data ?? []).map((row: any) => row.user_id)).size;
     return distinctSenders;
   } catch (err: any) {
     console.error("Error getting unread message count:", err);
@@ -4161,11 +4250,6 @@ export async function createShotDb(
       return null;
     }
 
-    if (data) {
-      // Award 5 points for creating a shot
-      await addPointsDb(5);
-    }
-
     return data || null;
   } catch (err: any) {
     console.error("Error creating shot:", err);
@@ -4292,8 +4376,6 @@ export async function toggleShotIncentiveDb(
       }
 
       if (!shotLikeError || !insertError) {
-        // Award 1 point for interacting with a shot
-        await addPointsDb(1);
 
         // Notify shot owner (type 2 = incentive), skip if owner is self
         if (shotOwnerId && shotOwnerId !== viewer.id) {
@@ -4362,9 +4444,6 @@ export async function addShotCommentDb(shotId: string, text: string, shotOwnerId
         throw legacyError;
       }
     }
-
-    // Award 1 point for commenting on a shot
-    await addPointsDb(1);
 
     // Notify shot owner (type 3 = comment), skip if owner is self
     if (shotOwnerId && shotOwnerId !== viewer.id) {
@@ -4514,58 +4593,6 @@ export type RankingUser = {
   points: number;
   level: number;
 };
-
-export async function addPointsDb(points: number): Promise<void> {
-  if (!hasSupabaseConfig || !supabase) return;
-
-  const viewer = await getViewer();
-  if (!viewer) return;
-
-  try {
-    // Check if user already has a ranking entry
-    const { data: existing, error: existingError } = await supabase
-      .from("ranking")
-      .select("id, points")
-      .eq("user_id", viewer.id)
-      .maybeSingle();
-
-    if (existingError && existingError.code !== "PGRST116") {
-      console.error("Error fetching ranking:", existingError);
-      return;
-    }
-
-    if (existing) {
-      // Update existing ranking
-      const newPoints = (existing.points || 0) + points;
-      const newLevel = Math.floor(newPoints / 100) + 1;
-
-      const { error: updateError } = await supabase
-        .from("ranking")
-        .update({
-          points: newPoints,
-          level: newLevel,
-        })
-        .eq("user_id", viewer.id);
-
-      if (updateError) {
-        console.error("Error updating ranking:", updateError);
-      }
-    } else {
-      // Create new ranking entry
-      const { error: insertError } = await supabase.from("ranking").insert({
-        user_id: viewer.id,
-        points,
-        level: 1,
-      });
-
-      if (insertError) {
-        console.error("Error creating ranking:", insertError);
-      }
-    }
-  } catch (err: any) {
-    console.error("Error adding points:", err);
-  }
-}
 
 export async function getRankingDb(): Promise<RankingUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -5295,9 +5322,6 @@ export async function createPostDb(
 
     if (error) throw error;
     if (!data || data.length === 0) throw new Error("Failed to create post");
-
-    // Award points for creating a post
-    await addPointsDb(5);
 
     return data[0].id;
   } catch (err: any) {
@@ -6751,9 +6775,9 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
       userPhoto: checkIn.user_photo || null,
       photo: checkIn.photo || "",
       // Ensure photos is always an array, even if it's a string or null from the DB
-      photos: Array.isArray(checkIn.photos) 
-        ? checkIn.photos 
-        : (typeof checkIn.photos === "string" && checkIn.photos.startsWith("[") 
+      photos: Array.isArray(checkIn.photos)
+        ? checkIn.photos
+        : (typeof checkIn.photos === "string" && checkIn.photos.startsWith("[")
           ? (() => { try { return JSON.parse(checkIn.photos); } catch { return [checkIn.photo || ""]; } })()
           : (checkIn.photo ? [checkIn.photo] : [])),
       description: checkIn.description || "",
@@ -6797,9 +6821,9 @@ export async function getGroupCheckInDetailDb(checkInId: string): Promise<GroupC
       userPhoto: profile?.photo ?? null,
       photo: data.photo || "",
       // Ensure photos is always an array, even if it's a string or null from the DB
-      photos: Array.isArray(data.photos) 
-        ? data.photos 
-        : (typeof data.photos === "string" && data.photos.startsWith("[") 
+      photos: Array.isArray(data.photos)
+        ? data.photos
+        : (typeof data.photos === "string" && data.photos.startsWith("[")
           ? (() => { try { return JSON.parse(data.photos); } catch { return [data.photo || ""]; } })()
           : (data.photo ? [data.photo] : [])),
       description: data.description || "",
@@ -6941,6 +6965,44 @@ export async function leaveGroupDb(groupId: string): Promise<void> {
 
   const viewer = await getViewer();
   if (!viewer) throw new Error("Usuário não autenticado");
+
+  // Get all check-in IDs of this user in this group
+  const { data: checkIns } = await supabase
+    .from("duel_check_ins")
+    .select("id")
+    .eq("group_id", groupId)
+    .eq("user_id", viewer.id);
+
+  if (checkIns && checkIns.length > 0) {
+    const checkInIds = checkIns.map((c: any) => c.id);
+
+    // Delete reactions and comments on this user's check-ins
+    await supabase.from("duel_check_in_reactions").delete().in("check_in_id", checkInIds);
+    await supabase.from("duel_check_in_comments").delete().in("check_in_id", checkInIds);
+
+    // Delete the check-ins themselves
+    await supabase.from("duel_check_ins").delete().in("id", checkInIds);
+  }
+
+  // Also remove any reactions/comments this user left on other check-ins in this group
+  const { data: otherCheckIns } = await supabase
+    .from("duel_check_ins")
+    .select("id")
+    .eq("group_id", groupId);
+
+  if (otherCheckIns && otherCheckIns.length > 0) {
+    const allCheckInIds = otherCheckIns.map((c: any) => c.id);
+    await supabase
+      .from("duel_check_in_reactions")
+      .delete()
+      .in("check_in_id", allCheckInIds)
+      .eq("user_id", viewer.id);
+    await supabase
+      .from("duel_check_in_comments")
+      .delete()
+      .in("check_in_id", allCheckInIds)
+      .eq("user_id", viewer.id);
+  }
 
   const { error } = await supabase
     .from("duel_group_participants")
@@ -7100,6 +7162,17 @@ export async function deleteGroupDb(groupId: string): Promise<void> {
 
   try {
     // Delete related rows first to avoid FK constraint violations
+    const { data: checkIns } = await supabase
+      .from("duel_check_ins")
+      .select("id")
+      .eq("group_id", groupId);
+
+    if (checkIns && checkIns.length > 0) {
+      const checkInIds = checkIns.map((c: any) => c.id);
+      await supabase.from("duel_check_in_reactions").delete().in("check_in_id", checkInIds);
+      await supabase.from("duel_check_in_comments").delete().in("check_in_id", checkInIds);
+    }
+
     await supabase.from("duel_check_ins").delete().eq("group_id", groupId);
     await supabase.from("duel_group_participants").delete().eq("group_id", groupId);
 
@@ -7177,8 +7250,8 @@ export async function deleteAllUserDataDb(userId: string): Promise<void> {
     del("shots_likes", "user_id", userId),
     del("notifications", "user_id", userId),
     del("notifications", "follower_id", userId),
-    del("messages", "id_user", userId),
-    del("messages", "id_following", userId),
+    del("messages", "user_id", userId),
+    del("messages", "following_id", userId),
   ]);
 
   // ── Batch 3: follow graph ─────────────────────────────────────────────────
@@ -7204,6 +7277,25 @@ export async function deleteAllUserDataDb(userId: string): Promise<void> {
 
   // ── Batch 5: profile (last — other tables may reference it) ──────────────
   await del("profiles", "user_id", userId);
+
+  // ── Batch 6: delete from auth.users via server-side admin API ────────────
+  const { data: sessionData } = await (supabase as NonNullable<typeof supabase>).auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+  if (accessToken) {
+    const response = await fetch("/.netlify/functions/delete-auth-user", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ userId }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      console.error("[deleteAllUserDataDb] delete-account HTTP", response.status, body);
+      throw new Error(body?.error || `Falha ao encerrar conta (HTTP ${response.status})`);
+    }
+  }
 }
 
 // ─── Conversations ───────────────────────────────────────────────────────────
@@ -7220,7 +7312,7 @@ export async function deleteConversationDb(otherUserId: string): Promise<void> {
     .from("messages")
     .delete()
     .or(
-      `and(id_user.eq.${viewer.id},id_following.eq.${otherUserId}),and(id_user.eq.${otherUserId},id_following.eq.${viewer.id})`
+      `and(user_id.eq.${viewer.id},following_id.eq.${otherUserId}),and(user_id.eq.${otherUserId},following_id.eq.${viewer.id})`
     );
 
   if (error) throw error;
@@ -7638,28 +7730,54 @@ export async function getUserBadgesDb(userId: string): Promise<UserBadge[]> {
 }
 
 /**
- * Avalia o total de check-ins acumulados do usuário e concede os badges
- * que ele ainda não possui mas já merece.
- *
- * Regra: baseado em check-ins TOTAIS (todos os tempos), não só da semana.
- * - 1 check-in total  → Iniciante ⭐
- * - 3 check-ins total → Sequência 🔥
- * - 5 check-ins total → Campeão 💪
- * - 7 check-ins total → Lendário 👑
- *
- * Deve ser chamado após cada check-in.
+ * Define manualmente qual insígnia o usuário quer exibir.
+ * Valida se o usuário já tem o requisito de check-ins necessário.
+ */
+export async function setSelectedBadgeDb(badgeId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+
+  try {
+    // 1. Validar requisito
+    const [badge, totalCheckIns] = await Promise.all([
+      supabase.from("badges").select("id, required_checkins").eq("id", badgeId).single(),
+      getTotalCheckInsDb(viewer.id),
+    ]);
+
+    if (!badge.data) throw new Error("Insígnia não encontrada");
+    if (totalCheckIns < (badge.data.required_checkins ?? 0)) {
+       throw new Error(`Requisito não atingido (${totalCheckIns}/${badge.data.required_checkins} check-ins)`);
+    }
+
+    // 2. Atualizar ou inserir na user_badges
+    // Buscamos se já existe alguma linha para esse usuário
+    const { data: existingRows } = await supabase
+      .from("user_badges")
+      .select("id")
+      .eq("user_id", viewer.id);
+
+    if (!existingRows || existingRows.length === 0) {
+      await supabase.from("user_badges").insert({ user_id: viewer.id, badge_id: badgeId });
+    } else {
+      // Atualiza a primeira linha encontrada para ser a selecionada
+      await supabase.from("user_badges").update({ badge_id: badgeId, earned_at: new Date().toISOString() }).eq("id", existingRows[0].id);
+    }
+  } catch (err) {
+    console.error("Error in setSelectedBadgeDb:", err);
+    throw err;
+  }
+}
+
+/**
+ * Avalia o total de check-ins acumulados do usuário e concede o badge inicial
+ * caso ele ainda não tenha nenhum. Não substitui badges escolhidos manualmente
+ * se o usuário já possuir um.
  */
 export async function awardBadgesForCheckInsDb(userId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
   try {
-    const { count, error: countError } = await supabase
-      .from("check_ins")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", userId);
-    if (countError) throw countError;
-
-    const totalCheckIns = count ?? 0;
-
+    const totalCheckIns = await getTotalCheckInsDb(userId);
     const allBadges = await getAllBadgesDb();
 
     // Find the highest badge earned
@@ -7671,22 +7789,17 @@ export async function awardBadgesForCheckInsDb(userId: string): Promise<void> {
 
     const highestBadge = earnedBadges[0];
 
-    // Check if user already has a badge row
     const { data: existingRows } = await supabase
       .from("user_badges")
       .select("id, badge_id")
       .eq("user_id", userId);
 
     if (!existingRows || existingRows.length === 0) {
-      // Insert the highest badge
       await supabase.from("user_badges").insert({ user_id: userId, badge_id: highestBadge.id });
-    } else {
-      // Update the existing row to the highest badge
-      const existingRow = existingRows[0];
-      if (String(existingRow.badge_id) !== String(highestBadge.id)) {
-        await supabase.from("user_badges").update({ badge_id: highestBadge.id, earned_at: new Date().toISOString() }).eq("id", existingRow.id);
-      }
     }
+    // Note: We don't auto-update anymore to avoid overwriting user selection.
+    // If we wanted to "auto-upgrade" only if they haven't manually selected,
+    // we would need an 'is_manual' flag in the DB, but for now we'll keep it simple.
   } catch (err) {
     console.error("Error in awardBadgesForCheckInsDb:", err);
   }
@@ -7975,4 +8088,81 @@ async function _grantNutritionBadgeIfNew(userId: string, badgeKey: string): Prom
   await supabase
     .from("user_badges")
     .upsert({ user_id: userId, badge_id: badge.id }, { onConflict: "user_id,badge_id", ignoreDuplicates: true });
+}
+
+// ─── Humor do Dia (Mood) ──────────────────────────────────────────────────────
+
+export type MoodValue = "muito_triste" | "triste" | "neutro" | "feliz" | "muito_feliz";
+
+export type MoodLog = {
+  id: string;
+  user_id: string;
+  mood: MoodValue;
+  log_date: string;
+  created_at: string;
+};
+
+/** Retorna o registro de humor de hoje (ou null se ainda não registrado). */
+export async function getTodayMoodDb(userId: string): Promise<MoodLog | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+  assertUUID(userId, "userId");
+
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("mood_logs")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("log_date", today)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error fetching mood:", error);
+    return null;
+  }
+  return data ?? null;
+}
+
+/** Registra ou atualiza o humor do dia. */
+export async function saveTodayMoodDb(userId: string, mood: MoodValue): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  assertUUID(userId, "userId");
+
+  const today = new Date().toISOString().slice(0, 10);
+  const { error } = await supabase
+    .from("mood_logs")
+    .upsert(
+      { user_id: userId, mood, log_date: today },
+      { onConflict: "user_id,log_date" },
+    );
+
+  if (error) {
+    console.error("Error saving mood:", error);
+    throw error;
+  }
+}
+
+/** Retorna o histórico de humor dos últimos N dias. */
+export async function getMoodHistoryDb(
+  userId: string,
+  days: number = 30,
+): Promise<MoodLog[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  assertUUID(userId, "userId");
+
+  const since = new Date();
+  since.setDate(since.getDate() - days + 1);
+  const sinceStr = since.toISOString().slice(0, 10);
+
+  const { data, error } = await supabase
+    .from("mood_logs")
+    .select("*")
+    .eq("user_id", userId)
+    .gte("log_date", sinceStr)
+    .order("log_date", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching mood history:", error);
+    return [];
+  }
+  return data ?? [];
 }

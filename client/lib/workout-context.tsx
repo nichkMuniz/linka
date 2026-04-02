@@ -38,6 +38,8 @@ interface WorkoutContextValue {
   setGlobalRestTimerActive: (v: boolean) => void;
   globalRestTimerTotal: number;
   setGlobalRestTimerTotal: (v: number) => void;
+  globalRestTimerKey: number;
+  setGlobalRestTimerKey: React.Dispatch<React.SetStateAction<number>>;
 }
 
 const WorkoutContext = React.createContext<WorkoutContextValue>({
@@ -66,6 +68,8 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   setGlobalRestTimerActive: () => {},
   globalRestTimerTotal: 0,
   setGlobalRestTimerTotal: () => {},
+  globalRestTimerKey: 0,
+  setGlobalRestTimerKey: () => {},
 });
 
 const WORKOUT_STORAGE_KEY = "linka_active_workout";
@@ -111,6 +115,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [globalRestTimerRemaining, setGlobalRestTimerRemaining] = React.useState(0);
   const [globalRestTimerActive, setGlobalRestTimerActive] = React.useState(false);
   const [globalRestTimerTotal, setGlobalRestTimerTotal] = React.useState(0);
+  const [globalRestTimerKey, setGlobalRestTimerKey] = React.useState(0);
 
   // Persiste estado crítico no localStorage enquanto treino estiver ativo
   React.useEffect(() => {
@@ -142,23 +147,20 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   }, [workoutModalOpen, workoutMinimized, workoutStartTime]);
 
   // Rest timer countdown — always runs in context so it persists when dialog is closed/minimized
-  const restTimerFinishedRef = React.useRef(false);
   React.useEffect(() => {
     if (!globalRestTimerActive || globalRestTimerRemaining <= 0) return;
-    restTimerFinishedRef.current = false;
     const interval = setInterval(() => {
       setGlobalRestTimerRemaining((prev) => {
         if (prev <= 1) {
           clearInterval(interval);
           setGlobalRestTimerActive(false);
-          restTimerFinishedRef.current = true;
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [globalRestTimerActive, globalRestTimerTotal]); // re-run when a new timer starts
+  }, [globalRestTimerKey]); // re-run only when a new timer is explicitly started
 
   const resetWorkoutState = React.useCallback(() => {
     localStorage.removeItem(WORKOUT_STORAGE_KEY);
@@ -190,6 +192,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       globalRestTimerRemaining, setGlobalRestTimerRemaining,
       globalRestTimerActive, setGlobalRestTimerActive,
       globalRestTimerTotal, setGlobalRestTimerTotal,
+      globalRestTimerKey, setGlobalRestTimerKey,
     }}>
       {children}
     </WorkoutContext.Provider>

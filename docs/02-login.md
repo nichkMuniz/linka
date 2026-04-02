@@ -61,7 +61,7 @@ Fluxo multi-etapas com 5 passos:
 | Campo | Tipo | Validação |
 |---|---|---|
 | Email | Input email | Obrigatório |
-| Senha | Input password | Mínimo 6 caracteres, com toggle show/hide |
+| Senha | Input password | Senha forte obrigatória: mínimo 8 caracteres, 1 letra maiúscula e 1 caractere especial. Exibe checklist de requisitos em tempo real enquanto o usuário digita. Toggle show/hide. |
 | Confirmar senha | Input password | Deve coincidir com senha, toggle show/hide |
 
 **Verificação de email duplicado:** Feita no Step 3 ao tentar `supabase.auth.signUp()`. Se o email já existe, o Supabase retorna erro `"User already registered"` e o usuário é informado via toast destrutivo.

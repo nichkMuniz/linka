@@ -24,7 +24,6 @@ import {
   getUserGoalsDb,
   deleteRoutinesOfTypeDb,
   createCheckInDb,
-  addPointsDb,
   awardBadgesForCheckInsDb,
   getUserBadgesDb,
   getAllBadgesDb,
@@ -52,6 +51,9 @@ import {
   undoLastHydrationDb,
   getTodayMacroSummaryDb,
   awardNutritionBadgesDb,
+  getTodayMoodDb,
+  saveTodayMoodDb,
+  type MoodValue,
   type CompletedRoutineExercise,
   type ProgrammedGoal,
   type Workout,
@@ -116,6 +118,7 @@ import {
   Zap,
   Apple,
   AlertCircle,
+  CalendarIcon,
 } from "lucide-react";
 import {
   Dialog,
@@ -144,6 +147,8 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
+import { Calendar } from "@/components/ui/calendar";
+import { Switch } from "@/components/ui/switch";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
 import { useLanguage } from "@/lib/language-context";
@@ -169,6 +174,7 @@ export default function Goals() {
     globalRestTimerRemaining, setGlobalRestTimerRemaining,
     globalRestTimerActive, setGlobalRestTimerActive,
     globalRestTimerTotal, setGlobalRestTimerTotal,
+    setGlobalRestTimerKey,
   } = useWorkout();
 
   // Abre o modal de treino quando o FAB global disparar pendingReopen
@@ -204,8 +210,13 @@ export default function Goals() {
   const [selectedMuscleGroups, setSelectedMuscleGroups] = React.useState<
     Set<string>
   >(new Set());
+  const [selectedWorkoutType, setSelectedWorkoutType] = React.useState<number | null>(null);
   const [selectedDietCategories, setSelectedDietCategories] = React.useState<Set<string>>(new Set());
   const [routineName, setRoutineName] = React.useState("");
+  const [showExecuteAtStep, setShowExecuteAtStep] = React.useState(false);
+  const [executeAtDate, setExecuteAtDate] = React.useState<Date | undefined>(undefined);
+  const [executeAtTime, setExecuteAtTime] = React.useState("");
+  const [executeAtCalendarOpen, setExecuteAtCalendarOpen] = React.useState(false);
 
   // Base data for lookups
   const [workouts, setWorkouts] = React.useState<Workout[]>([]);
@@ -256,6 +267,16 @@ export default function Goals() {
   const [workoutPostDescription, setWorkoutPostDescription] = React.useState<string>("");
   const [workoutLinkedUserGoalId, setWorkoutLinkedUserGoalId] = React.useState<string | null>(null);
 
+  // Goal completion celebration state
+  const [goalCompletedModal, setGoalCompletedModal] = React.useState<{
+    description: string;
+    userGoalId: string;
+  } | null>(null);
+  const [isSharingGoalCompletion, setIsSharingGoalCompletion] = React.useState(false);
+  const [goalCompletionPostText, setGoalCompletionPostText] = React.useState("");
+  const [goalCompletionCanvasUrl, setGoalCompletionCanvasUrl] = React.useState<string | null>(null);
+  const goalCompletionCanvasRef = React.useRef<HTMLCanvasElement>(null);
+
   // PR celebration state
   const [prCelebration, setPrCelebration] = React.useState<{
     exerciseName: string;
@@ -277,6 +298,7 @@ export default function Goals() {
   const [editGoalDuration, setEditGoalDuration] = React.useState(0);
   const [editGoalQuantity, setEditGoalQuantity] = React.useState(0);
   const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
+  const [editGoalVisibility, setEditGoalVisibility] = React.useState<number>(1);
 
   // Check-in system state
   const [dailyCheckInDone, setDailyCheckInDone] = React.useState(false);
@@ -299,6 +321,13 @@ export default function Goals() {
   const [hydrationMl, setHydrationMl] = React.useState(0);
   const [hydrationGoalMl] = React.useState(2000); // meta padrão: 2L/dia
   const [isAddingHydration, setIsAddingHydration] = React.useState(false);
+
+  // ─── Humor do Dia ─────────────────────────────────────────────────────────
+  const [moodModalOpen, setMoodModalOpen] = React.useState(false);
+  const [todayMood, setTodayMood] = React.useState<MoodValue | null>(null);
+  const [isSavingMood, setIsSavingMood] = React.useState(false);
+  // Ref para garantir que o modal de humor seja exibido apenas uma vez por sessão
+  const moodModalShownRef = React.useRef(false);
 
   // ─── Macro diário ─────────────────────────────────────────────────────────
   const [todayMacro, setTodayMacro] = React.useState<{
@@ -552,6 +581,91 @@ export default function Goals() {
     setPrCanvasPreviewUrl(canvas.toDataURL("image/png"));
   }, [workoutSummaryOpen, workoutSummaryData]);
 
+  // Draw goal completion celebration canvas
+  React.useEffect(() => {
+    if (!goalCompletedModal) return;
+    const canvas = goalCompletionCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Background: dark purple → brand green gradient
+    const grad = ctx.createLinearGradient(0, 0, 800, 800);
+    grad.addColorStop(0, "#0d1117");
+    grad.addColorStop(0.5, "#0f2a1a");
+    grad.addColorStop(1, "#1a3a0d");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 800, 800);
+
+    // Glow circles
+    ctx.beginPath(); ctx.arc(650, 130, 280, 0, Math.PI * 2); ctx.fillStyle = "rgba(34,197,94,0.10)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(150, 670, 220, 0, Math.PI * 2); ctx.fillStyle = "rgba(34,197,94,0.07)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(400, 400, 350, 0, Math.PI * 2); ctx.fillStyle = "rgba(34,197,94,0.04)"; ctx.fill();
+
+    // Top accent bar
+    const barGrad = ctx.createLinearGradient(0, 0, 800, 0);
+    barGrad.addColorStop(0, "rgba(34,197,94,0)");
+    barGrad.addColorStop(0.5, "rgba(34,197,94,0.8)");
+    barGrad.addColorStop(1, "rgba(34,197,94,0)");
+    ctx.fillStyle = barGrad;
+    ctx.fillRect(0, 0, 800, 6);
+    ctx.fillRect(0, 794, 800, 6);
+
+    // Trophy + confetti emojis
+    ctx.font = "130px serif"; ctx.textAlign = "center";
+    ctx.fillText("🏆", 400, 210);
+
+    // "META CONCLUÍDA" badge
+    const badgeGrad = ctx.createLinearGradient(200, 230, 600, 290);
+    badgeGrad.addColorStop(0, "#166534");
+    badgeGrad.addColorStop(1, "#15803d");
+    ctx.fillStyle = badgeGrad;
+    ctx.beginPath();
+    ctx.roundRect(195, 230, 410, 58, 29);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(134,239,172,0.5)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(195, 230, 410, 58, 29);
+    ctx.stroke();
+    ctx.fillStyle = "#86efac";
+    ctx.font = "bold 28px system-ui, sans-serif";
+    ctx.fillText("✓  META CONCLUÍDA  ✓", 400, 268);
+
+    // Divider
+    ctx.strokeStyle = "rgba(134,239,172,0.25)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(80, 320); ctx.lineTo(720, 320); ctx.stroke();
+
+    // 100% label
+    ctx.fillStyle = "#22c55e"; ctx.font = "bold 96px system-ui, sans-serif";
+    ctx.fillText("100%", 400, 430);
+    ctx.fillStyle = "rgba(134,239,172,0.55)"; ctx.font = "26px system-ui, sans-serif";
+    ctx.fillText("de progresso concluído", 400, 472);
+
+    // Divider
+    ctx.strokeStyle = "rgba(134,239,172,0.25)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(80, 510); ctx.lineTo(720, 510); ctx.stroke();
+
+    // Goal description (truncate if too long)
+    const desc = goalCompletedModal.description;
+    const maxChars = 42;
+    const displayDesc = desc.length > maxChars ? desc.slice(0, maxChars - 1) + "…" : desc;
+    ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.font = "italic 32px system-ui, sans-serif";
+    ctx.fillText(`"${displayDesc}"`, 400, 580);
+
+    // Motivational text
+    ctx.fillStyle = "rgba(255,255,255,0.45)"; ctx.font = "24px system-ui, sans-serif";
+    ctx.fillText("Consistência e dedicação valeram a pena! 💪", 400, 632);
+
+    // Branding
+    ctx.fillStyle = "rgba(134,239,172,0.7)"; ctx.font = "bold 30px system-ui, sans-serif";
+    ctx.fillText("Linka", 400, 722);
+    ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.font = "22px system-ui, sans-serif";
+    ctx.fillText("#MetaConcluída #Fitness #Linka", 400, 760);
+
+    setGoalCompletionCanvasUrl(canvas.toDataURL("image/png"));
+  }, [goalCompletedModal]);
+
   // Load all data on mount
   React.useEffect(() => {
     (async () => {
@@ -632,10 +746,13 @@ export default function Goals() {
             toggleUserHabitCompletionDb(h.id, false).catch(() => { });
           }
         }
-        // Carrega hidratação e macro do dia (fire-and-forget — não bloqueia UI)
+        // Carrega hidratação, macro e humor do dia (fire-and-forget — não bloqueia UI)
         if (user) {
           getTodayHydrationDb(user.id).then(setHydrationMl).catch(() => { });
           getTodayMacroSummaryDb(user.id).then(setTodayMacro).catch(() => { });
+          getTodayMoodDb(user.id).then((log) => {
+            if (log) setTodayMood(log.mood);
+          }).catch(() => { });
         }
 
         setLoading(false); // unblock UI immediately after critical data
@@ -1099,6 +1216,7 @@ export default function Goals() {
     description: string;
     photo: string | null;
     muscleGroup: string | null;
+    workoutType: number | null;
     isLocal: boolean;
     catalogId?: number;
     catalogImage?: string | null;
@@ -1117,6 +1235,7 @@ export default function Goals() {
         description: w.description,
         photo: w.photo,
         muscleGroup: w.muscle_group || null,
+        workoutType: w.type ?? null,
         isLocal: true,
       })),
       ...catalogFiltered.map((c) => ({
@@ -1126,6 +1245,7 @@ export default function Goals() {
         description: c.description,
         photo: c.image,
         muscleGroup: c.category || null,
+        workoutType: null,
         isLocal: false,
         catalogId: c.id,
         catalogImage: c.image,
@@ -1142,7 +1262,7 @@ export default function Goals() {
     return Array.from(groups).sort();
   }, [unifiedExercises]);
 
-  // Filter workouts based on search and muscle groups
+  // Filter workouts based on search, muscle groups, and workout type
   const filteredWorkouts = React.useMemo(() => {
     return unifiedExercises.filter((ex) => {
       const matchesSearch = ex.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1150,9 +1270,12 @@ export default function Goals() {
       const matchesMuscleGroup =
         selectedMuscleGroups.size === 0 ||
         selectedMuscleGroups.has(ex.muscleGroup || "");
-      return matchesSearch && matchesMuscleGroup;
+      const matchesType =
+        selectedWorkoutType === null ||
+        ex.workoutType === selectedWorkoutType;
+      return matchesSearch && matchesMuscleGroup && matchesType;
     });
-  }, [unifiedExercises, searchQuery, selectedMuscleGroups]);
+  }, [unifiedExercises, searchQuery, selectedMuscleGroups, selectedWorkoutType]);
 
   // Unified diet list: local diets + catalog meals
   type UnifiedDiet = {
@@ -1344,6 +1467,7 @@ export default function Goals() {
         setGlobalRestTimerRemaining(restSeconds);
         setGlobalRestTimerTotal(restSeconds);
         setGlobalRestTimerActive(true);
+        setGlobalRestTimerKey((prev) => prev + 1);
       }
     }
   };
@@ -1420,13 +1544,6 @@ export default function Goals() {
       const dayOfWeek = new Date().getDay();
       setWeekCheckIns((prev) => new Set(prev).add(dayOfWeek));
 
-      // Award points for daily check-in
-      try {
-        await addPointsDb(5);
-      } catch (pointsErr) {
-        console.error("Error awarding check-in points:", pointsErr);
-      }
-
       // Award badges based on total check-ins and refresh local state
       try {
         await awardBadgesForCheckInsDb(user.id);
@@ -1483,16 +1600,29 @@ export default function Goals() {
 
       // Update progress for all active goals
       const activeGoals = userGoals.filter((g) => g.perc < 100);
+      const justCompletedGoals: typeof activeGoals = [];
       for (const goal of activeGoals) {
         const newProgress = goal.duration > 0
           ? Math.min(goal.duration, goal.days_completed + 1)
           : goal.days_completed + 1;
         const newPercentage = goal.duration > 0 ? Math.min(100, (newProgress / goal.duration) * 100) : 0;
         await updateUserGoalDb(goal.id, { days_completed: newProgress, perc: newPercentage });
+        if (newPercentage >= 100) {
+          justCompletedGoals.push(goal);
+        }
       }
       if (activeGoals.length > 0) {
         const updatedGoals = await getUserGoalsDb();
         setUserGoals(updatedGoals);
+      }
+
+      // Show goal completion celebration for the first completed goal
+      if (justCompletedGoals.length > 0) {
+        const completedGoal = justCompletedGoals[0];
+        const goalInfo = goals.find((g) => g.id === completedGoal.goal_id);
+        const description = goalInfo?.description || "Meta";
+        setGoalCompletionPostText(`🏆 Meta concluída: "${description}"\n\nFinalizei 100% dos meus check-ins nesta meta! Consistência e dedicação valeram a pena. 💪`);
+        setGoalCompletedModal({ description, userGoalId: completedGoal.id });
       }
 
       toast({
@@ -1505,6 +1635,26 @@ export default function Goals() {
       checkInInProgressRef.current = false;
     }
   };
+
+  // Verifica se todas as dietas OU todos os hábitos foram concluídos e exibe o modal de humor
+  const checkAndShowMoodModal = React.useCallback(
+    (newDietIds: Set<string>, newHabitIds: Set<string>) => {
+      if (moodModalShownRef.current || todayMood) return;
+
+      const hasDiets = userDiets.length > 0;
+      const hasHabits = userHabits.length > 0;
+      if (!hasDiets && !hasHabits) return;
+
+      const allDietsCompleted = hasDiets && userDiets.every((d) => newDietIds.has(d.id));
+      const allHabitsCompleted = hasHabits && userHabits.every((h) => newHabitIds.has(h.id));
+
+      if (allDietsCompleted || allHabitsCompleted) {
+        moodModalShownRef.current = true;
+        setMoodModalOpen(true);
+      }
+    },
+    [userDiets, userHabits, todayMood],
+  );
 
   const handleConfirmFinishWorkout = async () => {
     if (!user) return;
@@ -1718,7 +1868,7 @@ export default function Goals() {
     }
   };
 
-  const handleSaveRoutines = async () => {
+  const handleSaveRoutines = async (executeAtOverride?: string | null) => {
     if (!user || selectedRoutineType === null || selectedItems.size === 0) {
       toast({
         title: "Selecione pelo menos um item",
@@ -1754,11 +1904,13 @@ export default function Goals() {
         // Save diets
         await createUserDietsDb(user.id, itemIds, {
           name: routineName.trim() || undefined,
+          execute_at: executeAtOverride ?? null,
         });
       } else if (selectedRoutineType === 3) {
         // Save habits
         await createUserHabitsDb(user.id, itemIds, {
           name: routineName.trim() || undefined,
+          execute_at: executeAtOverride ?? null,
         });
       }
 
@@ -1780,6 +1932,9 @@ export default function Goals() {
       setSearchQuery("");
       setAddToRoutineCardName(null);
       setShowMuscleFilterPanel(false);
+      setShowExecuteAtStep(false);
+      setExecuteAtDate(undefined);
+      setExecuteAtTime("");
 
       // Refresh routines and items data to show newly added items
       if (user) {
@@ -1917,7 +2072,7 @@ export default function Goals() {
                             <div className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold flex items-center justify-between`}>
                               <span>✓ {goalTypeLabel}</span>
                               {goal.created_by_user === 1 ? (
-                                <span className="text-[10px] font-medium bg-purple-500/15 text-purple-600 px-1.5 py-0.5 rounded-full">Personalizada</span>
+                                <span className="text-[10px] font-medium bg-orange-500/15 text-orange-600 px-1.5 py-0.5 rounded-full">Personalizada</span>
                               ) : (
                                 <span className="text-[10px] font-medium bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">Padrão</span>
                               )}
@@ -1934,7 +2089,7 @@ export default function Goals() {
                                   <p className="font-bold">{duration}d</p>
                                 </div>
                                 <div className="bg-muted rounded p-1.5">
-                                  <p className="text-muted-foreground">Qtd</p>
+                                  <p className="text-muted-foreground">Frequência</p>
                                   <p className="font-bold">{quantity}</p>
                                 </div>
                               </div>
@@ -1999,9 +2154,11 @@ export default function Goals() {
                                       type_goal: goal.type ?? 0,
                                       perc: userGoal?.perc ?? 0,
                                       days_completed: userGoal?.days_completed ?? 0,
+                                      visibility: userGoal?.visibility ?? 1,
                                     });
                                     setEditGoalDuration(duration);
                                     setEditGoalQuantity(quantity);
+                                    setEditGoalVisibility(userGoal?.visibility ?? 1);
                                     setEditGoalModalOpen(true);
                                   }}
                                 >
@@ -2058,7 +2215,7 @@ export default function Goals() {
                                   <span className="flex items-center gap-1.5">
                                     {goalTypeLabel}
                                     {goal.created_by_user === 1 ? (
-                                      <span className="text-[10px] font-medium bg-purple-500/15 text-purple-600 px-1.5 py-0.5 rounded-full">Personalizada</span>
+                                      <span className="text-[10px] font-medium bg-orange-500/15 text-orange-600 px-1.5 py-0.5 rounded-full">Personalizada</span>
                                     ) : (
                                       <span className="text-[10px] font-medium bg-black/10 text-current px-1.5 py-0.5 rounded-full">Padrão</span>
                                     )}
@@ -2739,6 +2896,8 @@ export default function Goals() {
                                                 // Atualiza macro do dia e verifica badges nutricionais
                                                 getTodayMacroSummaryDb(user.id).then(setTodayMacro).catch(() => { });
                                                 awardNutritionBadgesDb(user.id).catch(() => { });
+                                                // Verifica se todas as dietas foram concluídas para exibir modal de humor
+                                                checkAndShowMoodModal(newCompletedIds, completedHabitIds);
                                                 // Feedback de qualidade para ultraprocessados
                                                 if (item.dietFoodQuality === "ultraprocessado") {
                                                   toast({
@@ -2795,7 +2954,14 @@ export default function Goals() {
                                                   item.quantity ?? null,
                                                   item.frequency ?? null,
                                                 );
+                                                // Hábito de beber água (habit_id = 1): registra 2000ml em hydration_logs
+                                                if (String(item.habit_id) === "1") {
+                                                  await addHydrationDb(user.id, 2000);
+                                                  getTodayHydrationDb(user.id).then(setHydrationMl).catch(() => { });
+                                                }
                                                 await performAutoCheckIn();
+                                                // Verifica se todos os hábitos foram concluídos para exibir modal de humor
+                                                checkAndShowMoodModal(completedDietIds, newCompletedIds);
                                               }
                                               if (!isCompleting) {
                                                 toast({
@@ -3166,6 +3332,29 @@ export default function Goals() {
                         />
                       </div>
 
+                      {/* Workout Type Filter */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground font-medium">Tipo:</span>
+                        {[
+                          { value: null, label: "Todos" },
+                          { value: 1, label: "Academia" },
+                          { value: 2, label: "Em casa" },
+                        ].map((opt) => (
+                          <button
+                            key={String(opt.value)}
+                            type="button"
+                            onClick={() => setSelectedWorkoutType(opt.value)}
+                            className={`text-xs px-3 py-1 rounded-full border transition-all ${
+                              selectedWorkoutType === opt.value
+                                ? "border-brand bg-brand/15 text-brand font-medium"
+                                : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+
                       {/* Muscle Group Filter */}
                       {uniqueMuscleGroups.length > 0 && (
                         <div className="space-y-2">
@@ -3193,22 +3382,16 @@ export default function Goals() {
                           {showMuscleFilterPanel && (
                             <div className="grid grid-cols-4 gap-1.5">
                               {uniqueMuscleGroups.map((muscleGroup) => {
-                                const groupIcons: Record<string, string> = {
-                                  "Peito": "🏋️", "Costas": "🔙", "Pernas": "🦵",
-                                  "Ombros": "💪", "Braços": "💪", "Abdômen": "⚡",
-                                  "Glúteos": "🍑", "Cardio": "❤️", "Full Body": "🔥",
-                                };
                                 const isActive = selectedMuscleGroups.has(muscleGroup);
                                 return (
                                   <button
                                     key={muscleGroup}
                                     onClick={() => handleToggleMuscleGroup(muscleGroup)}
-                                    className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl border text-center transition-all ${isActive
+                                    className={`flex items-center justify-center py-2 px-1 rounded-xl border text-center transition-all ${isActive
                                       ? "border-brand bg-brand/15 text-brand shadow-sm"
                                       : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
                                       }`}
                                   >
-                                    <span className="text-base leading-none">{groupIcons[muscleGroup] || "💪"}</span>
                                     <span className="text-[10px] font-medium leading-tight">{muscleGroup}</span>
                                   </button>
                                 );
@@ -3456,20 +3639,141 @@ export default function Goals() {
                   </div>
                 </div>
 
-                {/* Save Button */}
+                {/* Save Button — for diet/habit: go to schedule step first */}
                 {selectedItems.size > 0 && (
                   <Button
-                    onClick={handleSaveRoutines}
+                    onClick={() => {
+                      if (selectedRoutineType === 2 || selectedRoutineType === 3) {
+                        setShowExecuteAtStep(true);
+                      } else {
+                        handleSaveRoutines();
+                      }
+                    }}
                     disabled={isAddingRoutine}
                     className="w-full rounded-full"
                   >
-                    {isAddingRoutine
-                      ? "Salvando..."
-                      : `Salvar (${selectedItems.size})`}
+                    {selectedRoutineType === 2 || selectedRoutineType === 3
+                      ? `Próximo (${selectedItems.size})`
+                      : isAddingRoutine
+                        ? "Salvando..."
+                        : `Salvar (${selectedItems.size})`}
                   </Button>
                 )}
               </>
             )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Execute At Step — schedule drawer for diet/habit */}
+      <Drawer open={showExecuteAtStep} onOpenChange={(open) => {
+        if (!open) {
+          setShowExecuteAtStep(false);
+          setExecuteAtCalendarOpen(false);
+        }
+      }}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+          <DrawerHeader className="shrink-0">
+            <DrawerTitle>Horário para realizar</DrawerTitle>
+          </DrawerHeader>
+          <div className="flex flex-col gap-4 px-4 pb-6 flex-1 overflow-y-auto">
+            <p className="text-sm text-muted-foreground">
+              Defina quando você pretende realizar esta rotina. Esse campo é opcional — você pode pular se preferir.
+            </p>
+
+            {/* Date picker — inline calendar toggle */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Data (opcional)</label>
+              <button
+                type="button"
+                onClick={() => setExecuteAtCalendarOpen((v) => !v)}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm hover:border-brand/60 transition-colors text-left"
+              >
+                <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                {executeAtDate
+                  ? executeAtDate.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "long", year: "numeric" })
+                  : <span className="text-muted-foreground">Escolher data...</span>
+                }
+                <ChevronDown className={`h-4 w-4 text-muted-foreground ml-auto transition-transform ${executeAtCalendarOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {executeAtCalendarOpen && (
+                <div className="rounded-lg border border-border/60 bg-background overflow-hidden">
+                  <Calendar
+                    mode="single"
+                    selected={executeAtDate}
+                    onSelect={(date) => {
+                      setExecuteAtDate(date);
+                      setExecuteAtCalendarOpen(false);
+                    }}
+                    disabled={(date) => {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const maxDate = new Date(today);
+                      maxDate.setFullYear(maxDate.getFullYear() + 1);
+                      return date < today || date > maxDate;
+                    }}
+                    className="mx-auto"
+                  />
+                </div>
+              )}
+
+              {executeAtDate && (
+                <button
+                  type="button"
+                  onClick={() => { setExecuteAtDate(undefined); setExecuteAtTime(""); }}
+                  className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  Remover data
+                </button>
+              )}
+            </div>
+
+            {/* Time picker — only shown when date is selected */}
+            {executeAtDate && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Horário (opcional)</label>
+                <input
+                  type="time"
+                  value={executeAtTime}
+                  onChange={(e) => setExecuteAtTime(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-brand/40"
+                />
+              </div>
+            )}
+
+            <div className="flex gap-3 mt-auto pt-2">
+              <Button
+                variant="outline"
+                className="flex-1 rounded-full"
+                onClick={() => {
+                  handleSaveRoutines(null);
+                  setShowExecuteAtStep(false);
+                  setExecuteAtDate(undefined);
+                  setExecuteAtTime("");
+                }}
+                disabled={isAddingRoutine}
+              >
+                Pular
+              </Button>
+              <Button
+                className="flex-1 rounded-full"
+                onClick={() => {
+                  let executeAt: string | null = null;
+                  if (executeAtDate) {
+                    const dateStr = executeAtDate.toISOString().split("T")[0];
+                    executeAt = executeAtTime ? `${dateStr}T${executeAtTime}:00` : dateStr;
+                  }
+                  handleSaveRoutines(executeAt);
+                  setShowExecuteAtStep(false);
+                  setExecuteAtDate(undefined);
+                  setExecuteAtTime("");
+                }}
+                disabled={isAddingRoutine}
+              >
+                {isAddingRoutine ? "Salvando..." : "Salvar"}
+              </Button>
+            </div>
           </div>
         </DrawerContent>
       </Drawer>
@@ -3831,96 +4135,97 @@ export default function Goals() {
         document.body
       )}
 
-      {/* Rest Timer Modal */}
-      <Dialog
-        open={restTimerModalOpen}
-        onOpenChange={(open) => {
-          // Closing by click-outside or ESC just hides the dialog — timer keeps running in context
-          if (!open) setRestTimerModalOpen(false);
-        }}
-      >
-        <DialogContent className="w-full max-w-xs rounded-2xl">
-          <DialogHeader className="text-center">
-            <DialogTitle>Tempo de Descanso</DialogTitle>
-          </DialogHeader>
+      {/* Rest Timer Modal — rendered via portal to avoid Vaul Drawer overlay conflicts */}
+      {restTimerModalOpen && createPortal(
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center"
+          style={{ pointerEvents: "auto" }}
+        >
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setRestTimerModalOpen(false)}
+          />
+          {/* Content */}
+          <div className="relative z-10 w-full max-w-xs mx-4 bg-background rounded-2xl border shadow-xl p-6">
+            <h2 className="text-lg font-semibold text-center mb-1">Tempo de Descanso</h2>
 
-          <div className="flex flex-col items-center justify-center gap-6 py-8">
-            <div className="relative flex items-center justify-center w-48 h-48">
-              <svg className="absolute w-full h-full" viewBox="0 0 200 200">
-                <circle
-                  cx="100"
-                  cy="100"
-                  r="90"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="text-border/60"
-                />
-                <circle
-                  cx="100"
-                  cy="100"
-                  r="90"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  className="text-brand"
-                  strokeDasharray={`${(565 * (1 - restTimerRemaining / (workoutExerciseRestTimes[restTimerExerciseId || ""] || 0))) || 0} 565`}
-                  strokeLinecap="round"
-                  style={{ transform: "rotate(-90deg)", transformOrigin: "100px 100px" }}
-                />
-              </svg>
-              <div className="absolute text-center">
-                <p className="text-4xl font-bold text-brand">
-                  {restTimerRemaining}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">segundos</p>
+            <div className="flex flex-col items-center justify-center gap-6 py-4">
+              <div className="relative flex items-center justify-center w-48 h-48">
+                <svg className="absolute w-full h-full" viewBox="0 0 200 200">
+                  <circle
+                    cx="100"
+                    cy="100"
+                    r="90"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="text-border/60"
+                  />
+                  <circle
+                    cx="100"
+                    cy="100"
+                    r="90"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    className="text-brand"
+                    strokeDasharray={`${(565 * (1 - restTimerRemaining / (workoutExerciseRestTimes[restTimerExerciseId || ""] || 0))) || 0} 565`}
+                    strokeLinecap="round"
+                    style={{ transform: "rotate(-90deg)", transformOrigin: "100px 100px" }}
+                  />
+                </svg>
+                <div className="absolute text-center">
+                  <p className="text-4xl font-bold text-brand">
+                    {restTimerRemaining}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">segundos</p>
+                </div>
               </div>
-            </div>
 
-            <div className="flex gap-3 w-full">
-              <Button
-                onClick={() => {
-                  setRestTimerModalOpen(false);
-                  setRestTimerPaused(false);
-                  setGlobalRestTimerActive(false);
-                  setGlobalRestTimerRemaining(0);
-                  setGlobalRestTimerTotal(0);
-                }}
-                variant="outline"
-                className="flex-1 rounded-full"
-              >
-                Pular
-              </Button>
-              <Button
-                onClick={() => {
-                  // Minimize: hide modal but keep timer running
-                  setRestTimerModalOpen(false);
-                }}
-                variant="outline"
-                className="flex-1 rounded-full"
-              >
-                Minimizar
-              </Button>
-              <Button
-                onClick={() => {
-                  if (restTimerRemaining === 0) {
+              <div className="flex gap-3 w-full">
+                <Button
+                  onClick={() => {
                     setRestTimerModalOpen(false);
                     setGlobalRestTimerActive(false);
                     setGlobalRestTimerRemaining(0);
                     setGlobalRestTimerTotal(0);
-                  } else {
-                    // Toggle pause: active=false pauses, active=true resumes
-                    setGlobalRestTimerActive(!globalRestTimerActive);
-                  }
-                }}
-                className="flex-1 rounded-full"
-              >
-                {restTimerRemaining === 0 ? "Próxima" : (globalRestTimerActive ? "Pausar" : "Retomar")}
-              </Button>
+                  }}
+                  variant="outline"
+                  className="flex-1 rounded-full"
+                >
+                  Pular
+                </Button>
+                <Button
+                  onClick={() => {
+                    setRestTimerModalOpen(false);
+                  }}
+                  variant="outline"
+                  className="flex-1 rounded-full"
+                >
+                  Minimizar
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (restTimerRemaining === 0) {
+                      setRestTimerModalOpen(false);
+                      setGlobalRestTimerActive(false);
+                      setGlobalRestTimerRemaining(0);
+                      setGlobalRestTimerTotal(0);
+                    } else {
+                      setGlobalRestTimerActive(!globalRestTimerActive);
+                    }
+                  }}
+                  className="flex-1 rounded-full"
+                >
+                  {restTimerRemaining === 0 ? "Próxima" : (globalRestTimerActive ? "Pausar" : "Retomar")}
+                </Button>
+              </div>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>,
+        document.body
+      )}
 
       {/* Edit Goal Drawer */}
       <Drawer open={editGoalModalOpen} onOpenChange={setEditGoalModalOpen}>
@@ -3958,6 +4263,18 @@ export default function Goals() {
                   />
                 </div>
 
+                <div className="flex items-center justify-between p-4 bg-muted/20 rounded-lg mb-2">
+                  <div className="space-y-0.5 pr-4">
+                    <Label htmlFor="goal-visibility" className="text-sm font-medium">Deixar meta visível para outros</Label>
+                    <p className="text-xs text-muted-foreground leading-relaxed">Se desativado, apenas você poderá ver esta meta em seu perfil.</p>
+                  </div>
+                  <Switch
+                    id="goal-visibility"
+                    checked={editGoalVisibility === 1}
+                    onCheckedChange={(checked) => setEditGoalVisibility(checked ? 1 : 0)}
+                  />
+                </div>
+
                 <div className="space-y-2">
                   <Button
                     onClick={async () => {
@@ -3974,6 +4291,7 @@ export default function Goals() {
                           quantity: editGoalQuantity,
                           days_completed: currentActualProgress,
                           perc: newPerc,
+                          visibility: editGoalVisibility,
                         });
 
                         // Re-fetch from DB to confirm changes were persisted
@@ -5157,12 +5475,24 @@ export default function Goals() {
                   .map((r) => r.id)
               );
 
+              // Helper: check if a routine has actual items in the corresponding user data
+              const routineHasItems = (r: Routine) => {
+                const isUnnamed = !r.name;
+                if (r.type === 1) {
+                  return userWorkouts.some((w) => isUnnamed ? !w.name : w.name === r.name);
+                } else if (r.type === 2) {
+                  return userDiets.some((d) => isUnnamed ? !d.name : d.name === r.name);
+                } else {
+                  return userHabits.some((h) => isUnnamed ? !h.name : h.name === r.name);
+                }
+              };
+
               const displayRoutines =
                 goalRoutineModalMode === "view"
                   ? routines.filter(
                     (r) => r.goal_id && goalId && String(r.goal_id) === goalId,
                   )
-                  : routines.filter((r) => !alreadyLinkedRoutineIds.has(r.id));
+                  : routines.filter((r) => !alreadyLinkedRoutineIds.has(r.id) && routineHasItems(r));
 
               if (displayRoutines.length === 0) {
                 return (
@@ -5651,7 +5981,7 @@ export default function Goals() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Frequência (qtd)</Label>
+                  <Label>Frequência (em dias)</Label>
                   <Input
                     type="number"
                     min={1}
@@ -5880,6 +6210,154 @@ export default function Goals() {
                 Salvar
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Hidden canvas for goal completion card */}
+      <canvas ref={goalCompletionCanvasRef} width={800} height={800} className="hidden" />
+
+      {/* Goal Completion Celebration Modal */}
+      <Dialog open={!!goalCompletedModal} onOpenChange={(open) => { if (!open) { setGoalCompletedModal(null); setGoalCompletionCanvasUrl(null); } }}>
+        <DialogContent className="max-w-sm mx-auto text-center">
+          <DialogHeader>
+            <DialogTitle className="text-center text-xl">
+              🏆 Meta Concluída!
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4 py-2">
+            {/* Canvas preview */}
+            {goalCompletionCanvasUrl ? (
+              <img
+                src={goalCompletionCanvasUrl}
+                alt="Card de conquista"
+                className="w-full rounded-xl border border-brand/30 shadow-lg"
+              />
+            ) : (
+              <div className="w-full aspect-square rounded-xl bg-muted animate-pulse" />
+            )}
+
+            <div className="w-full space-y-2">
+              <Label className="text-xs text-muted-foreground text-left block">Mensagem para o feed</Label>
+              <textarea
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand"
+                rows={3}
+                value={goalCompletionPostText}
+                onChange={(e) => setGoalCompletionPostText(e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-2 w-full">
+              <Button
+                variant="outline"
+                className="flex-1 rounded-full"
+                onClick={() => { setGoalCompletedModal(null); setGoalCompletionCanvasUrl(null); }}
+              >
+                Fechar
+              </Button>
+              <Button
+                className="flex-1 rounded-full"
+                disabled={isSharingGoalCompletion}
+                onClick={async () => {
+                  if (!user || !goalCompletedModal) return;
+                  setIsSharingGoalCompletion(true);
+                  try {
+                    let photoUrl: string | null = null;
+                    // Upload canvas image
+                    const canvas = goalCompletionCanvasRef.current;
+                    if (canvas) {
+                      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/png"));
+                      if (blob) {
+                        const filePath = `${user.id}/${Date.now()}-goal-completed.png`;
+                        const { error: uploadError } = await supabase.storage
+                          .from("posts")
+                          .upload(filePath, blob, { contentType: "image/png", upsert: false });
+                        if (!uploadError) {
+                          const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                          photoUrl = urlData.publicUrl;
+                        }
+                      }
+                    }
+                    await createPostDb(
+                      photoUrl,
+                      goalCompletionPostText,
+                      goalCompletedModal.userGoalId,
+                    );
+                    toast({
+                      title: "Postado no feed! 🎉",
+                      description: "Sua conquista foi compartilhada.",
+                    });
+                    setGoalCompletedModal(null);
+                    setGoalCompletionCanvasUrl(null);
+                    navigate("/");
+                  } catch {
+                    toast({
+                      title: "Erro ao postar",
+                      variant: "destructive",
+                    });
+                  } finally {
+                    setIsSharingGoalCompletion(false);
+                  }
+                }}
+              >
+                {isSharingGoalCompletion ? "Postando..." : "Compartilhar no Feed"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+
+      {/* ─── Modal de Humor do Dia ─────────────────────────────────────────── */}
+      <Dialog open={moodModalOpen} onOpenChange={(open) => { if (!open) setMoodModalOpen(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-center text-lg">Como você está se sentindo? 😊</DialogTitle>
+          </DialogHeader>
+          <p className="text-center text-sm text-muted-foreground -mt-2">
+            Você completou suas rotinas hoje! Registre seu humor do dia.
+          </p>
+          <div className="flex justify-center gap-3 py-4">
+            {([
+              { value: "muito_triste" as const, emoji: "😢", label: "Muito triste" },
+              { value: "triste" as const, emoji: "😕", label: "Triste" },
+              { value: "neutro" as const, emoji: "😐", label: "Neutro" },
+              { value: "feliz" as const, emoji: "😊", label: "Feliz" },
+              { value: "muito_feliz" as const, emoji: "😄", label: "Muito feliz" },
+            ] as const).map(({ value, emoji, label }) => (
+              <button
+                key={value}
+                disabled={isSavingMood}
+                onClick={async () => {
+                  if (!user) return;
+                  setIsSavingMood(true);
+                  try {
+                    await saveTodayMoodDb(user.id, value);
+                    setTodayMood(value);
+                    setMoodModalOpen(false);
+                    toast({ title: "Humor registrado!", description: `Humor salvo! ${emoji}` });
+                  } catch {
+                    toast({ title: "Erro ao salvar humor", variant: "destructive" });
+                  } finally {
+                    setIsSavingMood(false);
+                  }
+                }}
+                title={label}
+                className={[
+                  "flex flex-col items-center gap-1 p-2 rounded-xl transition-all",
+                  "hover:bg-muted/60 active:scale-95",
+                  todayMood === value ? "bg-muted ring-2 ring-primary" : "",
+                ].join(" ")}
+              >
+                <span className="text-3xl leading-none">{emoji}</span>
+                <span className="text-[10px] text-muted-foreground">{label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-end">
+            <Button variant="ghost" size="sm" onClick={() => setMoodModalOpen(false)}>
+              Agora não
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

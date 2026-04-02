@@ -1,5 +1,5 @@
 import React from "react";
-import { Check } from "lucide-react";
+import { Check, Star, Loader2 } from "lucide-react";
 import {
   Drawer,
   DrawerContent,
@@ -7,7 +7,9 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import type { Badge, UserBadge } from "@/lib/ritmofit-db";
+import { type Badge, type UserBadge, setSelectedBadgeDb, getViewer } from "@/lib/ritmofit-db";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface InsigniasDrawerProps {
   open: boolean;
@@ -18,100 +20,184 @@ interface InsigniasDrawerProps {
   totalCheckIns: number;
 }
 
-const BADGE_COLORS: Record<string, { active: string; check: string; bar: string }> = {
-  iniciante: { active: "from-yellow-500/20 to-yellow-500/5 border-yellow-500/40 shadow-yellow-500/10", check: "text-yellow-600", bar: "bg-yellow-500" },
-  sequencia: { active: "from-blue-500/20 to-blue-500/5 border-blue-500/40 shadow-blue-500/10",   check: "text-blue-600",   bar: "bg-blue-500"   },
-  campeao:   { active: "from-green-500/20 to-green-500/5 border-green-500/40 shadow-green-500/10", check: "text-green-600",  bar: "bg-green-500"  },
-  lendario:  { active: "from-purple-500/20 to-purple-500/5 border-purple-500/40 shadow-purple-500/10", check: "text-purple-600", bar: "bg-purple-500" },
+const BADGE_COLORS: Record<string, { active: string; check: string; bar: string; ring: string }> = {
+  iniciante: { active: "from-yellow-500/20 to-yellow-500/5 border-yellow-500/40 shadow-yellow-500/10", check: "text-yellow-600", bar: "bg-yellow-500", ring: "ring-yellow-500/40" },
+  sequencia: { active: "from-orange-500/20 to-orange-500/5 border-orange-500/40 shadow-orange-500/10", check: "text-orange-600", bar: "bg-orange-500", ring: "ring-orange-500/40" },
+  campeao:   { active: "from-green-500/20 to-green-500/5 border-green-500/40 shadow-green-500/10", check: "text-green-600",  bar: "bg-green-500",  ring: "ring-green-500/40"  },
+  lendario:  { active: "from-purple-500/20 to-purple-500/5 border-purple-500/40 shadow-purple-500/10", check: "text-purple-600", bar: "bg-purple-500", ring: "ring-purple-500/40" },
 };
 
 export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, totalCheckIns }: InsigniasDrawerProps) {
-  const earnedIds = new Set(userBadges.map((ub) => ub.badge_id));
+  const [isSelecting, setIsSelecting] = React.useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = React.useState<string | null>(null);
+
+  // Get current user to check if we can select
+  React.useEffect(() => {
+    getViewer().then(u => setCurrentUserId(u?.id || null));
+  }, []);
+
+  const activeBadgeId = userBadges.length > 0 ? userBadges[0].badge_id : null;
 
   // Sort badges by required_checkins to ensure correct order
   const sortedBadges = [...allBadges].sort((a, b) => a.required_checkins - b.required_checkins);
-  const maxRequired = sortedBadges.length > 0 ? sortedBadges[sortedBadges.length - 1].required_checkins : 7;
+  
+  // Find the next badge to unlock
+  const nextBadge = sortedBadges.find((b) => b.required_checkins > totalCheckIns);
+  const targetRequired = nextBadge ? nextBadge.required_checkins : sortedBadges.length > 0 ? sortedBadges[sortedBadges.length - 1].required_checkins : 0;
+  const isMaxed = !nextBadge && sortedBadges.length > 0;
+
+  const handleSelect = async (badge: Badge) => {
+    if (isSelecting) return;
+    if (totalCheckIns < badge.required_checkins) {
+      toast.error("Você ainda não atingiu o requisito para esta insígnia.");
+      return;
+    }
+    if (badge.id === activeBadgeId) return;
+
+    try {
+      setIsSelecting(badge.id);
+      await setSelectedBadgeDb(badge.id);
+      toast.success(`Insígnia ${badge.name} selecionada!`);
+      // Simples refresh forçado (reload) ou o componente pai deve atualizar
+      // Como o Drawer é controlado por props, idealmente o pai deveria ter um onSelect
+      // Mas para manter simples e imediato:
+      window.location.reload();
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao selecionar insígnia");
+    } finally {
+      setIsSelecting(null);
+    }
+  };
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30">
+      <DrawerContent className="max-h-[85dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30 pb-6">
         <DrawerHeader className="shrink-0 border-b border-border/60">
           <DrawerTitle className="flex items-center gap-2">
             <span className="text-2xl">🏆</span>
             Insígnias
           </DrawerTitle>
-          <DrawerDescription className="sr-only">Suas insígnias e conquistas</DrawerDescription>
+          <DrawerDescription className="">
+            Escolha a insígnia que deseja exibir no seu perfil.
+          </DrawerDescription>
         </DrawerHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4">
-          {/* Progress Overview */}
-          <div className="mb-6 p-4 rounded-lg bg-brand/10 border border-brand/20">
-            <div className="flex items-center justify-between mb-2">
-              <p className="font-medium text-sm">Check-ins totais</p>
-              <p className="font-bold text-lg">{totalCheckIns}/{maxRequired}</p>
+        <div className="flex-1 overflow-y-auto px-4 py-4 scrollbar-hide">
+          {/* Progress Overview - Integrated logic for NEXT level */}
+          <div className="mb-6 p-4 rounded-2xl bg-brand/10 border border-brand/20 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Star className="h-4 w-4 text-brand animate-pulse" />
+                <p className="font-semibold text-sm">Próximo Nível</p>
+              </div>
+              <p className="font-bold text-lg tabular-nums">
+                {totalCheckIns}/{targetRequired}
+              </p>
             </div>
-            <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+            <div className="w-full bg-muted/50 rounded-full h-3 p-0.5 overflow-hidden ring-1 ring-border/50">
               <div
-                className="bg-brand transition-all duration-300 h-full rounded-full"
-                style={{ width: `${Math.min(100, (totalCheckIns / maxRequired) * 100)}%` }}
+                className="bg-brand transition-all duration-1000 h-full rounded-full shadow-[0_0_10px_rgba(var(--brand),0.3)]"
+                style={{ width: `${Math.min(100, (totalCheckIns / targetRequired) * 100)}%` }}
               />
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {totalCheckIns >= maxRequired
-                ? "Parabéns! Você conquistou todas as insígnias!"
-                : `Faltam ${maxRequired - totalCheckIns} check-in(s) para a insígnia máxima`}
+            <p className="text-xs text-muted-foreground mt-3 font-medium">
+              {isMaxed
+                ? "Incrível! Você já pode usar qualquer insígnia!"
+                : nextBadge 
+                  ? `Faltam ${nextBadge.required_checkins - totalCheckIns} check-in(s) para liberar "${nextBadge.name}".`
+                  : "Continue treinando!"}
             </p>
           </div>
 
-          <div className="space-y-3 pb-8">
+          <div className="space-y-4 pb-4">
             {sortedBadges.map((badge) => {
-              const unlocked = earnedIds.has(badge.id);
+              const unlocked = totalCheckIns >= badge.required_checkins;
+              const isActive = activeBadgeId === badge.id;
               const color = BADGE_COLORS[badge.key] ?? BADGE_COLORS["iniciante"];
+              const busy = isSelecting === badge.id;
+
               return (
-                <div
+                <button
                   key={badge.id}
-                  className={`group relative overflow-hidden rounded-xl transition-all duration-300 ${
+                  disabled={!unlocked || busy}
+                  onClick={() => handleSelect(badge)}
+                  className={cn(
+                    "w-full text-left group relative overflow-hidden rounded-2xl transition-all duration-300 border",
                     unlocked
-                      ? `bg-gradient-to-r ${color.active} shadow-lg`
-                      : "bg-muted/40 border border-border/40 opacity-60"
-                  }`}
+                      ? cn(
+                          "bg-gradient-to-r cursor-pointer hover:scale-[1.02] active:scale-95",
+                          color.active,
+                          isActive ? `ring-2 ${color.ring} border-transparent` : "border-border/60"
+                        )
+                      : "bg-muted/30 border-border/20 opacity-60 grayscale cursor-not-allowed"
+                  )}
                 >
-                  <div className="p-4 flex items-start gap-4">
-                    <div className={`text-4xl transition-transform ${unlocked ? "scale-110" : ""} ${badge.required_checkins === maxRequired && unlocked ? "animate-pulse" : ""}`}>
+                  <div className="p-4 flex items-center gap-4">
+                    <div className={cn(
+                      "text-4xl transition-all duration-500",
+                      unlocked ? "scale-110 drop-shadow-md" : "scale-90",
+                      isActive ? "animate-bounce-subtle" : ""
+                    )}>
                       {badge.emoji}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="font-semibold text-sm">{badge.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-sm tracking-tight">{badge.name}</p>
+                          {isActive && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand/20 text-brand font-bold uppercase tracking-wider">
+                              Ativo
+                            </span>
+                          )}
+                        </div>
                         {unlocked && (
-                          <Check className={`h-5 w-5 flex-shrink-0 ${color.check}`} />
+                          <div className={cn(
+                            "h-5 w-5 rounded-full flex items-center justify-center transition-all",
+                            isActive ? "bg-brand text-white" : "border border-border/60"
+                          )}>
+                            {busy ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : isActive ? (
+                              <Check className="h-4 w-4 stroke-[3]" />
+                            ) : null}
+                          </div>
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">{badge.description}</p>
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{badge.description}</p>
+                      
                       {!unlocked && (
-                        <div className="mt-2">
-                          <p className="text-xs text-muted-foreground mb-1">
-                            {Math.min(totalCheckIns, badge.required_checkins)}/{badge.required_checkins} check-ins
-                          </p>
-                          <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className={`${color.bar} h-full transition-all`}
-                              style={{ width: `${(Math.min(totalCheckIns, badge.required_checkins) / badge.required_checkins) * 100}%` }}
-                            />
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+                             <div 
+                               className="bg-muted-foreground/30 h-full transition-all" 
+                               style={{ width: `${(totalCheckIns / badge.required_checkins) * 100}%` }}
+                             />
                           </div>
+                          <p className="text-[10px] font-bold text-muted-foreground tabular-nums whitespace-nowrap">
+                            {totalCheckIns}/{badge.required_checkins}
+                          </p>
                         </div>
                       )}
                     </div>
                   </div>
-                </div>
+
+                  {isActive && (
+                    <div className="absolute top-0 right-0 p-1 opacity-20 pointer-events-none">
+                       <Check size={40} className="stroke-[10]" />
+                    </div>
+                  )}
+                </button>
               );
             })}
           </div>
         </div>
 
-        <div className="border-t border-border/60 p-4 bg-background/95 sticky bottom-0">
-          <p className="text-xs text-muted-foreground text-center">
-            Complete check-ins diários para ganhar insígnias!
+        <div className="border-t border-border/60 p-5 bg-background/95 sticky bottom-0">
+          <p className="text-xs font-medium text-muted-foreground text-center">
+            {isMaxed
+              ? "Você é uma lenda! Escolha seu título com sabedoria." 
+              : "Continue treinando para liberar novas insígnias!"
+            }
           </p>
         </div>
       </DrawerContent>

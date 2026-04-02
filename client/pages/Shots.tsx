@@ -590,8 +590,8 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     onClick={() => handleFollowUser(shot.user_id)}
                     disabled={isFollowingLoading[shot.user_id]}
                     className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all ${followingStatus[shot.user_id]
-                        ? "bg-white/20 text-white hover:bg-white/30"
-                        : "bg-white text-black hover:bg-white/90"
+                      ? "bg-white/20 text-white hover:bg-white/30"
+                      : "bg-white text-black hover:bg-white/90"
                       } disabled:opacity-50`}
                   >
                     {followingStatus[shot.user_id] ? (
@@ -809,7 +809,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     <p className="text-sm font-medium">
                       {comment.userName || "Usuário"}
                       <span className="ml-1 text-xs text-muted-foreground">
-                        {comment.userHandle || "@user"}
+                        @{comment.userHandle || "@user"}
                       </span>
                     </p>
                     <p className="text-sm text-foreground mt-1">

@@ -26,6 +26,23 @@ import { Fingerprint, Upload, X, Search, Check, ArrowLeft, Eye, EyeOff } from "l
 import { useTheme } from "next-themes";
 import { getAllUsersDb, type SearchUser, followUserDb, createOrUpdateCommercialProfileDb } from "@/lib/ritmofit-db";
 
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isValidUrl(url: string) {
+  try {
+    const u = new URL(url.startsWith("http") ? url : `https://${url}`);
+    return u.hostname.includes(".");
+  } catch {
+    return false;
+  }
+}
+
+function isStrongPassword(pwd: string) {
+  return pwd.length >= 8 && /[A-Z]/.test(pwd) && /[^a-zA-Z0-9]/.test(pwd);
+}
+
 function isEmailNotConfirmed(message: string | undefined) {
   const m = (message ?? "").toLowerCase();
   return m.includes("email not confirmed") || m.includes("not confirmed");
@@ -243,6 +260,16 @@ export default function Login() {
 
       // Handle signup step 1: email and password validation
       if (signupStep === 1) {
+        if (!isStrongPassword(password)) {
+          toast({
+            title: "Senha fraca",
+            description: "Sua senha deve ter ao menos 8 caracteres, 1 letra maiúscula e 1 caractere especial.",
+            variant: "destructive",
+          });
+          setBusy(false);
+          return;
+        }
+
         // Check password confirmation
         if (password !== confirmPassword) {
           toast({
@@ -338,11 +365,23 @@ export default function Login() {
       const trimmedEmail = email.trim();
       const trimmedPassword = password.trim();
 
-      // Create user auth account
+      // Create user auth account — all profile fields go into
+      // raw_user_meta_data so handle_new_user trigger can read them
+      const signUpMeta: Record<string, any> = {
+        full_name: displayName.trim(),
+      };
+      if (username.trim()) signUpMeta.handle = username.trim();
+      if (bio.trim()) signUpMeta.bio = bio.trim();
+      if (selectedSegments.size > 0) signUpMeta.objectives = [...selectedSegments];
+      if (gender) signUpMeta.gender = gender;
+      if (age) signUpMeta.age = parseInt(age, 10);
+      if (height) signUpMeta.height = parseFloat(height);
+      if (weight) signUpMeta.weight = parseFloat(weight);
+
       const { error: signUpError } = await supabase.auth.signUp({
         email: trimmedEmail,
         password: trimmedPassword,
-        options: { data: { full_name: displayName.trim() } },
+        options: { data: signUpMeta },
       });
 
       if (signUpError) {
@@ -391,6 +430,7 @@ export default function Login() {
         // Build profile update payload
         const profilePayload: Record<string, any> = {};
         if (photoUrl) profilePayload.photo = photoUrl;
+        if (displayName.trim()) profilePayload.nickname = displayName.trim();
         if (bio.trim()) profilePayload.bio = bio.trim();
         if (selectedSegments.size > 0) profilePayload.objectives = [...selectedSegments];
         if (username.trim()) profilePayload.handle = username.trim().toLowerCase();
@@ -400,16 +440,12 @@ export default function Login() {
         if (weight) profilePayload.weight = parseFloat(weight);
 
         if (Object.keys(profilePayload).length > 0) {
-          // Try update first; if the profile row doesn't exist yet (trigger delay), use upsert
-          const { error: updateErr } = await supabase
+          await supabase
             .from("profiles")
-            .update(profilePayload)
-            .eq("user_id", authUser.id);
-          if (updateErr) {
-            await supabase
-              .from("profiles")
-              .upsert({ user_id: authUser.id, ...profilePayload }, { onConflict: "user_id" });
-          }
+            .upsert(
+              { user_id: authUser.id, ...profilePayload, updated_at: new Date().toISOString() },
+              { onConflict: "user_id" },
+            );
         }
 
         // Save commercial profile if user selected it
@@ -521,12 +557,7 @@ export default function Login() {
     localStorage.setItem("force_profile_reload", "1");
 
     setIsCompletingSignup(false);
-
-    if (biometricAvailable) {
-      setShowBiometricSetup(true);
-    } else {
-      navigate("/", { replace: true });
-    }
+    navigate("/", { replace: true });
   };
 
   const handleRegisterBiometric = async (redirectAfter: boolean = false) => {
@@ -1055,7 +1086,7 @@ export default function Login() {
                             type={showPassword ? "text" : "password"}
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            placeholder="Mínimo 6 caracteres"
+                            placeholder="Crie uma senha forte"
                             autoComplete="new-password"
                             className="pr-10 [&::-ms-reveal]:hidden [&::-webkit-credentials-auto-fill-button]:hidden"
                           />
@@ -1068,6 +1099,20 @@ export default function Login() {
                             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                           </button>
                         </div>
+                        {password.length > 0 && (
+                          <ul className="grid gap-1 mt-1">
+                            {[
+                              { ok: password.length >= 8, label: "Mínimo de 8 caracteres" },
+                              { ok: /[A-Z]/.test(password), label: "Pelo menos 1 letra maiúscula" },
+                              { ok: /[^a-zA-Z0-9]/.test(password), label: "Pelo menos 1 caractere especial (!@#$...)" },
+                            ].map(({ ok, label }) => (
+                              <li key={label} className={`flex items-center gap-1.5 text-xs ${ok ? "text-green-600" : "text-muted-foreground"}`}>
+                                {ok ? <Check className="h-3 w-3 shrink-0" /> : <span className="h-3 w-3 shrink-0 rounded-full border border-current inline-block" />}
+                                {label}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
 
                       <div className="grid gap-2">
@@ -1094,7 +1139,7 @@ export default function Login() {
                         {confirmPassword && password !== confirmPassword && (
                           <p className="text-xs text-red-600">❌ As senhas não conferem</p>
                         )}
-                        {confirmPassword && password === confirmPassword && password.length >= 6 && (
+                        {confirmPassword && password === confirmPassword && isStrongPassword(password) && (
                           <p className="text-xs text-green-600">✓ Senhas conferem</p>
                         )}
                       </div>
@@ -1102,7 +1147,7 @@ export default function Login() {
                       <Button
                         type="submit"
                         className="mt-2 rounded-full"
-                        disabled={!email.trim() || password.length < 6 || password !== confirmPassword || busy}
+                        disabled={!email.trim() || !isStrongPassword(password) || password !== confirmPassword || busy}
                       >
                         {busy ? "Validando..." : "Próximo"}
                       </Button>
@@ -1150,12 +1195,12 @@ export default function Login() {
                         <Label>Foto de perfil <span className="text-xs text-muted-foreground font-normal">(opcional)</span></Label>
                         <div className="flex items-center gap-3">
                           {photoPreview ? (
-                            <div className="relative w-16 h-16 rounded-full overflow-hidden border-2 border-border/60 shrink-0">
-                              <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
+                            <div className="relative w-16 h-16 shrink-0">
+                              <img src={photoPreview} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-border/60" />
                               <button
                                 type="button"
                                 onClick={() => { setPhotoFile(null); setPhotoPreview(""); }}
-                                className="absolute top-0.5 right-0.5 bg-black/50 text-white p-0.5 rounded-full"
+                                className="absolute -top-1 -right-1 z-10 bg-black/70 text-white p-0.5 rounded-full border border-white/30"
                               >
                                 <X className="h-3 w-3" />
                               </button>
@@ -1384,7 +1429,11 @@ export default function Login() {
                                 setCommercialData({ ...commercialData, business_email: e.target.value })
                               }
                               placeholder="contato@seunegocio.com"
+                              className={commercialData.business_email && !isValidEmail(commercialData.business_email) ? "border-red-500" : ""}
                             />
+                            {commercialData.business_email && !isValidEmail(commercialData.business_email) && (
+                              <p className="text-xs text-red-500">Email inválido. Use o formato nome@dominio.com</p>
+                            )}
                           </div>
 
                           <div className="flex gap-2">
@@ -1399,6 +1448,7 @@ export default function Login() {
                             <Button
                               type="button"
                               className="rounded-full flex-1"
+                              disabled={!!(commercialData.business_email && !isValidEmail(commercialData.business_email))}
                               onClick={() => setCommercialWizardStep(3)}
                             >
                               Próximo
@@ -1430,7 +1480,11 @@ export default function Login() {
                                 setCommercialData({ ...commercialData, business_website: e.target.value })
                               }
                               placeholder="https://seu-site.com"
+                              className={commercialData.business_website && !isValidUrl(commercialData.business_website) ? "border-red-500" : ""}
                             />
+                            {commercialData.business_website && !isValidUrl(commercialData.business_website) && (
+                              <p className="text-xs text-red-500">URL inválida. Use o formato https://seu-site.com</p>
+                            )}
                           </div>
 
                           <div className="rounded-lg border border-border/40 bg-muted/20 p-3 text-xs text-muted-foreground">
@@ -1452,6 +1506,7 @@ export default function Login() {
                             <Button
                               type="button"
                               className="rounded-full flex-1"
+                              disabled={!!(commercialData.business_website && !isValidUrl(commercialData.business_website))}
                               onClick={handleCommercialDataComplete}
                             >
                               Concluir
@@ -1502,8 +1557,9 @@ export default function Login() {
                             inputMode="numeric"
                             min={1}
                             max={120}
+                            step={1}
                             value={age}
-                            onChange={(e) => setAge(e.target.value)}
+                            onChange={(e) => setAge(e.target.value.replace(/[^0-9]/g, ""))}
                             placeholder="Ex: 25"
                           />
                         </div>
@@ -1512,11 +1568,12 @@ export default function Login() {
                           <Input
                             id="signup_height"
                             type="number"
-                            inputMode="decimal"
+                            inputMode="numeric"
                             min={50}
                             max={300}
+                            step={1}
                             value={height}
-                            onChange={(e) => setHeight(e.target.value)}
+                            onChange={(e) => setHeight(e.target.value.replace(/[^0-9]/g, ""))}
                             placeholder="Ex: 175"
                           />
                         </div>

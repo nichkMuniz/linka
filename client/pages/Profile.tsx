@@ -43,6 +43,7 @@ import {
   getExpiredUserFlowsDb,
   getUserPostLikesDb,
   deleteAllUserDataDb,
+  updateUserPersonalDataDb,
   type UserProfile,
   type PostWithUser,
   type UserStats,
@@ -139,6 +140,7 @@ import {
   ChevronDown,
   Search,
   Share2,
+  User,
 } from "lucide-react";
 import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
@@ -160,7 +162,7 @@ export default function Profile() {
     title: string;
     description: string;
     onConfirm: () => void;
-  }>({ open: false, title: "", description: "", onConfirm: () => {} });
+  }>({ open: false, title: "", description: "", onConfirm: () => { } });
 
   const showConfirm = React.useCallback(
     (title: string, description: string, onConfirm: () => void) => {
@@ -277,6 +279,8 @@ export default function Profile() {
   // Edit form state
   const [editNickname, setEditNickname] = React.useState("");
   const [editBio, setEditBio] = React.useState("");
+  const [editHandle, setEditHandle] = React.useState("");
+  const [editObjectives, setEditObjectives] = React.useState<string[]>([]);
   const [editPhotoFile, setEditPhotoFile] = React.useState<File | null>(null);
   const [editPhotoPreview, setEditPhotoPreview] = React.useState<string | null>(
     null,
@@ -295,6 +299,8 @@ export default function Profile() {
     business_website: "",
   });
   const [isSavingCommercial, setIsSavingCommercial] = React.useState(false);
+  const [commercialLogoFile, setCommercialLogoFile] = React.useState<File | null>(null);
+  const [commercialLogoPreview, setCommercialLogoPreview] = React.useState<string | null>(null);
 
   // Delete account state (UI trigger not yet implemented)
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = React.useState(false);
@@ -329,6 +335,9 @@ export default function Profile() {
 
   // Personalization state
   const [isPersonalizationOpen, setIsPersonalizationOpen] = React.useState(false);
+  const [isPersonalDataOpen, setIsPersonalDataOpen] = React.useState(false);
+  const [personalDataForm, setPersonalDataForm] = React.useState({ gender: "", height: "", weight: "", age: "" });
+  const [isSavingPersonalData, setIsSavingPersonalData] = React.useState(false);
 
   const loadProfile = React.useCallback(async () => {
     if (!profileUserId) return;
@@ -351,6 +360,14 @@ export default function Profile() {
       setProfile(profileData);
       setStats(statsData);
       setPosts(postsData);
+      if (profileData) {
+        setPersonalDataForm({
+          gender: profileData.gender ?? "",
+          height: profileData.height ?? "",
+          weight: profileData.weight ?? "",
+          age: profileData.age ?? "",
+        });
+      }
       setLoading(false); // unblock UI as soon as critical data arrives
 
       // Batch 2 — below-the-fold tabs: load in background without blocking render
@@ -375,7 +392,7 @@ export default function Profile() {
       setUserWorkouts(userWorkoutsData);
       setUserDiets(userDietsData);
       setUserHabits(userHabitsData);
-      setUserGoals(userGoalsData);
+      setUserGoals(isViewingOtherProfile ? userGoalsData.filter((g) => g.visibility === 1) : userGoalsData);
       setShots(shotsData);
       setCommercialProfile(commercialProfileData);
       if (commercialProfileData) {
@@ -387,6 +404,7 @@ export default function Profile() {
           business_email: commercialProfileData.business_email || "",
           business_website: commercialProfileData.business_website || "",
         });
+        setCommercialLogoPreview(commercialProfileData.business_logo_url || null);
       }
 
       // Batch 3 — stories: fire-and-forget
@@ -713,6 +731,7 @@ export default function Profile() {
           business_email: profile.business_email || "",
           business_website: profile.business_website || "",
         });
+        setCommercialLogoPreview(profile.business_logo_url || null);
       }
     } catch (err: any) {
       console.error("Error loading commercial profile:", err);
@@ -729,7 +748,28 @@ export default function Profile() {
 
     setIsSavingCommercial(true);
     try {
-      const updated = await createOrUpdateCommercialProfileDb(user.id, commercialFormData);
+      // If preview was cleared, user wants to remove the logo
+      let logoUrl: string | null | undefined = commercialLogoPreview === null ? null : commercialProfile?.business_logo_url;
+
+      if (commercialLogoFile) {
+        const extension = commercialLogoFile.name.split(".").pop() || "jpg";
+        const filePath = `${user.id}/business-logo-${Date.now()}.${extension}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("posts")
+          .upload(filePath, commercialLogoFile, { contentType: commercialLogoFile.type });
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage.from("posts").getPublicUrl(filePath);
+        logoUrl = publicUrl;
+        setCommercialLogoFile(null);
+      }
+
+      const updated = await createOrUpdateCommercialProfileDb(user.id, {
+        ...commercialFormData,
+        business_logo_url: logoUrl,
+      });
       setCommercialProfile(updated);
 
       toast({
@@ -748,7 +788,7 @@ export default function Profile() {
     } finally {
       setIsSavingCommercial(false);
     }
-  }, [user, commercialFormData]);
+  }, [user, commercialFormData, commercialLogoFile, commercialProfile]);
 
   const handleDeleteCommercialProfile = React.useCallback(async () => {
     if (!user) return;
@@ -815,6 +855,8 @@ export default function Profile() {
     if (profile) {
       setEditNickname(profile.nickname);
       setEditBio(profile.bio);
+      setEditHandle(profile.handle ?? "");
+      setEditObjectives(profile.objectives ?? []);
       setEditPhotoPreview(profile.photo);
       setEditPhotoFile(null);
       setIsEditDialogOpen(true);
@@ -1010,6 +1052,8 @@ export default function Profile() {
         nickname: editNickname,
         bio: editBio,
         photo: photoUrl,
+        handle: editHandle.trim() || undefined,
+        objectives: editObjectives.length > 0 ? editObjectives : null,
       });
 
       if (updatedProfile) {
@@ -1370,308 +1414,356 @@ export default function Profile() {
           {/* Top row: Avatar and Info with Settings button for own profile */}
           <div className="flex flex-col gap-4">
             <div className="flex items-start justify-between gap-4">
-            <div className="flex gap-4 flex-1 min-w-0">
-              {/* Avatar */}
-              <div className="shrink-0 relative">
-                {profileStories.length > 0 ? (
-                  <button
-                    onClick={() => {
-                      setSelectedProfileStory(profileStories[0]);
-                      setIsStoryViewerOpen(true);
-                    }}
-                    className="rounded-full p-[3px] bg-brand-gradient ring-0 cursor-pointer hover:opacity-90 transition-opacity"
-                    title="Ver flow"
-                  >
-                    {profile.photo ? (
-                      <ImageWithFallback
-                        src={profile.photo}
-                        alt={profile.nickname}
-                        fallback="/placeholder.svg"
-                        className="h-20 w-20 rounded-full object-cover ring-2 ring-background"
-                      />
-                    ) : (
-                      <div className="h-20 w-20 rounded-full bg-muted ring-2 ring-background" />
-                    )}
-                  </button>
-                ) : profile.photo ? (
-                  <ImageWithFallback
-                    src={profile.photo}
-                    alt={profile.nickname}
-                    fallback="/placeholder.svg"
-                    className="h-20 w-20 rounded-full object-cover ring-2 ring-border/60"
-                  />
-                ) : (
-                  <div className="h-20 w-20 rounded-full bg-muted ring-2 ring-border/60" />
-                )}
-              </div>
-
-              {/* Info */}
-              <div className="space-y-2 flex-1 min-w-0">
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h1 className="text-xl font-semibold tracking-tight truncate">
-                      {profile.nickname}
-                    </h1>
-                    <UserInsignias userId={profileUserId || ""} showStreak />
-                  </div>
-
-                  {/* Level + Points badge */}
-                  {stats.points > 0 && (
-                    <div className="flex items-center gap-2 mt-1">
-                      {(() => {
-                        const tier =
-                          stats.points >= 1000
-                            ? { label: "Elite", icon: "💎", bg: "bg-cyan-500/20", text: "text-cyan-300", border: "border-cyan-500/40" }
-                            : stats.points >= 500
-                            ? { label: "Ouro", icon: "🥇", bg: "bg-yellow-500/20", text: "text-yellow-400", border: "border-yellow-500/40" }
-                            : stats.points >= 200
-                            ? { label: "Prata", icon: "🥈", bg: "bg-slate-400/20", text: "text-slate-300", border: "border-slate-400/40" }
-                            : { label: "Bronze", icon: "🥉", bg: "bg-orange-700/20", text: "text-orange-400", border: "border-orange-700/40" };
-                        return (
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${tier.bg} ${tier.text} ${tier.border}`}>
-                            {tier.icon} Nível {stats.level} · {tier.label}
-                          </span>
-                        );
-                      })()}
-                      <span className="text-xs text-muted-foreground">{stats.points} pts</span>
-                    </div>
+              <div className="flex gap-4 flex-1 min-w-0">
+                {/* Avatar */}
+                <div className="shrink-0 relative">
+                  {profileStories.length > 0 ? (
+                    <button
+                      onClick={() => {
+                        setSelectedProfileStory(profileStories[0]);
+                        setIsStoryViewerOpen(true);
+                      }}
+                      className="rounded-full p-[3px] bg-brand-gradient ring-0 cursor-pointer hover:opacity-90 transition-opacity"
+                      title="Ver flow"
+                    >
+                      {profile.photo ? (
+                        <ImageWithFallback
+                          src={profile.photo}
+                          alt={profile.nickname}
+                          fallback="/placeholder.svg"
+                          className="h-20 w-20 rounded-full object-cover ring-2 ring-background"
+                        />
+                      ) : (
+                        <div className="h-20 w-20 rounded-full bg-muted ring-2 ring-background" />
+                      )}
+                    </button>
+                  ) : profile.photo ? (
+                    <ImageWithFallback
+                      src={profile.photo}
+                      alt={profile.nickname}
+                      fallback="/placeholder.svg"
+                      className="h-20 w-20 rounded-full object-cover ring-2 ring-border/60"
+                    />
+                  ) : (
+                    <div className="h-20 w-20 rounded-full bg-muted ring-2 ring-border/60" />
                   )}
+                </div>
 
-                  {/* Stats Row - Horizontal inline */}
-                  <div className="flex gap-4 mt-2">
-                    <div className="flex flex-col items-center">
-                      <div className="text-base font-semibold">
-                        {stats.postsCount}
-                      </div>
-                      <div className="text-xs text-muted-foreground whitespace-nowrap">Posts</div>
+                {/* Info */}
+                <div className="space-y-2 flex-1 min-w-0">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h1 className="text-xl font-semibold tracking-tight truncate">
+                        {profile.nickname}
+                      </h1>
+                      <UserInsignias userId={profileUserId || ""} showStreak />
                     </div>
-                    <button
-                      onClick={() => setShowFollowersModal(true)}
-                      className="flex flex-col hover:opacity-80 transition-opacity items-center"
-                    >
-                      <div className="text-base font-semibold">
-                        {stats.followersCount}
+
+                    {/* Level + Points badge */}
+                    {stats.points > 0 && (
+                      <div className="flex items-center gap-2 mt-1">
+                        {(() => {
+                          const tier =
+                            stats.points >= 1000
+                              ? { label: "Elite", icon: "💎", bg: "bg-cyan-500/20", text: "text-cyan-300", border: "border-cyan-500/40" }
+                              : stats.points >= 500
+                                ? { label: "Ouro", icon: "🥇", bg: "bg-yellow-500/20", text: "text-yellow-400", border: "border-yellow-500/40" }
+                                : stats.points >= 200
+                                  ? { label: "Prata", icon: "🥈", bg: "bg-slate-400/20", text: "text-slate-300", border: "border-slate-400/40" }
+                                  : { label: "Bronze", icon: "🥉", bg: "bg-orange-700/20", text: "text-orange-400", border: "border-orange-700/40" };
+                          return (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${tier.bg} ${tier.text} ${tier.border}`}>
+                              {tier.icon} Nível {stats.level} · {tier.label}
+                            </span>
+                          );
+                        })()}
+                        <span className="text-xs text-muted-foreground">{stats.points} pts</span>
                       </div>
-                      <div className="text-xs text-muted-foreground whitespace-nowrap">
-                        Seguidores
+                    )}
+
+                    {/* Stats Row - Horizontal inline */}
+                    <div className="flex gap-4 mt-2">
+                      <div className="flex flex-col items-center">
+                        <div className="text-base font-semibold">
+                          {stats.postsCount}
+                        </div>
+                        <div className="text-xs text-muted-foreground whitespace-nowrap">Posts</div>
                       </div>
-                    </button>
-                    <button
-                      onClick={() => setShowFollowingModal(true)}
-                      className="flex flex-col hover:opacity-80 transition-opacity items-center"
-                    >
-                      <div className="text-base font-semibold">
-                        {stats.followingCount}
-                      </div>
-                      <div className="text-xs text-muted-foreground whitespace-nowrap">
-                        Seguindo
-                      </div>
-                    </button>
+                      <button
+                        onClick={() => setShowFollowersModal(true)}
+                        className="flex flex-col hover:opacity-80 transition-opacity items-center"
+                      >
+                        <div className="text-base font-semibold">
+                          {stats.followersCount}
+                        </div>
+                        <div className="text-xs text-muted-foreground whitespace-nowrap">
+                          Seguidores
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => setShowFollowingModal(true)}
+                        className="flex flex-col hover:opacity-80 transition-opacity items-center"
+                      >
+                        <div className="text-base font-semibold">
+                          {stats.followingCount}
+                        </div>
+                        <div className="text-xs text-muted-foreground whitespace-nowrap">
+                          Seguindo
+                        </div>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Settings Button - Only show for own profile */}
-            {!isViewingOtherProfile && (
-              <Drawer open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                <Button
-                  onClick={() => setIsSettingsOpen(true)}
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 rounded-full"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
+              {/* Settings Button - Only show for own profile */}
+              {!isViewingOtherProfile && (
+                <Drawer open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                  <Button
+                    onClick={() => setIsSettingsOpen(true)}
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 rounded-full"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </Button>
 
-                <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                  <DrawerHeader className="shrink-0">
-                    <DrawerTitle>Configurações</DrawerTitle>
-                  </DrawerHeader>
+                  <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+                    <DrawerHeader className="shrink-0">
+                      <DrawerTitle>Configurações</DrawerTitle>
+                    </DrawerHeader>
 
-                  <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4">
-                    <Drawer
-                      open={isEditDialogOpen}
-                      onOpenChange={setIsEditDialogOpen}
-                    >
-                      <Button
-                        onClick={openEditDialog}
-                        variant="outline"
-                        className="gap-2 justify-between"
+                    <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4">
+                      <Drawer
+                        open={isEditDialogOpen}
+                        onOpenChange={setIsEditDialogOpen}
                       >
-                        <span>Editar Perfil</span>
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
+                        <Button
+                          onClick={openEditDialog}
+                          variant="outline"
+                          className="gap-2 justify-between"
+                        >
+                          <span>Editar Perfil</span>
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
 
-                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                        <DrawerHeader className="shrink-0 flex items-center gap-2">
-                          <button onClick={() => setIsEditDialogOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                            <ArrowLeft className="h-5 w-5" />
-                          </button>
-                          <DrawerTitle>Editar Perfil</DrawerTitle>
-                        </DrawerHeader>
+                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+                          <DrawerHeader className="shrink-0 flex items-center gap-2">
+                            <button onClick={() => setIsEditDialogOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                              <ArrowLeft className="h-5 w-5" />
+                            </button>
+                            <DrawerTitle>Editar Perfil</DrawerTitle>
+                          </DrawerHeader>
 
-                        <div className="flex-1 overflow-y-auto px-4 pb-4">
-                          <div className="space-y-4">
-                          {/* Photo Preview and Upload */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">
-                              Foto do Perfil
-                            </label>
-                            <div className="flex items-center gap-4">
-                              <div className="h-16 w-16 rounded-full overflow-hidden bg-muted shrink-0">
-                                {editPhotoPreview ? (
-                                  <img
-                                    src={editPhotoPreview}
-                                    alt="preview"
-                                    className="h-full w-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="h-full w-full bg-muted" />
-                                )}
+                          <div className="flex-1 overflow-y-auto px-4 pb-4">
+                            <div className="space-y-4">
+                              {/* Photo Preview and Upload */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">
+                                  Foto do Perfil
+                                </label>
+                                <div className="flex items-center gap-4">
+                                  <div className="h-16 w-16 rounded-full overflow-hidden bg-muted shrink-0">
+                                    {editPhotoPreview ? (
+                                      <img
+                                        src={editPhotoPreview}
+                                        alt="preview"
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <div className="h-full w-full bg-muted" />
+                                    )}
+                                  </div>
+                                  <label className="flex-1">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      asChild
+                                    >
+                                      <span>
+                                        <Upload className="h-4 w-4 mr-2" />
+                                        Alterar foto
+                                      </span>
+                                    </Button>
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      onChange={handlePhotoChange}
+                                      className="hidden"
+                                    />
+                                  </label>
+                                </div>
                               </div>
-                              <label className="flex-1">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  asChild
-                                >
-                                  <span>
-                                    <Upload className="h-4 w-4 mr-2" />
-                                    Alterar foto
-                                  </span>
-                                </Button>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  onChange={handlePhotoChange}
-                                  className="hidden"
+
+                              {/* Nickname */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Nome</label>
+                                <Input
+                                  value={editNickname}
+                                  onChange={(e) => setEditNickname(e.target.value)}
+                                  placeholder="Seu nome"
                                 />
-                              </label>
+                              </div>
+
+                              {/* Bio */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Bio</label>
+                                <Textarea
+                                  value={editBio}
+                                  onChange={(e) => setEditBio(e.target.value)}
+                                  placeholder="Sua bio"
+                                  className="min-h-24"
+                                />
+                              </div>
+
+                              {/* Handle */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">@ Usuário</label>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-muted-foreground text-sm">@</span>
+                                  <Input
+                                    value={editHandle}
+                                    onChange={(e) => setEditHandle(e.target.value.replace(/[^a-zA-Z0-9_.]/g, ""))}
+                                    placeholder="seu_handle"
+                                  />
+                                </div>
+                                <p className="text-xs text-muted-foreground">Apenas letras, números, _ e .</p>
+                              </div>
+
+                              {/* Objectives */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Objetivos</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {[
+                                    { id: "fitness", label: "🏋️ Fitness & Musculação" },
+                                    { id: "cardio", label: "🏃 Cardio & Corrida" },
+                                    { id: "diets", label: "🥗 Dietas & Nutrição" },
+                                    { id: "habits", label: "🎯 Hábitos & Mindfulness" },
+                                    { id: "yoga", label: "🧘 Yoga & Flexibilidade" },
+                                    { id: "sports", label: "⚽ Esportes" },
+                                  ].map((obj) => {
+                                    const selected = editObjectives.includes(obj.id);
+                                    return (
+                                      <button
+                                        key={obj.id}
+                                        type="button"
+                                        onClick={() =>
+                                          setEditObjectives((prev) =>
+                                            selected ? prev.filter((o) => o !== obj.id) : [...prev, obj.id]
+                                          )
+                                        }
+                                        className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${selected
+                                          ? "bg-primary text-primary-foreground border-primary"
+                                          : "bg-muted border-border hover:bg-muted/80"
+                                          }`}
+                                      >
+                                        {obj.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Email */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Email</label>
+                                <Input
+                                  type="email"
+                                  value={user?.email || ""}
+                                  disabled
+                                  className="opacity-70"
+                                />
+                                <p className="text-xs text-muted-foreground">Email não pode ser alterado aqui</p>
+                              </div>
+
+                              {/* Password Reset Section */}
+                              <div className="border-t pt-4 space-y-2">
+                                <label className="text-sm font-medium">Redefinir Senha</label>
+                                <Button
+                                  onClick={async () => {
+                                    setIsResettingPassword(true);
+                                    try {
+                                      await supabase.auth.resetPasswordForEmail(user?.email || "", {
+                                        redirectTo: `${window.location.origin}/reset-password`,
+                                      });
+                                      toast({
+                                        title: "Email enviado",
+                                        description: "Verifique seu email para redefinir a senha",
+                                      });
+                                    } catch (error) {
+                                      toast({
+                                        title: "Erro",
+                                        description: "Falha ao enviar email de redefinição",
+                                        variant: "destructive",
+                                      });
+                                    } finally {
+                                      setIsResettingPassword(false);
+                                    }
+                                  }}
+                                  disabled={isResettingPassword}
+                                  variant="outline"
+                                  className="w-full rounded-full"
+                                >
+                                  {isResettingPassword ? "Enviando..." : "Redefinir Senha"}
+                                </Button>
+                                <p className="text-xs text-muted-foreground">Você receberá um link para redefinir sua senha</p>
+                              </div>
+
+                              {/* Restrição de Conta */}
+                              <div className="border-t pt-4">
+                                <Collapsible open={isDangerZoneOpen} onOpenChange={setIsDangerZoneOpen}>
+                                  <CollapsibleTrigger asChild>
+                                    <button className="flex items-center justify-between w-full text-left">
+                                      <h3 className="text-sm font-semibold">Restrição de Conta</h3>
+                                      <ChevronDown className={`h-4 w-4 transition-transform ${isDangerZoneOpen ? "rotate-180" : ""}`} />
+                                    </button>
+                                  </CollapsibleTrigger>
+                                  <CollapsibleContent className="pt-3 space-y-2">
+                                    <Button
+                                      onClick={() => {
+                                        setIsEditDialogOpen(false);
+                                        setIsDeleteAccountOpen(true);
+                                      }}
+                                      variant="destructive"
+                                      className="w-full rounded-full gap-2"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                      Encerrar Conta
+                                    </Button>
+                                    <p className="text-xs text-muted-foreground">Esta ação é permanente e não pode ser desfeita</p>
+                                  </CollapsibleContent>
+                                </Collapsible>
+                              </div>
+
+                              {/* Save Button */}
+                              <Button
+                                onClick={handleSaveProfile}
+                                disabled={isSaving}
+                                className="w-full rounded-full"
+                              >
+                                {isSaving ? "Salvando..." : "Salvar Alterações"}
+                              </Button>
                             </div>
                           </div>
+                        </DrawerContent>
+                      </Drawer>
 
-                          {/* Nickname */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Nome</label>
-                            <Input
-                              value={editNickname}
-                              onChange={(e) => setEditNickname(e.target.value)}
-                              placeholder="Seu nome"
-                            />
-                          </div>
+                      {commercialProfile && (
+                        <Button
+                          onClick={() => setIsCommercialDashboardOpen(true)}
+                          variant="outline"
+                          className="gap-2 justify-between"
+                        >
+                          <span>Gerenciar Perfil Comercial</span>
+                          <BarChart3 className="h-4 w-4" />
+                        </Button>
+                      )}
 
-                          {/* Bio */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Bio</label>
-                            <Textarea
-                              value={editBio}
-                              onChange={(e) => setEditBio(e.target.value)}
-                              placeholder="Sua bio"
-                              className="min-h-24"
-                            />
-                          </div>
-
-                          {/* Email */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Email</label>
-                            <Input
-                              type="email"
-                              value={user?.email || ""}
-                              disabled
-                              className="opacity-70"
-                            />
-                            <p className="text-xs text-muted-foreground">Email não pode ser alterado aqui</p>
-                          </div>
-
-                          {/* Password Reset Section */}
-                          <div className="border-t pt-4 space-y-2">
-                            <label className="text-sm font-medium">Redefinir Senha</label>
-                            <Button
-                              onClick={async () => {
-                                setIsResettingPassword(true);
-                                try {
-                                  await supabase.auth.resetPasswordForEmail(user?.email || "", {
-                                    redirectTo: `${window.location.origin}/reset-password`,
-                                  });
-                                  toast({
-                                    title: "Email enviado",
-                                    description: "Verifique seu email para redefinir a senha",
-                                  });
-                                } catch (error) {
-                                  toast({
-                                    title: "Erro",
-                                    description: "Falha ao enviar email de redefinição",
-                                    variant: "destructive",
-                                  });
-                                } finally {
-                                  setIsResettingPassword(false);
-                                }
-                              }}
-                              disabled={isResettingPassword}
-                              variant="outline"
-                              className="w-full rounded-full"
-                            >
-                              {isResettingPassword ? "Enviando..." : "Redefinir Senha"}
-                            </Button>
-                            <p className="text-xs text-muted-foreground">Você receberá um link para redefinir sua senha</p>
-                          </div>
-
-                          {/* Restrição de Conta */}
-                          <div className="border-t pt-4">
-                            <Collapsible open={isDangerZoneOpen} onOpenChange={setIsDangerZoneOpen}>
-                              <CollapsibleTrigger asChild>
-                                <button className="flex items-center justify-between w-full text-left">
-                                  <h3 className="text-sm font-semibold">Restrição de Conta</h3>
-                                  <ChevronDown className={`h-4 w-4 transition-transform ${isDangerZoneOpen ? "rotate-180" : ""}`} />
-                                </button>
-                              </CollapsibleTrigger>
-                              <CollapsibleContent className="pt-3 space-y-2">
-                                <Button
-                                  onClick={() => {
-                                    setIsEditDialogOpen(false);
-                                    setIsDeleteAccountOpen(true);
-                                  }}
-                                  variant="destructive"
-                                  className="w-full rounded-full gap-2"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                  Encerrar Conta
-                                </Button>
-                                <p className="text-xs text-muted-foreground">Esta ação é permanente e não pode ser desfeita</p>
-                              </CollapsibleContent>
-                            </Collapsible>
-                          </div>
-
-                          {/* Save Button */}
-                          <Button
-                            onClick={handleSaveProfile}
-                            disabled={isSaving}
-                            className="w-full rounded-full"
-                          >
-                            {isSaving ? "Salvando..." : "Salvar Alterações"}
-                          </Button>
-                          </div>
-                        </div>
-                      </DrawerContent>
-                    </Drawer>
-
-                    {commercialProfile && (
-                      <Button
-                        onClick={() => setIsCommercialDashboardOpen(true)}
-                        variant="outline"
-                        className="gap-2 justify-between"
+                      <Drawer
+                        open={isCommercialProfileOpen}
+                        onOpenChange={setIsCommercialProfileOpen}
                       >
-                        <span>Gerenciar Perfil Comercial</span>
-                        <BarChart3 className="h-4 w-4" />
-                      </Button>
-                    )}
-
-                    <Drawer
-                      open={isCommercialProfileOpen}
-                      onOpenChange={setIsCommercialProfileOpen}
-                    >
                         {!commercialProfile && (
                           <Button
                             onClick={handleOpenCommercialProfile}
@@ -1683,561 +1775,708 @@ export default function Profile() {
                           </Button>
                         )}
 
-                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                        <DrawerHeader className="shrink-0">
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => setIsCommercialProfileOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                              <ArrowLeft className="h-5 w-5" />
-                            </button>
-                            <DrawerTitle>Configurar Perfil Comercial</DrawerTitle>
-                          </div>
-                        </DrawerHeader>
-
-                        <div className="flex-1 overflow-y-auto px-4 pb-4">
-                          <div className="space-y-4">
-                          {/* Business Segment */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Segmento *</label>
-                            <Select
-                              value={commercialFormData.business_segment}
-                              onValueChange={(value) =>
-                                setCommercialFormData({
-                                  ...commercialFormData,
-                                  business_segment: value,
-                                })
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Selecione um segmento" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="academia">Academia / Fitness</SelectItem>
-                                <SelectItem value="personal_trainer">Personal Trainer</SelectItem>
-                                <SelectItem value="nutricao">Nutrição / Nutricionista</SelectItem>
-                                <SelectItem value="psicologia">Psicologia / Coaching</SelectItem>
-                                <SelectItem value="outros">Outros</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          {/* Business Name */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Nome da Loja / Negócio *</label>
-                            <Input
-                              value={commercialFormData.business_name}
-                              onChange={(e) =>
-                                setCommercialFormData({
-                                  ...commercialFormData,
-                                  business_name: e.target.value,
-                                })
-                              }
-                              placeholder="Ex: Academia Força Total"
-                            />
-                          </div>
-
-                          {/* Business Description */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Descrição</label>
-                            <Textarea
-                              value={commercialFormData.business_description}
-                              onChange={(e) =>
-                                setCommercialFormData({
-                                  ...commercialFormData,
-                                  business_description: e.target.value,
-                                })
-                              }
-                              placeholder="Descreva seu negócio..."
-                              className="min-h-24"
-                            />
-                          </div>
-
-                          {/* Business Phone */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Telefone</label>
-                            <Input
-                              type="tel"
-                              value={commercialFormData.business_phone}
-                              onChange={(e) =>
-                                setCommercialFormData({
-                                  ...commercialFormData,
-                                  business_phone: formatPhoneNumber(e.target.value),
-                                })
-                              }
-                              placeholder="(11) 99999-9999"
-                              maxLength={14}
-                            />
-                          </div>
-
-                          {/* Business Email */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Email</label>
-                            <Input
-                              type="email"
-                              value={commercialFormData.business_email}
-                              onChange={(e) =>
-                                setCommercialFormData({
-                                  ...commercialFormData,
-                                  business_email: e.target.value,
-                                })
-                              }
-                              placeholder="contato@negocio.com"
-                            />
-                          </div>
-
-                          {/* Business Website */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Site / Portfolio</label>
-                            <Input
-                              type="url"
-                              value={commercialFormData.business_website}
-                              onChange={(e) =>
-                                setCommercialFormData({
-                                  ...commercialFormData,
-                                  business_website: e.target.value,
-                                })
-                              }
-                              placeholder="https://seu-site.com"
-                            />
-                          </div>
-
-                          {/* Save Button */}
-                          <Button
-                            onClick={handleSaveCommercialProfile}
-                            disabled={isSavingCommercial || !commercialFormData.business_name}
-                            className="w-full rounded-full"
-                          >
-                            {isSavingCommercial ? "Salvando..." : "Salvar Perfil Comercial"}
-                          </Button>
-                          </div>
-                        </div>
-                      </DrawerContent>
-                    </Drawer>
-
-                    {/* Languages Drawer */}
-                    <Drawer
-                      open={isLanguageOpen}
-                      onOpenChange={setIsLanguageOpen}
-                    >
-                      <Button
-                        onClick={() => setIsLanguageOpen(true)}
-                        variant="outline"
-                        className="gap-2 justify-between"
-                      >
-                        <span>Idioma</span>
-                        <Globe className="h-4 w-4" />
-                      </Button>
-
-                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                        <DrawerHeader className="shrink-0">
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => setIsLanguageOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                              <ArrowLeft className="h-5 w-5" />
-                            </button>
-                            <DrawerTitle>Selecione o Idioma</DrawerTitle>
-                          </div>
-                        </DrawerHeader>
-
-                        <div className="flex-1 overflow-y-auto px-4 pb-4">
-                          <div className="space-y-2">
-                          {(["pt", "en"] as const).map((lang) => (
-                            <button
-                              key={lang}
-                              onClick={() => {
-                                setCurrentLanguage(lang);
-                                setIsLanguageOpen(false);
-                              }}
-                              className={`w-full p-3 rounded-lg border text-left transition-colors ${
-                                currentLanguage === lang
-                                  ? "border-brand bg-brand/10"
-                                  : "border-border hover:border-brand/50"
-                              }`}
-                            >
-                              <div className="font-medium">
-                                {lang === "pt" ? "Português (Brasil)" : "English"}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {lang === "pt" ? "pt-BR" : "en-US"}
-                              </div>
-                            </button>
-                          ))}
-                          </div>
-                        </div>
-                      </DrawerContent>
-                    </Drawer>
-
-                    {/* Notifications Drawer */}
-                    <Drawer
-                      open={isNotificationsOpen}
-                      onOpenChange={setIsNotificationsOpen}
-                    >
-                      <Button
-                        onClick={() => setIsNotificationsOpen(true)}
-                        variant="outline"
-                        className="gap-2 justify-between"
-                      >
-                        <span>Notificações</span>
-                        <Bell className="h-4 w-4" />
-                      </Button>
-
-                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                        <DrawerHeader className="shrink-0">
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => setIsNotificationsOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                              <ArrowLeft className="h-5 w-5" />
-                            </button>
-                            <DrawerTitle>Configurar Notificações</DrawerTitle>
-                          </div>
-                        </DrawerHeader>
-
-                        <div className="flex-1 overflow-y-auto px-4 pb-4">
-                          <div className="space-y-3">
-                          <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
-                            <div>
-                              <div className="text-sm font-medium">Lembretes de Treino</div>
-                              <div className="text-xs text-muted-foreground">Notificações sobre seus treinos</div>
-                            </div>
-                            <button
-                              onClick={() => setNotifications({...notifications, workoutReminders: !notifications.workoutReminders})}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                notifications.workoutReminders ? "bg-brand" : "bg-muted"
-                              }`}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                  notifications.workoutReminders ? "translate-x-6" : "translate-x-1"
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
-                            <div>
-                              <div className="text-sm font-medium">Alertas de Conquistas</div>
-                              <div className="text-xs text-muted-foreground">Notificações sobre suas metas atingidas</div>
-                            </div>
-                            <button
-                              onClick={() => setNotifications({...notifications, achievementAlerts: !notifications.achievementAlerts})}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                notifications.achievementAlerts ? "bg-brand" : "bg-muted"
-                              }`}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                  notifications.achievementAlerts ? "translate-x-6" : "translate-x-1"
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
-                            <div>
-                              <div className="text-sm font-medium">Atividade de Amigos</div>
-                              <div className="text-xs text-muted-foreground">Atividades de pessoas que você segue</div>
-                            </div>
-                            <button
-                              onClick={() => setNotifications({...notifications, friendActivity: !notifications.friendActivity})}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                notifications.friendActivity ? "bg-brand" : "bg-muted"
-                              }`}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                  notifications.friendActivity ? "translate-x-6" : "translate-x-1"
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
-                            <div>
-                              <div className="text-sm font-medium">Mensagens</div>
-                              <div className="text-xs text-muted-foreground">Notificações de mensagens diretas</div>
-                            </div>
-                            <button
-                              onClick={() => setNotifications({...notifications, messages: !notifications.messages})}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                notifications.messages ? "bg-brand" : "bg-muted"
-                              }`}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                  notifications.messages ? "translate-x-6" : "translate-x-1"
-                                }`}
-                              />
-                            </button>
-                          </div>
-
-                          <div className="border-t pt-4 mt-4">
-                            <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
-                              <div>
-                                <div className="text-sm font-medium">Sons</div>
-                                <div className="text-xs text-muted-foreground">Ativar som das notificações</div>
-                              </div>
-                              <button
-                                onClick={() => setNotifications({...notifications, sound: !notifications.sound})}
-                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                  notifications.sound ? "bg-brand" : "bg-muted"
-                                }`}
-                              >
-                                <span
-                                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                    notifications.sound ? "translate-x-6" : "translate-x-1"
-                                  }`}
-                                />
+                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+                          <DrawerHeader className="shrink-0">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setIsCommercialProfileOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                                <ArrowLeft className="h-5 w-5" />
                               </button>
+                              <DrawerTitle>Configurar Perfil Comercial</DrawerTitle>
                             </div>
-                          </div>
-                          </div>
-                        </div>
-                      </DrawerContent>
-                    </Drawer>
+                          </DrawerHeader>
 
-                    {/* Time Management Drawer */}
-                    <Drawer
-                      open={isTimeManagementOpen}
-                      onOpenChange={setIsTimeManagementOpen}
-                    >
-                      <Button
-                        onClick={() => setIsTimeManagementOpen(true)}
-                        variant="outline"
-                        className="gap-2 justify-between"
-                      >
-                        <span>Gerenciamento de Tempo</span>
-                        <BarChart3 className="h-4 w-4" />
-                      </Button>
-
-                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                        <DrawerHeader className="shrink-0">
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => setIsTimeManagementOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                              <ArrowLeft className="h-5 w-5" />
-                            </button>
-                            <DrawerTitle>Gerenciamento de Tempo</DrawerTitle>
-                          </div>
-                        </DrawerHeader>
-
-                        <div className="flex-1 overflow-y-auto px-4 pb-4">
-                          <div className="space-y-4">
-                          {/* Usage Chart */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Uso nos Últimos 7 Dias</label>
-                            <div className="p-4 rounded-lg border border-border/50 bg-muted/20">
-                              {usageDataLast7Days.length > 0 ? (
-                                <div className="flex items-end justify-between gap-2 h-32">
-                                  {usageDataLast7Days.map((data, idx) => {
-                                    const maxMinutes = Math.max(...usageDataLast7Days.map(d => d.minutes));
-                                    const heightPercent = (data.minutes / maxMinutes) * 100;
-                                    return (
-                                      <div key={idx} className="flex flex-col items-center gap-1 flex-1">
-                                        <div className="w-full bg-brand rounded-t" style={{height: `${heightPercent}%`}} />
-                                        <div className="text-xs text-muted-foreground">{data.day}</div>
-                                        <div className="text-xs font-semibold">{data.minutes}m</div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <p className="text-xs text-muted-foreground text-center py-6">Histórico de uso não disponível</p>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Daily Limit */}
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium">Limite Diário de Uso</label>
-                            <div className="flex gap-2">
-                              <Input
-                                type="number"
-                                min="0"
-                                value={dailyUsageLimit}
-                                onChange={(e) => setDailyUsageLimit(parseInt(e.target.value) || 0)}
-                                placeholder="Minutos por dia (0 = sem limite)"
-                                className="flex-1"
-                              />
-                              <span className="text-sm text-muted-foreground py-2">min</span>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {dailyUsageLimit === 0 ? "Sem limite estabelecido" : `Você poderá usar ${dailyUsageLimit} minutos por dia`}
-                            </p>
-                          </div>
-
-                          <Button
-                            onClick={() => {
-                              if (dailyUsageLimit > 0) {
-                                localStorage.setItem("ritmofit_daily_limit_minutes", String(dailyUsageLimit));
-                                localStorage.setItem("ritmofit_daily_limit_date", new Date().toDateString());
-                              } else {
-                                localStorage.removeItem("ritmofit_daily_limit_minutes");
-                                localStorage.removeItem("ritmofit_daily_limit_date");
-                              }
-                              toast({
-                                title: "Limite salvo",
-                                description: dailyUsageLimit > 0 ? `Limite de ${dailyUsageLimit} min/dia ativado` : "Limite removido",
-                              });
-                              setIsTimeManagementOpen(false);
-                            }}
-                            className="w-full rounded-full"
-                          >
-                            Salvar Limite
-                          </Button>
-                          </div>
-                        </div>
-                      </DrawerContent>
-                    </Drawer>
-
-                    {/* Personalization Drawer */}
-                    <Drawer
-                      open={isPersonalizationOpen}
-                      onOpenChange={setIsPersonalizationOpen}
-                    >
-                      <Button
-                        onClick={() => setIsPersonalizationOpen(true)}
-                        variant="outline"
-                        className="gap-2 justify-between"
-                      >
-                        <span>Personalização</span>
-                        <span>🎨</span>
-                      </Button>
-
-                      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                        <DrawerHeader className="shrink-0">
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => setIsPersonalizationOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                              <ArrowLeft className="h-5 w-5" />
-                            </button>
-                            <DrawerTitle>Personalização</DrawerTitle>
-                          </div>
-                        </DrawerHeader>
-
-                        <div className="flex-1 overflow-y-auto px-4 pb-4">
-                          <div className="space-y-2">
-                          <Button
-                            onClick={() => {
-                              toggleLayoutMode();
-                              window.location.reload();
-                            }}
-                            variant="outline"
-                            className="w-full rounded-full gap-2"
-                          >
-                            <span>📐</span>
-                            {layoutMode === "novo" ? "Layout Antigo" : "Novo Layout"}
-                          </Button>
-
-                          <Button
-                            onClick={() => setTheme(isDark ? "light" : "dark")}
-                            variant="outline"
-                            className="w-full rounded-full gap-2"
-                          >
-                            {isDark ? (
-                              <Sun className="h-4 w-4" />
-                            ) : (
-                              <Moon className="h-4 w-4" />
-                            )}
-                            {isDark ? "Modo Claro" : "Modo Noturno"}
-                          </Button>
-                          </div>
-                        </div>
-                      </DrawerContent>
-                    </Drawer>
-
-                    {/* Flow History Drawer */}
-                    <Drawer
-                      open={isFlowHistoryOpen}
-                      onOpenChange={setIsFlowHistoryOpen}
-                    >
-                      <Button
-                        onClick={async () => {
-                          setIsFlowHistoryOpen(true);
-                          setIsLoadingFlowHistory(true);
-                          try {
-                            const flows = await getExpiredUserFlowsDb();
-                            setExpiredFlows(flows);
-                          } catch (err) {
-                            console.error("Error loading flow history:", err);
-                          } finally {
-                            setIsLoadingFlowHistory(false);
-                          }
-                        }}
-                        variant="outline"
-                        className="gap-2 justify-between"
-                      >
-                        <span>Arquivo de Flows</span>
-                        <span>🕐</span>
-                      </Button>
-
-                      <DrawerContent className="max-h-[85dvh] flex flex-col modal-enter">
-                        <DrawerHeader className="shrink-0">
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => setIsFlowHistoryOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                              <ArrowLeft className="h-5 w-5" />
-                            </button>
-                            <DrawerTitle>Arquivo de Flows</DrawerTitle>
-                          </div>
-                        </DrawerHeader>
-
-                        <div className="flex-1 overflow-y-auto px-4 pb-4">
-                          {isLoadingFlowHistory ? (
-                            <div className="flex justify-center py-8">
-                              <LoadingSpinner />
-                            </div>
-                          ) : expiredFlows.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
-                              <span className="text-4xl">📂</span>
-                              <p className="text-sm text-muted-foreground">Nenhum flow arquivado ainda</p>
-                              <p className="text-xs text-muted-foreground">Os flows expirados (mais de 24h) aparecem aqui</p>
-                            </div>
-                          ) : (
-                            <div className="grid grid-cols-3 gap-1">
-                              {expiredFlows.map((flow) => (
-                                <div
-                                  key={flow.id}
-                                  className="relative aspect-[9/16] rounded-lg overflow-hidden bg-muted border border-border/40"
+                          <div className="flex-1 overflow-y-auto px-4 pb-4">
+                            <div className="space-y-4">
+                              {/* Business Segment */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Segmento *</label>
+                                <Select
+                                  value={commercialFormData.business_segment}
+                                  onValueChange={(value) =>
+                                    setCommercialFormData({
+                                      ...commercialFormData,
+                                      business_segment: value,
+                                    })
+                                  }
                                 >
-                                  {flow.media_url ? (
-                                    flow.media_url.includes(".mp4") || flow.media_url.includes(".mov") || flow.media_url.includes(".webm") ? (
-                                      <video
-                                        src={flow.media_url}
-                                        className="w-full h-full object-cover"
-                                        muted
-                                        playsInline
-                                      />
-                                    ) : (
-                                      <img
-                                        src={flow.media_url}
-                                        alt="flow"
-                                        className="w-full h-full object-cover"
-                                      />
-                                    )
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Selecione um segmento" />
+                                  </SelectTrigger>
+                                  <SelectContent position="popper" className="z-[200]">
+                                    <SelectItem value="academia">Academia / Fitness</SelectItem>
+                                    <SelectItem value="personal_trainer">Personal Trainer</SelectItem>
+                                    <SelectItem value="nutricao">Nutrição / Nutricionista</SelectItem>
+                                    <SelectItem value="psicologia">Psicologia / Coaching</SelectItem>
+                                    <SelectItem value="outros">Outros</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              {/* Business Name */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Nome da Loja / Negócio *</label>
+                                <Input
+                                  value={commercialFormData.business_name}
+                                  onChange={(e) =>
+                                    setCommercialFormData({
+                                      ...commercialFormData,
+                                      business_name: e.target.value,
+                                    })
+                                  }
+                                  placeholder="Ex: Academia Força Total"
+                                />
+                              </div>
+
+                              {/* Business Description */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Descrição</label>
+                                <Textarea
+                                  value={commercialFormData.business_description}
+                                  onChange={(e) =>
+                                    setCommercialFormData({
+                                      ...commercialFormData,
+                                      business_description: e.target.value,
+                                    })
+                                  }
+                                  placeholder="Descreva seu negócio..."
+                                  className="min-h-24"
+                                />
+                              </div>
+
+                              {/* Business Phone */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Telefone</label>
+                                <Input
+                                  type="tel"
+                                  value={commercialFormData.business_phone}
+                                  onChange={(e) =>
+                                    setCommercialFormData({
+                                      ...commercialFormData,
+                                      business_phone: formatPhoneNumber(e.target.value),
+                                    })
+                                  }
+                                  placeholder="(11) 99999-9999"
+                                  maxLength={15}
+                                />
+                              </div>
+
+                              {/* Business Email */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Email</label>
+                                <Input
+                                  type="email"
+                                  value={commercialFormData.business_email}
+                                  onChange={(e) =>
+                                    setCommercialFormData({
+                                      ...commercialFormData,
+                                      business_email: e.target.value,
+                                    })
+                                  }
+                                  placeholder="contato@negocio.com"
+                                />
+                              </div>
+
+                              {/* Business Website */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Site / Portfolio</label>
+                                <Input
+                                  type="url"
+                                  value={commercialFormData.business_website}
+                                  onChange={(e) =>
+                                    setCommercialFormData({
+                                      ...commercialFormData,
+                                      business_website: e.target.value,
+                                    })
+                                  }
+                                  placeholder="https://seu-site.com"
+                                />
+                              </div>
+
+                              {/* Business Logo */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Logo do Negócio</label>
+                                <div className="flex items-center gap-3">
+                                  {commercialLogoPreview ? (
+                                    <img
+                                      src={commercialLogoPreview}
+                                      alt="Logo"
+                                      className="h-20 w-20 rounded-lg object-cover border border-border"
+                                    />
                                   ) : (
-                                    <div className="w-full h-full flex items-center justify-center bg-muted/50">
-                                      <span className="text-2xl">🌊</span>
+                                    <div className="h-16 w-16 rounded-lg border border-dashed border-border flex items-center justify-center bg-muted text-muted-foreground text-xs text-center">
+                                      Sem logo
                                     </div>
                                   )}
-                                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1.5">
-                                    <p className="text-[10px] text-white/80 truncate">
-                                      {new Date(flow.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
-                                    </p>
-                                  </div>
+                                  <label className="cursor-pointer">
+                                    <span className="inline-flex items-center gap-1 text-sm text-brand font-medium hover:underline">
+                                      {commercialLogoPreview ? "Alterar logo" : "Adicionar logo"}
+                                    </span>
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      className="hidden"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+                                        setCommercialLogoFile(file);
+                                        setCommercialLogoPreview(URL.createObjectURL(file));
+                                      }}
+                                    />
+                                  </label>
+                                  {commercialLogoPreview && (
+                                    <button
+                                      type="button"
+                                      className="text-xs text-destructive hover:underline"
+                                      onClick={() => {
+                                        setCommercialLogoFile(null);
+                                        setCommercialLogoPreview(null);
+                                      }}
+                                    >
+                                      Remover
+                                    </button>
+                                  )}
                                 </div>
+                              </div>
+
+                              {/* Save Button */}
+                              <Button
+                                onClick={handleSaveCommercialProfile}
+                                disabled={isSavingCommercial || !commercialFormData.business_name}
+                                className="w-full rounded-full"
+                              >
+                                {isSavingCommercial ? "Salvando..." : "Salvar Perfil Comercial"}
+                              </Button>
+                            </div>
+                          </div>
+                        </DrawerContent>
+                      </Drawer>
+
+                      {/* Languages Drawer */}
+                      <Drawer
+                        open={isLanguageOpen}
+                        onOpenChange={setIsLanguageOpen}
+                      >
+                        <Button
+                          onClick={() => setIsLanguageOpen(true)}
+                          variant="outline"
+                          className="gap-2 justify-between"
+                        >
+                          <span>Idioma</span>
+                          <Globe className="h-4 w-4" />
+                        </Button>
+
+                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+                          <DrawerHeader className="shrink-0">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setIsLanguageOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                                <ArrowLeft className="h-5 w-5" />
+                              </button>
+                              <DrawerTitle>Selecione o Idioma</DrawerTitle>
+                            </div>
+                          </DrawerHeader>
+
+                          <div className="flex-1 overflow-y-auto px-4 pb-4">
+                            <div className="space-y-2">
+                              {(["pt", "en"] as const).map((lang) => (
+                                <button
+                                  key={lang}
+                                  onClick={() => {
+                                    setCurrentLanguage(lang);
+                                    setIsLanguageOpen(false);
+                                  }}
+                                  className={`w-full p-3 rounded-lg border text-left transition-colors ${currentLanguage === lang
+                                    ? "border-brand bg-brand/10"
+                                    : "border-border hover:border-brand/50"
+                                    }`}
+                                >
+                                  <div className="font-medium">
+                                    {lang === "pt" ? "Português (Brasil)" : "English"}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {lang === "pt" ? "pt-BR" : "en-US"}
+                                  </div>
+                                </button>
                               ))}
                             </div>
-                          )}
-                        </div>
-                      </DrawerContent>
-                    </Drawer>
+                          </div>
+                        </DrawerContent>
+                      </Drawer>
 
-                    <Button
-                      onClick={handleLogout}
-                      variant="destructive"
-                      className="gap-2"
-                    >
-                      <LogOut className="h-4 w-4" />
-                      Desconectar
-                    </Button>
-                  </div>
-                </DrawerContent>
-              </Drawer>
-            )}
+                      {/* Notifications Drawer */}
+                      <Drawer
+                        open={isNotificationsOpen}
+                        onOpenChange={setIsNotificationsOpen}
+                      >
+                        <Button
+                          onClick={() => setIsNotificationsOpen(true)}
+                          variant="outline"
+                          className="gap-2 justify-between"
+                        >
+                          <span>Notificações</span>
+                          <Bell className="h-4 w-4" />
+                        </Button>
+
+                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+                          <DrawerHeader className="shrink-0">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setIsNotificationsOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                                <ArrowLeft className="h-5 w-5" />
+                              </button>
+                              <DrawerTitle>Configurar Notificações</DrawerTitle>
+                            </div>
+                          </DrawerHeader>
+
+                          <div className="flex-1 overflow-y-auto px-4 pb-4">
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                                <div>
+                                  <div className="text-sm font-medium">Lembretes de Treino</div>
+                                  <div className="text-xs text-muted-foreground">Notificações sobre seus treinos</div>
+                                </div>
+                                <button
+                                  onClick={() => setNotifications({ ...notifications, workoutReminders: !notifications.workoutReminders })}
+                                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.workoutReminders ? "bg-brand" : "bg-muted"
+                                    }`}
+                                >
+                                  <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.workoutReminders ? "translate-x-6" : "translate-x-1"
+                                      }`}
+                                  />
+                                </button>
+                              </div>
+
+                              <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                                <div>
+                                  <div className="text-sm font-medium">Alertas de Conquistas</div>
+                                  <div className="text-xs text-muted-foreground">Notificações sobre suas metas atingidas</div>
+                                </div>
+                                <button
+                                  onClick={() => setNotifications({ ...notifications, achievementAlerts: !notifications.achievementAlerts })}
+                                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.achievementAlerts ? "bg-brand" : "bg-muted"
+                                    }`}
+                                >
+                                  <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.achievementAlerts ? "translate-x-6" : "translate-x-1"
+                                      }`}
+                                  />
+                                </button>
+                              </div>
+
+                              <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                                <div>
+                                  <div className="text-sm font-medium">Atividade de Amigos</div>
+                                  <div className="text-xs text-muted-foreground">Atividades de pessoas que você segue</div>
+                                </div>
+                                <button
+                                  onClick={() => setNotifications({ ...notifications, friendActivity: !notifications.friendActivity })}
+                                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.friendActivity ? "bg-brand" : "bg-muted"
+                                    }`}
+                                >
+                                  <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.friendActivity ? "translate-x-6" : "translate-x-1"
+                                      }`}
+                                  />
+                                </button>
+                              </div>
+
+                              <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                                <div>
+                                  <div className="text-sm font-medium">Mensagens</div>
+                                  <div className="text-xs text-muted-foreground">Notificações de mensagens diretas</div>
+                                </div>
+                                <button
+                                  onClick={() => setNotifications({ ...notifications, messages: !notifications.messages })}
+                                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.messages ? "bg-brand" : "bg-muted"
+                                    }`}
+                                >
+                                  <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.messages ? "translate-x-6" : "translate-x-1"
+                                      }`}
+                                  />
+                                </button>
+                              </div>
+
+                              <div className="border-t pt-4 mt-4">
+                                <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                                  <div>
+                                    <div className="text-sm font-medium">Sons</div>
+                                    <div className="text-xs text-muted-foreground">Ativar som das notificações</div>
+                                  </div>
+                                  <button
+                                    onClick={() => setNotifications({ ...notifications, sound: !notifications.sound })}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.sound ? "bg-brand" : "bg-muted"
+                                      }`}
+                                  >
+                                    <span
+                                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.sound ? "translate-x-6" : "translate-x-1"
+                                        }`}
+                                    />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </DrawerContent>
+                      </Drawer>
+
+                      {/* Time Management Drawer */}
+                      <Drawer
+                        open={isTimeManagementOpen}
+                        onOpenChange={setIsTimeManagementOpen}
+                      >
+                        <Button
+                          onClick={() => setIsTimeManagementOpen(true)}
+                          variant="outline"
+                          className="gap-2 justify-between"
+                        >
+                          <span>Gerenciamento de Tempo</span>
+                          <BarChart3 className="h-4 w-4" />
+                        </Button>
+
+                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+                          <DrawerHeader className="shrink-0">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setIsTimeManagementOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                                <ArrowLeft className="h-5 w-5" />
+                              </button>
+                              <DrawerTitle>Gerenciamento de Tempo</DrawerTitle>
+                            </div>
+                          </DrawerHeader>
+
+                          <div className="flex-1 overflow-y-auto px-4 pb-4">
+                            <div className="space-y-4">
+                              {/* Usage Chart */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Uso nos Últimos 7 Dias</label>
+                                <div className="p-4 rounded-lg border border-border/50 bg-muted/20">
+                                  {usageDataLast7Days.length > 0 ? (
+                                    <div className="flex items-end justify-between gap-2 h-32">
+                                      {usageDataLast7Days.map((data, idx) => {
+                                        const maxMinutes = Math.max(...usageDataLast7Days.map(d => d.minutes));
+                                        const heightPercent = (data.minutes / maxMinutes) * 100;
+                                        return (
+                                          <div key={idx} className="flex flex-col items-center gap-1 flex-1">
+                                            <div className="w-full bg-brand rounded-t" style={{ height: `${heightPercent}%` }} />
+                                            <div className="text-xs text-muted-foreground">{data.day}</div>
+                                            <div className="text-xs font-semibold">{data.minutes}m</div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground text-center py-6">Histórico de uso não disponível</p>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Daily Limit */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Limite Diário de Uso</label>
+                                <div className="flex gap-2">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={dailyUsageLimit}
+                                    onChange={(e) => setDailyUsageLimit(parseInt(e.target.value) || 0)}
+                                    placeholder="Minutos por dia (0 = sem limite)"
+                                    className="flex-1"
+                                  />
+                                  <span className="text-sm text-muted-foreground py-2">min</span>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {dailyUsageLimit === 0 ? "Sem limite estabelecido" : `Você poderá usar ${dailyUsageLimit} minutos por dia`}
+                                </p>
+                              </div>
+
+                              <Button
+                                onClick={() => {
+                                  if (dailyUsageLimit > 0) {
+                                    localStorage.setItem("ritmofit_daily_limit_minutes", String(dailyUsageLimit));
+                                    localStorage.setItem("ritmofit_daily_limit_date", new Date().toDateString());
+                                  } else {
+                                    localStorage.removeItem("ritmofit_daily_limit_minutes");
+                                    localStorage.removeItem("ritmofit_daily_limit_date");
+                                  }
+                                  toast({
+                                    title: "Limite salvo",
+                                    description: dailyUsageLimit > 0 ? `Limite de ${dailyUsageLimit} min/dia ativado` : "Limite removido",
+                                  });
+                                  setIsTimeManagementOpen(false);
+                                }}
+                                className="w-full rounded-full"
+                              >
+                                Salvar Limite
+                              </Button>
+                            </div>
+                          </div>
+                        </DrawerContent>
+                      </Drawer>
+
+                      {/* Personalization Drawer */}
+                      <Drawer
+                        open={isPersonalizationOpen}
+                        onOpenChange={setIsPersonalizationOpen}
+                      >
+                        <Button
+                          onClick={() => setIsPersonalizationOpen(true)}
+                          variant="outline"
+                          className="gap-2 justify-between"
+                        >
+                          <span>Personalização</span>
+                          <span>🎨</span>
+                        </Button>
+
+                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+                          <DrawerHeader className="shrink-0">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setIsPersonalizationOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                                <ArrowLeft className="h-5 w-5" />
+                              </button>
+                              <DrawerTitle>Personalização</DrawerTitle>
+                            </div>
+                          </DrawerHeader>
+
+                          <div className="flex-1 overflow-y-auto px-4 pb-4">
+                            <div className="space-y-2">
+                              <Button
+                                onClick={() => {
+                                  toggleLayoutMode();
+                                  window.location.reload();
+                                }}
+                                variant="outline"
+                                className="w-full rounded-full gap-2"
+                              >
+                                <span>📐</span>
+                                {layoutMode === "novo" ? "Layout Antigo" : "Novo Layout"}
+                              </Button>
+
+                              <Button
+                                onClick={() => setTheme(isDark ? "light" : "dark")}
+                                variant="outline"
+                                className="w-full rounded-full gap-2"
+                              >
+                                {isDark ? (
+                                  <Sun className="h-4 w-4" />
+                                ) : (
+                                  <Moon className="h-4 w-4" />
+                                )}
+                                {isDark ? "Modo Claro" : "Modo Noturno"}
+                              </Button>
+                            </div>
+                          </div>
+                        </DrawerContent>
+                      </Drawer>
+
+                      {/* Flow History Drawer */}
+                      <Drawer
+                        open={isFlowHistoryOpen}
+                        onOpenChange={setIsFlowHistoryOpen}
+                      >
+                        <Button
+                          onClick={async () => {
+                            setIsFlowHistoryOpen(true);
+                            setIsLoadingFlowHistory(true);
+                            try {
+                              const flows = await getExpiredUserFlowsDb();
+                              setExpiredFlows(flows);
+                            } catch (err) {
+                              console.error("Error loading flow history:", err);
+                            } finally {
+                              setIsLoadingFlowHistory(false);
+                            }
+                          }}
+                          variant="outline"
+                          className="gap-2 justify-between"
+                        >
+                          <span>Arquivo de Flows</span>
+                          <span>🕐</span>
+                        </Button>
+
+                        <DrawerContent className="max-h-[85dvh] flex flex-col modal-enter">
+                          <DrawerHeader className="shrink-0">
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setIsFlowHistoryOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                                <ArrowLeft className="h-5 w-5" />
+                              </button>
+                              <DrawerTitle>Arquivo de Flows</DrawerTitle>
+                            </div>
+                          </DrawerHeader>
+
+                          <div className="flex-1 overflow-y-auto px-4 pb-4">
+                            {isLoadingFlowHistory ? (
+                              <div className="flex justify-center py-8">
+                                <LoadingSpinner />
+                              </div>
+                            ) : expiredFlows.length === 0 ? (
+                              <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
+                                <span className="text-4xl">📂</span>
+                                <p className="text-sm text-muted-foreground">Nenhum flow arquivado ainda</p>
+                                <p className="text-xs text-muted-foreground">Os flows expirados (mais de 24h) aparecem aqui</p>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-3 gap-1">
+                                {expiredFlows.map((flow) => (
+                                  <div
+                                    key={flow.id}
+                                    className="relative aspect-[9/16] rounded-lg overflow-hidden bg-muted border border-border/40"
+                                  >
+                                    {flow.media_url ? (
+                                      flow.media_url.includes(".mp4") || flow.media_url.includes(".mov") || flow.media_url.includes(".webm") ? (
+                                        <video
+                                          src={flow.media_url}
+                                          className="w-full h-full object-cover"
+                                          muted
+                                          playsInline
+                                        />
+                                      ) : (
+                                        <img
+                                          src={flow.media_url}
+                                          alt="flow"
+                                          className="w-full h-full object-cover"
+                                        />
+                                      )
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center bg-muted/50">
+                                        <span className="text-2xl">🌊</span>
+                                      </div>
+                                    )}
+                                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1.5">
+                                      <p className="text-[10px] text-white/80 truncate">
+                                        {new Date(flow.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </DrawerContent>
+                      </Drawer>
+
+                      <Drawer open={isPersonalDataOpen} onOpenChange={setIsPersonalDataOpen}>
+                        <Button
+                          onClick={() => setIsPersonalDataOpen(true)}
+                          variant="outline"
+                          className="gap-2 justify-between"
+                        >
+                          <span>Meus Dados</span>
+                          <User className="h-4 w-4" />
+                        </Button>
+
+                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+                          <DrawerHeader className="shrink-0 flex items-center gap-2">
+                            <button onClick={() => setIsPersonalDataOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+                              <ArrowLeft className="h-5 w-5" />
+                            </button>
+                            <DrawerTitle>Meus Dados</DrawerTitle>
+                          </DrawerHeader>
+
+                          <div className="flex-1 overflow-y-auto px-4 pb-4">
+                            <div className="space-y-4">
+                              {/* Sexo */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Sexo</label>
+                                <Select
+                                  value={personalDataForm.gender}
+                                  onValueChange={(v) => setPersonalDataForm((prev) => ({ ...prev, gender: v }))}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Selecione" />
+                                  </SelectTrigger>
+                                  <SelectContent position="popper" className="z-[200]">
+                                    <SelectItem value="male">Masculino</SelectItem>
+                                    <SelectItem value="female">Feminino</SelectItem>
+                                    <SelectItem value="other">Outro</SelectItem>
+                                    <SelectItem value="prefer_not_to_say">Prefiro não informar</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              {/* Altura */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Altura (cm)</label>
+                                <Input
+                                  type="number"
+                                  min={100}
+                                  max={250}
+                                  step={1}
+                                  value={personalDataForm.height}
+                                  onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))}
+                                  placeholder="Ex: 175"
+                                />
+                              </div>
+
+                              {/* Peso */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Peso (kg)</label>
+                                <Input
+                                  type="number"
+                                  min={30}
+                                  max={300}
+                                  step="0.1"
+                                  value={personalDataForm.weight}
+                                  onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))}
+                                  placeholder="Ex: 70.5"
+                                />
+                              </div>
+
+                              {/* Idade */}
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Idade</label>
+                                <Input
+                                  type="number"
+                                  min={10}
+                                  max={120}
+                                  step={1}
+                                  value={personalDataForm.age}
+                                  onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: String(Math.trunc(Number(e.target.value))) }))}
+                                  placeholder="Ex: 28"
+                                />
+                              </div>
+
+                              <Button
+                                onClick={async () => {
+                                  if (!user) return;
+                                  setIsSavingPersonalData(true);
+                                  try {
+                                    await updateUserPersonalDataDb(user.id, personalDataForm);
+                                    setProfile((prev) => prev ? {
+                                      ...prev,
+                                      gender: personalDataForm.gender || null,
+                                      height: personalDataForm.height || null,
+                                      weight: personalDataForm.weight || null,
+                                      age: personalDataForm.age || null,
+                                    } : prev);
+                                    toast({ title: "Dados salvos!", description: "Suas informações pessoais foram atualizadas." });
+                                    setIsPersonalDataOpen(false);
+                                  } catch (err: any) {
+                                    toast({ title: "Erro", description: err?.message || "Falha ao salvar dados.", variant: "destructive" });
+                                  } finally {
+                                    setIsSavingPersonalData(false);
+                                  }
+                                }}
+                                disabled={isSavingPersonalData}
+                                className="w-full rounded-full"
+                              >
+                                {isSavingPersonalData ? "Salvando..." : "Salvar"}
+                              </Button>
+                            </div>
+                          </div>
+                        </DrawerContent>
+                      </Drawer>
+
+                      <Button
+                        onClick={handleLogout}
+                        variant="destructive"
+                        className="gap-2"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        Desconectar
+                      </Button>
+                    </div>
+                  </DrawerContent>
+                </Drawer>
+              )}
             </div>
 
             {/* Bio and Commercial Profile - Below avatar, left-aligned */}
@@ -2338,9 +2577,9 @@ export default function Profile() {
                 onClick={() => {
                   const text = `Confira o perfil de @${profile?.nickname} no Linka! 💪`;
                   if (navigator.share) {
-                    navigator.share({ text }).catch(() => {});
+                    navigator.share({ text }).catch(() => { });
                   } else {
-                    navigator.clipboard.writeText(text).catch(() => {});
+                    navigator.clipboard.writeText(text).catch(() => { });
                     toast({ title: "Copiado!", description: "Link copiado para a área de transferência." });
                   }
                 }}
@@ -2361,9 +2600,9 @@ export default function Profile() {
                   const tier = stats.points >= 1000 ? "Elite" : stats.points >= 500 ? "Ouro" : stats.points >= 200 ? "Prata" : "Bronze";
                   const text = `Estou no Linka no nível ${stats.level} (${tier}) com ${stats.points} pontos! 🏋️ Junte-se a mim: @${profile.nickname}`;
                   if (navigator.share) {
-                    navigator.share({ text }).catch(() => {});
+                    navigator.share({ text }).catch(() => { });
                   } else {
-                    navigator.clipboard.writeText(text).catch(() => {});
+                    navigator.clipboard.writeText(text).catch(() => { });
                     toast({ title: "Copiado!", description: "Texto copiado para a área de transferência." });
                   }
                 }}
@@ -2493,330 +2732,423 @@ export default function Profile() {
                 <DrawerTitle>Nova Rotina</DrawerTitle>
               </DrawerHeader>
               <div className="flex-1 overflow-y-auto px-4 pb-24">
-              {selectedRoutineType === null ? (
-                <>
-                  <DialogHeader>
-                    <DialogTitle>Nova Rotina</DialogTitle>
-                    <DialogDescription>
-                      Escolha o tipo de rotina que deseja criar
-                    </DialogDescription>
-                  </DialogHeader>
+                {selectedRoutineType === null ? (
+                  <>
+                    <DialogHeader>
+                      <DialogTitle>Nova Rotina</DialogTitle>
+                      <DialogDescription>
+                        Escolha o tipo de rotina que deseja criar
+                      </DialogDescription>
+                    </DialogHeader>
 
-                  <div className="grid grid-cols-1 gap-3">
-                    {[1, 2, 3].map((typeCode) => (
+                    <div className="grid grid-cols-1 gap-3">
+                      {[1, 2, 3].map((typeCode) => (
+                        <Button
+                          key={typeCode}
+                          variant="outline"
+                          className="h-auto p-4 justify-start text-base rounded-lg"
+                          onClick={() =>
+                            handleSelectRoutineType(typeCode as 1 | 2 | 3)
+                          }
+                          disabled={isCreatingRoutine}
+                        >
+                          {getRoutineTypeName(typeCode)}
+                        </Button>
+                      ))}
+                    </div>
+                  </>
+                ) : selectedRoutineType === 1 ? (
+                  <>
+                    <DialogHeader>
                       <Button
-                        key={typeCode}
-                        variant="outline"
-                        className="h-auto p-4 justify-start text-base rounded-lg"
-                        onClick={() =>
-                          handleSelectRoutineType(typeCode as 1 | 2 | 3)
-                        }
-                        disabled={isCreatingRoutine}
+                        variant="ghost"
+                        size="sm"
+                        className="w-fit"
+                        onClick={() => setSelectedRoutineType(null)}
                       >
-                        {getRoutineTypeName(typeCode)}
+                        <ArrowLeft className="h-4 w-4 mr-2" />
+                        Voltar
                       </Button>
-                    ))}
-                  </div>
-                </>
-              ) : selectedRoutineType === 1 ? (
-                <>
-                  <DialogHeader>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-fit"
-                      onClick={() => setSelectedRoutineType(null)}
-                    >
-                      <ArrowLeft className="h-4 w-4 mr-2" />
-                      Voltar
-                    </Button>
-                    <DialogTitle>Selecione um ou mais Exercícios</DialogTitle>
-                  </DialogHeader>
+                      <DialogTitle>Selecione um ou mais Exercícios</DialogTitle>
+                    </DialogHeader>
 
-                  <Input
-                    placeholder="Buscar exercício por nome..."
-                    value={searchQueryWorkouts}
-                    onChange={(e) => setSearchQueryWorkouts(e.target.value)}
-                    className="mb-4"
-                  />
+                    <Input
+                      placeholder="Buscar exercício por nome..."
+                      value={searchQueryWorkouts}
+                      onChange={(e) => setSearchQueryWorkouts(e.target.value)}
+                      className="mb-4"
+                    />
 
-                  {/* Muscle Group Filter */}
-                  {(() => {
-                    // Merge local workouts + catalog into a unified list
-                    const localWorkoutNames = new Set(workouts.map((w) => w.name.toLowerCase()));
-                    const catalogFiltered = catalogExercises.filter(
-                      (c) => !localWorkoutNames.has(c.name.toLowerCase()),
-                    );
+                    {/* Muscle Group Filter */}
+                    {(() => {
+                      // Merge local workouts + catalog into a unified list
+                      const localWorkoutNames = new Set(workouts.map((w) => w.name.toLowerCase()));
+                      const catalogFiltered = catalogExercises.filter(
+                        (c) => !localWorkoutNames.has(c.name.toLowerCase()),
+                      );
 
-                    const unified = [
-                      ...workouts.filter((w) => w.photo).map((w) => ({
-                        key: `local-${w.id}`,
-                        id: w.id,
-                        name: w.name,
-                        description: w.description,
-                        photo: w.photo,
-                        muscleGroup: w.muscle_group || null,
-                        isLocal: true,
-                      })),
-                      ...catalogFiltered.map((c) => ({
-                        key: `catalog-${c.id}`,
-                        id: `catalog-${c.id}`,
-                        name: c.name,
-                        description: c.description,
-                        photo: c.image,
-                        muscleGroup: c.category || null,
-                        isLocal: false,
-                        catalogId: c.id,
-                        catalogImage: c.image,
-                      })),
-                    ];
+                      const unified = [
+                        ...workouts.filter((w) => w.photo).map((w) => ({
+                          key: `local-${w.id}`,
+                          id: w.id,
+                          name: w.name,
+                          description: w.description,
+                          photo: w.photo,
+                          muscleGroup: w.muscle_group || null,
+                          isLocal: true,
+                        })),
+                        ...catalogFiltered.map((c) => ({
+                          key: `catalog-${c.id}`,
+                          id: `catalog-${c.id}`,
+                          name: c.name,
+                          description: c.description,
+                          photo: c.image,
+                          muscleGroup: c.category || null,
+                          isLocal: false,
+                          catalogId: c.id,
+                          catalogImage: c.image,
+                        })),
+                      ];
 
-                    const allMuscleGroups = Array.from(
-                      new Set(unified.map((u) => u.muscleGroup).filter(Boolean)),
-                    ) as string[];
+                      const allMuscleGroups = Array.from(
+                        new Set(unified.map((u) => u.muscleGroup).filter(Boolean)),
+                      ) as string[];
 
-                    const query = searchQueryWorkouts.toLowerCase();
-                    const filtered = unified.filter(
-                      (u) =>
-                        (u.name.toLowerCase().includes(query) ||
-                          (u.description && u.description.toLowerCase().includes(query))) &&
-                        (selectedMuscleGroups.size === 0 ||
-                          selectedMuscleGroups.has(u.muscleGroup || "")),
-                    );
+                      const query = searchQueryWorkouts.toLowerCase();
+                      const filtered = unified.filter(
+                        (u) =>
+                          (u.name.toLowerCase().includes(query) ||
+                            (u.description && u.description.toLowerCase().includes(query))) &&
+                          (selectedMuscleGroups.size === 0 ||
+                            selectedMuscleGroups.has(u.muscleGroup || "")),
+                      );
 
-                    return (
-                      <>
-                        {allMuscleGroups.length > 0 && (
-                          <div className="space-y-2 mb-4">
-                            <div className="flex items-center gap-2">
-                              <Filter className="h-4 w-4 text-muted-foreground" />
-                              <p className="text-xs font-medium text-muted-foreground">
-                                Filtrar por grupo muscular:
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {allMuscleGroups.map((muscleGroup) => (
-                                <button
-                                  key={muscleGroup}
-                                  onClick={() => handleToggleMuscleGroup(muscleGroup)}
-                                  className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
-                                    selectedMuscleGroups.has(muscleGroup)
+                      return (
+                        <>
+                          {allMuscleGroups.length > 0 && (
+                            <div className="space-y-2 mb-4">
+                              <div className="flex items-center gap-2">
+                                <Filter className="h-4 w-4 text-muted-foreground" />
+                                <p className="text-xs font-medium text-muted-foreground">
+                                  Filtrar por grupo muscular:
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {allMuscleGroups.map((muscleGroup) => (
+                                  <button
+                                    key={muscleGroup}
+                                    onClick={() => handleToggleMuscleGroup(muscleGroup)}
+                                    className={`px-3 py-1.5 text-xs rounded-full border transition-all ${selectedMuscleGroups.has(muscleGroup)
                                       ? "border-brand bg-brand/20 text-brand"
                                       : "border-border/60 text-muted-foreground hover:border-border/80"
-                                  }`}
-                                >
-                                  {muscleGroup}
-                                </button>
-                              ))}
+                                      }`}
+                                  >
+                                    {muscleGroup}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          )}
 
-                        {workoutsLoading ? (
-                          <div className="text-center py-6 text-sm text-muted-foreground">
-                            Carregando exercícios...
-                          </div>
-                        ) : filtered.length > 0 ? (
-                          <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-                            {filtered.map((exercise) => {
-                              const isSelected = selectedWorkoutIds.has(exercise.id);
-                              return (
-                                <button
-                                  key={exercise.key}
-                                  onClick={async () => {
-                                    if (!exercise.isLocal && !selectedWorkoutIds.has(exercise.id)) {
-                                      // Create the catalog exercise in the local DB first
-                                      try {
-                                        const created = await createCustomWorkoutDb(
-                                          exercise.name,
-                                          exercise.description,
-                                          exercise.muscleGroup || "",
-                                          exercise.photo,
-                                        );
-                                        // Update unified list to use the new local ID
-                                        exercise.id = created.id;
-                                        exercise.isLocal = true;
-                                        const newSelected = new Set(selectedWorkoutIds);
-                                        newSelected.add(created.id);
-                                        setSelectedWorkoutIds(newSelected);
-                                      } catch (err: any) {
-                                        console.error("Error creating catalog exercise:", err);
-                                        toast({
-                                          title: "Erro ao adicionar exercício",
-                                          description: err?.message || "Tente novamente.",
-                                          variant: "destructive",
-                                        });
-                                      }
-                                    } else {
-                                      const newSelected = new Set(selectedWorkoutIds);
-                                      if (isSelected) {
-                                        newSelected.delete(exercise.id);
+                          {workoutsLoading ? (
+                            <div className="text-center py-6 text-sm text-muted-foreground">
+                              Carregando exercícios...
+                            </div>
+                          ) : filtered.length > 0 ? (
+                            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                              {filtered.map((exercise) => {
+                                const isSelected = selectedWorkoutIds.has(exercise.id);
+                                return (
+                                  <button
+                                    key={exercise.key}
+                                    onClick={async () => {
+                                      if (!exercise.isLocal && !selectedWorkoutIds.has(exercise.id)) {
+                                        // Create the catalog exercise in the local DB first
+                                        try {
+                                          const created = await createCustomWorkoutDb(
+                                            exercise.name,
+                                            exercise.description,
+                                            exercise.muscleGroup || "",
+                                            exercise.photo,
+                                          );
+                                          // Update unified list to use the new local ID
+                                          exercise.id = created.id;
+                                          exercise.isLocal = true;
+                                          const newSelected = new Set(selectedWorkoutIds);
+                                          newSelected.add(created.id);
+                                          setSelectedWorkoutIds(newSelected);
+                                        } catch (err: any) {
+                                          console.error("Error creating catalog exercise:", err);
+                                          toast({
+                                            title: "Erro ao adicionar exercício",
+                                            description: err?.message || "Tente novamente.",
+                                            variant: "destructive",
+                                          });
+                                        }
                                       } else {
-                                        newSelected.add(exercise.id);
+                                        const newSelected = new Set(selectedWorkoutIds);
+                                        if (isSelected) {
+                                          newSelected.delete(exercise.id);
+                                        } else {
+                                          newSelected.add(exercise.id);
+                                        }
+                                        setSelectedWorkoutIds(newSelected);
                                       }
-                                      setSelectedWorkoutIds(newSelected);
-                                    }
-                                  }}
-                                  className={`w-full p-3 border-2 rounded-lg transition-all text-left group ${
-                                    isSelected
+                                    }}
+                                    className={`w-full p-3 border-2 rounded-lg transition-all text-left group ${isSelected
                                       ? "border-brand bg-brand/5"
                                       : "border-border/60 hover:border-border/80 hover:bg-muted/50"
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-3">
-                                    <ExerciseImage
-                                      photo={exercise.photo}
-                                      name={exercise.name}
-                                      muscleGroup={exercise.muscleGroup}
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                      <p
-                                        className={`font-medium text-sm transition-colors ${
-                                          isSelected
+                                      }`}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <ExerciseImage
+                                        photo={exercise.photo}
+                                        name={exercise.name}
+                                        muscleGroup={exercise.muscleGroup}
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <p
+                                          className={`font-medium text-sm transition-colors ${isSelected
                                             ? "text-brand"
                                             : "group-hover:text-brand"
-                                        }`}
-                                      >
-                                        {exercise.name}
-                                      </p>
-                                      {exercise.description && (
-                                        <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                                          {exercise.description}
+                                            }`}
+                                        >
+                                          {exercise.name}
                                         </p>
-                                      )}
-                                      {exercise.muscleGroup && (
-                                        <span className="inline-block text-[10px] font-medium text-brand bg-brand/10 px-2 py-0.5 rounded-full mt-1">
-                                          {exercise.muscleGroup}
-                                        </span>
-                                      )}
+                                        {exercise.description && (
+                                          <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                                            {exercise.description}
+                                          </p>
+                                        )}
+                                        {exercise.muscleGroup && (
+                                          <span className="inline-block text-[10px] font-medium text-brand bg-brand/10 px-2 py-0.5 rounded-full mt-1">
+                                            {exercise.muscleGroup}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="shrink-0">
+                                        {isSelected ? (
+                                          <Check className="h-5 w-5 text-brand" />
+                                        ) : (
+                                          <div className="h-5 w-5 rounded border border-border/60" />
+                                        )}
+                                      </div>
                                     </div>
-                                    <div className="shrink-0">
-                                      {isSelected ? (
-                                        <Check className="h-5 w-5 text-brand" />
-                                      ) : (
-                                        <div className="h-5 w-5 rounded border border-border/60" />
-                                      )}
-                                    </div>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div className="text-center py-6 text-sm text-muted-foreground">
-                            Nenhum exercício encontrado.
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="text-center py-6 text-sm text-muted-foreground">
+                              Nenhum exercício encontrado.
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
 
-                  {/* Floating Save Button */}
-                  {selectedWorkoutIds.size > 0 && (
-                    <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
+                    {/* Floating Save Button */}
+                    {selectedWorkoutIds.size > 0 && (
+                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
+                        <Button
+                          onClick={handleSaveWorkouts}
+                          disabled={isSavingWorkouts}
+                          className="w-full rounded-full"
+                        >
+                          {isSavingWorkouts
+                            ? "Salvando..."
+                            : `Salvar ${selectedWorkoutIds.size} Exercício${selectedWorkoutIds.size > 1 ? "s" : ""}`}
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : selectedRoutineType === 2 ? (
+                  <>
+                    <DialogHeader>
                       <Button
-                        onClick={handleSaveWorkouts}
-                        disabled={isSavingWorkouts}
-                        className="w-full rounded-full"
+                        variant="ghost"
+                        size="sm"
+                        className="w-fit"
+                        onClick={() => setSelectedRoutineType(null)}
                       >
-                        {isSavingWorkouts
-                          ? "Salvando..."
-                          : `Salvar ${selectedWorkoutIds.size} Exercício${selectedWorkoutIds.size > 1 ? "s" : ""}`}
+                        <ArrowLeft className="h-4 w-4 mr-2" />
+                        Voltar
                       </Button>
-                    </div>
-                  )}
-                </>
-              ) : selectedRoutineType === 2 ? (
-                <>
-                  <DialogHeader>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-fit"
-                      onClick={() => setSelectedRoutineType(null)}
-                    >
-                      <ArrowLeft className="h-4 w-4 mr-2" />
-                      Voltar
-                    </Button>
-                    <DialogTitle>Selecione uma ou mais Dietas</DialogTitle>
-                  </DialogHeader>
+                      <DialogTitle>Selecione uma ou mais Dietas</DialogTitle>
+                    </DialogHeader>
 
-                  {dietsLoading ? (
-                    <div className="text-center py-6 text-sm text-muted-foreground">
-                      Carregando dietas...
-                    </div>
-                  ) : (() => {
-                    const localNames = new Set(diets.map((d) => d.name.toLowerCase()));
-                    const catalogFiltered = catalogMeals.filter((c) => !localNames.has(c.name.toLowerCase()));
-                    const allDiets = [
-                      ...diets.filter((d) => d.photo).map((d) => ({
-                        key: `local-${d.id}`, id: d.id, name: d.name, description: d.description,
-                        photo: d.photo, category: null as string | null, calories: d.calories, isLocal: true,
-                      })),
-                      ...catalogFiltered.map((c) => ({
-                        key: `catalog-${c.id}`, id: `catalog-${c.id}`, name: c.name, description: c.description,
-                        photo: c.image, category: c.category || null, calories: 0, isLocal: false, catalogId: c.id,
-                      })),
-                    ];
-                    const filtered = searchQueryDiets
-                      ? allDiets.filter((d) => d.name.toLowerCase().includes(searchQueryDiets.toLowerCase()))
-                      : allDiets;
+                    {dietsLoading ? (
+                      <div className="text-center py-6 text-sm text-muted-foreground">
+                        Carregando dietas...
+                      </div>
+                    ) : (() => {
+                      const localNames = new Set(diets.map((d) => d.name.toLowerCase()));
+                      const catalogFiltered = catalogMeals.filter((c) => !localNames.has(c.name.toLowerCase()));
+                      const allDiets = [
+                        ...diets.filter((d) => d.photo).map((d) => ({
+                          key: `local-${d.id}`, id: d.id, name: d.name, description: d.description,
+                          photo: d.photo, category: null as string | null, calories: d.calories, isLocal: true,
+                        })),
+                        ...catalogFiltered.map((c) => ({
+                          key: `catalog-${c.id}`, id: `catalog-${c.id}`, name: c.name, description: c.description,
+                          photo: c.image, category: c.category || null, calories: 0, isLocal: false, catalogId: c.id,
+                        })),
+                      ];
+                      const filtered = searchQueryDiets
+                        ? allDiets.filter((d) => d.name.toLowerCase().includes(searchQueryDiets.toLowerCase()))
+                        : allDiets;
 
-                    return filtered.length > 0 ? (
-                      <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-                        <div className="relative shrink-0">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            type="text"
-                            placeholder="Buscar dieta..."
-                            value={searchQueryDiets}
-                            onChange={(e) => setSearchQueryDiets(e.target.value)}
-                            className="pl-10 h-9"
-                          />
+                      return filtered.length > 0 ? (
+                        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                          <div className="relative shrink-0">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                              type="text"
+                              placeholder="Buscar dieta..."
+                              value={searchQueryDiets}
+                              onChange={(e) => setSearchQueryDiets(e.target.value)}
+                              className="pl-10 h-9"
+                            />
+                          </div>
+                          {filtered.map((diet) => {
+                            const isSelected = selectedDietIds.has(diet.id);
+                            return (
+                              <button
+                                key={diet.key}
+                                onClick={async () => {
+                                  if (!diet.isLocal && !selectedDietIds.has(diet.id)) {
+                                    try {
+                                      const created = await createCustomDietDb(
+                                        diet.name, diet.description, diet.photo, diet.calories,
+                                      );
+                                      diet.id = created.id;
+                                      diet.isLocal = true;
+                                      const newSelected = new Set(selectedDietIds);
+                                      newSelected.add(created.id);
+                                      setSelectedDietIds(newSelected);
+                                    } catch (err: any) {
+                                      toast({ title: "Erro ao adicionar dieta", description: err?.message || "Tente novamente.", variant: "destructive" });
+                                    }
+                                  } else {
+                                    const newSelected = new Set(selectedDietIds);
+                                    if (isSelected) newSelected.delete(diet.id);
+                                    else newSelected.add(diet.id);
+                                    setSelectedDietIds(newSelected);
+                                  }
+                                }}
+                                className={`w-full p-4 border-2 rounded-lg transition-all text-left group ${isSelected ? "border-brand bg-brand/5" : "border-border/60 hover:border-border/80 hover:bg-muted/50"
+                                  }`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <DietImage photo={diet.photo} name={diet.name} category={diet.category} className="h-14 w-14" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className={`font-medium transition-colors ${isSelected ? "text-brand" : "group-hover:text-brand"}`}>
+                                      {diet.name}
+                                    </p>
+                                    {diet.category && (
+                                      <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground mt-1">
+                                        {diet.category}
+                                      </span>
+                                    )}
+                                    {diet.calories > 0 && (
+                                      <p className="text-xs font-medium text-brand/80 mt-1">{diet.calories} cal</p>
+                                    )}
+                                  </div>
+                                  {isSelected && (
+                                    <div className="shrink-0 mt-1">
+                                      <Check className="h-5 w-5 text-brand" />
+                                    </div>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
-                        {filtered.map((diet) => {
-                          const isSelected = selectedDietIds.has(diet.id);
+                      ) : (
+                        <div className="text-center py-6 text-sm text-muted-foreground">
+                          Nenhuma dieta disponível.
+                        </div>
+                      );
+                    })()}
+
+                    {/* Floating Save Button */}
+                    {selectedDietIds.size > 0 && (
+                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
+                        <Button
+                          onClick={handleSaveDiets}
+                          disabled={isSavingDiets}
+                          className="w-full rounded-full"
+                        >
+                          {isSavingDiets
+                            ? "Salvando..."
+                            : `Salvar ${selectedDietIds.size} Dieta${selectedDietIds.size > 1 ? "s" : ""}`}
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : selectedRoutineType === 3 ? (
+                  <>
+                    <DialogHeader>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-fit"
+                        onClick={() => setSelectedRoutineType(null)}
+                      >
+                        <ArrowLeft className="h-4 w-4 mr-2" />
+                        Voltar
+                      </Button>
+                      <DialogTitle>Selecione um ou mais Hábitos</DialogTitle>
+                    </DialogHeader>
+
+                    {habitsLoading ? (
+                      <div className="text-center py-6 text-sm text-muted-foreground">
+                        Carregando hábitos...
+                      </div>
+                    ) : habits.length > 0 ? (
+                      <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                        {habits.map((habit) => {
+                          const isSelected = selectedHabitIds.has(habit.id);
                           return (
                             <button
-                              key={diet.key}
-                              onClick={async () => {
-                                if (!diet.isLocal && !selectedDietIds.has(diet.id)) {
-                                  try {
-                                    const created = await createCustomDietDb(
-                                      diet.name, diet.description, diet.photo, diet.calories,
-                                    );
-                                    diet.id = created.id;
-                                    diet.isLocal = true;
-                                    const newSelected = new Set(selectedDietIds);
-                                    newSelected.add(created.id);
-                                    setSelectedDietIds(newSelected);
-                                  } catch (err: any) {
-                                    toast({ title: "Erro ao adicionar dieta", description: err?.message || "Tente novamente.", variant: "destructive" });
-                                  }
+                              key={habit.id}
+                              onClick={() => {
+                                const newSelected = new Set(selectedHabitIds);
+                                if (isSelected) {
+                                  newSelected.delete(habit.id);
                                 } else {
-                                  const newSelected = new Set(selectedDietIds);
-                                  if (isSelected) newSelected.delete(diet.id);
-                                  else newSelected.add(diet.id);
-                                  setSelectedDietIds(newSelected);
+                                  newSelected.add(habit.id);
                                 }
+                                setSelectedHabitIds(newSelected);
                               }}
-                              className={`w-full p-4 border-2 rounded-lg transition-all text-left group ${
-                                isSelected ? "border-brand bg-brand/5" : "border-border/60 hover:border-border/80 hover:bg-muted/50"
-                              }`}
+                              className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${isSelected
+                                ? "border-brand bg-brand/5"
+                                : "border-border/60 hover:border-border/80 hover:bg-muted/50"
+                                }`}
                             >
                               <div className="flex items-start gap-3">
-                                <DietImage photo={diet.photo} name={diet.name} category={diet.category} className="h-14 w-14" />
+                                {habit.photo ? (
+                                  <img
+                                    src={habit.photo}
+                                    alt={habit.name}
+                                    className="h-16 w-16 rounded object-cover flex-shrink-0"
+                                  />
+                                ) : (
+                                  <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
+                                )}
                                 <div className="flex-1 min-w-0">
-                                  <p className={`font-medium transition-colors ${isSelected ? "text-brand" : "group-hover:text-brand"}`}>
-                                    {diet.name}
+                                  <p
+                                    className={`font-medium transition-colors ${isSelected
+                                      ? "text-brand"
+                                      : "group-hover:text-brand"
+                                      }`}
+                                  >
+                                    {habit.name}
                                   </p>
-                                  {diet.category && (
-                                    <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground mt-1">
-                                      {diet.category}
-                                    </span>
-                                  )}
-                                  {diet.calories > 0 && (
-                                    <p className="text-xs font-medium text-brand/80 mt-1">{diet.calories} cal</p>
+                                  {habit.description && (
+                                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                      {habit.description}
+                                    </p>
                                   )}
                                 </div>
                                 {isSelected && (
@@ -2831,152 +3163,53 @@ export default function Profile() {
                       </div>
                     ) : (
                       <div className="text-center py-6 text-sm text-muted-foreground">
-                        Nenhuma dieta disponível.
+                        Nenhum hábito disponível.
                       </div>
-                    );
-                  })()}
+                    )}
 
-                  {/* Floating Save Button */}
-                  {selectedDietIds.size > 0 && (
-                    <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
+                    {/* Floating Save Button */}
+                    {selectedHabitIds.size > 0 && (
+                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
+                        <Button
+                          onClick={handleSaveHabits}
+                          disabled={isSavingHabits}
+                          className="w-full rounded-full"
+                        >
+                          {isSavingHabits
+                            ? "Salvando..."
+                            : `Salvar ${selectedHabitIds.size} Hábito${selectedHabitIds.size > 1 ? "s" : ""}`}
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <DialogHeader>
                       <Button
-                        onClick={handleSaveDiets}
-                        disabled={isSavingDiets}
-                        className="w-full rounded-full"
+                        variant="ghost"
+                        size="sm"
+                        className="w-fit"
+                        onClick={() => setSelectedRoutineType(null)}
                       >
-                        {isSavingDiets
-                          ? "Salvando..."
-                          : `Salvar ${selectedDietIds.size} Dieta${selectedDietIds.size > 1 ? "s" : ""}`}
+                        <ArrowLeft className="h-4 w-4 mr-2" />
+                        Voltar
+                      </Button>
+                      <DialogTitle>
+                        {getRoutineTypeName(selectedRoutineType)}
+                      </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="text-center py-6">
+                      <Button
+                        onClick={() => handleCreateRoutine()}
+                        disabled={isCreatingRoutine}
+                        className="rounded-full"
+                      >
+                        {isCreatingRoutine ? "Criando..." : "Criar Rotina"}
                       </Button>
                     </div>
-                  )}
-                </>
-              ) : selectedRoutineType === 3 ? (
-                <>
-                  <DialogHeader>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-fit"
-                      onClick={() => setSelectedRoutineType(null)}
-                    >
-                      <ArrowLeft className="h-4 w-4 mr-2" />
-                      Voltar
-                    </Button>
-                    <DialogTitle>Selecione um ou mais Hábitos</DialogTitle>
-                  </DialogHeader>
-
-                  {habitsLoading ? (
-                    <div className="text-center py-6 text-sm text-muted-foreground">
-                      Carregando hábitos...
-                    </div>
-                  ) : habits.length > 0 ? (
-                    <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-                      {habits.map((habit) => {
-                        const isSelected = selectedHabitIds.has(habit.id);
-                        return (
-                          <button
-                            key={habit.id}
-                            onClick={() => {
-                              const newSelected = new Set(selectedHabitIds);
-                              if (isSelected) {
-                                newSelected.delete(habit.id);
-                              } else {
-                                newSelected.add(habit.id);
-                              }
-                              setSelectedHabitIds(newSelected);
-                            }}
-                            className={`w-full p-4 border-2 rounded-lg transition-all text-left space-y-2 group ${
-                              isSelected
-                                ? "border-brand bg-brand/5"
-                                : "border-border/60 hover:border-border/80 hover:bg-muted/50"
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              {habit.photo ? (
-                                <img
-                                  src={habit.photo}
-                                  alt={habit.name}
-                                  className="h-16 w-16 rounded object-cover flex-shrink-0"
-                                />
-                              ) : (
-                                <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <p
-                                  className={`font-medium transition-colors ${
-                                    isSelected
-                                      ? "text-brand"
-                                      : "group-hover:text-brand"
-                                  }`}
-                                >
-                                  {habit.name}
-                                </p>
-                                {habit.description && (
-                                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                                    {habit.description}
-                                  </p>
-                                )}
-                              </div>
-                              {isSelected && (
-                                <div className="shrink-0 mt-1">
-                                  <Check className="h-5 w-5 text-brand" />
-                                </div>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 text-sm text-muted-foreground">
-                      Nenhum hábito disponível.
-                    </div>
-                  )}
-
-                  {/* Floating Save Button */}
-                  {selectedHabitIds.size > 0 && (
-                    <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
-                      <Button
-                        onClick={handleSaveHabits}
-                        disabled={isSavingHabits}
-                        className="w-full rounded-full"
-                      >
-                        {isSavingHabits
-                          ? "Salvando..."
-                          : `Salvar ${selectedHabitIds.size} Hábito${selectedHabitIds.size > 1 ? "s" : ""}`}
-                      </Button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <DialogHeader>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-fit"
-                      onClick={() => setSelectedRoutineType(null)}
-                    >
-                      <ArrowLeft className="h-4 w-4 mr-2" />
-                      Voltar
-                    </Button>
-                    <DialogTitle>
-                      {getRoutineTypeName(selectedRoutineType)}
-                    </DialogTitle>
-                  </DialogHeader>
-
-                  <div className="text-center py-6">
-                    <Button
-                      onClick={() => handleCreateRoutine()}
-                      disabled={isCreatingRoutine}
-                      className="rounded-full"
-                    >
-                      {isCreatingRoutine ? "Criando..." : "Criar Rotina"}
-                    </Button>
-                  </div>
-                </>
-              )}
+                  </>
+                )}
               </div>
             </DrawerContent>
           </Drawer>
@@ -3042,11 +3275,10 @@ export default function Profile() {
                             e.stopPropagation();
                             openGoalIndicatorModal(routinesOfType[0]);
                           }}
-                          className={`shrink-0 p-2 rounded-lg transition-all ${
-                            routinesOfType[0]?.goal_id
-                              ? "bg-brand/10 text-brand hover:bg-brand/20"
-                              : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                          }`}
+                          className={`shrink-0 p-2 rounded-lg transition-all ${routinesOfType[0]?.goal_id
+                            ? "bg-brand/10 text-brand hover:bg-brand/20"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                            }`}
                           title={
                             routinesOfType[0]?.goal_id
                               ? "Meta vinculada"
@@ -3144,9 +3376,8 @@ export default function Profile() {
                       </button>
 
                       <div
-                        className={`transform transition-transform ${
-                          isExpanded ? "rotate-180" : ""
-                        }`}
+                        className={`transform transition-transform ${isExpanded ? "rotate-180" : ""
+                          }`}
                       >
                         <svg
                           className="w-5 h-5"
@@ -3400,7 +3631,7 @@ export default function Profile() {
                   <p className="text-sm mt-1">
                     {selectedPost.user_goal_id
                       ? userGoals.find((g) => g.id === selectedPost.user_goal_id)
-                          ?.description || "Meta removida"
+                        ?.description || "Meta removida"
                       : "Nenhuma meta"}
                   </p>
                 </div>
@@ -3991,6 +4222,17 @@ export default function Profile() {
                   {commercialProfile.business_segment === "psicologia" && "Psicologia / Coaching"}
                   {commercialProfile.business_segment === "outros" && "Outros"}
                 </span>
+              </div>
+            )}
+
+            {/* Business logo */}
+            {commercialProfile?.business_logo_url && (
+              <div className="flex justify-center">
+                <img
+                  src={commercialProfile.business_logo_url}
+                  alt="Logo do negócio"
+                  className="h-20 w-50 rounded-xl object-cover border border-border"
+                />
               </div>
             )}
 

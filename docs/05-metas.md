@@ -43,7 +43,6 @@ Cada meta exibe:
 - Botão "Fazer check-in hoje"
 - Ao clicar, abre dialog de confirmação
 - Registra via `createCheckInDb`
-- Adiciona pontos ao usuário via `addPointsDb`
 - Exibe histórico semanal de check-ins (7 dias)
 - Detecta se já fez check-in hoje via `getTodayCheckInDb`
 - Exibe streak de dias consecutivos **dentro do próprio card de check-in** (frame separado removido)
@@ -178,6 +177,37 @@ Cada hábito exibe:
 
 ---
 
+### Modal: Humor do Dia
+
+Modal exibido automaticamente após o usuário concluir **todas as Dietas** OU **todos os Hábitos** da rotina do dia.
+
+**Trigger:** ao marcar o último item de dieta ou hábito pendente, a função `checkAndShowMoodModal` compara os IDs concluídos com o total de itens e abre o modal caso:
+- o humor do dia ainda não tenha sido registrado (`todayMood === null`)
+- o modal não tenha sido exibido na sessão atual (`moodModalShownRef.current === false`)
+
+**Conteúdo:**
+- Título: "Como você está se sentindo? 😊"
+- Subtítulo: "Você completou suas rotinas hoje! Registre seu humor do dia."
+- 5 botões com emoji + label:
+  - 😢 Muito triste (`muito_triste`)
+  - 😕 Triste (`triste`)
+  - 😐 Neutro (`neutro`)
+  - 😊 Feliz (`feliz`)
+  - 😄 Muito feliz (`muito_feliz`)
+- Botão "Agora não" para fechar sem registrar
+
+**Ao selecionar um humor:**
+- Chama `saveTodayMoodDb(userId, mood)` — faz upsert em `mood_logs`
+- Atualiza estado local `todayMood`
+- Fecha o modal
+- Exibe toast de confirmação
+
+**Estado persistido:** o humor do dia é carregado ao inicializar a tela via `getTodayMoodDb`. Se já registrado, o modal não será exibido novamente na sessão.
+
+Dados: `getTodayMoodDb`, `saveTodayMoodDb` — tabela `mood_logs`
+
+---
+
 ## Metas Disponíveis (catálogo)
 
 Exibe apenas metas com `created_by_user = 0` (metas padrão do sistema). Metas criadas por usuários (`created_by_user = 1`) ficam visíveis somente para quem as criou via `getUserGoalsDb`.
@@ -229,7 +259,8 @@ Cada meta no catálogo exibe:
 - Busca no catálogo de refeições
 - Seleção de refeições
 - Configuração de porções/horários
-- Função: `createCustomDietDb`
+- **Etapa de horário:** após selecionar os itens, aparece um drawer opcional para definir data/hora de execução (`execute_at`); o usuário pode pular
+- Função: `createCustomDietDb` / `createUserDietsDb` (aceita `execute_at`)
 
 ---
 
@@ -243,6 +274,14 @@ Usuário quer adicionar exercício
                  └─ Seleciona exercício
                       └─ Configura séries/reps
                            └─ Salva via createUserWorkoutsDb
+
+Usuário quer adicionar dieta ou hábito
+  └─ Clica "Adicionar à rotina" → seleciona tipo Dieta ou Hábito
+       └─ Seleciona itens do catálogo
+            └─ Clica "Próximo"
+                 └─ Drawer de horário (execute_at — opcional)
+                      └─ "Salvar" (com horário) ou "Pular" (sem horário)
+                           └─ Salva via createUserDietsDb / createUserHabitsDb
 ```
 
 ---
@@ -305,6 +344,7 @@ Usuário quer adicionar exercício
 | Histórico de treinos | `getWorkoutHistoriesBatchDb()` |
 | Hidratação do dia | `getTodayHydrationDb()` — soma de `hydration_logs` de hoje |
 | Macro acumulado do dia | `getTodayMacroSummaryDb()` — agrega dietas concluídas hoje |
+| Humor do dia | `getTodayMoodDb()` — registro único de `mood_logs` para hoje |
 
 ---
 
