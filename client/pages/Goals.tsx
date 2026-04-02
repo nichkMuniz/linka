@@ -365,9 +365,6 @@ export default function Goals() {
   // Workout history for displaying in series (during registration)
   const [workoutHistoriesMap, setWorkoutHistoriesMap] = React.useState<Record<string, WorkoutHistoryRecord[]>>({});
 
-  // Goal selection for check-in state
-  const [checkInGoalSelectionOpen, setCheckInGoalSelectionOpen] = React.useState(false);
-  const [selectedCheckInGoal, setSelectedCheckInGoal] = React.useState<UserGoal | null>(null);
 
   // Image zoom modal
   const [imageZoom, setImageZoom] = React.useState<{ src: string | null; name: string; description?: string } | null>(null);
@@ -572,7 +569,7 @@ export default function Goals() {
         }
         const criticalResults = await Promise.all(criticalFetches);
 
-        setGoals(criticalResults[0]);
+        const standardGoals: ProgrammedGoal[] = criticalResults[0];
         setSelectedGoalIds(criticalResults[1]);
         if (user) {
           setRoutines(criticalResults[2]);
@@ -581,18 +578,41 @@ export default function Goals() {
           const loadedHabits = criticalResults[5];
           setUserDiets(loadedDiets);
           setUserHabits(loadedHabits);
-          setUserGoals(criticalResults[6]);
+          const loadedUserGoals: UserGoal[] = criticalResults[6];
+          setUserGoals(loadedUserGoals);
+
+          // Inclui metas customizadas do usuário (created_by_user = 1) que não estão no catálogo padrão
+          const standardGoalIds = new Set(standardGoals.map((g) => g.id));
+          const customGoals: ProgrammedGoal[] = loadedUserGoals
+            .filter((ug) => !standardGoalIds.has(ug.goal_id))
+            .map((ug) => ({
+              id: ug.goal_id,
+              description: ug.description,
+              duration: ug.duration,
+              quantity: ug.quantity,
+              type: ug.type_goal,
+              created_by_user: 1,
+            }));
+          setGoals([...standardGoals, ...customGoals]);
 
           // Populate completed sets — only count completions from today
-          const todayStr = new Date().toDateString();
+          // Usa data local (YYYY-MM-DD) para evitar bug de timezone: completed_at é UTC,
+          // então um item marcado às 23:30 BRT tem timestamp UTC do dia seguinte.
+          const localDateStr = (d: Date) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, "0");
+            const day = String(d.getDate()).padStart(2, "0");
+            return `${y}-${m}-${day}`;
+          };
+          const todayLocalStr = localDateStr(new Date());
           const initCompletedDiets = new Set<string>(
             loadedDiets
-              .filter((d: any) => d.is_completed && d.completed_at && new Date(d.completed_at).toDateString() === todayStr)
+              .filter((d: any) => d.is_completed && d.completed_at && localDateStr(new Date(d.completed_at)) === todayLocalStr)
               .map((d: any) => d.id)
           );
           const initCompletedHabits = new Set<string>(
             loadedHabits
-              .filter((h: any) => h.is_completed && h.completed_at && new Date(h.completed_at).toDateString() === todayStr)
+              .filter((h: any) => h.is_completed && h.completed_at && localDateStr(new Date(h.completed_at)) === todayLocalStr)
               .map((h: any) => h.id)
           );
           setCompletedDietIds(initCompletedDiets);
@@ -600,10 +620,10 @@ export default function Goals() {
 
           // Reset is_completed for items marked on a previous day (fire-and-forget)
           const staleCompletedDiets = loadedDiets.filter(
-            (d: any) => d.is_completed && (!d.completed_at || new Date(d.completed_at).toDateString() !== todayStr)
+            (d: any) => d.is_completed && (!d.completed_at || localDateStr(new Date(d.completed_at)) !== todayLocalStr)
           );
           const staleCompletedHabits = loadedHabits.filter(
-            (h: any) => h.is_completed && (!h.completed_at || new Date(h.completed_at).toDateString() !== todayStr)
+            (h: any) => h.is_completed && (!h.completed_at || localDateStr(new Date(h.completed_at)) !== todayLocalStr)
           );
           for (const d of staleCompletedDiets) {
             toggleUserDietCompletionDb(d.id, false).catch(() => { });
@@ -793,8 +813,8 @@ export default function Goals() {
         goal.id,
         user.id,
         goal.type,
-        goal.duration,
-        goal.quantity,
+        goal.duration > 0 ? goal.duration : 30,
+        goal.quantity > 0 ? goal.quantity : 1,
       );
 
       toast({
@@ -871,6 +891,19 @@ export default function Goals() {
       const freshUserGoals = await getUserGoalsDb();
       setUserGoals(freshUserGoals);
       setSelectedGoalIds((prev) => [...prev, goalId]);
+
+      // Adiciona a meta customizada ao state goals para que apareça na seção "Metas Ativas"
+      setGoals((prev) => {
+        if (prev.some((g) => g.id === goalId)) return prev;
+        return [...prev, {
+          id: goalId,
+          description: newGoalDescription.trim(),
+          duration: newGoalDuration,
+          quantity: newGoalQuantity,
+          type: newGoalType,
+          created_by_user: 1,
+        }];
+      });
 
       toast({ title: "Meta criada!", description: newGoalDescription.trim() });
       setCreateGoalDrawerOpen(false);
@@ -1055,362 +1088,6 @@ export default function Goals() {
         description: err?.message || "Tente novamente.",
         variant: "destructive",
       });
-    }
-  };
-
-  const handleDailyCheckIn = async () => {
-    if (isProcessingCheckIn) return;
-    if (!user) {
-      toast({
-        title: "Erro",
-        description: "Usuário não autenticado.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Check if user has actually completed at least one routine item today
-    const hasCompletedToday =
-      completedDietIds.size > 0 ||
-      completedHabitIds.size > 0 ||
-      Object.values(workoutSeries).some((series) => series.some((s) => s.completed));
-
-    if (!hasCompletedToday) {
-      toast({
-        title: "Nenhuma rotina completada",
-        description: "Complete pelo menos um exercício, dieta ou hábito antes de fazer o check-in.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // If user has multiple goals, show modal for selection
-    if (userGoals.length > 1) {
-      const incompleteGoals = userGoals.filter((g) => g.perc < 100);
-      if (incompleteGoals.length === 0) {
-        toast({
-          title: "Todas as metas completadas!",
-          description: "Parabéns! Você completou todas as suas metas.",
-        });
-        return;
-      }
-      // Open goal selection modal — set processing guard now to prevent double-tap
-      setIsProcessingCheckIn(true);
-      setCheckInGoalSelectionOpen(true);
-      return;
-    }
-
-    // Single goal - update it directly
-    if (userGoals.length === 1) {
-      // Single goal - update it directly
-      const goal = userGoals[0];
-
-      setIsProcessingCheckIn(true);
-      try {
-        // Create check-in in database
-        await createCheckInDb(user.id);
-        setDailyCheckInDone(true);
-        // Incrementa streak imediatamente para feedback visual instantâneo
-        setStreakCount((prev) => prev + 1);
-        // Award points for daily check-in
-        try {
-          await addPointsDb(5);
-        } catch (pointsErr) {
-          console.error("Error awarding check-in points:", pointsErr);
-        }
-
-        // Award badges based on total check-ins and refresh local state
-        try {
-          await awardBadgesForCheckInsDb(user.id);
-          const [earned, catalog, total] = await Promise.all([
-            getUserBadgesDb(user.id),
-            getAllBadgesDb(),
-            getTotalCheckInsDb(user.id),
-          ]);
-          setUserBadges(earned);
-          setAllBadges(catalog);
-          setTotalCheckIns(total);
-        } catch (badgeErr) {
-          console.error("Error awarding badges:", badgeErr);
-        }
-
-        // Refresh check-in history and recalculate streak (confirma valor correto do banco)
-        try {
-          const freshHistory = await getCheckInHistoryDb(user.id, 60);
-          setCheckInHistory(freshHistory);
-          if (freshHistory.length > 0) {
-            const sorted = [...freshHistory].sort((a, b) =>
-              new Date(b.check_in_date).getTime() - new Date(a.check_in_date).getTime()
-            );
-            const localDateStr = (d: Date) => {
-              const y = d.getFullYear();
-              const m = String(d.getMonth() + 1).padStart(2, "0");
-              const day = String(d.getDate()).padStart(2, "0");
-              return `${y}-${m}-${day}`;
-            };
-            const today = localDateStr(new Date());
-            const yesterdayDate = new Date();
-            yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-            const yesterday = localDateStr(yesterdayDate);
-            const mostRecent = sorted[0]?.check_in_date;
-            if (mostRecent === today || mostRecent === yesterday) {
-              let streak = 0;
-              let current = mostRecent;
-              for (const ci of sorted) {
-                if (ci.check_in_date === current) {
-                  streak++;
-                  const d = new Date(current + "T12:00:00");
-                  d.setDate(d.getDate() - 1);
-                  current = localDateStr(d);
-                } else break;
-              }
-              setStreakCount(streak);
-            }
-          }
-        } catch (historyErr) {
-          console.error("Error refreshing check-in history:", historyErr);
-        }
-
-        // Update week check-ins
-        const dayOfWeek = new Date().getDay();
-        const newWeekCheckIns = new Set(weekCheckIns);
-        newWeekCheckIns.add(dayOfWeek);
-        setWeekCheckIns(newWeekCheckIns);
-
-        // Update goal progress - increment by 1 and recalculate percentage based on duration
-        const newProgress = goal.days_completed + 1;
-        const newPercentage = goal.duration > 0 ? Math.min(100, (newProgress / goal.duration) * 100) : 0;
-
-        await updateUserGoalDb(goal.id, {
-          days_completed: newProgress,
-          perc: newPercentage,
-        });
-
-        // Refresh user goals
-        const updatedGoals = await getUserGoalsDb();
-        setUserGoals(updatedGoals);
-
-        // Check if this check-in completed the goal
-        if (newPercentage >= 100) {
-          setCelebrationGoal({ ...goal, days_completed: newProgress, perc: 100 });
-        } else {
-          toast({
-            title: "Check-in realizado!",
-            description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${goal.description}".`,
-          });
-        }
-      } catch (err: any) {
-        const errorMsg = err?.message || "Tente novamente.";
-        console.error("Error during check-in with goal:", errorMsg);
-        toast({
-          title: "Erro ao fazer check-in",
-          description: errorMsg,
-          variant: "destructive",
-        });
-      } finally {
-        setIsProcessingCheckIn(false);
-      }
-    } else {
-      // No goals - just do check-in without goal update
-      setIsProcessingCheckIn(true);
-      try {
-        // Create check-in in database
-        const checkIn = await createCheckInDb(user.id);
-        setDailyCheckInDone(true);
-        // Incrementa streak imediatamente para feedback visual instantâneo
-        setStreakCount((prev) => prev + 1);
-        // Award points for daily check-in
-        try {
-          await addPointsDb(5);
-        } catch (pointsErr) {
-          console.error("Error awarding check-in points:", pointsErr);
-        }
-
-        // Award badges based on total check-ins and refresh local state
-        try {
-          await awardBadgesForCheckInsDb(user.id);
-          const [earned, catalog, total] = await Promise.all([
-            getUserBadgesDb(user.id),
-            getAllBadgesDb(),
-            getTotalCheckInsDb(user.id),
-          ]);
-          setUserBadges(earned);
-          setAllBadges(catalog);
-          setTotalCheckIns(total);
-        } catch (badgeErr) {
-          console.error("Error awarding badges:", badgeErr);
-        }
-
-        // Refresh check-in history and recalculate streak (confirma valor correto do banco)
-        try {
-          const freshHistory = await getCheckInHistoryDb(user.id, 60);
-          setCheckInHistory(freshHistory);
-          if (freshHistory.length > 0) {
-            const sorted = [...freshHistory].sort((a, b) =>
-              new Date(b.check_in_date).getTime() - new Date(a.check_in_date).getTime()
-            );
-            const localDateStr = (d: Date) => {
-              const y = d.getFullYear();
-              const m = String(d.getMonth() + 1).padStart(2, "0");
-              const day = String(d.getDate()).padStart(2, "0");
-              return `${y}-${m}-${day}`;
-            };
-            const today = localDateStr(new Date());
-            const yesterdayDate = new Date();
-            yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-            const yesterday = localDateStr(yesterdayDate);
-            const mostRecent = sorted[0]?.check_in_date;
-            if (mostRecent === today || mostRecent === yesterday) {
-              let streak = 0;
-              let current = mostRecent;
-              for (const ci of sorted) {
-                if (ci.check_in_date === current) {
-                  streak++;
-                  const d = new Date(current + "T12:00:00");
-                  d.setDate(d.getDate() - 1);
-                  current = localDateStr(d);
-                } else break;
-              }
-              setStreakCount(streak);
-            }
-          }
-        } catch (historyErr) {
-          console.error("Error refreshing check-in history:", historyErr);
-        }
-
-        // Update week check-ins
-        const dayOfWeek = new Date().getDay();
-        const newWeekCheckIns = new Set(weekCheckIns);
-        newWeekCheckIns.add(dayOfWeek);
-        setWeekCheckIns(newWeekCheckIns);
-
-        toast({
-          title: "Check-in realizado!",
-          description: "Parabéns! Você completou seu check-in de hoje.",
-        });
-      } catch (err: any) {
-        const errorMsg = err?.message || "Tente novamente.";
-        console.error("Error during check-in (no goal):", errorMsg);
-        toast({
-          title: "Erro ao fazer check-in",
-          description: errorMsg,
-          variant: "destructive",
-        });
-      } finally {
-        setIsProcessingCheckIn(false);
-      }
-    }
-  };
-
-  const handleConfirmCheckInGoal = async () => {
-    if (!selectedCheckInGoal || !user) return;
-
-    setCheckInGoalSelectionOpen(false);
-    setIsProcessingCheckIn(true);
-
-    try {
-      // Create check-in in database
-      await createCheckInDb(user.id);
-      setDailyCheckInDone(true);
-      // Incrementa streak imediatamente para feedback visual instantâneo
-      setStreakCount((prev) => prev + 1);
-      // Award points for daily check-in
-      try {
-        await addPointsDb(5);
-      } catch (pointsErr) {
-        console.error("Error awarding check-in points:", pointsErr);
-      }
-
-      // Award badges based on week check-ins
-      try {
-        await awardBadgesForCheckInsDb(user.id);
-        const [earned, catalog, total] = await Promise.all([
-          getUserBadgesDb(user.id),
-          getAllBadgesDb(),
-          getTotalCheckInsDb(user.id),
-        ]);
-        setUserBadges(earned);
-        setAllBadges(catalog);
-        setTotalCheckIns(total);
-      } catch (badgeErr) {
-        console.error("Error awarding badges:", badgeErr);
-      }
-
-      // Refresh check-in history and recalculate streak (confirma valor correto do banco)
-      try {
-        const freshHistory = await getCheckInHistoryDb(user.id, 60);
-        setCheckInHistory(freshHistory);
-        if (freshHistory.length > 0) {
-          const sorted = [...freshHistory].sort((a, b) =>
-            new Date(b.check_in_date).getTime() - new Date(a.check_in_date).getTime()
-          );
-          const localDateStr = (d: Date) => {
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, "0");
-            const day = String(d.getDate()).padStart(2, "0");
-            return `${y}-${m}-${day}`;
-          };
-          const today = localDateStr(new Date());
-          const yesterdayDate = new Date();
-          yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-          const yesterday = localDateStr(yesterdayDate);
-          const mostRecent = sorted[0]?.check_in_date;
-          if (mostRecent === today || mostRecent === yesterday) {
-            let streak = 0;
-            let current = mostRecent;
-            for (const ci of sorted) {
-              if (ci.check_in_date === current) {
-                streak++;
-                const d = new Date(current + "T12:00:00");
-                d.setDate(d.getDate() - 1);
-                current = localDateStr(d);
-              } else break;
-            }
-            setStreakCount(streak);
-          }
-        }
-      } catch (historyErr) {
-        console.error("Error refreshing check-in history:", historyErr);
-      }
-
-      // Update week check-ins
-      const dayOfWeek = new Date().getDay();
-      const newWeekCheckIns = new Set(weekCheckIns);
-      newWeekCheckIns.add(dayOfWeek);
-      setWeekCheckIns(newWeekCheckIns);
-
-      // Update goal progress - increment by 1 and recalculate percentage based on duration
-      const newProgress = selectedCheckInGoal.days_completed + 1;
-      const newPercentage = selectedCheckInGoal.duration > 0 ? Math.min(100, (newProgress / selectedCheckInGoal.duration) * 100) : 0;
-
-      await updateUserGoalDb(selectedCheckInGoal.id, {
-        days_completed: newProgress,
-        perc: newPercentage,
-      });
-
-      // Refresh user goals
-      const updatedGoals = await getUserGoalsDb();
-      setUserGoals(updatedGoals);
-
-      // Check if this check-in completed the goal
-      if (newPercentage >= 100) {
-        setCelebrationGoal({ ...selectedCheckInGoal, days_completed: newProgress, perc: 100 });
-      } else {
-        toast({
-          title: "Check-in realizado!",
-          description: `Parabéns! Você completou seu check-in de hoje e atualizou a meta "${selectedCheckInGoal.description}".`,
-        });
-      }
-    } catch (err: any) {
-      const errorMsg = err?.message || "Tente novamente.";
-      console.error("Error during check-in (selected goal):", errorMsg);
-      toast({
-        title: "Erro ao fazer check-in",
-        description: errorMsg,
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessingCheckIn(false);
     }
   };
 
@@ -1765,10 +1442,51 @@ export default function Goals() {
         console.error("Error awarding badges:", badgeErr);
       }
 
+      // Recalcula streak com dados reais do banco (evita incremento otimista incorreto)
+      try {
+        const freshHistory = await getCheckInHistoryDb(user.id, 60);
+        setCheckInHistory(freshHistory);
+        if (freshHistory.length > 0) {
+          const sorted = [...freshHistory].sort((a, b) =>
+            new Date(b.check_in_date).getTime() - new Date(a.check_in_date).getTime()
+          );
+          const localDateStr = (d: Date) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, "0");
+            const day = String(d.getDate()).padStart(2, "0");
+            return `${y}-${m}-${day}`;
+          };
+          const today = localDateStr(new Date());
+          const yesterdayDate = new Date();
+          yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+          const yesterday = localDateStr(yesterdayDate);
+          const mostRecent = sorted[0]?.check_in_date;
+          if (mostRecent === today || mostRecent === yesterday) {
+            let streak = 0;
+            let current = mostRecent;
+            for (const ci of sorted) {
+              if (ci.check_in_date === current) {
+                streak++;
+                const d = new Date(current + "T12:00:00");
+                d.setDate(d.getDate() - 1);
+                current = localDateStr(d);
+              } else break;
+            }
+            setStreakCount(streak);
+          } else {
+            setStreakCount(0);
+          }
+        }
+      } catch (historyErr) {
+        console.error("Error refreshing streak:", historyErr);
+      }
+
       // Update progress for all active goals
       const activeGoals = userGoals.filter((g) => g.perc < 100);
       for (const goal of activeGoals) {
-        const newProgress = goal.days_completed + 1;
+        const newProgress = goal.duration > 0
+          ? Math.min(goal.duration, goal.days_completed + 1)
+          : goal.days_completed + 1;
         const newPercentage = goal.duration > 0 ? Math.min(100, (newProgress / goal.duration) * 100) : 0;
         await updateUserGoalDb(goal.id, { days_completed: newProgress, perc: newPercentage });
       }
@@ -2379,6 +2097,7 @@ export default function Goals() {
                                             value={editAvailableGoalDuration}
                                             onChange={(e) => setEditAvailableGoalDuration(parseInt(e.target.value) || 1)}
                                             className="w-full h-8 px-2 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
+                                            style={{ fontSize: '16px' }}
                                           />
                                         </div>
                                         <div>
@@ -2389,6 +2108,7 @@ export default function Goals() {
                                             value={editAvailableGoalQuantity}
                                             onChange={(e) => setEditAvailableGoalQuantity(parseInt(e.target.value) || 1)}
                                             className="w-full h-8 px-2 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
+                                            style={{ fontSize: '16px' }}
                                           />
                                         </div>
                                       </div>
@@ -2998,6 +2718,7 @@ export default function Goals() {
                                           onClick={async (e) => {
                                             e.stopPropagation();
                                             const isCompleting = !completedDietIds.has(item.id);
+                                            const previousDietIds = new Set(completedDietIds);
                                             const newCompletedIds = new Set(completedDietIds);
                                             if (isCompleting) {
                                               newCompletedIds.add(item.id);
@@ -3034,8 +2755,8 @@ export default function Goals() {
                                                 });
                                               }
                                             } catch (err) {
-                                              // Rollback optimistic update
-                                              setCompletedDietIds(completedDietIds);
+                                              // Rollback para o estado anterior ao update otimista
+                                              setCompletedDietIds(previousDietIds);
                                               toast({
                                                 title: "Erro ao atualizar status da dieta",
                                                 variant: "destructive",
@@ -3056,6 +2777,7 @@ export default function Goals() {
                                           onClick={async (e) => {
                                             e.stopPropagation();
                                             const isCompleting = !completedHabitIds.has(item.id);
+                                            const previousHabitIds = new Set(completedHabitIds);
                                             const newCompletedIds = new Set(completedHabitIds);
                                             if (isCompleting) {
                                               newCompletedIds.add(item.id);
@@ -3081,8 +2803,8 @@ export default function Goals() {
                                                 });
                                               }
                                             } catch (err) {
-                                              // Rollback optimistic update
-                                              setCompletedHabitIds(completedHabitIds);
+                                              // Rollback para o estado anterior ao update otimista
+                                              setCompletedHabitIds(previousHabitIds);
                                               toast({
                                                 title: "Erro ao atualizar status do hábito",
                                                 variant: "destructive",
@@ -3251,9 +2973,11 @@ export default function Goals() {
             </div>
           ) : (
             <div className="flex justify-center pt-12 pb-12">
-              <div className="text-center space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Crie uma nova Rotina
+              <div className="text-center space-y-4 max-w-xs">
+                <p className="text-2xl">🏋️</p>
+                <p className="text-sm font-medium">Nenhuma rotina ainda</p>
+                <p className="text-xs text-muted-foreground">
+                  Adicione exercícios, dietas ou hábitos para montar sua rotina diária e fazer check-ins.
                 </p>
                 <Button
                   onClick={handleAddRoutineClick}
@@ -3261,7 +2985,7 @@ export default function Goals() {
                   size="lg"
                 >
                   <Plus className="h-5 w-5" />
-                  Adicionar
+                  Criar Rotina
                 </Button>
               </div>
             </div>
@@ -3904,6 +3628,7 @@ export default function Goals() {
                             type="text"
                             placeholder="Adicionar notas aqui..."
                             className="w-full text-xs text-muted-foreground bg-transparent border-0 placeholder:text-muted-foreground/60 focus:outline-none"
+                            style={{ fontSize: '16px' }}
                           />
                         </div>
 
@@ -3917,6 +3642,7 @@ export default function Goals() {
                               handleSetExerciseRestTime(workout.workout_id, parseInt(e.target.value))
                             }
                             className="text-xs font-medium text-foreground bg-background border border-brand/40 rounded px-2 py-1 focus:border-brand focus:outline-none cursor-pointer hover:border-brand/60 transition-colors"
+                            style={{ fontSize: '16px' }}
                           >
                             <option value="">Desativado</option>
                             {REST_TIME_OPTIONS.map((time) => (
@@ -4001,6 +3727,7 @@ export default function Goals() {
                                         }
                                         placeholder="0"
                                         className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
+                                        style={{ fontSize: '16px' }}
                                       />
 
                                       {/* REPS or TEMPO Input */}
@@ -4018,6 +3745,7 @@ export default function Goals() {
                                         }
                                         placeholder={isCardio ? "00:00" : "0"}
                                         className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
+                                        style={{ fontSize: '16px' }}
                                       />
 
                                       {/* Checkbox */}
@@ -5378,11 +5106,6 @@ export default function Goals() {
                                           {record.volume}
                                         </span>
                                       )}
-                                      {record.calories && (
-                                        <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
-                                          {record.calories} cal
-                                        </span>
-                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -5398,62 +5121,6 @@ export default function Goals() {
             ) : (
               <div className="text-center py-6 text-sm text-muted-foreground">
                 Nenhum registro de treino encontrado
-              </div>
-            )}
-          </div>
-        </DrawerContent>
-      </Drawer>
-
-      {/* Goal Selection Modal for Check-in */}
-      <Drawer open={checkInGoalSelectionOpen} onOpenChange={(open) => { setCheckInGoalSelectionOpen(open); if (!open) setIsProcessingCheckIn(false); }}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Selecione uma Meta para o Check-in</DrawerTitle>
-          </DrawerHeader>
-
-          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-3">
-            {userGoals
-              .filter((g) => g.perc < 100)
-              .map((goal) => (
-                <button
-                  key={goal.id}
-                  onClick={() => {
-                    setSelectedCheckInGoal(goal);
-                    handleConfirmCheckInGoal();
-                  }}
-                  className={`w-full p-4 rounded-lg border-2 transition-all text-left space-y-3 ${selectedCheckInGoal?.id === goal.id
-                    ? "border-brand bg-brand/10"
-                    : "border-border/60 hover:border-border/80 hover:bg-muted/30"
-                    }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
-                      <p className="font-semibold text-sm line-clamp-2">{goal.description}</p>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-lg font-bold text-brand">
-                        {Math.round(goal.perc)}%
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Progress value={goal.perc} className="h-2" />
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">
-                        {goal.days_completed} de {goal.duration} dias
-                      </span>
-                      <span className="font-medium text-foreground">
-                        {Math.max(0, goal.duration - goal.days_completed)} para concluir
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              ))}
-
-            {userGoals.filter((g) => g.perc < 100).length === 0 && (
-              <div className="text-center py-6 text-sm text-muted-foreground">
-                Todas as metas foram completadas!
               </div>
             )}
           </div>

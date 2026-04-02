@@ -34,6 +34,203 @@ const CATEGORY_NAME_PT: Record<string, string> = {
   "Shoulders": "Ombros",
 };
 
+// English exercise name → Portuguese translation dictionary
+const EXERCISE_NAME_PT: Record<string, string> = {
+  // Peito
+  "Bench Press": "Supino Reto",
+  "Barbell Bench Press": "Supino Reto com Barra",
+  "Dumbbell Bench Press": "Supino Reto com Halteres",
+  "Incline Bench Press": "Supino Inclinado",
+  "Incline Dumbbell Press": "Supino Inclinado com Halteres",
+  "Decline Bench Press": "Supino Declinado",
+  "Decline Dumbbell Press": "Supino Declinado com Halteres",
+  "Chest Fly": "Crucifixo",
+  "Dumbbell Fly": "Crucifixo com Halteres",
+  "Cable Fly": "Crucifixo no Cabo",
+  "Incline Dumbbell Fly": "Crucifixo Inclinado",
+  "Pec Deck": "Peck Deck",
+  "Push-Up": "Flexão de Braço",
+  "Push Up": "Flexão de Braço",
+  "Wide Push-Up": "Flexão Aberta",
+  "Diamond Push-Up": "Flexão Diamante",
+  "Chest Dip": "Mergulho no Paralelo",
+  "Cable Crossover": "Crossover no Cabo",
+
+  // Costas
+  "Pull-Up": "Barra Fixa",
+  "Pull Up": "Barra Fixa",
+  "Chin-Up": "Barra Supinada",
+  "Chin Up": "Barra Supinada",
+  "Lat Pulldown": "Puxada Frontal",
+  "Wide Grip Lat Pulldown": "Puxada Frontal Aberta",
+  "Close Grip Lat Pulldown": "Puxada Frontal Fechada",
+  "Seated Cable Row": "Remada Sentado no Cabo",
+  "Bent Over Row": "Remada Curvada",
+  "Barbell Row": "Remada com Barra",
+  "Dumbbell Row": "Remada com Haltere",
+  "One Arm Dumbbell Row": "Remada Unilateral com Haltere",
+  "T-Bar Row": "Remada T",
+  "Deadlift": "Levantamento Terra",
+  "Romanian Deadlift": "Levantamento Terra Romeno",
+  "Stiff-Leg Deadlift": "Levantamento Terra Perna Rígida",
+  "Sumo Deadlift": "Levantamento Terra Sumô",
+  "Back Extension": "Extensão Lombar",
+  "Hyperextension": "Hiperextensão",
+  "Good Morning": "Bom Dia",
+  "Shrug": "Encolhimento de Ombros",
+  "Barbell Shrug": "Encolhimento com Barra",
+  "Dumbbell Shrug": "Encolhimento com Halteres",
+  "Seated Row": "Remada Sentado",
+  "Face Pull": "Face Pull",
+  "Rack Pull": "Levantamento Parcial",
+
+  // Ombros
+  "Overhead Press": "Desenvolvimento",
+  "Barbell Overhead Press": "Desenvolvimento com Barra",
+  "Dumbbell Overhead Press": "Desenvolvimento com Halteres",
+  "Military Press": "Press Militar",
+  "Seated Dumbbell Press": "Desenvolvimento Sentado com Halteres",
+  "Arnold Press": "Press Arnold",
+  "Lateral Raise": "Elevação Lateral",
+  "Dumbbell Lateral Raise": "Elevação Lateral com Halteres",
+  "Cable Lateral Raise": "Elevação Lateral no Cabo",
+  "Front Raise": "Elevação Frontal",
+  "Dumbbell Front Raise": "Elevação Frontal com Halteres",
+  "Rear Delt Fly": "Crucifixo Invertido",
+  "Reverse Fly": "Crucifixo Invertido",
+  "Upright Row": "Remada Alta",
+  "Barbell Upright Row": "Remada Alta com Barra",
+  "Cable Upright Row": "Remada Alta no Cabo",
+  "Shoulder Press": "Press de Ombro",
+
+  // Bíceps
+  "Bicep Curl": "Rosca Direta",
+  "Biceps Curl": "Rosca Direta",
+  "Barbell Curl": "Rosca Direta com Barra",
+  "Dumbbell Curl": "Rosca com Halteres",
+  "Hammer Curl": "Rosca Martelo",
+  "Preacher Curl": "Rosca Scott",
+  "EZ Bar Curl": "Rosca Direta com Barra EZ",
+  "Incline Dumbbell Curl": "Rosca Inclinada com Halteres",
+  "Concentration Curl": "Rosca Concentrada",
+  "Cable Curl": "Rosca no Cabo",
+  "Reverse Curl": "Rosca Inversa",
+  "Spider Curl": "Rosca Spider",
+  "Zottman Curl": "Rosca Zottman",
+
+  // Tríceps
+  "Tricep Dip": "Mergulho para Tríceps",
+  "Triceps Dip": "Mergulho para Tríceps",
+  "Dip": "Mergulho no Paralelo",
+  "Tricep Pushdown": "Tríceps Pulley",
+  "Triceps Pushdown": "Tríceps Pulley",
+  "Cable Tricep Pushdown": "Tríceps Pulley no Cabo",
+  "Overhead Tricep Extension": "Extensão de Tríceps Acima da Cabeça",
+  "Skull Crusher": "Tríceps Testa",
+  "Close Grip Bench Press": "Supino Fechado",
+  "Tricep Kickback": "Coice de Tríceps",
+  "Diamond Push Up": "Flexão Diamante",
+  "Rope Pushdown": "Tríceps Corda",
+  "French Press": "Tríceps Francês",
+
+  // Abdômen
+  "Crunch": "Abdominal",
+  "Sit-Up": "Abdominal Completo",
+  "Sit Up": "Abdominal Completo",
+  "Plank": "Prancha",
+  "Side Plank": "Prancha Lateral",
+  "Russian Twist": "Rotação Russa",
+  "Leg Raise": "Elevação de Pernas",
+  "Hanging Leg Raise": "Elevação de Pernas Suspenso",
+  "Mountain Climber": "Escalada",
+  "Bicycle Crunch": "Abdominal Bicicleta",
+  "Cable Crunch": "Abdominal no Cabo",
+  "Ab Wheel Rollout": "Roda Abdominal",
+  "Flutter Kick": "Batida de Pernas",
+  "Hollow Body Hold": "Prancha Hollow",
+  "Dragon Flag": "Dragon Flag",
+  "V-Up": "Abdominal em V",
+  "Toe Touch": "Toque nos Pés",
+  "Windshield Wiper": "Limpador de Para-brisa",
+
+  // Pernas — Quadríceps
+  "Squat": "Agachamento",
+  "Back Squat": "Agachamento com Barra",
+  "Front Squat": "Agachamento Frontal",
+  "Goblet Squat": "Agachamento Goblet",
+  "Sumo Squat": "Agachamento Sumô",
+  "Hack Squat": "Hack Squat",
+  "Leg Press": "Leg Press",
+  "Leg Extension": "Extensão de Joelho",
+  "Lunge": "Avanço",
+  "Barbell Lunge": "Avanço com Barra",
+  "Dumbbell Lunge": "Avanço com Halteres",
+  "Walking Lunge": "Avanço Andando",
+  "Reverse Lunge": "Avanço Reverso",
+  "Bulgarian Split Squat": "Agachamento Búlgaro",
+  "Step Up": "Subida no Step",
+  "Box Jump": "Salto na Caixa",
+  "Pistol Squat": "Agachamento Unilateral",
+  "Wall Sit": "Cadeira na Parede",
+
+  // Pernas — Posterior / Glúteos
+  "Hip Thrust": "Elevação de Quadril",
+  "Barbell Hip Thrust": "Elevação de Quadril com Barra",
+  "Glute Bridge": "Ponte Glúteo",
+  "Leg Curl": "Flexão de Joelho",
+  "Lying Leg Curl": "Flexão de Joelho Deitado",
+  "Seated Leg Curl": "Flexão de Joelho Sentado",
+  "Nordic Hamstring Curl": "Flexão Nórdica",
+  "Good Morning": "Bom Dia",
+  "Donkey Kick": "Coice do Burro",
+  "Fire Hydrant": "Abdução Lateral no Chão",
+  "Cable Kickback": "Extensão de Quadril no Cabo",
+
+  // Panturrilha
+  "Calf Raise": "Elevação de Panturrilha",
+  "Standing Calf Raise": "Elevação de Panturrilha em Pé",
+  "Seated Calf Raise": "Elevação de Panturrilha Sentado",
+  "Donkey Calf Raise": "Elevação de Panturrilha Inclinado",
+
+  // Cardio / Full Body
+  "Burpee": "Burpee",
+  "Jumping Jack": "Polichinelo",
+  "Jumping Jacks": "Polichinelo",
+  "Jump Rope": "Corda",
+  "High Knees": "Corrida com Joelhos Altos",
+  "Box Jump": "Salto na Caixa",
+  "Treadmill": "Esteira",
+  "Rowing Machine": "Remo Ergométrico",
+  "Stationary Bike": "Bicicleta Ergométrica",
+  "Elliptical": "Elíptico",
+  "Sprint": "Tiro",
+  "Run": "Corrida",
+  "Swimming": "Natação",
+  "Jump Squat": "Agachamento com Salto",
+  "Kettlebell Swing": "Swing com Kettlebell",
+  "Clean and Jerk": "Arremesso",
+  "Snatch": "Arranque",
+  "Thruster": "Thruster",
+  "Battle Rope": "Corda Battle Rope",
+
+  // Mobilidade / Outros
+  "Foam Rolling": "Rolo de Espuma",
+  "Stretching": "Alongamento",
+  "Yoga": "Yoga",
+  "Pilates": "Pilates",
+};
+
+function translateExerciseName(name: string): string {
+  // Exact match first
+  if (EXERCISE_NAME_PT[name]) return EXERCISE_NAME_PT[name];
+  // Case-insensitive fallback
+  const lower = name.toLowerCase();
+  for (const [en, pt] of Object.entries(EXERCISE_NAME_PT)) {
+    if (en.toLowerCase() === lower) return pt;
+  }
+  return name;
+}
+
 function stripHtml(html: string): string {
   const div = document.createElement("div");
   div.innerHTML = html;
@@ -79,7 +276,7 @@ async function fetchFromApi(): Promise<CatalogExercise[]> {
 
       exercises.push({
         id: ex.id,
-        name: translation.name,
+        name: translateExerciseName(translation.name),
         description: translation.description ? stripHtml(translation.description).slice(0, 200) : "",
         category: categoryPt,
         image: image?.image || null,

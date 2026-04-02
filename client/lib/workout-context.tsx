@@ -68,19 +68,61 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   setGlobalRestTimerTotal: () => {},
 });
 
+const WORKOUT_STORAGE_KEY = "linka_active_workout";
+
+function loadPersistedWorkout() {
+  try {
+    const raw = localStorage.getItem(WORKOUT_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as {
+      workoutSeries: Record<string, WorkoutSeriesEntry[]>;
+      workoutStartTime: number;
+      selectedRoutineName: string | null;
+      workoutExerciseRestTimes: Record<string, number>;
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function WorkoutProvider({ children }: { children: React.ReactNode }) {
+  const persisted = React.useMemo(() => loadPersistedWorkout(), []);
+
   const [workoutModalOpen, setWorkoutModalOpen] = React.useState(false);
-  const [workoutMinimized, setWorkoutMinimized] = React.useState(false);
+  const [workoutMinimized, setWorkoutMinimized] = React.useState(() => persisted !== null);
   const [pendingReopen, setPendingReopen] = React.useState(false);
-  const [workoutSeries, setWorkoutSeries] = React.useState<Record<string, WorkoutSeriesEntry[]>>({});
-  const [workoutDuration, setWorkoutDuration] = React.useState(0);
-  const [workoutStartTime, setWorkoutStartTime] = React.useState<number | null>(null);
-  const [selectedRoutineName, setSelectedRoutineName] = React.useState<string | null>(null);
-  const [workoutExerciseRestTimes, setWorkoutExerciseRestTimes] = React.useState<Record<string, number>>({});
+  const [workoutSeries, setWorkoutSeries] = React.useState<Record<string, WorkoutSeriesEntry[]>>(
+    () => persisted?.workoutSeries ?? {}
+  );
+  const [workoutDuration, setWorkoutDuration] = React.useState(() => {
+    if (!persisted) return 0;
+    return Math.floor((Date.now() - persisted.workoutStartTime) / 1000);
+  });
+  const [workoutStartTime, setWorkoutStartTime] = React.useState<number | null>(
+    () => persisted?.workoutStartTime ?? null
+  );
+  const [selectedRoutineName, setSelectedRoutineName] = React.useState<string | null>(
+    () => persisted?.selectedRoutineName ?? null
+  );
+  const [workoutExerciseRestTimes, setWorkoutExerciseRestTimes] = React.useState<Record<string, number>>(
+    () => persisted?.workoutExerciseRestTimes ?? {}
+  );
   const [currentWorkoutIndex, setCurrentWorkoutIndex] = React.useState(0);
   const [globalRestTimerRemaining, setGlobalRestTimerRemaining] = React.useState(0);
   const [globalRestTimerActive, setGlobalRestTimerActive] = React.useState(false);
   const [globalRestTimerTotal, setGlobalRestTimerTotal] = React.useState(0);
+
+  // Persiste estado crítico no localStorage enquanto treino estiver ativo
+  React.useEffect(() => {
+    if (workoutStartTime !== null && (workoutModalOpen || workoutMinimized)) {
+      localStorage.setItem(WORKOUT_STORAGE_KEY, JSON.stringify({
+        workoutSeries,
+        workoutStartTime,
+        selectedRoutineName,
+        workoutExerciseRestTimes,
+      }));
+    }
+  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutModalOpen, workoutMinimized]);
 
   // Workout duration timer — keeps running even when modal is minimized
   React.useEffect(() => {
@@ -119,6 +161,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   }, [globalRestTimerActive, globalRestTimerTotal]); // re-run when a new timer starts
 
   const resetWorkoutState = React.useCallback(() => {
+    localStorage.removeItem(WORKOUT_STORAGE_KEY);
     setWorkoutSeries({});
     setWorkoutDuration(0);
     setWorkoutStartTime(null);
