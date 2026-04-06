@@ -92,6 +92,13 @@ Exibe:
 - **Data de encerramento** (`endDate` — "Sem prazo" se não definido)
 - Botão de sair / apagar grupo (conforme papel do usuário)
 
+**Edição (somente criador):**
+- Botão "Editar" no cabeçalho do modal (visível apenas para o criador)
+- Ao clicar, os campos Nome e Objetivo tornam-se editáveis (Input / Textarea)
+- Botões "Cancelar" e "Salvar" aparecem no lugar dos botões de ação
+- Ao salvar → `updateGroupInfoDb(groupId, name, goal)` — atualiza tabela `duel_groups`
+- Estado local do grupo (`selectedGroupForView` e `userCreatedGroups`) é atualizado imediatamente sem reload
+
 ---
 
 ### Vista: Conversa Individual
@@ -299,6 +306,7 @@ Dados carregados via `getRankingDb()`
 | Aprovar solicitação de grupo | `approveGroupRequestDb(groupId, userId)` |
 | Recusar solicitação de grupo | `rejectGroupRequestDb(groupId, userId)` |
 | Rotinas de exercício | `getUserExerciseRoutinesDb()` |
+| Atualizar nome/objetivo do grupo | `updateGroupInfoDb(groupId, name, goal)` |
 | Treinos do usuário | `getUserWorkoutsDb()` |
 | Perfil do usuário | `getUserProfileDb()` |
 

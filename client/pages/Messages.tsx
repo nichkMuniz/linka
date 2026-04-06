@@ -141,7 +141,7 @@ export default function Messages() {
     loadMessages();
   }, [selectedConversation, viewMode]);
 
-  // Realtime subscription for messages in active conversation
+  // Realtime subscription for messages in active conversation — append instead of full reload
   React.useEffect(() => {
     if (!selectedConversation || viewMode !== "conversation" || !supabase || !user) return;
 
@@ -158,17 +158,35 @@ export default function Messages() {
           const msg = payload.new as any;
           // Only react to messages in this conversation
           const isThisConversation =
-            (msg.user_Id === user.id && msg.following_id === selectedConversation.userId) ||
+            (msg.user_id === user.id && msg.following_id === selectedConversation.userId) ||
             (msg.user_id === selectedConversation.userId && msg.following_id === user.id);
 
           if (!isThisConversation) return;
 
-          const updatedMessages = await getConversationMessagesDb(selectedConversation.userId);
-          setMessages(updatedMessages);
+          // Append the new message directly instead of re-fetching all messages
+          const newMsg: MessageWithUser = {
+            id: msg.id,
+            user_id: msg.user_id,
+            following_id: msg.following_id ?? msg.id_receiver,
+            text: msg.text ?? "",
+            read: msg.read ?? 0,
+            created_at: msg.created_at ?? new Date().toISOString(),
+            emoji: msg.emoji ?? null,
+            senderNickname: msg.user_id === user.id ? "Você" : (selectedConversation.userNickname || "Usuário"),
+            senderPhoto: msg.user_id === user.id ? null : (selectedConversation.userPhoto || null),
+            recipientNickname: msg.user_id === user.id ? (selectedConversation.userNickname || "Usuário") : "Você",
+            recipientPhoto: msg.user_id === user.id ? (selectedConversation.userPhoto || null) : null,
+          };
+
+          setMessages((prev) => {
+            // Avoid duplicates (optimistic update may have added it already)
+            if (prev.some((m) => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
 
           // If the new message is from the other user, mark as read immediately
           if (msg.user_id === selectedConversation.userId) {
-            await markMessagesAsReadDb(selectedConversation.userId);
+            markMessagesAsReadDb(selectedConversation.userId).catch(() => {});
           }
         },
       )

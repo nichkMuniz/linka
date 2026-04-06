@@ -1,9 +1,10 @@
 import { supabase, hasSupabaseConfig, getUserSafe } from "@/lib/supabase";
 import {
-  getPostLikesDb,
-  getUserPostLikesDb,
+  getPostLikesBatchDb,
+  getUserPostLikesBatchDb,
+  getCommentCountsBatchDb,
+  getProfilesBatchDb,
   togglePostIncentiveDb,
-  getUserProfileDb,
   getFollowingIdsDb,
   type PostWithLikes,
   type PostIncentiveType,
@@ -42,77 +43,74 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
 
   const { data, error } = await supabase
     .from("posts")
-    .select("*")
+    .select("id, description, photo, photos, created_at, user_id, user_goal_id")
     .in("user_id", userIdsToShow)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(50);
 
   if (error) throw error;
 
+  const rows = data ?? [];
+  if (rows.length === 0) return [];
+
+  const postIds = rows.map((p: any) => p.id);
+  const userIds = [...new Set(rows.map((p: any) => p.user_id))];
+
   // Collect all unique user_goal_ids to batch-fetch in one query
   const goalIds = [...new Set(
-    (data ?? []).map((p: any) => p.user_goal_id).filter(Boolean)
+    rows.map((p: any) => p.user_goal_id).filter(Boolean)
   )];
 
-  // Batch-fetch user_goals via RPC (bypasses RLS so we can read other users' goals)
-  const goalMap = new Map<string, any>();
-  if (goalIds.length > 0) {
-    const { data: goalsData } = await supabase
-      .rpc("get_user_goals_by_ids", { goal_ids: goalIds.map(Number) });
+  // Batch-fetch ALL enrichment data in parallel (4 queries total instead of N*8)
+  const [likesMap, userLikesMap, commentCountsMap, profilesMap, goalMap] = await Promise.all([
+    getPostLikesBatchDb(postIds),
+    getUserPostLikesBatchDb(postIds),
+    getCommentCountsBatchDb(postIds),
+    getProfilesBatchDb(userIds),
+    (async () => {
+      const map = new Map<string, any>();
+      if (goalIds.length > 0) {
+        const { data: goalsData } = await supabase
+          .rpc("get_user_goals_by_ids", { goal_ids: goalIds.map(Number) });
+        if (goalsData?.length) {
+          goalsData.forEach((g: any) => {
+            map.set(String(g.id), {
+              id: String(g.id),
+              goal_id: String(g.goal_id),
+              description: g.description ?? "",
+              perc: Number(g.perc ?? 0),
+              duration: Number(g.duration ?? 0),
+              quantity: Number(g.quantity ?? 0),
+              type_goal: Number(g.type_goal ?? 0),
+              actual_progress: Math.round((Number(g.perc ?? 0) / 100) * Number(g.quantity ?? 0)),
+            });
+          });
+        }
+      }
+      return map;
+    })(),
+  ]);
 
-    if (goalsData?.length) {
-      goalsData.forEach((g: any) => {
-        goalMap.set(String(g.id), {
-          id: String(g.id),
-          goal_id: String(g.goal_id),
-          description: g.description ?? "",
-          perc: Number(g.perc ?? 0),
-          duration: Number(g.duration ?? 0),
-          quantity: Number(g.quantity ?? 0),
-          type_goal: Number(g.type_goal ?? 0),
-          actual_progress: Math.round((Number(g.perc ?? 0) / 100) * Number(g.quantity ?? 0)),
-        });
-      });
-    }
-  }
+  // Assemble posts synchronously — no more per-post queries
+  const posts: PostWithStats[] = rows.map((post: any) => {
+    const likes = likesMap.get(post.id) ?? { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
+    const userLikes = userLikesMap.get(post.id) ?? [];
+    const commentCount = commentCountsMap.get(post.id) ?? 0;
+    const profile = profilesMap.get(post.user_id);
+    const totalLikes = Object.values(likes).reduce((a: number, b: number) => a + b, 0);
+    const userGoal = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
 
-  // Enrich each post with likes, comments, user info, and goal data
-  const posts = await Promise.all(
-    (data ?? []).map(async (post: any) => {
-      const [
-        likes,
-        userLikes,
-        { count: commentCount },
-        userProfile,
-      ] = await Promise.all([
-        getPostLikesDb(post.id),
-        getUserPostLikesDb(post.id),
-        supabase
-          .from("comments")
-          .select("*", { count: "exact", head: true })
-          .eq("post_id", post.id),
-        getUserProfileDb(post.user_id),
-      ]);
-
-      const totalLikes = Object.values(likes).reduce(
-        (a: number, b: number) => a + b,
-        0,
-      );
-      const hasActivity = totalLikes > 0 || (commentCount ?? 0) > 0;
-
-      const userGoal = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
-
-      return {
-        ...post,
-        likes,
-        userLikes,
-        commentCount: commentCount ?? 0,
-        hasActivity,
-        userNickname: userProfile?.nickname || "Usuário",
-        userPhoto: userProfile?.photo || null,
-        userGoal,
-      };
-    }),
-  );
+    return {
+      ...post,
+      likes,
+      userLikes,
+      commentCount,
+      hasActivity: totalLikes > 0 || commentCount > 0,
+      userNickname: profile?.nickname || "Usuário",
+      userPhoto: profile?.photo || null,
+      userGoal,
+    };
+  });
 
   return posts;
 };
@@ -131,74 +129,68 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
 
   const { data, error } = await supabase
     .from("posts")
-    .select("*")
+    .select("id, description, photo, photos, created_at, user_id, user_goal_id")
     .not("user_id", "in", `(${excludedIds.join(",")})`)
     .order("created_at", { ascending: false })
     .limit(30);
 
   if (error) throw error;
 
-  const goalIds = [...new Set(
-    (data ?? []).map((p: any) => p.user_goal_id).filter(Boolean)
-  )];
+  const rows = data ?? [];
+  if (rows.length === 0) return [];
 
-  const goalMap = new Map<string, any>();
-  if (goalIds.length > 0) {
-    const { data: goalsData } = await supabase
-      .rpc("get_user_goals_by_ids", { goal_ids: goalIds.map(Number) });
+  const postIds = rows.map((p: any) => p.id);
+  const userIds = [...new Set(rows.map((p: any) => p.user_id))];
+  const goalIds = [...new Set(rows.map((p: any) => p.user_goal_id).filter(Boolean))];
 
-    if (goalsData?.length) {
-      goalsData.forEach((g: any) => {
-        goalMap.set(String(g.id), {
-          id: String(g.id),
-          goal_id: String(g.goal_id),
-          description: g.description ?? "",
-          perc: Number(g.perc ?? 0),
-          duration: Number(g.duration ?? 0),
-          quantity: Number(g.quantity ?? 0),
-          type_goal: Number(g.type_goal ?? 0),
-          actual_progress: Math.round((Number(g.perc ?? 0) / 100) * Number(g.quantity ?? 0)),
-        });
-      });
-    }
-  }
+  const [likesMap, userLikesMap, commentCountsMap, profilesMap, goalMap] = await Promise.all([
+    getPostLikesBatchDb(postIds),
+    getUserPostLikesBatchDb(postIds),
+    getCommentCountsBatchDb(postIds),
+    getProfilesBatchDb(userIds),
+    (async () => {
+      const map = new Map<string, any>();
+      if (goalIds.length > 0) {
+        const { data: goalsData } = await supabase
+          .rpc("get_user_goals_by_ids", { goal_ids: goalIds.map(Number) });
+        if (goalsData?.length) {
+          goalsData.forEach((g: any) => {
+            map.set(String(g.id), {
+              id: String(g.id),
+              goal_id: String(g.goal_id),
+              description: g.description ?? "",
+              perc: Number(g.perc ?? 0),
+              duration: Number(g.duration ?? 0),
+              quantity: Number(g.quantity ?? 0),
+              type_goal: Number(g.type_goal ?? 0),
+              actual_progress: Math.round((Number(g.perc ?? 0) / 100) * Number(g.quantity ?? 0)),
+            });
+          });
+        }
+      }
+      return map;
+    })(),
+  ]);
 
-  const posts = await Promise.all(
-    (data ?? []).map(async (post: any) => {
-      const [
-        likes,
-        userLikes,
-        { count: commentCount },
-        userProfile,
-      ] = await Promise.all([
-        getPostLikesDb(post.id),
-        getUserPostLikesDb(post.id),
-        supabase
-          .from("comments")
-          .select("*", { count: "exact", head: true })
-          .eq("post_id", post.id),
-        getUserProfileDb(post.user_id),
-      ]);
+  const posts: PostWithStats[] = rows.map((post: any) => {
+    const likes = likesMap.get(post.id) ?? { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
+    const userLikes = userLikesMap.get(post.id) ?? [];
+    const commentCount = commentCountsMap.get(post.id) ?? 0;
+    const profile = profilesMap.get(post.user_id);
+    const totalLikes = Object.values(likes).reduce((a: number, b: number) => a + b, 0);
+    const userGoal = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
 
-      const totalLikes = Object.values(likes).reduce(
-        (a: number, b: number) => a + b,
-        0,
-      );
-      const hasActivity = totalLikes > 0 || (commentCount ?? 0) > 0;
-      const userGoal = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
-
-      return {
-        ...post,
-        likes,
-        userLikes,
-        commentCount: commentCount ?? 0,
-        hasActivity,
-        userNickname: userProfile?.nickname || "Usuário",
-        userPhoto: userProfile?.photo || null,
-        userGoal,
-      };
-    }),
-  );
+    return {
+      ...post,
+      likes,
+      userLikes,
+      commentCount,
+      hasActivity: totalLikes > 0 || commentCount > 0,
+      userNickname: profile?.nickname || "Usuário",
+      userPhoto: profile?.photo || null,
+      userGoal,
+    };
+  });
 
   // Sort by engagement score (likes + comments) so new users see popular content first
   const userSegments: string[] = (() => {

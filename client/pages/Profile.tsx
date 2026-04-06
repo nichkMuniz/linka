@@ -820,11 +820,14 @@ export default function Profile() {
     loadProfile();
   }, [profileUserId, loadProfile]);
 
-  // Refresh stats when page becomes visible (user returns from another tab/page)
+  // Refresh stats when page becomes visible (cooldown: at most once per 60s)
+  const lastStatsRefreshRef = React.useRef(0);
   React.useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && profileUserId) {
-        // Page became visible, refresh stats
+        const now = Date.now();
+        if (now - lastStatsRefreshRef.current < 60_000) return; // 60s cooldown
+        lastStatsRefreshRef.current = now;
         getUserStatsDb(profileUserId).then((newStats) => {
           setStats(newStats);
         });

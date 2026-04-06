@@ -19,10 +19,11 @@ function assertNotEmpty(value: string, label: string) {
 // ─── Viewer cache ─────────────────────────────────────────────────────────────
 // Viewer cache: avoids redundant auth.getUser() calls within the same operation burst
 let _viewerCache: { user: import("@supabase/supabase-js").User | null; expiry: number } | null = null;
-const VIEWER_TTL_MS = 5000;
+const VIEWER_TTL_MS = 30_000; // 30s — safe because auth state changes trigger invalidateViewerCache()
 
 function invalidateViewerCache() {
   _viewerCache = null;
+  _queryCache.clear();
 }
 
 function cleanHandle(raw: string) {
@@ -55,6 +56,34 @@ export { invalidateViewerCache };
 
 // Register the cache invalidator so supabase.ts can clear it on sign-out
 registerViewerCacheInvalidator(invalidateViewerCache);
+
+// ─── Generic query cache ──────────────────────────────────────────────────────
+// A simple in-memory cache with TTL, keyed by string.
+// Write operations call invalidateQueryCache(prefix) to bust related entries.
+
+const _queryCache = new Map<string, { data: unknown; expiry: number }>();
+
+const CACHE_TTL_SHORT = 30_000;   // 30s — user-specific data that changes often
+const CACHE_TTL_MEDIUM = 60_000;  // 60s — lists, feeds
+const CACHE_TTL_LONG = 300_000;   // 5min — catalogs, programmed goals, badges
+
+async function cached<T>(key: string, ttl: number, fn: () => Promise<T>): Promise<T> {
+  const hit = _queryCache.get(key);
+  if (hit && Date.now() < hit.expiry) return hit.data as T;
+  const data = await fn();
+  _queryCache.set(key, { data, expiry: Date.now() + ttl });
+  return data;
+}
+
+export function invalidateQueryCache(prefix?: string) {
+  if (!prefix) {
+    _queryCache.clear();
+    return;
+  }
+  for (const key of _queryCache.keys()) {
+    if (key.startsWith(prefix)) _queryCache.delete(key);
+  }
+}
 
 export type DbProfile = {
   id: string;
@@ -209,7 +238,7 @@ export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
   if (!hasSupabaseConfig || !supabase) {
     return { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
   }
-
+  return cached(`postLikes:${postId}`, CACHE_TTL_SHORT, async () => {
   // Fetch counts per type in parallel — 6 lightweight HEAD requests instead of fetching all rows
   const [r1, r2, r3, r4, r5, r6] = await Promise.all([
     supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 1),
@@ -228,6 +257,8 @@ export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
     limiteMaior: r5.count ?? 0,
     maisAlgum: r6.count ?? 0,
   };
+
+  });
 }
 
 export async function getUserPostLikesDb(
@@ -299,6 +330,145 @@ export async function getPostLikeUsersDb(postId: string): Promise<Array<{
   }
 }
 
+// ─── Batch helpers (eliminate N+1 in feed) ──────────────────────────────────
+
+/**
+ * Fetch like counts grouped by type for multiple posts in ONE query.
+ * Returns a Map<postId, PostLikeStats>.
+ */
+export async function getPostLikesBatchDb(
+  postIds: string[],
+): Promise<Map<string, PostLikeStats>> {
+  const empty: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
+  const result = new Map<string, PostLikeStats>();
+  if (!postIds.length || !hasSupabaseConfig || !supabase) {
+    postIds.forEach((id) => result.set(id, { ...empty }));
+    return result;
+  }
+
+  // Single query: fetch all likes for all posts
+  const { data } = await supabase
+    .from("likes")
+    .select("post_id, type")
+    .in("post_id", postIds);
+
+  // Initialize all posts with zeros
+  postIds.forEach((id) => result.set(id, { ...empty }));
+
+  // Aggregate
+  const TYPE_KEY: Record<number, keyof PostLikeStats> = {
+    1: "apoio", 2: "continua", 3: "ganhador",
+    4: "consegueMais", 5: "limiteMaior", 6: "maisAlgum",
+  };
+  for (const row of data ?? []) {
+    const stats = result.get(row.post_id);
+    const key = TYPE_KEY[row.type as number];
+    if (stats && key) stats[key]++;
+  }
+
+  return result;
+}
+
+/**
+ * Fetch the current user's likes for multiple posts in ONE query.
+ * Returns a Map<postId, PostIncentiveType[]>.
+ */
+export async function getUserPostLikesBatchDb(
+  postIds: string[],
+): Promise<Map<string, PostIncentiveType[]>> {
+  const result = new Map<string, PostIncentiveType[]>();
+  if (!postIds.length || !hasSupabaseConfig || !supabase) {
+    postIds.forEach((id) => result.set(id, []));
+    return result;
+  }
+
+  const viewer = await getViewer();
+  if (!viewer) {
+    postIds.forEach((id) => result.set(id, []));
+    return result;
+  }
+
+  const { data } = await supabase
+    .from("likes")
+    .select("post_id, type")
+    .in("post_id", postIds)
+    .eq("user_id", viewer.id);
+
+  postIds.forEach((id) => result.set(id, []));
+  for (const row of data ?? []) {
+    const t = Number(row.type) as PostIncentiveType;
+    if ([1, 2, 3, 4, 5, 6].includes(t)) {
+      result.get(row.post_id)?.push(t);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Fetch comment counts for multiple posts in ONE query.
+ * Returns a Map<postId, number>.
+ */
+export async function getCommentCountsBatchDb(
+  postIds: string[],
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (!postIds.length || !hasSupabaseConfig || !supabase) {
+    postIds.forEach((id) => result.set(id, 0));
+    return result;
+  }
+
+  const { data } = await supabase
+    .from("comments")
+    .select("post_id")
+    .in("post_id", postIds);
+
+  postIds.forEach((id) => result.set(id, 0));
+  for (const row of data ?? []) {
+    result.set(row.post_id, (result.get(row.post_id) ?? 0) + 1);
+  }
+
+  return result;
+}
+
+/**
+ * Fetch profiles for multiple user IDs in ONE query.
+ * Returns a Map<userId, {nickname, photo}>.
+ */
+export async function getProfilesBatchDb(
+  userIds: string[],
+): Promise<Map<string, { nickname: string; photo: string | null }>> {
+  const result = new Map<string, { nickname: string; photo: string | null }>();
+  if (!userIds.length || !hasSupabaseConfig || !supabase) return result;
+
+  const uniqueIds = [...new Set(userIds)];
+  const { data } = await supabase
+    .from("profiles")
+    .select("user_id, nickname, photo")
+    .in("user_id", uniqueIds);
+
+  for (const row of data ?? []) {
+    result.set(row.user_id, {
+      nickname: row.nickname ?? "Usuário",
+      photo: row.photo ?? null,
+    });
+  }
+
+  return result;
+}
+
+// ─── Profile cache (avoid redundant getUserProfileDb calls) ─────────────────
+const _profileCache = new Map<string, { data: UserProfile | null; expiry: number }>();
+const PROFILE_CACHE_TTL_MS = 30_000; // 30 seconds
+
+export function invalidateProfileCache(userId?: string) {
+  if (userId) {
+    _profileCache.delete(userId);
+  } else {
+    _profileCache.clear();
+  }
+}
+
 export type PostComment = {
   id: string;
   postId: string;
@@ -335,7 +505,7 @@ export async function getPostCommentsDb(
   postId: string,
 ): Promise<PostComment[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached(`postComments:${postId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("comments")
     .select("id, post_id, user_id, text, created_at")
@@ -376,6 +546,8 @@ export async function getPostCommentsDb(
       } satisfies PostComment;
     },
   );
+
+  });
 }
 
 export async function deletePostCommentDb(commentId: string) {
@@ -418,11 +590,8 @@ export type ProgrammedGoal = {
 };
 
 export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
-  if (!hasSupabaseConfig || !supabase) {
-    console.warn("Supabase not configured");
-    return [];
-  }
-
+  if (!hasSupabaseConfig || !supabase) return [];
+  return cached("programmedGoals", CACHE_TTL_LONG, async () => {
   const { data, error } = await supabase
     .from("goals")
     .select("id, description, duration, quantity, type, created_by_user")
@@ -447,6 +616,8 @@ export async function getProgrammedGoalsDb(): Promise<ProgrammedGoal[]> {
         created_by_user: row.created_by_user != null ? Number(row.created_by_user) : null,
       }) satisfies ProgrammedGoal,
   );
+
+  });
 }
 
 export async function createCustomGoalAndSelectDb(
@@ -697,11 +868,13 @@ export async function getUserGoalsByUserIdDb(
 
 export async function getUserGoalsDb(): Promise<UserGoal[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("userGoals", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
 
   return getUserGoalsByUserIdDb(viewer.id);
+
+  });
 }
 
 export async function getUserGoalByIdDb(
@@ -813,7 +986,7 @@ export async function incrementGoalProgressDb(
 
 export async function getUserSelectedGoalIdsDb(): Promise<string[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("selectedGoalIds", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
 
@@ -828,6 +1001,8 @@ export async function getUserSelectedGoalIdsDb(): Promise<string[]> {
   }
 
   return (data ?? []).map((row: any) => String(row.goal_id ?? ""));
+
+  });
 }
 
 export type UserProfile = {
@@ -849,6 +1024,10 @@ export async function getUserProfileDb(
   if (!hasSupabaseConfig || !supabase) return null;
   assertUUID(userId, "ID do usuário");
 
+  // Check cache first
+  const cached = _profileCache.get(userId);
+  if (cached && Date.now() < cached.expiry) return cached.data;
+
   const { data, error } = await supabase
     .from("profiles")
     .select("id, nickname, bio, photo, objectives, gender, height, weight, age, handle")
@@ -862,9 +1041,12 @@ export async function getUserProfileDb(
     return null;
   }
 
-  if (!data) return null;
+  if (!data) {
+    _profileCache.set(userId, { data: null, expiry: Date.now() + PROFILE_CACHE_TTL_MS });
+    return null;
+  }
 
-  return {
+  const profile: UserProfile = {
     id: String(data.id ?? ""),
     nickname: String(data.nickname ?? ""),
     bio: String(data.bio ?? ""),
@@ -876,6 +1058,9 @@ export async function getUserProfileDb(
     weight: data.weight != null ? String(data.weight) : null,
     age: data.age != null ? String(data.age) : null,
   };
+
+  _profileCache.set(userId, { data: profile, expiry: Date.now() + PROFILE_CACHE_TTL_MS });
+  return profile;
 }
 
 export async function updateUserProfileDb(
@@ -883,6 +1068,9 @@ export async function updateUserProfileDb(
   updates: { nickname?: string; bio?: string; photo?: string | null; gender?: string | null; height?: number | null; weight?: number | null; age?: number | null; handle?: string; objectives?: string[] | null },
 ): Promise<UserProfile | null> {
   if (!hasSupabaseConfig || !supabase) return null;
+
+  // Invalidate cache for this user so next read gets fresh data
+  invalidateProfileCache(userId);
 
   const { data, error } = await supabase
     .from("profiles")
@@ -952,7 +1140,7 @@ export type PostWithUser = {
 
 export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached(`userPosts:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("posts")
     .select("id, description, photo, photos, created_at, user_id, user_goal_id")
@@ -981,11 +1169,13 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     userNickname,
     userPhoto,
   }));
+
+  });
 }
 
 export async function getPostByIdDb(postId: string): Promise<PostWithUser | null> {
   if (!hasSupabaseConfig || !supabase) return null;
-
+  return cached(`post:${postId}`, CACHE_TTL_SHORT, async () => {
   assertUUID(postId, "ID do post");
 
   const { data, error } = await supabase
@@ -1008,6 +1198,8 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
     userNickname: userProfile?.nickname || "Usuário",
     userPhoto: userProfile?.photo || null,
   };
+
+  });
 }
 
 export type UserStats = {
@@ -1020,7 +1212,7 @@ export type UserStats = {
 
 export async function getWorkoutsDb(): Promise<Workout[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("workouts", CACHE_TTL_LONG, async () => {
   const { data, error } = await supabase
     .from("workouts")
     .select("id, name, description, photo, muscle_group, type")
@@ -1041,6 +1233,8 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
     muscle_group: row.muscle_group ? String(row.muscle_group) : null,
     type: row.type != null ? Number(row.type) : null,
   }));
+
+  });
 }
 
 export async function bulkUpsertCatalogWorkoutsDb(
@@ -1069,7 +1263,7 @@ export async function getCatalogWorkoutsFromDb(): Promise<Array<{
   id: string; name: string; description: string; muscleGroup: string; photo: string | null; wgerId: number | null;
 }>> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("catalogWorkouts", CACHE_TTL_LONG, async () => {
   const { data } = await supabase
     .from("workouts")
     .select("id, name, description, muscle_group, photo, wger_id")
@@ -1084,6 +1278,8 @@ export async function getCatalogWorkoutsFromDb(): Promise<Array<{
     photo: row.photo ? String(row.photo) : null,
     wgerId: row.wger_id ? Number(row.wger_id) : null,
   }));
+
+  });
 }
 
 export async function createCustomWorkoutDb(
@@ -1121,7 +1317,7 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
   if (!hasSupabaseConfig || !supabase) {
     return { postsCount: 0, followersCount: 0, followingCount: 0, points: 0, level: 1 };
   }
-
+  return cached(`userStats:${userId}`, CACHE_TTL_SHORT, async () => {
   // Run all queries in parallel
   const [postsRes, followersRes, followingRes, rankingRes] = await Promise.all([
     supabase.from("posts").select("id", { count: "exact", head: true }).eq("user_id", userId),
@@ -1144,6 +1340,8 @@ export async function getUserStatsDb(userId: string): Promise<UserStats> {
     points,
     level,
   };
+
+  });
 }
 
 // Routine type constants
@@ -1192,7 +1390,7 @@ export type Diet = {
 
 export async function getDietsDb(): Promise<Diet[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("diets", CACHE_TTL_LONG, async () => {
   const { data, error } = await supabase
     .from("diets")
     .select("id, name, description, photo, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
@@ -1217,6 +1415,8 @@ export async function getDietsDb(): Promise<Diet[]> {
     fiber_g: row.fiber_g != null ? Number(row.fiber_g) : null,
     food_quality: row.food_quality ?? null,
   }));
+
+  });
 }
 
 export async function bulkUpsertCatalogDietsDb(
@@ -1244,7 +1444,7 @@ export async function getCatalogDietsFromDb(): Promise<Array<{
   id: string; name: string; description: string; category: string; photo: string | null; mealdbId: number | null;
 }>> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("catalogDiets", CACHE_TTL_LONG, async () => {
   const { data } = await supabase
     .from("diets")
     .select("id, name, description, photo, category, mealdb_id")
@@ -1259,6 +1459,8 @@ export async function getCatalogDietsFromDb(): Promise<Array<{
     photo: row.photo ? String(row.photo) : null,
     mealdbId: row.mealdb_id ? Number(row.mealdb_id) : null,
   }));
+
+  });
 }
 
 export async function createCustomDietDb(
@@ -1317,7 +1519,7 @@ export type Habit = {
 
 export async function getHabitsDb(): Promise<Habit[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("habits", CACHE_TTL_LONG, async () => {
   const { data, error } = await supabase
     .from("habits")
     .select("id, name, description, photo")
@@ -1336,11 +1538,13 @@ export async function getHabitsDb(): Promise<Habit[]> {
     description: String(row.description ?? ""),
     photo: row.photo ? String(row.photo) : null,
   }));
+
+  });
 }
 
 export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached(`userRoutines:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("routines")
     .select("id, user_id, type, goal_id, name")
@@ -1361,6 +1565,8 @@ export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
     goal_id: row.goal_id ? String(row.goal_id) : null,
     name: row.name ? String(row.name) : undefined,
   }));
+
+  });
 }
 
 export async function createRoutineDb(
@@ -1766,7 +1972,7 @@ export async function getUserWorkoutsDb(
   userId: string,
 ): Promise<UserWorkoutWithDetails[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached(`userWorkouts:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
@@ -1857,6 +2063,8 @@ export async function getUserWorkoutsDb(
     muscle_group: (row.workouts as any)?.muscle_group || null,
     created_at: row.created_at ? String(row.created_at) : null,
   }));
+
+  });
 }
 
 export type UserDiet = {
@@ -1925,7 +2133,7 @@ export async function getUserDietsDb(
   userId: string,
 ): Promise<UserDietWithDetails[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached(`userDiets:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("user_diets")
     .select(
@@ -2054,6 +2262,8 @@ export async function getUserDietsDb(
     is_completed: row.is_completed ?? false,
     completed_at: row.completed_at ?? null,
   }));
+
+  });
 }
 
 export type UserHabit = {
@@ -2116,7 +2326,7 @@ export async function getUserHabitsDb(
   userId: string,
 ): Promise<UserHabitWithDetails[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached(`userHabits:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("user_habits")
     .select("id, habit_id, user_id, name, is_completed, completed_at, habits(name, photo, description)")
@@ -2225,6 +2435,8 @@ export async function getUserHabitsDb(
     is_completed: row.is_completed ?? false,
     completed_at: row.completed_at ?? null,
   }));
+
+  });
 }
 
 // Search Functions
@@ -2767,7 +2979,7 @@ export async function getAllUsersDb(
   offset = 0,
 ): Promise<SearchUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("allUsers", CACHE_TTL_MEDIUM, async () => {
   try {
     const { data, error } = await supabase
       .from("profiles")
@@ -2799,6 +3011,8 @@ export async function getAllUsersDb(
     console.error("Error fetching all users:", err);
     return [];
   }
+
+  });
 }
 
 export async function followUserDb(followingId: string): Promise<boolean> {
@@ -2867,7 +3081,7 @@ export async function isFollowingDb(followingId: string): Promise<boolean> {
 
 export async function getFollowingIdsDb(): Promise<string[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("followingIds", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
 
@@ -2882,6 +3096,8 @@ export async function getFollowingIdsDb(): Promise<string[]> {
   }
 
   return (data ?? []).map((row: any) => String(row.following_id ?? ""));
+
+  });
 }
 
 // Stories functionality
@@ -2900,7 +3116,7 @@ export type StoryWithUser = Story & {
 
 export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("activeStories", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
 
@@ -2956,6 +3172,8 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
     console.error("Error fetching active stories:", err);
     return [];
   }
+
+  });
 }
 
 export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithUser[]> {
@@ -3565,17 +3783,18 @@ export async function sendMessageDb(
 
 export async function getConversationsDb(): Promise<Conversation[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("conversations", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
 
   try {
-    // Get all conversations (both sent and received messages)
+    // Get recent messages to build conversation list (only needed columns)
     const { data: messages, error } = await supabase
       .from("messages")
-      .select("*")
+      .select("id, user_id, following_id, text, read, created_at")
       .or(`user_id.eq.${viewer.id},following_id.eq.${viewer.id}`)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(500);
 
     if (error) {
       console.error("Error fetching conversations:", error);
@@ -3635,6 +3854,8 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     console.error("Error getting conversations:", err);
     return [];
   }
+
+  });
 }
 
 export async function getConversationMessagesDb(
@@ -3646,14 +3867,15 @@ export async function getConversationMessagesDb(
   if (!viewer) return [];
 
   try {
-    // Get all messages between current user and other user
+    // Get messages between current user and other user (only needed columns, capped)
     const { data: messages, error } = await supabase
       .from("messages")
-      .select("*")
+      .select("id, user_id, following_id, text, read, created_at, emoji")
       .or(
         `and(user_id.eq.${viewer.id},following_id.eq.${otherUserId}),and(user_id.eq.${otherUserId},following_id.eq.${viewer.id})`,
       )
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: false })
+      .limit(200);
 
     if (error) {
       console.error("Error fetching messages:", error);
@@ -3666,7 +3888,8 @@ export async function getConversationMessagesDb(
       getUserProfileDb(otherUserId),
     ]);
 
-    return (messages ?? []).map((msg) => ({
+    // Reverse to chronological order (we fetched DESC for limit to get the latest 200)
+    return (messages ?? []).reverse().map((msg) => ({
       ...msg,
       senderNickname:
         msg.user_id === viewer.id
@@ -3740,17 +3963,18 @@ export async function setMessageEmojiDb(
 
 export async function getUnreadMessageCountDb(): Promise<number> {
   if (!hasSupabaseConfig || !supabase) return 0;
-
+  return cached("unreadMsgCount", CACHE_TTL_SHORT, async () => {
   const viewer = await getViewer();
   if (!viewer) return 0;
 
   try {
-    // Count distinct senders with unread messages (not total unread messages)
+    // Count distinct senders with unread messages — fetch only user_id, cap at 100 to avoid huge payloads
     const { data, error } = await supabase
       .from("messages")
       .select("user_id")
       .eq("following_id", viewer.id)
-      .eq("read", 0);
+      .eq("read", 0)
+      .limit(100);
 
     if (error) {
       console.error("Error fetching unread message count:", error);
@@ -3763,6 +3987,8 @@ export async function getUnreadMessageCountDb(): Promise<number> {
     console.error("Error getting unread message count:", err);
     return 0;
   }
+
+  });
 }
 
 export type MessageReactionRecord = {
@@ -3777,7 +4003,7 @@ export async function getMessageReactionsDb(
   messageIds: string[],
 ): Promise<MessageReactionRecord[]> {
   if (!hasSupabaseConfig || !supabase || messageIds.length === 0) return [];
-
+  return cached(`msgReactions:${messageIds}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("message_reactions")
     .select("*")
@@ -3789,6 +4015,8 @@ export async function getMessageReactionsDb(
   }
 
   return data ?? [];
+
+  });
 }
 
 export async function addMessageReactionDb(
@@ -3961,7 +4189,7 @@ export function groupCommentReactions(
 
 export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached(`followers:${userId}`, CACHE_TTL_SHORT, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
 
@@ -4007,6 +4235,8 @@ export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
     console.error("Error getting followers:", err);
     return [];
   }
+
+  });
 }
 
 export async function getFollowingDb(
@@ -4079,16 +4309,17 @@ export type ShotWithUser = Shot & {
 
 export async function getShotsDb(): Promise<ShotWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("shots", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
 
   try {
-    // Get all shots from all users (algorithm shows everyone's content)
+    // Get recent shots from all users (algorithm shows everyone's content)
     const { data: shotsData, error: shotsError } = await supabase
       .from("shots")
       .select("id, user_id, video_url, description, created_at")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(50);
 
     if (shotsError) {
       console.error("[getShotsDb] Error fetching shots:", shotsError);
@@ -4220,6 +4451,8 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
     console.error("Error getting shots:", err?.message || JSON.stringify(err));
     return [];
   }
+
+  });
 }
 
 export async function createShotDb(
@@ -4471,7 +4704,7 @@ export async function getShotCommentsDb(
   shotId: string,
 ): Promise<ShotComment[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached(`shotComments:${shotId}`, CACHE_TTL_SHORT, async () => {
   try {
     const { data, error } = await supabase
       .from("shots_comments")
@@ -4545,6 +4778,8 @@ export async function getShotCommentsDb(
     );
     return [];
   }
+
+  });
 }
 
 export async function deleteShotCommentDb(commentId: string) {
@@ -4596,13 +4831,14 @@ export type RankingUser = {
 
 export async function getRankingDb(): Promise<RankingUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("ranking", CACHE_TTL_MEDIUM, async () => {
   try {
-    // Read points directly from the ranking table (all users, no date filter)
+    // Read top ranking users (capped at 100 to avoid huge payloads)
     const { data: rankingData, error } = await supabase
       .from("ranking")
       .select("user_id, points")
-      .order("points", { ascending: false });
+      .order("points", { ascending: false })
+      .limit(100);
 
     if (error) {
       console.error("Error fetching ranking table:", error);
@@ -4640,6 +4876,8 @@ export async function getRankingDb(): Promise<RankingUser[]> {
     console.error("Error getting ranking:", err);
     return [];
   }
+
+  });
 }
 
 // Update user workout with series, weight, and reps information
@@ -4834,7 +5072,7 @@ export type NotificationItem = {
 
 export async function getNotificationsDb(): Promise<NotificationItem[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("notifications", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
 
@@ -5117,11 +5355,13 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     console.error("Error getting notifications:", err);
     return [];
   }
+
+  });
 }
 
 export async function getUnreadNotificationsCountDb(): Promise<number> {
   if (!hasSupabaseConfig || !supabase) return 0;
-
+  return cached("unreadNotifCount", CACHE_TTL_SHORT, async () => {
   const viewer = await getViewer();
   if (!viewer) return 0;
 
@@ -5131,7 +5371,8 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
       .from("notifications")
       .select("id, type, post_id, shots_id, flow_id, read")
       .eq("user_id", viewer.id)
-      .eq("read", false);
+      .eq("read", false)
+      .limit(200);
 
     // If read column doesn't exist, fallback to fetching all
     if (error && (error.message?.includes("read") || error.message?.includes("column"))) {
@@ -5178,6 +5419,8 @@ export async function getUnreadNotificationsCountDb(): Promise<number> {
     console.error("Error getting unread notifications count:", errorMsg);
     return 0;
   }
+
+  });
 }
 
 export async function markNotificationsAsReadDb(): Promise<boolean> {
@@ -5453,7 +5696,7 @@ export async function updatePostDb(
 
 export async function getUserShotsDb(userId: string): Promise<ShotWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached(`userShots:${userId}`, CACHE_TTL_SHORT, async () => {
   try {
     const { data: shotsData, error: shotsError } = await supabase
       .from("shots")
@@ -5558,6 +5801,8 @@ export async function getUserShotsDb(userId: string): Promise<ShotWithUser[]> {
     console.error("Error getting user shots:", err);
     return [];
   }
+
+  });
 }
 
 // Complaint Functions
@@ -5653,7 +5898,7 @@ export async function createCheckInDb(userId: string): Promise<CheckIn> {
 }
 
 export async function getTodayCheckInDb(userId: string): Promise<CheckIn | null> {
-  if (!supabase) throw new Error("Supabase não configurado");
+  return cached(`todayCheckIn:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) throw new Error("Supabase não configurado");
 
   try {
     const today = new Date().toISOString().split('T')[0];
@@ -5671,10 +5916,12 @@ export async function getTodayCheckInDb(userId: string): Promise<CheckIn | null>
     console.error("Error getting today's check-in:", err);
     return null;
   }
+
+  });
 }
 
 export async function getWeekCheckInsDb(userId: string): Promise<number[]> {
-  if (!supabase) throw new Error("Supabase não configurado");
+  return cached(`weekCheckIns:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) throw new Error("Supabase não configurado");
 
   try {
     // Get the first day of the current week (Sunday)
@@ -5704,10 +5951,12 @@ export async function getWeekCheckInsDb(userId: string): Promise<number[]> {
     console.error("Error getting week check-ins:", err);
     return [];
   }
+
+  });
 }
 
 export async function getCheckInHistoryDb(userId: string, days: number = 30): Promise<CheckIn[]> {
-  if (!supabase) throw new Error("Supabase não configurado");
+  return cached(`checkInHistory:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) throw new Error("Supabase não configurado");
 
   try {
     const sinceDate = new Date();
@@ -5727,6 +5976,8 @@ export async function getCheckInHistoryDb(userId: string, days: number = 30): Pr
     console.error("Error getting check-in history:", err);
     return [];
   }
+
+  });
 }
 
 // Commercial Profile Functions
@@ -5747,7 +5998,7 @@ export type CommercialProfile = {
 };
 
 export async function getCommercialProfileDb(userId: string): Promise<CommercialProfile | null> {
-  if (!supabase) throw new Error("Supabase não configurado");
+  return cached(`commercialProfile:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) throw new Error("Supabase não configurado");
 
   try {
     const { data, error } = await supabase
@@ -5762,6 +6013,8 @@ export async function getCommercialProfileDb(userId: string): Promise<Commercial
     console.error("Error getting commercial profile:", err);
     return null;
   }
+
+  });
 }
 
 export async function createOrUpdateCommercialProfileDb(
@@ -5872,7 +6125,7 @@ export async function getWorkoutHistoryDb(
   workoutId: string
 ): Promise<WorkoutHistoryRecord[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached(`workoutHistory:${userId}`, CACHE_TTL_SHORT, async () => {
   try {
     const { data, error } = await supabase
       .from("user_workouts_hist")
@@ -5908,6 +6161,8 @@ export async function getWorkoutHistoryDb(
     console.error("Error fetching workout history:", err);
     return [];
   }
+
+  });
 }
 
 /**
@@ -6141,7 +6396,7 @@ export type CompletedRoutine = {
  */
 export async function getCompletedRoutinesTodayDb(userId: string): Promise<CompletedRoutine[]> {
   if (!hasSupabaseConfig || !supabase || !userId) return [];
-
+  return cached(`completedRoutines:${userId}`, CACHE_TTL_SHORT, async () => {
   try {
     // Fetch all hist records from the last 7 days so the user always has recent options
     const since = new Date();
@@ -6242,6 +6497,8 @@ export async function getCompletedRoutinesTodayDb(userId: string): Promise<Compl
     console.error("Error fetching completed routines:", err);
     return [];
   }
+
+  });
 }
 
 export type GroupCheckIn = {
@@ -6598,7 +6855,7 @@ export async function getEnrichedDuelGroupsDb(
 // Get groups created by users the current user follows (no external IDs needed)
 export async function getFollowingGroupsDb(): Promise<DuelGroup[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("followingGroups", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
 
@@ -6634,11 +6891,13 @@ export async function getFollowingGroupsDb(): Promise<DuelGroup[]> {
     console.error("Error getting following groups:", error);
     return [];
   }
+
+  });
 }
 
 // Get all groups for a user (created by or member of)
 export async function getUserDuelGroupsDb(userId: string): Promise<DuelGroup[]> {
-  if (!supabase) return [];
+  return cached(`userDuelGroups:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) return [];
 
   try {
     const { data, error } = await supabase
@@ -6670,9 +6929,20 @@ export async function getUserDuelGroupsDb(userId: string): Promise<DuelGroup[]> 
     console.error("Error getting user groups:", error);
     return [];
   }
+
+  });
 }
 
 // Upload group cover photo and persist URL to DB
+export async function updateGroupInfoDb(groupId: string, name: string, goal: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase not configured");
+  const { error } = await supabase
+    .from("duel_groups")
+    .update({ name, goal })
+    .eq("id", groupId);
+  if (error) throw error;
+}
+
 export async function updateGroupPhotoDb(groupId: string, file: File): Promise<string> {
   if (!supabase) throw new Error("Supabase not configured");
   const ext = file.name.split(".").pop() ?? "jpg";
@@ -6755,7 +7025,7 @@ export async function addGroupCheckInDb(
 
 // Get check-ins for a group (optimized: only columns needed for the list, no exercises payload)
 export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[]> {
-  if (!supabase) return [];
+  return cached(`groupCheckIns:${groupId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) return [];
 
   try {
     const { data, error } = await supabase
@@ -6792,6 +7062,8 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
     console.error("Error getting check-ins:", error);
     return [];
   }
+
+  });
 }
 
 // Get full check-in detail (with exercises, description, series, volume and user photo)
@@ -7015,7 +7287,7 @@ export async function leaveGroupDb(groupId: string): Promise<void> {
 
 // Get pending group invites for the current user
 export async function getPendingInvitesDb(): Promise<Array<{ groupId: string; groupName: string; groupGoal: string; groupLocation: string }>> {
-  if (!supabase) return [];
+  return cached("pendingInvites", CACHE_TTL_MEDIUM, async () => {  if (!supabase) return [];
   const viewer = await getViewer();
   if (!viewer) return [];
 
@@ -7054,6 +7326,8 @@ export async function getPendingInvitesDb(): Promise<Array<{ groupId: string; gr
     console.error("Error fetching pending invites:", err);
     return [];
   }
+
+  });
 }
 
 // Accept a pending group invite
@@ -7109,7 +7383,7 @@ export async function declineGroupInviteDb(groupId: string): Promise<void> {
 export async function getGroupParticipantsDb(
   groupId: string
 ): Promise<Array<{ userId: string; userNickname: string; userPhoto: string | null }>> {
-  if (!supabase) return [];
+  return cached(`groupParticipants:${groupId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) return [];
 
   try {
     // Get accepted participants from duel_group_participants table, then get their user details
@@ -7151,6 +7425,8 @@ export async function getGroupParticipantsDb(
     console.error("Full error details:", error);
     return [];
   }
+
+  });
 }
 
 // Delete a duel group
@@ -7332,7 +7608,7 @@ export type GroupJoinRequest = {
 /** Returns all pending join requests for groups owned by the current user */
 export async function getPendingGroupRequestsDb(): Promise<GroupJoinRequest[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-
+  return cached("pendingGroupRequests", CACHE_TTL_MEDIUM, async () => {
   const viewer = await getViewer();
   if (!viewer) return [];
 
@@ -7398,6 +7674,8 @@ export async function getPendingGroupRequestsDb(): Promise<GroupJoinRequest[]> {
     console.error("Error getting pending group requests:", err);
     return [];
   }
+
+  });
 }
 
 /** Approve a pending group join request */
@@ -7463,7 +7741,7 @@ export type CheckInComment = {
 
 export async function getCheckInCommentsDb(checkInId: string): Promise<CheckInComment[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  assertUUID(checkInId, "ID do check-in");
+  return cached(`checkInComments:${checkInId}`, CACHE_TTL_SHORT, async () => {  assertUUID(checkInId, "ID do check-in");
 
   try {
     const { data, error } = await supabase
@@ -7499,6 +7777,8 @@ export async function getCheckInCommentsDb(checkInId: string): Promise<CheckInCo
     console.error("Error fetching check-in comments:", err);
     return [];
   }
+
+  });
 }
 
 // ─── Check-in Emoji Reactions ─────────────────────────────────────────────────
@@ -7511,7 +7791,7 @@ export type CheckInReaction = {
 
 export async function getCheckInReactionsDb(checkInIds: string[]): Promise<Record<string, CheckInReaction[]>> {
   if (!hasSupabaseConfig || !supabase || checkInIds.length === 0) return {};
-
+  return cached(`checkInReactions:${checkInIds}`, CACHE_TTL_SHORT, async () => {
   try {
     const { data } = await supabase
       .from("duel_check_in_reactions")
@@ -7527,6 +7807,8 @@ export async function getCheckInReactionsDb(checkInIds: string[]): Promise<Recor
   } catch {
     return {};
   }
+
+  });
 }
 
 export async function setCheckInReactionDb(checkInId: string, emoji: string | null): Promise<void> {
@@ -7695,7 +7977,7 @@ export async function getTotalCheckInsDb(userId: string): Promise<number> {
 /** Retorna todos os badges do catálogo ordenados por sort_order */
 export async function getAllBadgesDb(): Promise<Badge[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  try {
+  return cached("allBadges", CACHE_TTL_LONG, async () => {  try {
     const { data, error } = await supabase
       .from("badges")
       .select("id, key, name, emoji, description, required_checkins, sort_order")
@@ -7706,12 +7988,14 @@ export async function getAllBadgesDb(): Promise<Badge[]> {
     console.error("Error fetching badges:", err);
     return [];
   }
+
+  });
 }
 
 /** Retorna as insígnias conquistadas por um usuário */
 export async function getUserBadgesDb(userId: string): Promise<UserBadge[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  try {
+  return cached(`userBadges:${userId}`, CACHE_TTL_SHORT, async () => {  try {
     const { data, error } = await supabase
       .from("user_badges")
       .select("badge_id, earned_at, badges(id, key, name, emoji, description, required_checkins, sort_order)")
@@ -7727,6 +8011,8 @@ export async function getUserBadgesDb(userId: string): Promise<UserBadge[]> {
     console.error("Error fetching user badges:", err);
     return [];
   }
+
+  });
 }
 
 /**
@@ -7849,7 +8135,7 @@ export type HydrationLog = {
 /** Retorna o total de ml bebido hoje pelo usuário. */
 export async function getTodayHydrationDb(userId: string): Promise<number> {
   if (!hasSupabaseConfig || !supabase) return 0;
-  assertUUID(userId, "userId");
+  return cached(`todayHydration:${userId}`, CACHE_TTL_SHORT, async () => {  assertUUID(userId, "userId");
 
   const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase
@@ -7864,6 +8150,8 @@ export async function getTodayHydrationDb(userId: string): Promise<number> {
   }
 
   return (data ?? []).reduce((sum: number, row: any) => sum + (Number(row.amount_ml) || 0), 0);
+
+  });
 }
 
 /** Registra uma entrada de hidratação (padrão: 250ml). */
@@ -8105,7 +8393,7 @@ export type MoodLog = {
 /** Retorna o registro de humor de hoje (ou null se ainda não registrado). */
 export async function getTodayMoodDb(userId: string): Promise<MoodLog | null> {
   if (!hasSupabaseConfig || !supabase) return null;
-  assertUUID(userId, "userId");
+  return cached(`todayMood:${userId}`, CACHE_TTL_SHORT, async () => {  assertUUID(userId, "userId");
 
   const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase
@@ -8120,6 +8408,8 @@ export async function getTodayMoodDb(userId: string): Promise<MoodLog | null> {
     return null;
   }
   return data ?? null;
+
+  });
 }
 
 /** Registra ou atualiza o humor do dia. */

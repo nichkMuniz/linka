@@ -739,11 +739,13 @@ export default function Goals() {
           const staleCompletedHabits = loadedHabits.filter(
             (h: any) => h.is_completed && (!h.completed_at || localDateStr(new Date(h.completed_at)) !== todayLocalStr)
           );
-          for (const d of staleCompletedDiets) {
-            toggleUserDietCompletionDb(d.id, false).catch(() => { });
-          }
-          for (const h of staleCompletedHabits) {
-            toggleUserHabitCompletionDb(h.id, false).catch(() => { });
+          // Batch reset stale completions in parallel (instead of sequential loop)
+          const staleResets = [
+            ...staleCompletedDiets.map((d: any) => toggleUserDietCompletionDb(d.id, false)),
+            ...staleCompletedHabits.map((h: any) => toggleUserHabitCompletionDb(h.id, false)),
+          ];
+          if (staleResets.length > 0) {
+            Promise.all(staleResets).catch(() => { });
           }
         }
         // Carrega hidratação, macro e humor do dia (fire-and-forget — não bloqueia UI)

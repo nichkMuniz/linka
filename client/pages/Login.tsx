@@ -285,6 +285,7 @@ export default function Login() {
         setBusy(false);
         return;
       }
+
     } catch (err: any) {
       const message = err?.message || err?.error_description || String(err);
       const isNetworkError = !navigator.onLine || message.toLowerCase().includes("fetch") || message.toLowerCase().includes("network");
@@ -475,7 +476,8 @@ export default function Login() {
         await supabase.auth.getSession();
       }
 
-      setSignupStep(4);
+      // After Step 3 (objectives), complete signup directly instead of going to Step 4
+      handleSignupComplete();
     } catch (err: any) {
       const message = err?.message || err?.error_description || String(err);
       const isNetworkError = !navigator.onLine || message.toLowerCase().includes("fetch") || message.toLowerCase().includes("network");
@@ -1039,8 +1041,8 @@ export default function Login() {
                 <TabsContent value="signup" className="mt-4">
                   {/* Step progress indicator */}
                   {(() => {
-                    const totalSteps = 5;
-                    const step = signupStep === 2.5 ? 2 : signupStep === 2.8 ? 3 : signupStep === 3 ? 4 : signupStep === 4 ? 5 : Math.ceil(signupStep as number);
+                    const totalSteps = 4;
+                    const step = signupStep === 2.5 ? 2 : signupStep === 2.8 ? 3 : signupStep === 3 ? 4 : Math.ceil(signupStep as number);
                     return (
                       <div className="mb-4 space-y-1.5">
                         <div className="flex justify-between text-xs text-muted-foreground">
@@ -1661,121 +1663,6 @@ export default function Login() {
                           disabled={selectedSegments.size === 0 || busy}
                         >
                           {busy ? "Criando..." : "Próximo"}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Step 4: Follow Users */}
-                  {signupStep === 4 && (
-                    <div className="grid gap-3">
-                      <div className="text-center space-y-1 mb-2">
-                        <h3 className="font-semibold text-sm">Encontre pessoas para seguir</h3>
-                        <p className="text-xs text-muted-foreground">Busque por pessoas de interesse</p>
-                      </div>
-
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                        <Input
-                          type="text"
-                          placeholder="Buscar pessoas..."
-                          value={searchQuery}
-                          onChange={(e) => {
-                            const query = e.target.value;
-                            setSearchQuery(query);
-                            if (query.trim()) {
-                              const filtered = availableUsers.filter(user =>
-                                user.nickname.toLowerCase().includes(query.toLowerCase()) ||
-                                (user.bio && user.bio.toLowerCase().includes(query.toLowerCase()))
-                              );
-                              setStep4SearchResults(filtered);
-                            } else {
-                              setStep4SearchResults(availableUsers);
-                            }
-                          }}
-                          className="pl-10"
-                        />
-                      </div>
-
-                      {loadingUsers ? (
-                        <div className="flex justify-center py-8">
-                          <div className="text-sm text-muted-foreground">Carregando pessoas...</div>
-                        </div>
-                      ) : step4SearchResults.length > 0 ? (
-                        <div className="grid grid-cols-3 gap-3 max-h-64 overflow-y-auto">
-                          {step4SearchResults.map((user) => (
-                            <button
-                              key={user.id}
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  await followUserDb(user.id);
-                                  toast({
-                                    title: "Seguindo!",
-                                    description: `Você agora segue ${user.nickname}`,
-                                  });
-                                } catch (err) {
-                                  toast({
-                                    title: "Erro ao seguir",
-                                    description: "Não foi possível seguir este usuário",
-                                    variant: "destructive",
-                                  });
-                                }
-                              }}
-                              className="relative group rounded-lg overflow-hidden aspect-square bg-gradient-to-br from-brand/20 to-brand/10 border border-border/60 hover:border-brand transition-all"
-                            >
-                              {user.photo ? (
-                                <img
-                                  src={user.photo}
-                                  alt={user.nickname}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <div className="w-full h-full flex flex-col items-center justify-center p-2">
-                                  <div className="text-2xl font-bold text-brand">
-                                    {user.nickname.charAt(0).toUpperCase()}
-                                  </div>
-                                </div>
-                              )}
-                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-2">
-                                <p className="text-white text-xs font-semibold text-center line-clamp-2">
-                                  {user.nickname}
-                                </p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
-                          <p className="text-sm text-muted-foreground">
-                            Nenhuma pessoa encontrada
-                          </p>
-                        </div>
-                      )}
-
-                      <div className="flex gap-2 pt-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="rounded-full flex-1"
-                          onClick={() => setSignupStep(3)}
-                        >
-                          Voltar
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="rounded-full flex-1"
-                          onClick={handleSignupComplete}
-                        >
-                          Pular
-                        </Button>
-                        <Button
-                          type="button"
-                          className="rounded-full flex-1"
-                          onClick={handleSignupComplete}
-                        >
-                          Finalizar
                         </Button>
                       </div>
                     </div>

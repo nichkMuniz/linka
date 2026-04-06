@@ -22,6 +22,7 @@ import {
   deleteGroupDb,
   getGroupParticipantsDb,
   updateGroupPhotoDb,
+  updateGroupInfoDb,
   acceptGroupInviteDb,
   declineGroupInviteDb,
   sendGroupJoinRequestNotificationDb,
@@ -175,6 +176,10 @@ export default function Community() {
   const [isCheckInDetailOpen, setIsCheckInDetailOpen] = React.useState(false);
   const [userNickname, setUserNickname] = React.useState<string>("");
   const [isGroupDetailsOpen, setIsGroupDetailsOpen] = React.useState(false);
+  const [isEditingGroupInfo, setIsEditingGroupInfo] = React.useState(false);
+  const [editGroupName, setEditGroupName] = React.useState("");
+  const [editGroupGoal, setEditGroupGoal] = React.useState("");
+  const [isSavingGroupInfo, setIsSavingGroupInfo] = React.useState(false);
   const [deleteGroupConfirmOpen, setDeleteGroupConfirmOpen] = React.useState(false);
   const [leaveGroupConfirmOpen, setLeaveGroupConfirmOpen] = React.useState(false);
   const [isClassificationsOpen, setIsClassificationsOpen] = React.useState(false);
@@ -460,18 +465,21 @@ export default function Community() {
     }
   }, [activeTab, user?.id]);
 
-  // Restore group view from URL param (?group=<groupId>) after refresh
+  // Restore group view from URL param (?group=<groupId>) after refresh — runs once
+  const groupRestoredRef = React.useRef(false);
   React.useEffect(() => {
     const groupIdParam = searchParams.get("group");
-    if (!groupIdParam || selectedGroupForView) return;
+    if (!groupIdParam || selectedGroupForView || groupRestoredRef.current) return;
     // Try to find in already-loaded groups
     const allGroups = [...userCreatedGroups, ...availableGroups];
     const found = allGroups.find((g) => g.id === groupIdParam);
     if (found) {
+      groupRestoredRef.current = true;
       openGroupView(found);
       return;
     }
-    // Fetch from DB if not loaded yet
+    // Fetch from DB if not loaded yet (only once)
+    groupRestoredRef.current = true;
     getDuelGroupDb(groupIdParam).then((group) => {
       if (group) {
         const groupCard = { ...group, icon: "⚔️", description: group.goal, city: group.location, isOfficial: false };
@@ -481,38 +489,39 @@ export default function Community() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, userCreatedGroups, availableGroups]);
 
-  // Auto-select conversation from URL parameter (?user=<userId>)
+  // Auto-select conversation from URL parameter (?user=<userId>) — runs once per param
+  const convRestoredRef = React.useRef<string | null>(null);
   React.useEffect(() => {
     const userIdParam = searchParams.get("user");
-    if (!userIdParam) return;
+    if (!userIdParam || convRestoredRef.current === userIdParam) return;
     setActiveTab("messages");
     // Try existing conversation first
     const existing = conversations.find((c) => c.userId === userIdParam);
     if (existing) {
+      convRestoredRef.current = userIdParam;
       setSelectedConversation(existing);
       setViewMode("conversation");
       return;
     }
     // If no conversation yet, fetch the user's profile and open an empty conversation
     if (!loading) {
-      import("@/lib/ritmofit-db").then(({ getUserProfileDb }) => {
-        getUserProfileDb(userIdParam).then((profile) => {
-          if (profile) {
-            const newConv: Conversation = {
-              userId: userIdParam,
-              userNickname: profile.nickname || "Usuário",
-              userPhoto: profile.photo || null,
-              lastMessage: "",
-              lastMessageTime: new Date().toISOString(),
-              unreadCount: 0,
-            };
-            setSelectedConversation(newConv);
-            setViewMode("conversation");
-          }
-        }).catch((err: any) => {
-          console.error("Error loading user profile for conversation:", err);
-          toast({ title: "Erro ao abrir conversa", description: err?.message || "Tente novamente.", variant: "destructive" });
-        });
+      convRestoredRef.current = userIdParam;
+      getUserProfileDb(userIdParam).then((profile) => {
+        if (profile) {
+          const newConv: Conversation = {
+            userId: userIdParam,
+            userNickname: profile.nickname || "Usuário",
+            userPhoto: profile.photo || null,
+            lastMessage: "",
+            lastMessageTime: new Date().toISOString(),
+            unreadCount: 0,
+          };
+          setSelectedConversation(newConv);
+          setViewMode("conversation");
+        }
+      }).catch((err: any) => {
+        console.error("Error loading user profile for conversation:", err);
+        toast({ title: "Erro ao abrir conversa", description: err?.message || "Tente novamente.", variant: "destructive" });
       });
     }
   }, [searchParams, conversations, loading]);
@@ -577,11 +586,7 @@ export default function Community() {
       setReplyingTo(null);
 
       if (newMessage) {
-        // Reload messages
-        const updatedMessages = await getConversationMessagesDb(
-          selectedConversation.userId,
-        );
-        setMessages(updatedMessages);
+        // Realtime subscription will append the message; just clear input
         setMessageText("");
 
         // Update last message in conversation list
@@ -609,7 +614,7 @@ export default function Community() {
     }
   }, [messageText, selectedConversation]);
 
-  // Realtime: reload messages when a new message arrives for the active conversation
+  // Realtime: append new message instead of full reload
   React.useEffect(() => {
     if (!selectedConversation || !user || !supabase) return;
     const channel = supabase
@@ -618,12 +623,34 @@ export default function Community() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
-          const msg = payload.new as { user_id: string; id_receiver: string };
+          const msg = payload.new as any;
           const isRelevant =
-            (msg.user_id === selectedConversation.userId && msg.id_receiver === user.id) ||
-            (msg.user_id === user.id && msg.id_receiver === selectedConversation.userId);
-          if (isRelevant) {
-            getConversationMessagesDb(selectedConversation.userId).then(setMessages).catch(() => { });
+            (msg.user_id === selectedConversation.userId && (msg.id_receiver === user.id || msg.following_id === user.id)) ||
+            (msg.user_id === user.id && (msg.id_receiver === selectedConversation.userId || msg.following_id === selectedConversation.userId));
+          if (!isRelevant) return;
+
+          const newMsg: MessageWithUser = {
+            id: msg.id,
+            user_id: msg.user_id,
+            following_id: msg.following_id ?? msg.id_receiver,
+            text: msg.text ?? "",
+            read: msg.read ?? 0,
+            created_at: msg.created_at ?? new Date().toISOString(),
+            emoji: msg.emoji ?? null,
+            senderNickname: msg.user_id === user.id ? "Você" : (selectedConversation.userNickname || "Usuário"),
+            senderPhoto: msg.user_id === user.id ? null : (selectedConversation.userPhoto || null),
+            recipientNickname: msg.user_id === user.id ? (selectedConversation.userNickname || "Usuário") : "Você",
+            recipientPhoto: msg.user_id === user.id ? (selectedConversation.userPhoto || null) : null,
+          };
+
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
+
+          // Mark as read if from the other user
+          if (msg.user_id === selectedConversation.userId) {
+            markMessagesAsReadDb(selectedConversation.userId).catch(() => {});
           }
         },
       )
@@ -2897,11 +2924,28 @@ export default function Community() {
       </Drawer>
 
       {/* Group Details Modal */}
-      <Drawer open={isGroupDetailsOpen} onOpenChange={setIsGroupDetailsOpen}>
+      <Drawer open={isGroupDetailsOpen} onOpenChange={(open) => { setIsGroupDetailsOpen(open); if (!open) setIsEditingGroupInfo(false); }}>
         <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Detalhes do Grupo</DrawerTitle>
-            <DrawerDescription className="sr-only">Informações e estatísticas do grupo</DrawerDescription>
+          <DrawerHeader className="shrink-0 flex flex-row items-center justify-between pr-4">
+            <div>
+              <DrawerTitle>Detalhes do Grupo</DrawerTitle>
+              <DrawerDescription className="sr-only">Informações e estatísticas do grupo</DrawerDescription>
+            </div>
+            {selectedGroupForView?.createdBy === user?.id && !isEditingGroupInfo && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-xs text-muted-foreground"
+                onClick={() => {
+                  setEditGroupName(selectedGroupForView.name);
+                  setEditGroupGoal(selectedGroupForView.goal ?? "");
+                  setIsEditingGroupInfo(true);
+                }}
+              >
+                <Edit3 className="h-3.5 w-3.5" />
+                Editar
+              </Button>
+            )}
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -2910,9 +2954,18 @@ export default function Community() {
                 {/* Group Name */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-muted-foreground">Nome do Grupo</label>
-                  <div className="p-3 rounded-lg bg-muted/20">
-                    <p className="text-sm font-medium">{selectedGroupForView.name}</p>
-                  </div>
+                  {isEditingGroupInfo ? (
+                    <Input
+                      value={editGroupName}
+                      onChange={(e) => setEditGroupName(e.target.value)}
+                      className="rounded-lg"
+                      maxLength={80}
+                    />
+                  ) : (
+                    <div className="p-3 rounded-lg bg-muted/20">
+                      <p className="text-sm font-medium">{selectedGroupForView.name}</p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Location */}
@@ -2926,9 +2979,19 @@ export default function Community() {
                 {/* Goal */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-muted-foreground">Objetivo</label>
-                  <div className="p-3 rounded-lg bg-muted/20">
-                    <p className="text-sm">{selectedGroupForView.goal}</p>
-                  </div>
+                  {isEditingGroupInfo ? (
+                    <Textarea
+                      value={editGroupGoal}
+                      onChange={(e) => setEditGroupGoal(e.target.value)}
+                      className="rounded-lg resize-none"
+                      rows={3}
+                      maxLength={300}
+                    />
+                  ) : (
+                    <div className="p-3 rounded-lg bg-muted/20">
+                      <p className="text-sm">{selectedGroupForView.goal}</p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Dates */}
@@ -2955,29 +3018,67 @@ export default function Community() {
                   </div>
                 </div>
 
+                {/* Edit action buttons */}
+                {isEditingGroupInfo && (
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      className="flex-1 rounded-full"
+                      onClick={() => setIsEditingGroupInfo(false)}
+                      disabled={isSavingGroupInfo}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      className="flex-1 rounded-full"
+                      disabled={isSavingGroupInfo || !editGroupName.trim()}
+                      onClick={async () => {
+                        if (!selectedGroupForView) return;
+                        setIsSavingGroupInfo(true);
+                        try {
+                          await updateGroupInfoDb(selectedGroupForView.id, editGroupName.trim(), editGroupGoal.trim());
+                          setSelectedGroupForView({ ...selectedGroupForView, name: editGroupName.trim(), goal: editGroupGoal.trim() });
+                          // Update the group in the lists
+                          setUserCreatedGroups((prev) => prev.map((g) => g.id === selectedGroupForView.id ? { ...g, name: editGroupName.trim(), goal: editGroupGoal.trim(), description: editGroupGoal.trim() } : g));
+                          setIsEditingGroupInfo(false);
+                          toast({ title: "Grupo atualizado!", description: "Nome e objetivo salvos com sucesso." });
+                        } catch (error: any) {
+                          toast({ title: "Erro ao salvar", description: error?.message || "Tente novamente.", variant: "destructive" });
+                        } finally {
+                          setIsSavingGroupInfo(false);
+                        }
+                      }}
+                    >
+                      {isSavingGroupInfo ? "Salvando..." : "Salvar"}
+                    </Button>
+                  </div>
+                )}
+
                 {/* Action Buttons */}
-                <div className="space-y-2 pt-4 border-t border-border/40">
-                  {selectedGroupForView.createdBy === user?.id ? (
-                    <>
+                {!isEditingGroupInfo && (
+                  <div className="space-y-2 pt-4 border-t border-border/40">
+                    {selectedGroupForView.createdBy === user?.id ? (
+                      <>
+                        <Button
+                          onClick={() => setDeleteGroupConfirmOpen(true)}
+                          variant="destructive"
+                          className="w-full rounded-full gap-2"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Apagar Grupo
+                        </Button>
+                      </>
+                    ) : (
                       <Button
-                        onClick={() => setDeleteGroupConfirmOpen(true)}
-                        variant="destructive"
+                        onClick={() => setLeaveGroupConfirmOpen(true)}
+                        variant="outline"
                         className="w-full rounded-full gap-2"
                       >
-                        <Trash2 className="h-4 w-4" />
-                        Apagar Grupo
+                        Sair do Grupo
                       </Button>
-                    </>
-                  ) : (
-                    <Button
-                      onClick={() => setLeaveGroupConfirmOpen(true)}
-                      variant="outline"
-                      className="w-full rounded-full gap-2"
-                    >
-                      Sair do Grupo
-                    </Button>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -36,6 +36,7 @@ import {
   copyRoutineToUserDb,
   type PostIncentiveType,
   type StoryWithUser,
+  invalidateProfileCache,
 } from "@/lib/ritmofit-db";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import {
@@ -223,26 +224,19 @@ export default function Index() {
     }
   }, [loading, discoverLoaded]);
 
-  // Load current user's profile photo whenever user becomes available
+  // Load current user's profile photo (also handles force_profile_reload for new signups)
   React.useEffect(() => {
     if (!user?.id) return;
+    // Clear force flag if set (newly registered users with photo uploaded during signup)
+    if (localStorage.getItem("force_profile_reload") === "1") {
+      localStorage.removeItem("force_profile_reload");
+      invalidateProfileCache(user.id);
+    }
     getUserProfileDb(user.id)
       .then((profile) => {
         if (profile?.photo) setCurrentUserPhoto(profile.photo);
       })
       .catch((err) => console.error("Erro ao carregar foto do perfil:", err));
-  }, [user?.id]);
-
-  // Force profile reload for newly registered users (photo uploaded during signup)
-  React.useEffect(() => {
-    if (!user?.id) return;
-    if (localStorage.getItem("force_profile_reload") !== "1") return;
-    localStorage.removeItem("force_profile_reload");
-    getUserProfileDb(user.id)
-      .then((profile) => {
-        if (profile?.photo) setCurrentUserPhoto(profile.photo);
-      })
-      .catch(() => { });
   }, [user?.id]);
 
   // Sync tab bar visibility with header scroll behavior
@@ -791,26 +785,6 @@ export default function Index() {
       </div>
 
       {/* Feed Mode Toggle */}
-      <div className={`sticky top-16 z-40 bg-background/90 backdrop-blur border-b border-border/60 px-4 py-2.5 flex items-center justify-center gap-6 transition-transform duration-200 ${tabBarHidden ? "-translate-y-[calc(100%+4rem)] pointer-events-none" : "translate-y-0"}`}>
-        <button
-          onClick={() => setFeedMode("following")}
-          className={`text-sm font-medium pb-0.5 ${feedMode === "following"
-              ? "text-foreground border-b-2 border-foreground"
-              : "text-muted-foreground"
-            }`}
-        >
-          Seguindo
-        </button>
-        <button
-          onClick={handleSwitchToDiscover}
-          className={`text-sm font-medium pb-0.5 ${feedMode === "discover"
-              ? "text-foreground border-b-2 border-foreground"
-              : "text-muted-foreground"
-            }`}
-        >
-          Descobrir
-        </button>
-      </div>
 
       {/* Feed Content */}
       <div>

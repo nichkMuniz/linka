@@ -25,3 +25,7 @@ dist-ssr
 
 .config/
 !.env
+.env
+*.sql
+*.db
+node_modules/

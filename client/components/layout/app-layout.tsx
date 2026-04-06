@@ -159,19 +159,24 @@ export function AppLayout() {
 
     const unsubscribe = subscribeToUnreadNotificationsDb(setUnreadNotificationsCount);
 
-    // Replace polling with Realtime subscription for new messages
-    const messagesChannel = supabase
+    // Realtime subscription for new messages — filtered to current user + debounced
+    let msgDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const messagesChannel = user ? supabase
       ?.channel("app-layout-messages")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
+        { event: "INSERT", schema: "public", table: "messages", filter: `following_id=eq.${user.id}` },
         () => {
-          getUnreadMessageCountDb()
-            .then(setUnreadCount)
-            .catch((err) => console.error("Error loading unread message count:", err));
+          // Debounce: if multiple messages arrive in quick succession, only query once
+          if (msgDebounceTimer) clearTimeout(msgDebounceTimer);
+          msgDebounceTimer = setTimeout(() => {
+            getUnreadMessageCountDb()
+              .then(setUnreadCount)
+              .catch((err) => console.error("Error loading unread message count:", err));
+          }, 1000);
         },
       )
-      .subscribe();
+      .subscribe() : null;
 
     return () => {
       messagesChannel?.unsubscribe();
