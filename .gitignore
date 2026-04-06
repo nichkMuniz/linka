@@ -24,8 +24,10 @@ dist-ssr
 *.sw?
 
 .config/
-!.env
 .env
+node_modules/
+dist/
+*.log
 *.sql
 *.db
-node_modules/
+.md
