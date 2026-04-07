@@ -225,10 +225,9 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
     return totalLikes + (post.commentCount || 0);
   };
 
+  // Sort by recency (most recent first)
   posts.sort((a, b) => {
-    const segDiff = getSegmentScore(b) - getSegmentScore(a);
-    if (segDiff !== 0) return segDiff;
-    return getEngagementScore(b) - getEngagementScore(a);
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
   return posts;
