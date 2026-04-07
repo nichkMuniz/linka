@@ -2,6 +2,20 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "path";
+import type { Plugin } from "vite";
+
+// Injects the Express server as Vite middleware in dev mode so /api/* routes work without a separate process.
+function expressDevMiddleware(): Plugin {
+  return {
+    name: "express-dev-middleware",
+    apply: "serve",
+    async configureServer(server) {
+      const { createServer: createExpressServer } = await import("./server/index");
+      const app = createExpressServer();
+      server.middlewares.use(app);
+    },
+  };
+}
 
 export default defineConfig({
   cacheDir: "/tmp/vite-cache",
@@ -11,6 +25,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    expressDevMiddleware(),
     react(),
     VitePWA({
       registerType: "autoUpdate",

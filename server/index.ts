@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import { handleDemo } from "./routes/demo";
 import { handleGetUser, handleSignOut, handleRefreshSession, handleDeleteAuthUser } from "./routes/auth";
+import { handleLinkPreview } from "./routes/link-preview";
 
 export function createServer() {
   const app = express();
@@ -25,6 +26,9 @@ export function createServer() {
   app.post("/api/auth/sign-out", handleSignOut);
   app.post("/api/auth/refresh", handleRefreshSession);
   app.post("/api/auth/delete-account", handleDeleteAuthUser);
+
+  // Link preview proxy — fetches Open Graph / meta tags server-side to avoid CORS
+  app.get("/api/link-preview", handleLinkPreview);
 
   return app;
 }

@@ -35,7 +35,7 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 | 8 | [Perfil](./08-perfil.md) | `/perfil` ou `/usuario/:id` | Perfil do usuário |
 | 9 | [Detalhe do Post](./09-post-detalhe.md) | `/post/:postId` | Visualização isolada de um post |
 | 10 | [Notificações](./10-notificacoes.md) | `/notificacoes` | Central de notificações |
-| 11 | [Loja](./11-loja.md) | `/loja` | Loja (em breve) |
+| 11 | [Loja](./11-loja.md) | `/loja` | Hub comunitário de promoções fitness |
 | 12 | [Página não encontrada](./12-not-found.md) | `*` | Erro 404 |
 | 13 | [Layouts e Componentes](./13-layouts-e-componentes.md) | — | Componentes compartilhados e layouts |
 | 14 | [Database Schema](./14-database-schema.md) | — | Documentação técnica de todas as tabelas do banco |
@@ -71,6 +71,7 @@ Menu flutuante arrastável que dá acesso rápido às principais telas.
 - **Internacionalização (i18n)** — suporte a múltiplos idiomas via `language-context`
 - **Toast notifications** — feedback visual de ações
 - **Responsividade** — layout distinto para mobile e desktop
+- **Cache de queries** — cache em memória com TTL (30s–5min) em `ritmofit-db.ts` via helper `cached()`. Todas as funções de leitura retornam dados cacheados; funções de escrita chamam `invalidateQueryCache(prefix)` para invalidar caches relacionados. Cache limpo automaticamente no logout.
 
 ---
 

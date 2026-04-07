@@ -38,6 +38,9 @@ import {
   getCommercialProfileDb,
   createOrUpdateCommercialProfileDb,
   deleteCommercialProfileDb,
+  getCommercialOffersByUserIdDb,
+  incrementOfferClickDb,
+  type CommercialOffer,
   getWorkoutHistoryDb,
   getUserActiveStoriesDb,
   getExpiredUserFlowsDb,
@@ -57,6 +60,9 @@ import {
   type UserGoal,
   type ShotWithUser,
   type CommercialProfile,
+  type ServicePlan,
+  getCommercialPlansDb,
+  saveCommercialPlansDb,
   type StoryWithUser,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
@@ -141,6 +147,12 @@ import {
   Search,
   Share2,
   User,
+  ShoppingBag,
+  ArrowRight,
+  ExternalLink,
+  Phone,
+  Briefcase,
+  ListChecks,
 } from "lucide-react";
 import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
@@ -286,9 +298,12 @@ export default function Profile() {
     null,
   );
 
+  const [profileOffers, setProfileOffers] = React.useState<CommercialOffer[]>([]);
+
   // Commercial profile state
   const [isCommercialProfileOpen, setIsCommercialProfileOpen] = React.useState(false);
   const [isCommercialDashboardOpen, setIsCommercialDashboardOpen] = React.useState(false);
+  const [isPlansModalOpen, setIsPlansModalOpen] = React.useState(false);
   const [commercialProfile, setCommercialProfile] = React.useState<CommercialProfile | null>(null);
   const [commercialFormData, setCommercialFormData] = React.useState({
     business_segment: "",
@@ -301,6 +316,11 @@ export default function Profile() {
   const [isSavingCommercial, setIsSavingCommercial] = React.useState(false);
   const [commercialLogoFile, setCommercialLogoFile] = React.useState<File | null>(null);
   const [commercialLogoPreview, setCommercialLogoPreview] = React.useState<string | null>(null);
+  const [servicePlans, setServicePlans] = React.useState<ServicePlan[]>([]);
+  const [isAddingPlan, setIsAddingPlan] = React.useState(false);
+  const [newPlanName, setNewPlanName] = React.useState("");
+  const [newPlanPrice, setNewPlanPrice] = React.useState("");
+  const [newPlanDescription, setNewPlanDescription] = React.useState("");
 
   // Delete account state (UI trigger not yet implemented)
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = React.useState(false);
@@ -379,6 +399,8 @@ export default function Profile() {
         userGoalsData,
         shotsData,
         commercialProfileData,
+        offersData,
+        commercialPlansData,
       ] = await Promise.all([
         getUserRoutinesDb(profileUserId),
         getUserWorkoutsDb(profileUserId),
@@ -387,6 +409,8 @@ export default function Profile() {
         getUserGoalsByUserIdDb(profileUserId),
         getUserShotsDb(profileUserId),
         getCommercialProfileDb(profileUserId),
+        getCommercialOffersByUserIdDb(profileUserId),
+        getCommercialPlansDb(profileUserId),
       ]);
       setRoutines(routinesData);
       setUserWorkouts(userWorkoutsData);
@@ -395,6 +419,8 @@ export default function Profile() {
       setUserGoals(isViewingOtherProfile ? userGoalsData.filter((g) => g.visibility === 1) : userGoalsData);
       setShots(shotsData);
       setCommercialProfile(commercialProfileData);
+      setProfileOffers(offersData.filter((o) => o.is_active));
+      setServicePlans(commercialPlansData.map((p) => ({ name: p.name, price: p.price, description: p.description ?? undefined })));
       if (commercialProfileData) {
         setCommercialFormData({
           business_segment: commercialProfileData.business_segment || "",
@@ -720,7 +746,10 @@ export default function Profile() {
     if (!user) return;
 
     try {
-      const profile = await getCommercialProfileDb(user.id);
+      const [profile, plans] = await Promise.all([
+        getCommercialProfileDb(user.id),
+        getCommercialPlansDb(user.id),
+      ]);
       if (profile) {
         setCommercialProfile(profile);
         setCommercialFormData({
@@ -733,12 +762,17 @@ export default function Profile() {
         });
         setCommercialLogoPreview(profile.business_logo_url || null);
       }
+      setServicePlans(plans.map((p) => ({ name: p.name, price: p.price, description: p.description ?? undefined })));
     } catch (err: any) {
       console.error("Error loading commercial profile:", err);
     }
   }, [user]);
 
   const handleOpenCommercialProfile = React.useCallback(() => {
+    setIsAddingPlan(false);
+    setNewPlanName("");
+    setNewPlanPrice("");
+    setNewPlanDescription("");
     setIsCommercialProfileOpen(true);
     loadCommercialProfile();
   }, [loadCommercialProfile]);
@@ -766,10 +800,13 @@ export default function Profile() {
         setCommercialLogoFile(null);
       }
 
-      const updated = await createOrUpdateCommercialProfileDb(user.id, {
-        ...commercialFormData,
-        business_logo_url: logoUrl,
-      });
+      const [updated] = await Promise.all([
+        createOrUpdateCommercialProfileDb(user.id, {
+          ...commercialFormData,
+          business_logo_url: logoUrl,
+        }),
+        saveCommercialPlansDb(user.id, servicePlans),
+      ]);
       setCommercialProfile(updated);
 
       toast({
@@ -788,7 +825,7 @@ export default function Profile() {
     } finally {
       setIsSavingCommercial(false);
     }
-  }, [user, commercialFormData, commercialLogoFile, commercialProfile]);
+  }, [user, commercialFormData, commercialLogoFile, commercialProfile, servicePlans]);
 
   const handleDeleteCommercialProfile = React.useCallback(async () => {
     if (!user) return;
@@ -1941,6 +1978,127 @@ export default function Profile() {
                                 </div>
                               </div>
 
+                              {/* Service Plans */}
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <label className="text-sm font-medium">Planos e Preços</label>
+                                  <span className="text-xs text-muted-foreground">{servicePlans.length}/5</span>
+                                </div>
+
+                                {/* Confirmed plans list */}
+                                {servicePlans.length > 0 && (
+                                  <div className="space-y-2">
+                                    {servicePlans.map((plan, idx) => (
+                                      <div key={idx} className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-sm font-medium truncate">{plan.name}</p>
+                                          {plan.price != null && (
+                                            <p className="text-xs text-brand font-semibold">
+                                              R$ {plan.price.toFixed(2).replace(".", ",")}
+                                            </p>
+                                          )}
+                                          {plan.description && (
+                                            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{plan.description}</p>
+                                          )}
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => setServicePlans((prev) => prev.filter((_, i) => i !== idx))}
+                                          className="p-1 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 mt-0.5"
+                                          aria-label="Remover plano"
+                                        >
+                                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Draft form — shown only when adding */}
+                                {servicePlans.length < 5 && (
+                                  isAddingPlan ? (
+                                    <div className="space-y-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
+                                      <p className="text-xs font-medium text-brand">Novo plano</p>
+                                      <input
+                                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+                                        placeholder="Nome do plano (ex: Consulta avulsa) *"
+                                        value={newPlanName}
+                                        onChange={(e) => setNewPlanName(e.target.value)}
+                                        maxLength={60}
+                                        autoFocus
+                                      />
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+                                        placeholder="Preço (R$) — opcional"
+                                        value={newPlanPrice}
+                                        onChange={(e) => setNewPlanPrice(e.target.value)}
+                                      />
+                                      <input
+                                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+                                        placeholder="Descrição breve — opcional"
+                                        value={newPlanDescription}
+                                        onChange={(e) => setNewPlanDescription(e.target.value)}
+                                        maxLength={100}
+                                      />
+                                      <div className="flex gap-2">
+                                        <button
+                                          type="button"
+                                          disabled={!newPlanName.trim()}
+                                          aria-label="Confirmar plano"
+                                          onClick={() => {
+                                            if (!newPlanName.trim()) return;
+                                            setServicePlans((prev) => [
+                                              ...prev,
+                                              {
+                                                name: newPlanName.trim(),
+                                                price: newPlanPrice ? parseFloat(newPlanPrice) : null,
+                                                description: newPlanDescription.trim() || undefined,
+                                              },
+                                            ]);
+                                            setNewPlanName("");
+                                            setNewPlanPrice("");
+                                            setNewPlanDescription("");
+                                            setIsAddingPlan(false);
+                                          }}
+                                          className="flex-1 flex items-center justify-center gap-1.5 rounded-md bg-brand text-white text-sm font-medium py-2 hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                        >
+                                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                          Confirmar plano
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setIsAddingPlan(false);
+                                            setNewPlanName("");
+                                            setNewPlanPrice("");
+                                            setNewPlanDescription("");
+                                          }}
+                                          className="px-3 rounded-md border border-border text-sm text-muted-foreground hover:text-foreground transition-colors"
+                                        >
+                                          Cancelar
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsAddingPlan(true)}
+                                      className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2.5 text-sm text-muted-foreground hover:text-foreground hover:border-brand/50 transition-colors"
+                                    >
+                                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                                      Adicionar Plano
+                                    </button>
+                                  )
+                                )}
+
+                                {servicePlans.length >= 5 && (
+                                  <p className="text-xs text-muted-foreground text-center">Limite de 5 planos atingido</p>
+                                )}
+                              </div>
+
                               {/* Save Button */}
                               <Button
                                 onClick={handleSaveCommercialProfile}
@@ -2519,6 +2677,16 @@ export default function Profile() {
                         {commercialProfile.business_segment === "outros" && "Outros"}
                       </div>
                     )}
+                    {servicePlans.length > 0 && (
+                      <button
+                        onClick={() => setIsPlansModalOpen(true)}
+                        className="ml-auto flex items-center gap-1 text-xs text-brand hover:text-brand/80 transition-colors"
+                        title="Ver planos e preços"
+                      >
+                        <ListChecks className="h-3.5 w-3.5" />
+                        <span>{servicePlans.length} {servicePlans.length === 1 ? "plano" : "planos"}</span>
+                      </button>
+                    )}
                   </div>
                   {commercialProfile.business_website && (
                     <a
@@ -2536,6 +2704,38 @@ export default function Profile() {
             </div>
           </div>
 
+          {/* Plans Modal */}
+          <Dialog open={isPlansModalOpen} onOpenChange={setIsPlansModalOpen}>
+            <DialogContent className="max-w-sm rounded-2xl">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <ListChecks className="h-5 w-5 text-brand" />
+                  Planos e Preços
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 pt-1">
+                {commercialProfile && (
+                  <p className="text-sm text-muted-foreground">{commercialProfile.business_name}</p>
+                )}
+                {servicePlans.map((plan, idx) => (
+                  <div key={idx} className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold">{plan.name}</span>
+                      {plan.price && (
+                        <span className="text-sm font-bold text-brand">{plan.price}</span>
+                      )}
+                    </div>
+                    {plan.description && (
+                      <p className="text-xs text-muted-foreground leading-snug">{plan.description}</p>
+                    )}
+                  </div>
+                ))}
+                {servicePlans.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">Nenhum plano cadastrado.</p>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Action Buttons - Below stats, centered */}
           {isViewingOtherProfile && (
@@ -2618,9 +2818,9 @@ export default function Profile() {
         </CardContent>
       </Card>
 
-      {/* Posts, Shots and Routines Tabs */}
+      {/* Posts, Shots, Routines and Store Tabs */}
       <Tabs defaultValue="posts" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className={`grid w-full ${profileOffers.length > 0 ? "grid-cols-3" : "grid-cols-2"}`}>
           <TabsTrigger value="posts" className="flex items-center gap-1.5">
             <Grid3X3 className="h-4 w-4" />
             Posts ({stats.postsCount})
@@ -2629,6 +2829,12 @@ export default function Profile() {
             <Film className="h-4 w-4" />
             Shots ({shots.length})
           </TabsTrigger>
+          {profileOffers.length > 0 && (
+            <TabsTrigger value="loja" className="flex items-center gap-1.5">
+              {commercialProfile ? <Briefcase className="h-4 w-4" /> : <ShoppingBag className="h-4 w-4" />}
+              {commercialProfile ? `Serviços (${profileOffers.length})` : `Loja (${profileOffers.length})`}
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Posts Tab */}
@@ -3529,6 +3735,126 @@ export default function Profile() {
             </div>
           )}
         </TabsContent>}
+
+        {/* Serviços / Loja Tab */}
+        {profileOffers.length > 0 && (
+          <TabsContent value="loja" className="space-y-4 fade-in">
+            {/* Cabeçalho do negócio */}
+            {commercialProfile && (
+              <div className="rounded-2xl bg-card border border-border/50 overflow-hidden">
+                {commercialProfile.business_banner_url && (
+                  <div className="h-24 w-full overflow-hidden">
+                    <img src={commercialProfile.business_banner_url} alt="Banner" className="w-full h-full object-cover" />
+                  </div>
+                )}
+                <div className="flex items-center gap-3 p-4">
+                  <ImageWithFallback
+                    src={commercialProfile.business_logo_url ?? undefined}
+                    alt={commercialProfile.business_name ?? ""}
+                    className="h-12 w-12 rounded-2xl object-cover border-2 border-background shadow-md shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-sm font-black tracking-tight">{commercialProfile.business_name}</p>
+                      <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-brand/10 text-brand border border-brand/20">Parceiro</span>
+                    </div>
+                    {commercialProfile.business_segment && (
+                      <p className="text-[11px] text-muted-foreground font-semibold mt-0.5">{commercialProfile.business_segment}</p>
+                    )}
+                    {commercialProfile.business_description && (
+                      <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 leading-snug">{commercialProfile.business_description}</p>
+                    )}
+                  </div>
+                  {commercialProfile.business_website && (
+                    <a href={commercialProfile.business_website} target="_blank" rel="noopener noreferrer" className="shrink-0 text-muted-foreground hover:text-brand transition-colors">
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Cards de serviço */}
+            <div className="flex flex-col gap-3">
+              {profileOffers.map((offer) => {
+                const segment = offer.additional_info?.match(/^\[(.+?)\]/)?.[1] ?? null;
+                const plansText = offer.additional_info
+                  ? offer.additional_info.replace(/^\[.+?\]\n?/, "")
+                  : null;
+                const plansLines = plansText
+                  ? plansText.split("\n").filter(Boolean).slice(0, 3)
+                  : [];
+                const isService = !!commercialProfile;
+
+                return (
+                  <div
+                    key={offer.id}
+                    className="bg-card group rounded-2xl border border-border/50 overflow-hidden hover:shadow-lg transition-all duration-300"
+                  >
+                    <div className="flex gap-0">
+                      {/* Foto lateral */}
+                      <div className="w-28 sm:w-36 shrink-0 overflow-hidden bg-muted/30">
+                        <img
+                          src={offer.image_url}
+                          alt={offer.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+                      </div>
+                      {/* Conteúdo */}
+                      <div className="flex-1 p-4 flex flex-col gap-2 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {segment && (
+                            <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-brand/10 text-brand border border-brand/20">{segment}</span>
+                          )}
+                        </div>
+
+                        <h4 className="text-sm font-black leading-tight tracking-tight">{offer.title}</h4>
+
+                        {isService && plansLines.length > 0 && (
+                          <ul className="space-y-0.5">
+                            {plansLines.map((line, idx) => (
+                              <li key={idx} className="text-[11px] text-muted-foreground leading-snug line-clamp-1 flex items-start gap-1">
+                                <span className="text-brand shrink-0 mt-0.5">•</span> {line}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+
+                        {!isService && offer.coupon_code && (
+                          <div className="flex items-center gap-1">
+                            <Tag className="h-3 w-3 text-brand" />
+                            <span className="text-[10px] font-black text-brand font-mono uppercase">{offer.coupon_code}</span>
+                          </div>
+                        )}
+
+                        <div className="mt-auto pt-1 flex items-center justify-between gap-2 flex-wrap">
+                          {offer.price && (
+                            <span className="text-xs text-muted-foreground font-medium">
+                              {isService ? "A partir de " : ""}
+                              <span className="text-base font-black text-foreground tracking-tighter">R$ {offer.price}</span>
+                            </span>
+                          )}
+                          <a
+                            href={offer.link_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => incrementOfferClickDb(offer.id, offer.user_id)}
+                            className="flex items-center gap-1.5 h-9 px-4 rounded-xl bg-brand text-white text-xs font-bold hover:bg-brand/90 transition-colors shrink-0"
+                          >
+                            {isService
+                              ? <><Phone className="h-3.5 w-3.5" /> Entrar em contato</>
+                              : <><ArrowRight className="h-3.5 w-3.5" /> Ver oferta</>
+                            }
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Post Viewer Drawer */}

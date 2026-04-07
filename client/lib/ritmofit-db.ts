@@ -232,6 +232,8 @@ export async function togglePostIncentiveDb(
     });
     if (insertError) throw insertError;
   }
+
+  invalidateQueryCache("postLikes");
 }
 
 export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
@@ -499,6 +501,8 @@ export async function addPostCommentDb(postId: string, text: string) {
     console.error("Error adding comment:", error);
     throw error;
   }
+
+  invalidateQueryCache("postComments");
 }
 
 export async function getPostCommentsDb(
@@ -562,6 +566,8 @@ export async function deletePostCommentDb(commentId: string) {
     console.error("Error deleting comment:", error);
     throw error;
   }
+
+  invalidateQueryCache("postComments");
 }
 
 export async function markPostCommentsAsReadDb(postId: string): Promise<void> {
@@ -658,6 +664,8 @@ export async function createCustomGoalAndSelectDb(
   }
 
   return goalId;
+
+  invalidateQueryCache("programmedGoals"); invalidateQueryCache("userGoals"); invalidateQueryCache("selectedGoalIds");
 }
 
 export async function createUserGoalDb(
@@ -683,6 +691,8 @@ export async function createUserGoalDb(
     throw error;
   }
 
+
+  invalidateQueryCache("userGoals"); invalidateQueryCache("selectedGoalIds");
 }
 
 export async function updateUserGoalDb(
@@ -727,6 +737,7 @@ export async function updateUserGoalDb(
     });
     throw new Error(`Failed to update goal: ${errorMsg}`);
   }
+  invalidateQueryCache("userGoals");
 }
 
 export async function deleteUserGoalDb(userGoalId: string) {
@@ -761,6 +772,8 @@ export async function deleteUserGoalDb(userGoalId: string) {
       await supabase.from("goals").delete().eq("id", userGoalRow.goal_id);
     }
   }
+
+  invalidateQueryCache("userGoals"); invalidateQueryCache("selectedGoalIds");
 }
 
 export type UserGoal = {
@@ -982,6 +995,8 @@ export async function incrementGoalProgressDb(
     days_completed: newDaysCompleted,
     visibility: Number(data.visibility ?? 1),
   };
+
+  invalidateQueryCache("userGoals");
 }
 
 export async function getUserSelectedGoalIdsDb(): Promise<string[]> {
@@ -1076,7 +1091,7 @@ export async function updateUserProfileDb(
     .from("profiles")
     .update(updates)
     .eq("user_id", userId)
-    .select("id, nickname, bio, photo, objectives, gender, height, weight, age")
+    .select("id, nickname, bio, photo, objectives, handle, gender, height, weight, age")
     .maybeSingle();
 
   if (error) {
@@ -1100,6 +1115,7 @@ export async function updateUserProfileDb(
     weight: data.weight != null ? String(data.weight) : null,
     age: data.age != null ? String(data.age) : null,
   };
+  invalidateQueryCache("userStats"); invalidateQueryCache("allUsers");
 }
 
 export async function updateUserPersonalDataDb(
@@ -1124,6 +1140,7 @@ export async function updateUserPersonalDataDb(
     console.error("Error updating personal data:", errorMsg);
     throw new Error(`Erro ao salvar dados pessoais: ${errorMsg}`);
   }
+  invalidateQueryCache("userStats"); invalidateQueryCache("allUsers");
 }
 
 export type PostWithUser = {
@@ -1311,6 +1328,8 @@ export async function createCustomWorkoutDb(
     photo: data.photo ? String(data.photo) : null,
     muscle_group: data.muscle_group ? String(data.muscle_group) : null,
   };
+
+  invalidateQueryCache("workouts"); invalidateQueryCache("catalogWorkouts");
 }
 
 export async function getUserStatsDb(userId: string): Promise<UserStats> {
@@ -1508,6 +1527,8 @@ export async function createCustomDietDb(
     fiber_g: data.fiber_g != null ? Number(data.fiber_g) : null,
     food_quality: data.food_quality ?? null,
   };
+
+  invalidateQueryCache("diets"); invalidateQueryCache("catalogDiets");
 }
 
 export type Habit = {
@@ -1602,6 +1623,8 @@ export async function createRoutineDb(
     goal_id: data.goal_id ? String(data.goal_id) : null,
     name: data.name ? String(data.name) : undefined,
   };
+
+  invalidateQueryCache("userRoutines");
 }
 
 export async function updateRoutineGoalDb(
@@ -1635,6 +1658,8 @@ export async function updateRoutineGoalDb(
     goal_id: data.goal_id ? String(data.goal_id) : null,
     name: data.name ? String(data.name) : undefined,
   };
+
+  invalidateQueryCache("userRoutines");
 }
 
 export async function updateRoutineNameDb(
@@ -1680,6 +1705,8 @@ export async function updateRoutineNameDb(
   }
 
   return true;
+
+  invalidateQueryCache("userRoutines");
 }
 
 export async function deleteRoutinesOfTypeDb(
@@ -1704,6 +1731,8 @@ export async function deleteRoutinesOfTypeDb(
     console.error(`Error deleting routines of type [${errorCode}]:`, errorMsg);
     throw new Error(`Erro ao deletar rotina: ${errorMsg}`);
   }
+
+  invalidateQueryCache("userRoutines");
 }
 
 export async function deleteRoutineDb(routineId: string, userId: string): Promise<void> {
@@ -1716,6 +1745,8 @@ export async function deleteRoutineDb(routineId: string, userId: string): Promis
     .eq("user_id", userId);
 
   if (error) throw error;
+
+  invalidateQueryCache("userRoutines");
 }
 
 // Get items for a specific routine (by userId + routineName + type) — works for other users via workouts/diets/habits catalog join
@@ -2969,6 +3000,8 @@ export async function copyRoutineToUserDb(
     : await finalUpdateQuery.is("name", null);
 
   if (finalUpdateError) console.error("Error setting follower_id after copy:", finalUpdateError.message);
+
+  invalidateQueryCache("userRoutines");
 }
 
 // Following Functions
@@ -3034,6 +3067,8 @@ export async function followUserDb(followingId: string): Promise<boolean> {
   }
 
   return true;
+
+  invalidateQueryCache("following"); invalidateQueryCache("followers"); invalidateQueryCache("followingIds"); invalidateQueryCache("userStats");
 }
 
 export async function unfollowUserDb(followingId: string): Promise<boolean> {
@@ -3056,6 +3091,8 @@ export async function unfollowUserDb(followingId: string): Promise<boolean> {
   }
 
   return true;
+
+  invalidateQueryCache("following"); invalidateQueryCache("followers"); invalidateQueryCache("followingIds"); invalidateQueryCache("userStats");
 }
 
 export async function isFollowingDb(followingId: string): Promise<boolean> {
@@ -3285,6 +3322,8 @@ export async function createStoryDb(
     console.error("Error creating story:", err);
     return null;
   }
+
+  invalidateQueryCache("activeStories"); invalidateQueryCache("userShots");
 }
 
 export async function deleteOldStoriesDb(): Promise<boolean> {
@@ -3292,6 +3331,8 @@ export async function deleteOldStoriesDb(): Promise<boolean> {
   // the active feed by the created_at filter in getActiveStoriesDb.
   // Manual deletion happens via deleteStoryDb only.
   return true;
+
+  invalidateQueryCache("activeStories");
 }
 
 export async function deleteStoryDb(storyId: string): Promise<boolean> {
@@ -3331,6 +3372,8 @@ export async function deleteStoryDb(storyId: string): Promise<boolean> {
     console.error("Error deleting story:", err);
     return false;
   }
+
+  invalidateQueryCache("activeStories");
 }
 
 // Story likes (incentives)
@@ -3779,6 +3822,8 @@ export async function sendMessageDb(
     console.error("Error sending message:", err);
     return null;
   }
+
+  invalidateQueryCache("conversations"); invalidateQueryCache("unreadMsgCount");
 }
 
 export async function getConversationsDb(): Promise<Conversation[]> {
@@ -3940,6 +3985,8 @@ export async function markMessagesAsReadDb(
     console.error("Error marking messages as read:", err);
     return false;
   }
+
+  invalidateQueryCache("unreadMsgCount"); invalidateQueryCache("conversations");
 }
 
 export async function setMessageEmojiDb(
@@ -4249,9 +4296,10 @@ export async function getFollowingDb(
 
   const targetUserId = userId || viewer.id;
 
+  return cached(`following:${targetUserId}`, CACHE_TTL_SHORT, async () => {
   try {
     // Get all users that the target user is following
-    const { data, error } = await supabase
+    const { data, error } = await supabase!
       .from("following")
       .select("following_id")
       .eq("user_id", targetUserId)
@@ -4269,7 +4317,7 @@ export async function getFollowingDb(
     if (followingIds.length === 0) return [];
 
     // Fetch profile data for each user being followed
-    const { data: profiles, error: profileError } = await supabase
+    const { data: profiles, error: profileError } = await supabase!
       .from("profiles")
       .select("user_id, nickname, bio, photo")
       .in("user_id", followingIds);
@@ -4289,6 +4337,7 @@ export async function getFollowingDb(
     console.error("Error getting following:", err);
     return [];
   }
+  }); // end cached
 }
 
 export type Shot = {
@@ -4488,6 +4537,8 @@ export async function createShotDb(
     console.error("Error creating shot:", err);
     return null;
   }
+
+  invalidateQueryCache("shots"); invalidateQueryCache("userShots");
 }
 
 export async function updateShotDb(
@@ -4518,6 +4569,8 @@ export async function updateShotDb(
     console.error("Error updating shot:", err);
     return false;
   }
+
+  invalidateQueryCache("shots"); invalidateQueryCache("userShots");
 }
 
 export async function deleteShotDb(shotId: string): Promise<boolean> {
@@ -4547,6 +4600,8 @@ export async function deleteShotDb(shotId: string): Promise<boolean> {
     console.error("Error deleting shot:", err);
     return false;
   }
+
+  invalidateQueryCache("shots"); invalidateQueryCache("userShots");
 }
 
 export async function toggleShotIncentiveDb(
@@ -4631,6 +4686,8 @@ export async function toggleShotIncentiveDb(
       err?.message || JSON.stringify(err),
     );
   }
+
+  invalidateQueryCache("shots");
 }
 
 export type ShotComment = {
@@ -4698,6 +4755,8 @@ export async function addShotCommentDb(shotId: string, text: string, shotOwnerId
     );
     throw err;
   }
+
+  invalidateQueryCache("shotComments");
 }
 
 export async function getShotCommentsDb(
@@ -4819,6 +4878,8 @@ export async function deleteShotCommentDb(commentId: string) {
     );
     throw err;
   }
+
+  invalidateQueryCache("shotComments");
 }
 
 export type RankingUser = {
@@ -4903,6 +4964,8 @@ export async function updateUserWorkoutDb(
   }
 
   return true;
+
+  invalidateQueryCache("userWorkouts");
 }
 
 // Toggle completion for user diet
@@ -4930,6 +4993,8 @@ export async function toggleUserDietCompletionDb(
   }
 
   return true;
+
+  invalidateQueryCache("userDiets");
 }
 
 // Toggle completion for user habit
@@ -4957,6 +5022,8 @@ export async function toggleUserHabitCompletionDb(
   }
 
   return true;
+
+  invalidateQueryCache("userHabits");
 }
 
 // Update existing workout records instead of creating duplicates
@@ -4993,6 +5060,7 @@ export async function updateWorkoutSeriesDb(
       throw new Error(`Erro ao atualizar treino: ${errorMsg}`);
     }
   }
+  invalidateQueryCache("userWorkouts");
 }
 
 // Save workout series data - creates new records for each series
@@ -5050,6 +5118,7 @@ export async function saveWorkoutSeriesDb(
     time_rest: row.time_rest,
     duration: row.duration,
   }));
+  invalidateQueryCache("userWorkouts");
 }
 
 // Notifications functionality
@@ -5457,6 +5526,8 @@ export async function markNotificationsAsReadDb(): Promise<boolean> {
     // Don't fail the operation if read column doesn't exist
     return true;
   }
+
+  invalidateQueryCache("notifications"); invalidateQueryCache("unreadNotifCount");
 }
 
 export async function clearNotificationsDb(): Promise<boolean> {
@@ -5571,6 +5642,8 @@ export async function createPostDb(
     console.error("Error creating post:", err);
     throw err;
   }
+
+  invalidateQueryCache("userPosts"); invalidateQueryCache("post:");
 }
 
 // Delete Post Function
@@ -5650,6 +5723,8 @@ export async function deletePostDb(postId: string): Promise<boolean> {
     console.error("Error deleting post:", err);
     throw err;
   }
+
+  invalidateQueryCache("userPosts"); invalidateQueryCache("post:");
 }
 
 export async function updatePostDb(
@@ -5692,6 +5767,8 @@ export async function updatePostDb(
     console.error("Error updating post:", err);
     throw err;
   }
+
+  invalidateQueryCache("userPosts"); invalidateQueryCache("post:");
 }
 
 export async function getUserShotsDb(userId: string): Promise<ShotWithUser[]> {
@@ -5869,7 +5946,7 @@ export async function createCheckInDb(userId: string): Promise<CheckIn> {
 
   try {
     const today = new Date();
-    const checkInDate = today.toISOString().split('T')[0];
+    const checkInDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const dayOfWeek = today.getDay();
 
     const { data, error } = await supabase
@@ -5895,13 +5972,16 @@ export async function createCheckInDb(userId: string): Promise<CheckIn> {
     console.error("Error creating check-in:", err);
     throw err;
   }
+
+  invalidateQueryCache("todayCheckIn"); invalidateQueryCache("weekCheckIns"); invalidateQueryCache("checkInHistory"); invalidateQueryCache("completedRoutines");
 }
 
 export async function getTodayCheckInDb(userId: string): Promise<CheckIn | null> {
   return cached(`todayCheckIn:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) throw new Error("Supabase não configurado");
 
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
     const { data, error } = await supabase
       .from("check_ins")
@@ -5924,28 +6004,36 @@ export async function getWeekCheckInsDb(userId: string): Promise<number[]> {
   return cached(`weekCheckIns:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) throw new Error("Supabase não configurado");
 
   try {
-    // Get the first day of the current week (Sunday)
+    // Use local date to avoid UTC offset shifting the week boundary
     const today = new Date();
-    const firstDay = new Date(today);
-    firstDay.setDate(today.getDate() - today.getDay());
-    firstDay.setHours(0, 0, 0, 0);
+    const localYear = today.getFullYear();
+    const localMonth = String(today.getMonth() + 1).padStart(2, '0');
+    const localDay = String(today.getDate()).padStart(2, '0');
+    const todayLocal = `${localYear}-${localMonth}-${localDay}`;
 
-    const weekStart = firstDay.toISOString().split('T')[0];
-    const weekEnd = new Date(firstDay);
-    weekEnd.setDate(firstDay.getDate() + 6);
-    const weekEndStr = weekEnd.toISOString().split('T')[0];
+    // Get Sunday of current week using local date
+    const dayOfWeekToday = today.getDay();
+    const sundayLocal = new Date(today);
+    sundayLocal.setDate(today.getDate() - dayOfWeekToday);
+    const weekStart = `${sundayLocal.getFullYear()}-${String(sundayLocal.getMonth() + 1).padStart(2, '0')}-${String(sundayLocal.getDate()).padStart(2, '0')}`;
+
+    const saturdayLocal = new Date(sundayLocal);
+    saturdayLocal.setDate(sundayLocal.getDate() + 6);
+    const weekEndStr = `${saturdayLocal.getFullYear()}-${String(saturdayLocal.getMonth() + 1).padStart(2, '0')}-${String(saturdayLocal.getDate()).padStart(2, '0')}`;
 
     const { data, error } = await supabase
       .from("check_ins")
-      .select("day_of_week")
+      .select("check_in_date")
       .eq("user_id", userId)
       .gte("check_in_date", weekStart)
       .lte("check_in_date", weekEndStr);
 
     if (error) throw error;
 
-    // Extract unique day_of_week values
-    const daysSet = new Set((data ?? []).map((row: any) => row.day_of_week));
+    // Derive day_of_week from check_in_date to avoid stale stored values
+    const daysSet = new Set(
+      (data ?? []).map((row: any) => new Date(row.check_in_date + "T12:00:00").getDay())
+    );
     return Array.from(daysSet).sort((a, b) => a - b);
   } catch (err: any) {
     console.error("Error getting week check-ins:", err);
@@ -5981,6 +6069,12 @@ export async function getCheckInHistoryDb(userId: string, days: number = 30): Pr
 }
 
 // Commercial Profile Functions
+export type ServicePlan = {
+  name: string;
+  price: number | null;
+  description?: string;
+};
+
 export type CommercialProfile = {
   id: string;
   user_id: string;
@@ -5992,6 +6086,7 @@ export type CommercialProfile = {
   business_website?: string;
   business_logo_url?: string;
   business_banner_url?: string;
+  service_plans?: ServicePlan[];
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -6025,6 +6120,7 @@ export async function createOrUpdateCommercialProfileDb(
 
   try {
     const existingProfile = await getCommercialProfileDb(userId);
+    invalidateQueryCache("commercialProfile");
 
     if (existingProfile) {
       // Update existing profile
@@ -6070,11 +6166,306 @@ export async function deleteCommercialProfileDb(userId: string): Promise<boolean
       .eq("user_id", userId);
 
     if (error) throw error;
+    invalidateQueryCache("commercialProfile");
     return true;
   } catch (err: any) {
     console.error("Error deleting commercial profile:", err);
     throw err;
   }
+}
+
+// Commercial Offer Functions
+export type CommercialOffer = {
+  id: string;
+  user_id: string;
+  title: string;
+  price: string;
+  link_url: string;
+  coupon_code?: string;
+  image_url: string;
+  additional_info?: string;
+  is_active: boolean;
+  view_count: number;
+  click_count: number;
+  created_at: string;
+};
+
+export async function createCommercialOfferDb(offer: Omit<CommercialOffer, "id" | "is_active" | "view_count" | "click_count" | "created_at">): Promise<CommercialOffer> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const { data, error } = await supabase
+      .from("commercial_offers")
+      .insert({
+        ...offer,
+        is_active: true,
+        view_count: 0,
+        click_count: 0,
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as CommercialOffer;
+  } catch (err: any) {
+    console.error("Error creating commercial offer:", err);
+    throw err;
+  }
+}
+
+export async function getCommercialOffersByUserIdDb(userId: string): Promise<CommercialOffer[]> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const { data, error } = await supabase
+      .from("commercial_offers")
+      .select()
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    return (data ?? []) as CommercialOffer[];
+  } catch (err: any) {
+    console.error("Error getting commercial offers:", err);
+    return [];
+  }
+}
+
+export type CommercialOfferWithSeller = CommercialOffer & {
+  seller_nickname: string;
+  seller_photo: string | null;
+  seller_handle: string;
+  seller_is_commercial: boolean; // true = verified commercial partner
+};
+
+export async function getAllActiveOffersDb(): Promise<CommercialOfferWithSeller[]> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  try {
+    const { data, error } = await supabase
+      .from("commercial_offers")
+      .select("*")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    const offers = (data ?? []) as CommercialOffer[];
+
+    if (offers.length === 0) return [];
+
+    const userIds = [...new Set(offers.map((o) => o.user_id))];
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, photo, handle")
+      .in("user_id", userIds);
+
+    const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
+
+    // Check which users have a commercial profile
+    const { data: commercialProfiles } = await supabase
+      .from("commercial_profiles")
+      .select("user_id")
+      .in("user_id", userIds);
+    const commercialSet = new Set((commercialProfiles ?? []).map((cp: any) => cp.user_id));
+
+    return offers.map((offer) => {
+      const profile = profileMap.get(offer.user_id) as any;
+      return {
+        ...offer,
+        seller_nickname: profile?.nickname ?? "Parceiro",
+        seller_photo: profile?.photo ?? null,
+        seller_handle: profile?.handle ?? "",
+        seller_is_commercial: commercialSet.has(offer.user_id),
+      };
+    });
+  } catch (err: any) {
+    console.error("Error fetching all active offers:", err);
+    return [];
+  }
+}
+
+export async function incrementOfferClickDb(offerId: string, offerOwnerId: string): Promise<void> {
+  if (!supabase) return;
+
+  try {
+    const { data: offer } = await supabase
+      .from("commercial_offers")
+      .select("click_count")
+      .eq("id", offerId)
+      .single();
+
+    if (offer) {
+      await supabase
+        .from("commercial_offers")
+        .update({ click_count: (offer.click_count ?? 0) + 1 })
+        .eq("id", offerId);
+    }
+
+    // Notify the seller — only if the viewer is not the owner
+    const viewer = await getViewer();
+    if (viewer && viewer.id !== offerOwnerId) {
+      await supabase.from("notifications").insert({
+        user_id: offerOwnerId,
+        follower_id: viewer.id,
+        type: 8,
+        post_id: offerId,
+        read: false,
+      });
+    }
+  } catch (err) {
+    console.error("Error incrementing offer click:", err);
+  }
+}
+
+export async function toggleOfferActiveDb(offerId: string, isActive: boolean): Promise<void> {
+  if (!supabase) throw new Error("Supabase não configurado");
+  const { error } = await supabase
+    .from("commercial_offers")
+    .update({ is_active: isActive })
+    .eq("id", offerId);
+  if (error) throw error;
+}
+
+export async function deleteOfferDb(offerId: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase não configurado");
+  const { error } = await supabase
+    .from("commercial_offers")
+    .delete()
+    .eq("id", offerId);
+  if (error) throw error;
+}
+
+// Commercial Plans (tabela dedicada)
+export type CommercialPlan = {
+  id: string;
+  user_id: string;
+  name: string;
+  price: number | null;
+  description: string | null;
+  position: number;
+  created_at: string;
+};
+
+export async function getCommercialPlansDb(userId: string): Promise<CommercialPlan[]> {
+  return cached(`commercialPlans:${userId}`, CACHE_TTL_SHORT, async () => {
+    if (!supabase) throw new Error("Supabase não configurado");
+    const { data, error } = await supabase
+      .from("commercial_plans")
+      .select("*")
+      .eq("user_id", userId)
+      .order("position", { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as CommercialPlan[];
+  });
+}
+
+export async function saveCommercialPlansDb(userId: string, plans: ServicePlan[]): Promise<void> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  console.log("[saveCommercialPlansDb] saving", plans.length, "plans for user", userId);
+
+  // Delete all existing plans for this user, then insert the new list
+  const { error: deleteError } = await supabase
+    .from("commercial_plans")
+    .delete()
+    .eq("user_id", userId);
+
+  if (deleteError) {
+    console.error("[saveCommercialPlansDb] delete error:", deleteError);
+    throw deleteError;
+  }
+
+  if (plans.length > 0) {
+    const rows = plans.map((p, idx) => ({
+      user_id: userId,
+      name: p.name,
+      price: p.price ?? null,
+      description: p.description ?? null,
+      position: idx,
+    }));
+    console.log("[saveCommercialPlansDb] inserting rows:", rows);
+    const { data, error: insertError } = await supabase
+      .from("commercial_plans")
+      .insert(rows)
+      .select();
+
+    if (insertError) {
+      console.error("[saveCommercialPlansDb] insert error:", insertError);
+      throw insertError;
+    }
+    console.log("[saveCommercialPlansDb] inserted:", data);
+  }
+  invalidateQueryCache(`commercialPlans:${userId}`);
+}
+
+// Professional Directory
+export type ProfessionalProfile = {
+  user_id: string;
+  nickname: string;
+  photo: string | null;
+  handle: string | null;
+  business_name: string;
+  business_segment: string;
+  business_description: string | null;
+  business_phone: string | null;
+  business_email: string | null;
+  business_website: string | null;
+  business_logo_url: string | null;
+  service_plans: ServicePlan[];
+};
+
+export async function getProfessionalsDb(segment?: string): Promise<ProfessionalProfile[]> {
+  return cached(`professionals:${segment ?? "all"}`, CACHE_TTL_SHORT, async () => {
+    if (!supabase) throw new Error("Supabase não configurado");
+    try {
+      let query = supabase
+        .from("commercial_profiles")
+        .select("user_id, business_name, business_segment, business_description, business_phone, business_email, business_website, business_logo_url")
+        .eq("is_active", true);
+
+      if (segment) query = query.eq("business_segment", segment);
+
+      const { data: commercialData, error } = await query.order("created_at", { ascending: false });
+      if (error) throw error;
+      if (!commercialData || commercialData.length === 0) return [];
+
+      const userIds = commercialData.map((c: any) => c.user_id);
+
+      const [profilesResult, plansResult] = await Promise.all([
+        supabase.from("profiles").select("user_id, nickname, photo, handle").in("user_id", userIds),
+        supabase.from("commercial_plans").select("*").in("user_id", userIds).order("position", { ascending: true }),
+      ]);
+
+      const profileMap = new Map((profilesResult.data ?? []).map((p: any) => [p.user_id, p]));
+      const plansMap = new Map<string, ServicePlan[]>();
+      for (const plan of (plansResult.data ?? []) as any[]) {
+        if (!plansMap.has(plan.user_id)) plansMap.set(plan.user_id, []);
+        plansMap.get(plan.user_id)!.push({ name: plan.name, price: plan.price ?? null, description: plan.description ?? undefined });
+      }
+
+      return commercialData.map((c: any) => {
+        const profile = profileMap.get(c.user_id) as any;
+        return {
+          user_id: c.user_id,
+          nickname: profile?.nickname ?? "Profissional",
+          photo: profile?.photo ?? null,
+          handle: profile?.handle ?? null,
+          business_name: c.business_name ?? "",
+          business_segment: c.business_segment ?? "",
+          business_description: c.business_description ?? null,
+          business_phone: c.business_phone ?? null,
+          business_email: c.business_email ?? null,
+          business_website: c.business_website ?? null,
+          business_logo_url: c.business_logo_url ?? null,
+          service_plans: plansMap.get(c.user_id) ?? [],
+        };
+      });
+    } catch (err: any) {
+      console.error("Error getting professionals:", err);
+      return [];
+    }
+  });
 }
 
 // Workout History Functions
@@ -6118,6 +6509,8 @@ export async function saveWorkoutHistoryDb(
     console.error("Error saving workout history:", err);
     throw err;
   }
+
+  invalidateQueryCache("workoutHistory");
 }
 
 export async function getWorkoutHistoryDb(
@@ -6267,6 +6660,8 @@ export async function saveDietHistoryDb(
     console.error("Error saving diet history:", err);
     throw err;
   }
+
+  invalidateQueryCache("workoutHistory");
 }
 
 // Save habit history record
@@ -6298,6 +6693,8 @@ export async function saveHabitHistoryDb(
     console.error("Error saving habit history:", err);
     throw err;
   }
+
+  invalidateQueryCache("workoutHistory");
 }
 
 // Check if user has completed any routines today
@@ -6591,6 +6988,8 @@ export async function createDuelGroupDb(
     console.error("Full error details:", error);
     throw new Error(errorMsg);
   }
+
+  invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("followingGroups"); invalidateQueryCache("userDuelGroups");
 }
 
 // Get group by ID with participant count
@@ -6701,6 +7100,7 @@ export async function getEnrichedDuelGroupsDb(
 ): Promise<{ myGroups: EnrichedDuelGroup[]; availableGroups: EnrichedDuelGroup[]; pendingInvites: Array<{ groupId: string; groupName: string; groupGoal: string; groupLocation: string }> }> {
   if (!supabase) return { myGroups: [], availableGroups: [], pendingInvites: [] };
 
+  return cached(`enrichedDuelGroups:${userId}`, CACHE_TTL_SHORT, async () => {
   try {
     // 3 parallel queries — no waterfall
     const [createdResult, availResult, participantsResult] = await Promise.all([
@@ -6850,6 +7250,7 @@ export async function getEnrichedDuelGroupsDb(
     console.error("Error getting enriched duel groups:", error);
     return { myGroups: [], availableGroups: [], pendingInvites: [] };
   }
+  }); // end cached
 }
 
 // Get groups created by users the current user follows (no external IDs needed)
@@ -6941,6 +7342,8 @@ export async function updateGroupInfoDb(groupId: string, name: string, goal: str
     .update({ name, goal })
     .eq("id", groupId);
   if (error) throw error;
+
+  invalidateQueryCache("enrichedDuelGroups");
 }
 
 export async function updateGroupPhotoDb(groupId: string, file: File): Promise<string> {
@@ -7021,6 +7424,8 @@ export async function addGroupCheckInDb(
     console.error("Error adding check-in:", error);
     throw error;
   }
+
+  invalidateQueryCache("groupCheckIns");
 }
 
 // Get check-ins for a group (optimized: only columns needed for the list, no exercises payload)
@@ -7155,6 +7560,8 @@ export async function updateGroupCheckInDb(
     console.error("Error updating check-in:", error);
     throw error;
   }
+
+  invalidateQueryCache("groupCheckIns");
 }
 
 // Delete a check-in
@@ -7172,6 +7579,8 @@ export async function deleteGroupCheckInDb(checkInId: string): Promise<void> {
     console.error("Error deleting check-in:", error);
     throw error;
   }
+
+  invalidateQueryCache("groupCheckIns");
 }
 
 // Add members to a duel group
@@ -7229,6 +7638,8 @@ export async function addMembersToGroupDb(
     console.error("Error adding members to group:", error);
     throw error;
   }
+
+  invalidateQueryCache("groupParticipants"); invalidateQueryCache("enrichedDuelGroups");
 }
 
 // Leave a duel group (remove current user from participants)
@@ -7283,6 +7694,8 @@ export async function leaveGroupDb(groupId: string): Promise<void> {
     .eq("user_id", viewer.id);
 
   if (error) throw error;
+
+  invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("followingGroups"); invalidateQueryCache("userDuelGroups"); invalidateQueryCache("groupParticipants");
 }
 
 // Get pending group invites for the current user
@@ -7343,6 +7756,8 @@ export async function acceptGroupInviteDb(groupId: string): Promise<void> {
     .eq("user_id", viewer.id);
 
   if (error) throw error;
+
+  invalidateQueryCache("pendingInvites"); invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("groupParticipants");
 }
 
 // Send a join-request notification to the group creator (type 5 = join request)
@@ -7377,6 +7792,8 @@ export async function declineGroupInviteDb(groupId: string): Promise<void> {
     .eq("status", "pending");
 
   if (error) throw error;
+
+  invalidateQueryCache("pendingInvites");
 }
 
 // Get all participants of a duel group with their user details
@@ -7463,6 +7880,8 @@ export async function deleteGroupDb(groupId: string): Promise<void> {
     console.error("Error deleting group:", error);
     throw error;
   }
+
+  invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("followingGroups"); invalidateQueryCache("userDuelGroups");
 }
 
 // ─── Access Session Tracking ────────────────────────────────────────────────
@@ -7592,6 +8011,8 @@ export async function deleteConversationDb(otherUserId: string): Promise<void> {
     );
 
   if (error) throw error;
+
+  invalidateQueryCache("conversations"); invalidateQueryCache("unreadMsgCount");
 }
 
 // ─── Group Join Requests (owner view) ────────────────────────────────────────
@@ -7725,6 +8146,8 @@ export async function removeGroupMemberDb(groupId: string, memberUserId: string)
     .eq("user_id", memberUserId);
 
   if (error) throw error;
+
+  invalidateQueryCache("groupParticipants"); invalidateQueryCache("enrichedDuelGroups");
 }
 
 // ─── Check-in Comments ───────────────────────────────────────────────────────
@@ -7827,6 +8250,8 @@ export async function setCheckInReactionDb(checkInId: string, emoji: string | nu
       .from("duel_check_in_reactions")
       .upsert({ check_in_id: checkInId, user_id: viewer.id, emoji }, { onConflict: "check_in_id,user_id" });
   }
+
+  invalidateQueryCache("checkInReactions");
 }
 
 // Notify the check-in owner when someone reacts to their check-in (type 7)
@@ -7901,6 +8326,8 @@ export async function addCheckInCommentDb(checkInId: string, text: string): Prom
     text: data.text,
     createdAt: data.created_at,
   };
+
+  invalidateQueryCache("checkInComments");
 }
 
 export async function deleteCheckInCommentDb(commentId: string): Promise<void> {
@@ -7915,6 +8342,8 @@ export async function deleteCheckInCommentDb(commentId: string): Promise<void> {
     console.error("Error deleting check-in comment:", error);
     throw error;
   }
+
+  invalidateQueryCache("checkInComments");
 }
 
 // ─── Access Sessions ────────────────────────────────────────────────────────
@@ -8053,6 +8482,8 @@ export async function setSelectedBadgeDb(badgeId: string): Promise<void> {
     console.error("Error in setSelectedBadgeDb:", err);
     throw err;
   }
+
+  invalidateQueryCache("userBadges");
 }
 
 /**
@@ -8089,6 +8520,8 @@ export async function awardBadgesForCheckInsDb(userId: string): Promise<void> {
   } catch (err) {
     console.error("Error in awardBadgesForCheckInsDb:", err);
   }
+
+  invalidateQueryCache("userBadges");
 }
 
 /**
@@ -8173,6 +8606,8 @@ export async function addHydrationDb(
     console.error("Error adding hydration:", error);
     throw error;
   }
+
+  invalidateQueryCache("todayHydration");
 }
 
 /** Remove a última entrada de hidratação do dia (desfazer). */
@@ -8193,6 +8628,8 @@ export async function undoLastHydrationDb(userId: string): Promise<void> {
   if (data?.id) {
     await supabase.from("hydration_logs").delete().eq("id", data.id);
   }
+
+  invalidateQueryCache("todayHydration");
 }
 
 /** Retorna o histórico de hidratação dos últimos N dias. */
@@ -8358,6 +8795,8 @@ export async function awardNutritionBadgesDb(userId: string): Promise<string[]> 
   }
 
   return awarded;
+
+  invalidateQueryCache("userBadges");
 }
 
 async function _grantNutritionBadgeIfNew(userId: string, badgeKey: string): Promise<void> {
@@ -8429,6 +8868,8 @@ export async function saveTodayMoodDb(userId: string, mood: MoodValue): Promise<
     console.error("Error saving mood:", error);
     throw error;
   }
+
+  invalidateQueryCache("todayMood");
 }
 
 /** Retorna o histórico de humor dos últimos N dias. */
@@ -8455,4 +8896,259 @@ export async function getMoodHistoryDb(
     return [];
   }
   return data ?? [];
+}
+
+// ─── Promoções (Hub de Promoções) ─────────────────────────────────────────────
+
+export type Promotion = {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  category: string;
+  original_price: number | null;
+  promo_price: number | null;
+  discount_percent: number | null;
+  photo_url: string | null;
+  external_link: string | null;
+  coupon_code: string | null;
+  expires_at: string | null;
+  created_at: string;
+  // joined from profiles
+  user_nickname?: string;
+  user_handle?: string;
+  user_photo?: string;
+  // stats
+  likes_count?: number;
+  user_liked?: boolean;
+};
+
+export type PromotionCategory =
+  | "equipamento"
+  | "suplemento"
+  | "alimento"
+  | "vestuario"
+  | "servico"
+  | "outro";
+
+export const PROMOTION_CATEGORIES: { value: PromotionCategory; label: string }[] = [
+  { value: "equipamento", label: "Equipamento" },
+  { value: "suplemento", label: "Suplemento" },
+  { value: "alimento", label: "Alimento" },
+  { value: "vestuario", label: "Vestuário" },
+  { value: "servico", label: "Serviço" },
+  { value: "outro", label: "Outro" },
+];
+
+export async function getPromotionsDb(
+  category?: PromotionCategory | "todos",
+): Promise<Promotion[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const viewer = await getViewer();
+
+  const cacheKey = `promotions:${category ?? "todos"}`;
+  return cached(cacheKey, CACHE_TTL_MEDIUM, async () => {
+    let query = supabase!
+      .from("promotions")
+      .select("*")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (category && category !== "todos") {
+      query = query.eq("category", category);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("Error fetching promotions:", error);
+      return [];
+    }
+
+    const rows: Promotion[] = data ?? [];
+
+    if (rows.length === 0) return [];
+
+    // Enrich with profile data
+    const userIds = [...new Set(rows.map((r) => r.user_id))];
+    const { data: profiles } = await supabase!
+      .from("profiles")
+      .select("user_id, nickname, handle, photo")
+      .in("user_id", userIds);
+
+    const profileMap = new Map(
+      (profiles ?? []).map((p: any) => [String(p.user_id), p]),
+    );
+
+    // Fetch likes for viewer
+    let likedSet = new Set<string>();
+    if (viewer) {
+      const { data: likedRows } = await supabase!
+        .from("promotion_likes")
+        .select("promotion_id")
+        .eq("user_id", viewer.id)
+        .in(
+          "promotion_id",
+          rows.map((r) => r.id),
+        );
+      likedSet = new Set((likedRows ?? []).map((l: any) => String(l.promotion_id)));
+    }
+
+    // Fetch likes counts
+    const { data: likeCounts } = await supabase!
+      .from("promotion_likes")
+      .select("promotion_id")
+      .in(
+        "promotion_id",
+        rows.map((r) => r.id),
+      );
+
+    const countMap = new Map<string, number>();
+    for (const l of likeCounts ?? []) {
+      const pid = String(l.promotion_id);
+      countMap.set(pid, (countMap.get(pid) ?? 0) + 1);
+    }
+
+    return rows.map((r) => {
+      const profile = profileMap.get(String(r.user_id));
+      return {
+        ...r,
+        user_nickname: profile?.nickname ?? "Usuário",
+        user_handle: profile?.handle ?? "",
+        user_photo: profile?.photo ?? null,
+        likes_count: countMap.get(r.id) ?? 0,
+        user_liked: likedSet.has(r.id),
+      };
+    });
+  });
+}
+
+export async function createPromotionDb(payload: {
+  title: string;
+  description?: string;
+  category: PromotionCategory;
+  original_price?: number;
+  promo_price?: number;
+  discount_percent?: number;
+  photo_url?: string;
+  external_link?: string;
+  coupon_code?: string;
+  expires_at?: string;
+}): Promise<Promotion | null> {
+  if (!hasSupabaseConfig || !supabase) return null;
+
+  assertNotEmpty(payload.title, "Título");
+  assertMaxLength(payload.title, 120, "Título");
+
+  const viewer = await getViewer();
+  if (!viewer) return null;
+
+  const { data, error } = await supabase
+    .from("promotions")
+    .insert({
+      user_id: viewer.id,
+      title: payload.title.trim(),
+      description: payload.description?.trim() ?? null,
+      category: payload.category,
+      original_price: payload.original_price ?? null,
+      promo_price: payload.promo_price ?? null,
+      discount_percent: payload.discount_percent ?? null,
+      photo_url: payload.photo_url ?? null,
+      external_link: payload.external_link?.trim() ?? null,
+      coupon_code: payload.coupon_code?.trim().toUpperCase() ?? null,
+      expires_at: payload.expires_at ?? null,
+      is_active: true,
+    })
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error creating promotion:", error);
+    throw error;
+  }
+
+  invalidateQueryCache("promotions");
+  return data as Promotion;
+}
+
+export async function deletePromotionDb(promotionId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  assertUUID(promotionId, "promotionId");
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const { error } = await supabase
+    .from("promotions")
+    .update({ is_active: false })
+    .eq("id", promotionId)
+    .eq("user_id", viewer.id);
+
+  if (error) throw error;
+  invalidateQueryCache("promotions");
+}
+
+export async function updatePromotionDb(
+  promotionId: string,
+  payload: {
+    description?: string;
+    coupon_code?: string;
+    is_active?: boolean;
+  },
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  assertUUID(promotionId, "promotionId");
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const updateData: any = {};
+  if (payload.description !== undefined) updateData.description = payload.description.trim() || null;
+  if (payload.coupon_code !== undefined) updateData.coupon_code = payload.coupon_code.trim().toUpperCase() || null;
+  if (payload.is_active !== undefined) updateData.is_active = payload.is_active;
+
+  const { error } = await supabase
+    .from("promotions")
+    .update(updateData)
+    .eq("id", promotionId)
+    .eq("user_id", viewer.id);
+
+  if (error) {
+    console.error("Error updating promotion:", error);
+    throw error;
+  }
+
+  invalidateQueryCache("promotions");
+}
+
+export async function togglePromotionLikeDb(promotionId: string): Promise<"liked" | "unliked"> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("No Supabase config");
+  assertUUID(promotionId, "promotionId");
+
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+
+  const { data: existing } = await supabase
+    .from("promotion_likes")
+    .select("id")
+    .eq("promotion_id", promotionId)
+    .eq("user_id", viewer.id)
+    .maybeSingle();
+
+  if (existing) {
+    await supabase
+      .from("promotion_likes")
+      .delete()
+      .eq("promotion_id", promotionId)
+      .eq("user_id", viewer.id);
+    invalidateQueryCache("promotions");
+    return "unliked";
+  } else {
+    await supabase
+      .from("promotion_likes")
+      .insert({ promotion_id: promotionId, user_id: viewer.id });
+    invalidateQueryCache("promotions");
+    return "liked";
+  }
 }

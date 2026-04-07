@@ -1331,13 +1331,10 @@ export default function Login() {
                               <option value="">Selecione um segmento</option>
                               <option value="academia">Academia / Fitness</option>
                               <option value="personal_trainer">Personal Trainer</option>
-                              <option value="nutricao">Nutrição / Nutricionista</option>
-                              <option value="psicologia">Psicologia / Coaching</option>
-                              <option value="fisioterapia">Fisioterapia / Reabilitação</option>
-                              <option value="crossfit">CrossFit / Funcional</option>
-                              <option value="yoga_pilates">Yoga / Pilates</option>
-                              <option value="suplementos">Suplementos / Nutrição Esportiva</option>
-                              <option value="equipamentos">Equipamentos / Artigos Esportivos</option>
+                              <option value="nutricionista">Nutricionista</option>
+                              <option value="psicologo">Psicólogo</option>
+                              <option value="fisioterapeuta">Fisioterapeuta</option>
+                              <option value="coach">Coach</option>
                               <option value="outros">Outros</option>
                             </select>
                           </div>

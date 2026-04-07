@@ -45,6 +45,14 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 | Segmentos | Interesses fitness selecionados no onboarding |
 | Data de criação | "Membro desde..." |
 
+### Frame de Perfil Comercial (se `commercialProfile` existe)
+- Nome do negócio (clicável via WhatsApp se tiver telefone)
+- Badge de segmento
+- Link para website
+- Ícone `ListChecks` com contagem de planos → clicável → abre **Modal de Planos e Preços**
+  - Lista cada plano com nome, preço e descrição
+  - Visível para qualquer visitante do perfil
+
 ### Estatísticas (Stats)
 | Stat | Descrição | Clicável |
 |---|---|---|
@@ -97,6 +105,27 @@ Cada post na grade:
 - Botões de incentivo interativos (`PostIncentiveButton` × 6 tipos) — visíveis em modo visualização e edição
 - Botão comentários (`PostCommentsDialog`) — visível apenas em modo visualização (oculto ao editar)
 - Contador de incentivos clicável → abre `PostLikesModal`
+
+---
+
+## Tab: Loja
+
+Exibida automaticamente quando o usuário possui ofertas ativas (`profileOffers.length > 0`). Visível tanto no próprio perfil quanto no perfil de outros usuários.
+
+**Layout:** Grid 2 colunas
+
+Quando o usuário tem `commercialProfile`, exibe um banner do negócio no topo com um ícone clicável de planos (se `servicePlans.length > 0`) que abre um modal listando todos os planos e preços cadastrados:
+- Logo do negócio (`business_logo_url`)
+- Nome e segmento comercial
+- Link para website (ícone `ExternalLink`)
+
+Cada card de oferta exibe:
+- Imagem do produto
+- Cupom (se preenchido)
+- Preço
+- Botão "Comprar" → abre `link_url` e chama `incrementOfferClickDb`
+
+**Dados carregados:** `getCommercialOffersByUserIdDb(profileUserId)` no batch 2, filtrado por `is_active`
 
 ---
 
@@ -179,8 +208,9 @@ Aberto pelo botão "Configurações":
 | Email comercial | Input |
 | Website | Input |
 | Logo do Negócio | Upload de imagem → `business_logo_url` |
+| Planos e Preços | CRUD inline — máx. 5 planos com nome (obrigatório), preço (opcional) e descrição (opcional) |
 
-Função: `createOrUpdateCommercialProfileDb`
+Função: `createOrUpdateCommercialProfileDb` — salva `service_plans` como jsonb na tabela `commercial_profiles`.
 
 ---
 
@@ -240,6 +270,7 @@ Aberto ao clicar nas estatísticas:
 | Ver posts | ✅ | ✅ |
 | Ver shots | ✅ | ✅ |
 | Ver rotinas | ✅ | ✅ |
+| Ver loja (se tem ofertas) | ✅ | ✅ |
 
 ---
 

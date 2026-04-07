@@ -12,7 +12,7 @@ export const translations = {
     nav_clips: "Shots",
     nav_new: "Nova",
     nav_goals: "Metas",
-    nav_store: "Loja",
+    nav_store: "Vitrine",
     nav_you: "Você",
     // Feed
     feed_title: "Feed",
