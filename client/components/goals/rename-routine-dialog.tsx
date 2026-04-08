@@ -78,7 +78,7 @@ export function RenameRoutineDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-sm" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>Editar nome da rotina</DialogTitle>
         </DialogHeader>
@@ -87,7 +87,6 @@ export function RenameRoutineDialog({
             placeholder="Nome da rotina"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            autoFocus
           />
           <div className="flex gap-2">
             <Button

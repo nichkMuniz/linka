@@ -53,7 +53,7 @@ export function EditShotDescriptionDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
+      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Editar descrição</DrawerTitle>
         </DrawerHeader>
@@ -63,7 +63,6 @@ export function EditShotDescriptionDrawer({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Descrição do clip..."
             className="min-h-28 resize-none"
-            autoFocus
           />
           <Button
             className="w-full rounded-full"

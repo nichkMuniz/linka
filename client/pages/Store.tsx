@@ -1144,7 +1144,7 @@ export default function Store() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
+      {/* Header — only title + action button stays sticky */}
       <div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border/50">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -1158,44 +1158,43 @@ export default function Store() {
             </Button>
           )}
         </div>
+      </div>
 
+      {/* Tabs + filters — scroll with content */}
+      <div className="max-w-2xl mx-auto px-4 pt-3 pb-3 space-y-3">
         {/* Tabs */}
-        <div className="max-w-2xl mx-auto px-4 pb-3">
-          <div className="flex rounded-lg border border-border overflow-hidden">
-            <button
-              onClick={() => setActiveTab("promocoes")}
-              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "promocoes" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              <Tag className="h-4 w-4" />
-              Promoções
-            </button>
-            <button
-              onClick={() => setActiveTab("profissionais")}
-              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "profissionais" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
-            >
-              <Users className="h-4 w-4" />
-              Profissionais
-            </button>
-          </div>
+        <div className="flex rounded-lg border border-border overflow-hidden">
+          <button
+            onClick={() => setActiveTab("promocoes")}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "promocoes" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            <Tag className="h-4 w-4" />
+            Promoções
+          </button>
+          <button
+            onClick={() => setActiveTab("profissionais")}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "profissionais" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            <Users className="h-4 w-4" />
+            Profissionais
+          </button>
         </div>
 
         {activeTab === "promocoes" && (
           <>
             {/* Search */}
-            <div className="max-w-2xl mx-auto px-4 pb-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  placeholder="Buscar promoções..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="Buscar promoções..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
             </div>
 
             {/* Category filter */}
-            <div className="max-w-2xl mx-auto px-4 pb-3">
+            <div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors">
@@ -1239,20 +1238,18 @@ export default function Store() {
         {activeTab === "profissionais" && (
           <>
             {/* Professionals search */}
-            <div className="max-w-2xl mx-auto px-4 pb-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  placeholder="Buscar profissionais..."
-                  value={proSearch}
-                  onChange={(e) => setProSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="Buscar profissionais..."
+                value={proSearch}
+                onChange={(e) => setProSearch(e.target.value)}
+                className="pl-9"
+              />
             </div>
 
             {/* Segment filter */}
-            <div className="max-w-2xl mx-auto px-4 pb-3">
+            <div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors">
@@ -1311,7 +1308,7 @@ export default function Store() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 auto-rows-fr">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 auto-rows-fr">
               {filtered.map((p) => (
                 <PromotionCard
                   key={p.id}
@@ -1348,7 +1345,7 @@ export default function Store() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 auto-rows-fr">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 auto-rows-fr">
               {filteredProfessionals.map((pro) => (
                 <ProfessionalCard
                   key={pro.user_id}

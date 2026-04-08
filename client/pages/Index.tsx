@@ -84,6 +84,7 @@ export default function Index() {
   const [storyViewerOpen, setStoryViewerOpen] = React.useState(false);
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
+  const [currentUserNickname, setCurrentUserNickname] = React.useState<string | null>(null);
   const [ownerHasViewedFlow, setOwnerHasViewedFlow] = React.useState(false);
   const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(new Set());
   const [activeViewerStories, setActiveViewerStories] = React.useState<StoryWithUser[]>([]);
@@ -221,6 +222,7 @@ export default function Index() {
     getUserProfileDb(user.id)
       .then((profile) => {
         if (profile?.photo) setCurrentUserPhoto(profile.photo);
+        if (profile?.nickname) setCurrentUserNickname(profile.nickname);
       })
       .catch((err) => console.error("Erro ao carregar foto do perfil:", err));
   }, [user?.id]);
@@ -286,8 +288,8 @@ export default function Index() {
           const enrichedStory: StoryWithUser = {
             ...newStory,
             id: String(newStory.id),
-            userNickname: user.email?.split("@")[0] || "Você",
-            userPhoto: null,
+            userNickname: currentUserNickname || user.email?.split("@")[0] || "Você",
+            userPhoto: currentUserPhoto,
           };
           setStories((prev) => [enrichedStory, ...prev]);
           setOwnerHasViewedFlow(false);
@@ -304,7 +306,7 @@ export default function Index() {
         setIsCreatingStory(false);
       }
     },
-    [user],
+    [user, currentUserNickname, currentUserPhoto],
   );
 
   const handleStoryClick = React.useCallback((story: StoryWithUser) => {

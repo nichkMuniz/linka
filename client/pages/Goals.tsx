@@ -244,6 +244,7 @@ export default function Goals() {
   const [restTimerPaused, setRestTimerPaused] = React.useState(false);
   const [swipedSeriesId, setSwipedSeriesId] = React.useState<string | null>(null);
   const [finishWorkoutConfirmOpen, setFinishWorkoutConfirmOpen] = React.useState(false);
+  const [workoutModalSearchQuery, setWorkoutModalSearchQuery] = React.useState("");
   const [workoutSummaryOpen, setWorkoutSummaryOpen] = React.useState(false);
   const [workoutRating, setWorkoutRating] = React.useState(0);
   const [workoutSummaryData, setWorkoutSummaryData] = React.useState<{
@@ -3249,11 +3250,10 @@ export default function Goals() {
                             key={String(opt.value)}
                             type="button"
                             onClick={() => setSelectedWorkoutType(opt.value)}
-                            className={`text-xs px-3 py-1 rounded-full border transition-all ${
-                              selectedWorkoutType === opt.value
+                            className={`text-xs px-3 py-1 rounded-full border transition-all ${selectedWorkoutType === opt.value
                                 ? "border-brand bg-brand/15 text-brand font-medium"
                                 : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
-                            }`}
+                              }`}
                           >
                             {opt.label}
                           </button>
@@ -3581,10 +3581,45 @@ export default function Goals() {
       />
 
       {/* Workout Modal */}
-      <Drawer open={workoutModalOpen} onOpenChange={(open) => { if (!open) { if (workoutStartTime !== null) { setWorkoutMinimized(true); setWorkoutModalOpen(false); } else { setWorkoutModalOpen(false); setWorkoutDuration(0); setWorkoutStartTime(null); } } else { setWorkoutModalOpen(true); } }}>
-        <DrawerContent className="max-h-[80dvh] overflow-hidden flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
+      <Drawer open={workoutModalOpen} onOpenChange={(open) => { if (!open) { setWorkoutModalSearchQuery(""); if (workoutStartTime !== null) { setWorkoutMinimized(true); setWorkoutModalOpen(false); } else { setWorkoutModalOpen(false); setWorkoutDuration(0); setWorkoutStartTime(null); } } else { setWorkoutModalOpen(true); } }}>
+        <DrawerContent className="max-h-[80dvh] overflow-hidden flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+          <DrawerHeader className="shrink-0 pb-2">
             <DrawerTitle>Registrar Treino</DrawerTitle>
+            {/* Search Field */}
+            <div className="relative mt-2">
+              <svg
+                className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Buscar exercício..."
+                value={workoutModalSearchQuery}
+                onChange={(e) => setWorkoutModalSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 h-9 text-sm bg-muted/50 border border-border/60 rounded-full focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/30 transition-all placeholder:text-muted-foreground/60"
+                style={{ fontSize: '16px' }}
+              />
+              {workoutModalSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setWorkoutModalSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </DrawerHeader>
 
           {/* Header and Stats */}
@@ -3681,6 +3716,11 @@ export default function Goals() {
             <div className="flex-1 overflow-y-auto">
               {userWorkouts
                 .filter((workout) => {
+                  // Filter by search query
+                  if (workoutModalSearchQuery.trim()) {
+                    const query = workoutModalSearchQuery.toLowerCase().trim();
+                    if (!workout.workoutName?.toLowerCase().includes(query)) return false;
+                  }
                   // If no routine selected, show all workouts
                   if (!selectedRoutineName) return true;
                   // If showing unnamed routines, show only workouts without a name

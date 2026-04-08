@@ -559,7 +559,7 @@ export default function NewPost() {
 
               {/* Description */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Legenda</label>
+                <label className="text-sm font-medium">Legenda <span className="text-muted-foreground font-normal">(opcional)</span></label>
                 <Textarea
                   placeholder="Conte uma história sobre sua jornada de fitness..."
                   value={description}
@@ -626,7 +626,7 @@ export default function NewPost() {
                 <Button
                   className="flex-1"
                   onClick={handleImageSubmit}
-                  disabled={selectedFiles.length === 0 || !description.trim() || isSubmitting}
+                  disabled={selectedFiles.length === 0 || isSubmitting}
                 >
                   {isSubmitting ? (
                     <>

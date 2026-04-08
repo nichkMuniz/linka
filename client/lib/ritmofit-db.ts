@@ -4532,13 +4532,12 @@ export async function createShotDb(
       return null;
     }
 
+    invalidateQueryCache("shots"); invalidateQueryCache("userShots");
     return data || null;
   } catch (err: any) {
     console.error("Error creating shot:", err);
     return null;
   }
-
-  invalidateQueryCache("shots"); invalidateQueryCache("userShots");
 }
 
 export async function updateShotDb(

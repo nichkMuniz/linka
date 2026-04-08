@@ -210,8 +210,15 @@ export function AppLayout() {
     loadProfilePhoto();
   }, [user]);
 
-  // Scroll hide header — mobile only
+  // Scroll hide header — mobile only, only on feed and shots pages
+  const isScrollHidePage = location.pathname === "/" || location.pathname === "/shots";
+
   React.useEffect(() => {
+    if (!isScrollHidePage) {
+      setHeaderHidden(false);
+      return;
+    }
+
     let lastY = window.scrollY;
     let ticking = false;
 
@@ -230,7 +237,7 @@ export function AppLayout() {
 
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [isScrollHidePage]);
 
   const limitSeconds = dailyLimitMinutes * 60;
   const remainingSeconds = Math.max(0, limitSeconds + timerSnoozeSeconds - usageSecondsElapsed);

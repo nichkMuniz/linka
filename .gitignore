@@ -30,5 +30,5 @@ dist/
 *.log
 *.sql
 *.db
-.md
 linka
+*.md

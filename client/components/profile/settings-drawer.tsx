@@ -716,7 +716,7 @@ export function SettingsDrawer({
                         isAddingPlan ? (
                           <div className="space-y-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
                             <p className="text-xs font-medium text-brand">Novo plano</p>
-                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder="Nome do plano *" value={newPlanName} onChange={(e) => setNewPlanName(e.target.value)} maxLength={60} autoFocus />
+                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder="Nome do plano *" value={newPlanName} onChange={(e) => setNewPlanName(e.target.value)} maxLength={60} />
                             <input type="number" min="0" step="0.01" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder="Preço (R$) — opcional" value={newPlanPrice} onChange={(e) => setNewPlanPrice(e.target.value)} />
                             <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder="Descrição breve — opcional" value={newPlanDescription} onChange={(e) => setNewPlanDescription(e.target.value)} maxLength={100} />
                             <div className="flex gap-2">
