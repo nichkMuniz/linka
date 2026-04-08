@@ -35,10 +35,11 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 | 8 | [Perfil](./08-perfil.md) | `/perfil` ou `/usuario/:id` | Perfil do usuário |
 | 9 | [Detalhe do Post](./09-post-detalhe.md) | `/post/:postId` | Visualização isolada de um post |
 | 10 | [Notificações](./10-notificacoes.md) | `/notificacoes` | Central de notificações |
-| 11 | [Loja](./11-loja.md) | `/loja` | Hub comunitário de promoções fitness |
+| 11 | [Vitrine](./11-vitrine.md) | `/vitrine` | Hub comunitário de promoções fitness |
 | 12 | [Página não encontrada](./12-not-found.md) | `*` | Erro 404 |
 | 13 | [Layouts e Componentes](./13-layouts-e-componentes.md) | — | Componentes compartilhados e layouts |
 | 14 | [Database Schema](./14-database-schema.md) | — | Documentação técnica de todas as tabelas do banco |
+| 15 | [Design System](./15-design-system.md) | — | Paleta de cores, tipografia, componentes, padrões visuais |
 
 ---
 
@@ -49,7 +50,7 @@ O objetivo central é motivar pessoas a manterem uma rotina saudável através d
 - **Shots** → `/shots`
 - **Nova** → `/postar`
 - **Metas** → `/metas`
-- **Loja** → `/loja`
+- **Vitrine** → `/vitrine`
 
 ### Side Navigation / Header (Desktop + Mobile)
 - **Perfil** (foto do usuário) → `/perfil`

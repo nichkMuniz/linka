@@ -22,7 +22,7 @@ Antes de modificar, criar ou refatorar qualquer tela, **sempre consulte o arquiv
 | `client/pages/Profile.tsx` | `docs/08-perfil.md` |
 | `client/pages/PostDetail.tsx` | `docs/09-post-detalhe.md` |
 | `client/pages/Notifications.tsx` | `docs/10-notificacoes.md` |
-| `client/pages/Store.tsx` | `docs/11-loja.md` |
+| `client/pages/Store.tsx` | `docs/11-vitrine.md` |
 | `client/pages/NotFound.tsx` | `docs/12-not-found.md` |
 | Layouts e componentes compartilhados | `docs/13-layouts-e-componentes.md` |
 | Visão geral do produto | `docs/00-overview.md` |
@@ -84,13 +84,19 @@ Para qualquer tarefa de implementação, siga esta ordem:
 ```
 1. Ler o arquivo docs/ da tela envolvida
       ↓
-2. Ler a(s) skill(s) relevante(s) para o tipo de tarefa
+2. Ler docs/15-design-system.md para garantir consistência visual
       ↓
-3. Implementar a funcionalidade
+3. Ler a(s) skill(s) relevante(s) para o tipo de tarefa
       ↓
-4. Atualizar o arquivo docs/ com o que foi adicionado
+4. Verificar client/components/ — reutilizar componentes existentes antes de criar novos (ver seção 9)
       ↓
-5. (Se nova tela) Criar novo docs/*.md e atualizar docs/00-overview.md
+5. Implementar a funcionalidade
+      ↓
+6. Atualizar o arquivo docs/ com o que foi adicionado
+      ↓
+7. (Se nova tela) Criar novo docs/*.md e atualizar docs/00-overview.md
+      ↓
+8. (Se nova tabela ou alteração de schema) Atualizar docs/14-database-schema.md
 ```
 
 ---
@@ -118,3 +124,80 @@ Para qualquer tarefa de implementação, siga esta ordem:
 - Toasts de feedback são obrigatórios em qualquer ação assíncrona (sucesso e erro)
 - Estados de loading devem usar os componentes de `animated-loading.tsx`
 - Manter consistência visual com os padrões já existentes nas telas (cards, botões, drawers, dialogs)
+
+---
+
+## 9. Reutilização de Componentes (Obrigatório)
+
+**Antes de criar qualquer novo componente**, verificar se já existe um equivalente na pasta `client/components/`.
+
+### Estrutura da pasta de componentes
+
+| Subpasta | Conteúdo |
+|---|---|
+| `client/components/ui/` | Componentes Shadcn (Button, Input, Drawer, Dialog, etc.) — nunca recriar |
+| `client/components/shared/` | Componentes reutilizáveis entre múltiplas telas (ReportDrawer, ImageZoomDrawer, PostIncentiveButton, etc.) |
+| `client/components/goals/` | Drawers e dialogs específicos da tela de Metas |
+| `client/components/community/` | Drawers e dialogs específicos da tela de Comunidade |
+| `client/components/profile/` | Drawers e dialogs específicos da tela de Perfil |
+| `client/components/post/` | Componentes relacionados a posts (EditPostDrawer, PostCarousel, etc.) |
+
+### Regra de prioridade ao implementar um drawer, dialog ou formulário
+
+```
+1. Verificar client/components/shared/ — existe algo reutilizável?
+      ↓
+2. Verificar a subpasta da feature (ex: client/components/goals/) — existe o componente?
+      ↓
+3. Verificar outras subpastas — o componente existe em outra feature e pode ser aproveitado?
+      ↓
+4. Somente se não existir nada equivalente → criar novo componente
+```
+
+### O que verificar antes de criar
+
+- **Drawers de edição de texto/descrição** → verificar `EditShotDescriptionDrawer`, `EditPostDrawer`
+- **Drawers de histórico/listagem** → verificar `WorkoutHistoryDrawer`
+- **Drawers de seleção de meta** → verificar `LinkGoalDrawer`
+- **Drawers de agendamento/data** → verificar `ExecuteAtDrawer`
+- **Drawers de report/denúncia** → verificar `ReportDrawer` em `shared/`
+- **Drawers de zoom de imagem** → verificar `ImageZoomDrawer` em `shared/`
+- **Drawers de criação de exercício** → verificar `CreateWorkoutDrawer`
+- **Drawers de criação de meta** → verificar `CreateGoalDrawer`
+- **Drawers de edição de meta** → verificar `EditGoalDrawer`
+- **Drawers de seleção de humor** → verificar `MoodDialog`
+
+> **Regra:** Criar um componente duplicado que faz o mesmo que um já existente é proibido. Se o componente existente não atender 100% mas for parecido, estender via props adicionais ou adaptá-lo — nunca duplicar.
+
+---
+
+## 7. Design System (Obrigatório)
+
+**Antes de implementar qualquer elemento visual**, ler `docs/15-design-system.md`.
+
+O design system é a fonte de verdade para:
+- Paleta de cores e tokens semânticos
+- Escala tipográfica
+- Padrões de botões, cards, formulários, modais
+- Tamanhos e ícones (Lucide)
+- Regras de espaçamento e arredondamento
+- Animações e transições
+- Comportamento em dark mode
+
+> **Regra:** Nenhum elemento visual deve ser criado sem consultar o design system. Qualquer novo padrão descoberto durante a implementação deve ser adicionado ao `docs/15-design-system.md`.
+
+---
+
+## 8. Database Schema (Obrigatório)
+
+**Sempre que uma nova tabela for criada, sugerida ou alterada**, atualizar `docs/14-database-schema.md`.
+
+### O que atualizar
+
+- Nova tabela → adicionar definição completa (colunas, tipos, constraints, RLS)
+- Nova coluna em tabela existente → atualizar a definição da tabela
+- Nova função ou trigger → documentar no arquivo
+- Nova política RLS → registrar junto à tabela correspondente
+- Relação entre tabelas alterada → atualizar o diagrama/descrição de relações
+
+> **Regra:** O `docs/14-database-schema.md` é a fonte de verdade do banco. Nunca implemente uma query ou função sem verificar se a tabela/coluna existe conforme documentado.

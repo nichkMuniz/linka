@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
+import { FollowButton } from "@/components/shared/follow-button";
 import { toast } from "@/components/ui/use-toast";
 import {
   getShotsDb,
@@ -16,16 +17,13 @@ import {
   addShotCommentDb,
   getShotCommentsDb,
   deleteShotCommentDb,
-  followUserDb,
-  unfollowUserDb,
   getFollowingStatusBatchDb,
-  updateShotDb,
   deleteShotDb,
   type ShotWithUser,
   type ShotComment,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { MessageCircle, Send, Trash2, UserPlus, UserCheck, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle } from "lucide-react";
+import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,8 +40,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Textarea } from "@/components/ui/textarea";
 import { EmojiPicker } from "@/components/shared/emoji-picker";
+import { EditShotDescriptionDrawer } from "@/components/profile/edit-shot-description-drawer";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -71,17 +69,12 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   const [followingStatus, setFollowingStatus] = React.useState<
     Record<string, boolean>
   >({});
-  const [isFollowingLoading, setIsFollowingLoading] = React.useState<
-    Record<string, boolean>
-  >({});
   const [showSwipeHint, setShowSwipeHint] = React.useState(
     () => localStorage.getItem("shots_swipe_hint_seen") !== "1"
   );
   const [isMuted, setIsMuted] = React.useState(true);
   const [editShotOpen, setEditShotOpen] = React.useState(false);
   const [editingShot, setEditingShot] = React.useState<ShotWithUser | null>(null);
-  const [editShotDescription, setEditShotDescription] = React.useState("");
-  const [isSavingEditShot, setIsSavingEditShot] = React.useState(false);
   const [deleteShotDialogOpen, setDeleteShotDialogOpen] = React.useState(false);
   const [deletingShot, setDeletingShot] = React.useState<ShotWithUser | null>(null);
   const [isDeletingShot, setIsDeletingShot] = React.useState(false);
@@ -357,56 +350,6 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     }
   }, [deletingCommentId, selectedShot]);
 
-  const handleFollowUser = React.useCallback(
-    async (userId: string) => {
-      if (!user) {
-        toast({
-          title: "Faça login",
-          description: "Você precisa estar logado para seguir usuários.",
-        });
-        return;
-      }
-
-      // Guard against double-click / concurrent requests for the same user
-      if (isFollowingLoading[userId]) return;
-
-      setIsFollowingLoading((prev) => ({ ...prev, [userId]: true }));
-
-      try {
-        const isCurrentlyFollowing = followingStatus[userId];
-
-        if (isCurrentlyFollowing) {
-          const success = await unfollowUserDb(userId);
-          if (success) {
-            setFollowingStatus((prev) => ({ ...prev, [userId]: false }));
-            toast({
-              title: "Deixado de seguir",
-              description: "Você deixou de seguir este usuário.",
-            });
-          }
-        } else {
-          const success = await followUserDb(userId);
-          if (success) {
-            setFollowingStatus((prev) => ({ ...prev, [userId]: true }));
-            toast({
-              title: "Seguindo",
-              description: "Você começou a seguir este usuário.",
-            });
-          }
-        }
-      } catch (err: any) {
-        console.error("Error toggling follow:", err);
-        toast({
-          title: "Erro",
-          description: err?.message || "Não foi possível atualizar o seguimento.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsFollowingLoading((prev) => ({ ...prev, [userId]: false }));
-      }
-    },
-    [user, followingStatus, isFollowingLoading]
-  );
 
   const handleConfirmDeleteShot = React.useCallback(async () => {
     if (!deletingShot) return;
@@ -546,7 +489,6 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     <DropdownMenuContent align="end" className="w-40">
                       <DropdownMenuItem onClick={() => {
                         setEditingShot(shot);
-                        setEditShotDescription(shot.description || "");
                         setEditShotOpen(true);
                       }}>
                         <Edit2 className="h-4 w-4 mr-2" />
@@ -586,26 +528,11 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                   </div>
                 </button>
                 {user && user.id !== shot.user_id && (
-                  <button
-                    onClick={() => handleFollowUser(shot.user_id)}
-                    disabled={isFollowingLoading[shot.user_id]}
-                    className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all ${followingStatus[shot.user_id]
-                      ? "bg-white/20 text-white hover:bg-white/30"
-                      : "bg-white text-black hover:bg-white/90"
-                      } disabled:opacity-50`}
-                  >
-                    {followingStatus[shot.user_id] ? (
-                      <>
-                        <UserCheck className="h-3 w-3" />
-                        Seguindo
-                      </>
-                    ) : (
-                      <>
-                        <UserPlus className="h-3 w-3" />
-                        Seguir
-                      </>
-                    )}
-                  </button>
+                  <FollowButton
+                    targetUserId={shot.user_id}
+                    initialIsFollowing={followingStatus[shot.user_id]}
+                    variant="overlay"
+                  />
                 )}
               </div>
 
@@ -694,47 +621,15 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
       )}
 
       {/* Edit Shot Drawer */}
-      <Drawer open={editShotOpen} onOpenChange={setEditShotOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Editar descrição</DrawerTitle>
-          </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
-            <Textarea
-              value={editShotDescription}
-              onChange={(e) => setEditShotDescription(e.target.value)}
-              placeholder="Descrição do clip..."
-              className="min-h-28 resize-none"
-              autoFocus
-            />
-            <Button
-              className="w-full rounded-full"
-              disabled={isSavingEditShot}
-              onClick={async () => {
-                if (!editingShot) return;
-                setIsSavingEditShot(true);
-                try {
-                  const ok = await updateShotDb(editingShot.id, editShotDescription);
-                  if (ok) {
-                    setShots((prev) => prev.map((r) => r.id === editingShot.id ? { ...r, description: editShotDescription } : r));
-                    toast({ title: "Clip atualizado!" });
-                    setEditShotOpen(false);
-                    setEditingShot(null);
-                  } else {
-                    toast({ title: "Erro ao salvar", variant: "destructive" });
-                  }
-                } catch (err: any) {
-                  toast({ title: "Erro ao salvar", description: err?.message, variant: "destructive" });
-                } finally {
-                  setIsSavingEditShot(false);
-                }
-              }}
-            >
-              {isSavingEditShot ? "Salvando..." : "Salvar"}
-            </Button>
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <EditShotDescriptionDrawer
+        open={editShotOpen}
+        onOpenChange={setEditShotOpen}
+        shot={editingShot}
+        onSaved={(shotId, newDescription) => {
+          setShots((prev) => prev.map((s) => s.id === shotId ? { ...s, description: newDescription } : s));
+          setEditingShot(null);
+        }}
+      />
 
       {/* Delete Shot Confirmation Dialog */}
       <AlertDialog open={deleteShotDialogOpen} onOpenChange={setDeleteShotDialogOpen}>

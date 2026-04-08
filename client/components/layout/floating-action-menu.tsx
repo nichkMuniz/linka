@@ -23,7 +23,7 @@ const navItems: NavItem[] = [
   { to: "/shots", label: "Shots", icon: Video },
   { to: "/postar", label: "Nova", icon: PlusSquare },
   { to: "/metas", label: "Metas", icon: Dumbbell },
-  { to: "/loja", label: "Loja", icon: ShoppingBag },
+  { to: "/vitrine", label: "Vitrine", icon: ShoppingBag },
 ];
 
 function isActivePath(currentPath: string, to: string) {

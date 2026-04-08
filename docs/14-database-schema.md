@@ -11,7 +11,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [access_sessions](#access_sessions) | Sessões de acesso dos usuários |
 | [check_ins](#check_ins) | Check-ins diários de treino |
 | [comments](#comments) | Comentários em posts |
-| [commercial_profiles](#commercial_profiles) | Perfis comerciais / lojas |
+| [commercial_profiles](#commercial_profiles) | Perfis comerciais / vitrines |
 | [diets](#diets) | Catálogo de dietas disponíveis |
 | [duel_check_ins](#duel_check_ins) | Check-ins dentro de grupos de duelo |
 | [duel_group_participants](#duel_group_participants) | Participantes de grupos de duelo |
@@ -37,7 +37,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [shots_comments](#shots_comments) | Comentários em Shots |
 | [shots_complaint](#shots_complaint) | Denúncias de Shots |
 | [shots_likes](#shots_likes) | Curtidas em Shots |
-| [store_catalog](#store_catalog) | Catálogo de produtos de lojas |
+| [store_catalog](#store_catalog) | Catálogo de produtos de vitrines |
 | [user_complaint](#user_complaint) | Denúncias de usuários |
 | [user_diets](#user_diets) | Dietas ativas do usuário |
 | [user_diets_hist](#user_diets_hist) | Histórico de dietas do usuário |
@@ -96,7 +96,7 @@ Comentários feitos por usuários em posts do feed.
 
 ## commercial_profiles
 
-Perfil comercial de usuários que atuam como loja ou negócio.
+Perfil comercial de usuários que atuam como vitrine ou negócio.
 
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
@@ -527,17 +527,17 @@ Curtidas em Shots.
 
 ## store_catalog
 
-Catálogo de produtos de lojas parceiras.
+Catálogo de produtos de vitrines parceiras.
 
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
 | `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
-| `store_id` | uuid | ✓ | — | ID da loja |
-| `store_name` | varchar | ✓ | — | Nome da loja |
+| `store_id` | uuid | ✓ | — | ID da vitrine |
+| `store_name` | varchar | ✓ | — | Nome da vitrine |
 | `store_instagram_handle` | varchar | ✓ | — | Handle do Instagram |
 | `store_instagram_profile_url` | text | ✓ | — | URL do perfil Instagram |
 | `store_logo_url` | text | — | — | URL do logotipo |
-| `store_bio` | text | — | — | Bio da loja |
+| `store_bio` | text | — | — | Bio da vitrine |
 | `item_name` | varchar | ✓ | — | Nome do produto |
 | `category` | varchar | ✓ | — | Categoria do produto |
 | `description` | text | — | — | Descrição do produto |

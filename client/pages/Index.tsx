@@ -7,13 +7,6 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
@@ -29,9 +22,7 @@ import {
   getMyViewedFlowUserIdsDb,
   recordFlowViewDb,
   createUserGoalDb,
-  getUserGoalsDb,
   deletePostDb,
-  updatePostDb,
   getPostLikeUsersDb,
   copyRoutineToUserDb,
   type PostIncentiveType,
@@ -39,6 +30,8 @@ import {
   invalidateProfileCache,
 } from "@/lib/ritmofit-db";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
+import { ReportDrawer } from "@/components/shared/report-drawer";
+import { EditPostDrawer } from "@/components/post/edit-post-drawer";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -101,8 +94,6 @@ export default function Index() {
   const [reportedPost, setReportedPost] = React.useState<PostWithStats | null>(
     null,
   );
-  const [reportReason, setReportReason] = React.useState<string>("");
-  const [isSubmittingReport, setIsSubmittingReport] = React.useState(false);
   const [isCopyingGoal, setIsCopyingGoal] = React.useState(false);
   const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
   const [copyingRoutineKeys, setCopyingRoutineKeys] = React.useState<Set<string>>(new Set());
@@ -128,11 +119,6 @@ export default function Index() {
   }>>([]);
   const [editPostOpen, setEditPostOpen] = React.useState(false);
   const [editingPost, setEditingPost] = React.useState<PostWithStats | null>(null);
-  const [editPostDescription, setEditPostDescription] = React.useState("");
-  const [editPostGoalId, setEditPostGoalId] = React.useState<string | null>(null);
-  const [editPostUserGoals, setEditPostUserGoals] = React.useState<Array<{ id: string; goal_id: string; description: string }>>([]);
-  const [isLoadingEditGoals, setIsLoadingEditGoals] = React.useState(false);
-  const [isSavingEdit, setIsSavingEdit] = React.useState(false);
 
   const [confirmDialog, setConfirmDialog] = React.useState<{
     open: boolean;
@@ -597,14 +583,12 @@ export default function Index() {
   const handleReportUser = React.useCallback((post: PostWithStats) => {
     setReportedPost(post);
     setReportType("user");
-    setReportReason("");
     setReportDialogOpen(true);
   }, []);
 
   const handleReportPost = React.useCallback((post: PostWithStats) => {
     setReportedPost(post);
     setReportType("post");
-    setReportReason("");
     setReportDialogOpen(true);
   }, []);
 
@@ -657,84 +641,11 @@ export default function Index() {
     [user, showConfirm],
   );
 
-  const handleEditPost = React.useCallback(async (post: PostWithStats) => {
+  const handleEditPost = React.useCallback((post: PostWithStats) => {
     setEditingPost(post);
-    setEditPostDescription(post.description || "");
-    setEditPostGoalId(post.user_goal_id || null);
     setEditPostOpen(true);
+  }, []);
 
-    // Load user goals for the selector
-    if (user) {
-      setIsLoadingEditGoals(true);
-      try {
-        const goals = await getUserGoalsDb();
-        setEditPostUserGoals(goals.map((g) => ({ id: g.id, goal_id: g.goal_id, description: g.description })));
-      } catch {
-        setEditPostUserGoals([]);
-      } finally {
-        setIsLoadingEditGoals(false);
-      }
-    }
-  }, [user]);
-
-  const handleSaveEditPost = React.useCallback(async () => {
-    if (!editingPost) return;
-    setIsSavingEdit(true);
-    try {
-      await updatePostDb(editingPost.id, editPostDescription, editPostGoalId);
-      toast({ title: "Post atualizado!" });
-      setEditPostOpen(false);
-      setEditingPost(null);
-      // Reload feed so meta vinculada / desvinculada aparece imediatamente
-      loadFeed(false);
-    } catch (err: any) {
-      toast({ title: "Erro ao editar post", description: err?.message, variant: "destructive" });
-    } finally {
-      setIsSavingEdit(false);
-    }
-  }, [editingPost, editPostDescription, editPostGoalId]);
-
-  const submitReport = React.useCallback(async () => {
-    if (!reportType || !reportedPost || !reportReason.trim()) {
-      toast({
-        title: "Erro",
-        description: "Selecione um motivo para continuar.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsSubmittingReport(true);
-
-    try {
-      if (reportType === "user") {
-        const { reportUserDb } = await import("@/lib/ritmofit-db");
-        await reportUserDb(reportedPost.user_id, reportReason);
-      } else {
-        const { reportPostDb } = await import("@/lib/ritmofit-db");
-        await reportPostDb(reportedPost.id, reportReason);
-      }
-
-      toast({
-        title: "Denúncia enviada",
-        description: `Obrigado por denunciar este ${reportType === "user" ? "usuário" : "post"}. Nós analisaremos em breve.`,
-      });
-
-      setReportDialogOpen(false);
-      setReportType(null);
-      setReportedPost(null);
-      setReportReason("");
-    } catch (err: any) {
-      console.error("Error submitting report:", err);
-      toast({
-        title: "Erro ao enviar denúncia",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmittingReport(false);
-    }
-  }, [reportType, reportedPost, reportReason]);
 
   const handleSwitchToDiscover = React.useCallback(async () => {
     setFeedMode("discover");
@@ -1562,67 +1473,17 @@ export default function Index() {
       </Drawer>
 
       {/* Report Dialog */}
-      <Drawer open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
-        <DrawerContent>
-          <DrawerHeader>
-            <DrawerTitle>
-              {reportType === "user" ? "Denunciar usuário" : "Denunciar post"}
-            </DrawerTitle>
-          </DrawerHeader>
-          {reportedPost && (
-            <div className="space-y-4 px-4 pb-6">
-              <div className="p-4 border border-border/60 rounded-lg bg-muted/30">
-                <p className="text-sm mb-3">
-                  {reportType === "user"
-                    ? `Você está denunciando o usuário: ${reportedPost.userNickname}`
-                    : `Você está denunciando o post de ${reportedPost.userNickname}`}
-                </p>
-                {reportType === "post" && reportedPost.description && (
-                  <p className="text-xs text-muted-foreground">
-                    "{reportedPost.description.substring(0, 100)}..."
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Motivo da denúncia
-                </label>
-                <Select value={reportReason} onValueChange={setReportReason}>
-                  <SelectTrigger className="rounded-lg">
-                    <SelectValue placeholder="Selecione um motivo" />
-                  </SelectTrigger>
-                  <SelectContent side="top" align="center">
-                    <SelectItem value="Conteúdo inadequado">Conteúdo inadequado</SelectItem>
-                    <SelectItem value="Spam">Spam</SelectItem>
-                    <SelectItem value="Assédio ou bullying">Assédio ou bullying</SelectItem>
-                    <SelectItem value="Violação de direitos autorais">Violação de direitos autorais</SelectItem>
-                    <SelectItem value="Outro">Outro</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex gap-2 pt-4">
-                <Button
-                  variant="outline"
-                  className="flex-1 rounded-full"
-                  onClick={() => setReportDialogOpen(false)}
-                  disabled={isSubmittingReport}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  className="flex-1 rounded-full"
-                  onClick={submitReport}
-                  disabled={isSubmittingReport || !reportReason.trim()}
-                >
-                  {isSubmittingReport ? "Enviando..." : "Enviar denúncia"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DrawerContent>
-      </Drawer>
+      <ReportDrawer
+        open={reportDialogOpen}
+        onOpenChange={setReportDialogOpen}
+        type={reportType}
+        target={reportedPost ? {
+          id: reportedPost.id,
+          userId: reportedPost.user_id,
+          userName: reportedPost.userNickname,
+          description: reportedPost.description,
+        } : null}
+      />
 
       {/* Post Likes Modal */}
       <PostLikesModal
@@ -1653,74 +1514,12 @@ export default function Index() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Edit Post Drawer */}
-      <Drawer open={editPostOpen} onOpenChange={(open) => { if (!open) { setEditPostOpen(false); setEditingPost(null); } }}>
-        <DrawerContent className="max-h-[85dvh] flex flex-col">
-          <DrawerHeader>
-            <DrawerTitle>Editar post</DrawerTitle>
-          </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
-            <textarea
-              value={editPostDescription}
-              onChange={(e) => setEditPostDescription(e.target.value)}
-              placeholder="Descrição do post..."
-              rows={4}
-              className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm resize-none focus:border-brand focus:outline-none"
-            />
-
-            {/* Goal selector */}
-            <div className="space-y-2">
-              <label className="flex items-center gap-1.5 text-sm font-medium">
-                <Target className="h-4 w-4 text-brand" />
-                Meta vinculada
-              </label>
-              {isLoadingEditGoals ? (
-                <div className="text-xs text-muted-foreground">Carregando metas...</div>
-              ) : editPostUserGoals.length === 0 ? (
-                <div className="text-xs text-muted-foreground">Nenhuma meta ativa encontrada.</div>
-              ) : (
-                <div className="space-y-2">
-                  {/* None option */}
-                  <button
-                    type="button"
-                    onClick={() => setEditPostGoalId(null)}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${!editPostGoalId
-                        ? "border-brand bg-brand/10 text-brand font-medium"
-                        : "border-border/60 text-muted-foreground hover:border-border"
-                      }`}
-                  >
-                    Sem meta vinculada
-                  </button>
-                  {editPostUserGoals.map((goal) => (
-                    <button
-                      key={goal.id}
-                      type="button"
-                      onClick={() => setEditPostGoalId(goal.id)}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${editPostGoalId === goal.id
-                          ? "border-brand bg-brand/10 text-brand font-medium"
-                          : "border-border/60 hover:border-border"
-                        }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Target className="h-3.5 w-3.5 flex-shrink-0" />
-                        <span className="truncate">{goal.description}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <Button
-              onClick={handleSaveEditPost}
-              disabled={isSavingEdit}
-              className="w-full rounded-full"
-            >
-              {isSavingEdit ? "Salvando..." : "Salvar alterações"}
-            </Button>
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <EditPostDrawer
+        open={editPostOpen}
+        onOpenChange={(v) => { if (!v) { setEditPostOpen(false); setEditingPost(null); } }}
+        post={editingPost}
+        onSaved={() => loadFeed(false)}
+      />
     </div>
   );
 }

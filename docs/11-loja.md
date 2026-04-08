@@ -1,6 +1,6 @@
 # 11 — Vitrine (Hub de Promoções e Profissionais)
 
-**Rota:** `/loja`  
+**Rota:** `/vitrine`  
 **Arquivo:** `client/pages/Store.tsx`
 
 ---
@@ -18,7 +18,7 @@ Hub comunitário com duas abas:
 ```
 ┌─────────────────────────────────────────┐
 │  Header sticky                          │
-│  [🏷 Loja]               [+ Publicar]   │
+│  [🏷 Vitrine]               [+ Publicar]   │
 │  [Promoções] [Profissionais]  ← tabs    │
 │  [🔍 Buscar...]                         │
 │  [Filtro de categoria/segmento]         │
@@ -94,7 +94,7 @@ Diretório de profissionais fitness cadastrados com perfil comercial ativo.
   - **Preço original** (número, R$, opcional)
   - **Preço promocional** (número, R$, opcional)
   - **URL da imagem** (texto, com preview inline)
-  - **Link externo** (URL do produto/loja)
+  - **Link externo** (URL do produto/vitrine)
   - **Válido até** (date picker, opcional)
 - Desconto calculado automaticamente no card se `original_price` e `promo_price` forem fornecidos
 - Toast de sucesso/erro após submissão

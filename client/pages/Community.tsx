@@ -17,7 +17,6 @@ import {
   getUserProfileDb,
   addMembersToGroupDb,
   leaveGroupDb,
-  updateGroupCheckInDb,
   deleteGroupCheckInDb,
   deleteGroupDb,
   getGroupParticipantsDb,
@@ -55,6 +54,10 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
+import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
+import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
+import { AddMembersDrawer } from "@/components/community/add-members-drawer";
+import { EditCheckInDrawer } from "@/components/community/edit-checkin-drawer";
 import { PostCarousel } from "@/components/post/post-carousel";
 import {
   Drawer,
@@ -114,7 +117,6 @@ export default function Community() {
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const [isNewConversationDrawerOpen, setIsNewConversationDrawerOpen] = React.useState(false);
-  const [newConvSearch, setNewConvSearch] = React.useState("");
 
   // Group creation state
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = React.useState(false);
@@ -186,13 +188,7 @@ export default function Community() {
   const [isParticipantsModalOpen, setIsParticipantsModalOpen] = React.useState(false);
   const [participantDetailsId, setParticipantDetailsId] = React.useState<string | null>(null);
   const [isAddMembersModalOpen, setIsAddMembersModalOpen] = React.useState(false);
-  const [selectedMembers, setSelectedMembers] = React.useState<Set<string>>(new Set());
-  const [addMembersSearch, setAddMembersSearch] = React.useState("");
   const [isEditCheckInOpen, setIsEditCheckInOpen] = React.useState(false);
-  const [editCheckInForm, setEditCheckInForm] = React.useState({
-    workoutInfo: "",
-    description: "",
-  });
   const [confirmDialog, setConfirmDialog] = React.useState<{
     open: boolean;
     title: string;
@@ -957,7 +953,7 @@ export default function Community() {
           {activeTab === "messages" && (
             <button
               aria-label="Nova conversa"
-              onClick={() => { setNewConvSearch(""); setIsNewConversationDrawerOpen(true); }}
+              onClick={() => { setIsNewConversationDrawerOpen(true); }}
               className="p-2 rounded-full hover:bg-muted/50 transition-colors"
             >
               <PenSquare className="h-5 w-5 text-muted-foreground" />
@@ -2658,57 +2654,15 @@ export default function Community() {
       </Drawer>
 
       {/* Nova Conversa Drawer */}
-      <Drawer open={isNewConversationDrawerOpen} onOpenChange={setIsNewConversationDrawerOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Nova mensagem</DrawerTitle>
-          </DrawerHeader>
-          <div className="px-4 pb-3 shrink-0">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              <Input
-                placeholder="Buscar seguidor..."
-                value={newConvSearch}
-                onChange={(e) => setNewConvSearch(e.target.value)}
-                className="rounded-full pl-9 bg-muted/30 border-transparent"
-              />
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto px-4 pb-4">
-            {followers.length === 0 ? (
-              <p className="text-center text-muted-foreground text-sm py-8">Você ainda não segue ninguém.</p>
-            ) : (
-              followers
-                .filter((f) => f.nickname.toLowerCase().includes(newConvSearch.toLowerCase()))
-                .map((follower) => (
-                  <button
-                    key={follower.id}
-                    className="w-full flex items-center gap-3 py-3 hover:bg-muted/30 rounded-lg px-2 transition-colors"
-                    onClick={() => {
-                      setSelectedConversation({
-                        userId: follower.id,
-                        userNickname: follower.nickname,
-                        userPhoto: follower.photo,
-                        lastMessage: "",
-                        lastMessageTime: new Date().toISOString(),
-                        unreadCount: 0,
-                      });
-                      setViewMode("conversation");
-                      setIsNewConversationDrawerOpen(false);
-                    }}
-                  >
-                    <ImageWithFallback
-                      src={follower.photo}
-                      alt={follower.nickname}
-                      className="w-10 h-10 rounded-full object-cover shrink-0"
-                    />
-                    <span className="font-medium text-sm">{follower.nickname}</span>
-                  </button>
-                ))
-            )}
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <NewConversationDrawer
+        open={isNewConversationDrawerOpen}
+        onOpenChange={setIsNewConversationDrawerOpen}
+        followers={followers}
+        onSelectFollower={(conv) => {
+          setSelectedConversation(conv);
+          setViewMode("conversation");
+        }}
+      />
 
       {/* Check-in Detail Modal */}
       <Drawer open={isCheckInDetailOpen} onOpenChange={setIsCheckInDetailOpen}>
@@ -2721,10 +2675,6 @@ export default function Community() {
                 <button
                   onClick={() => {
                     if (selectedCheckInForDetail) {
-                      setEditCheckInForm({
-                        workoutInfo: selectedCheckInForDetail.workoutInfo,
-                        description: selectedCheckInForDetail.description,
-                      });
                       setIsEditCheckInOpen(true);
                     }
                   }}
@@ -3167,46 +3117,11 @@ export default function Community() {
       </Drawer>
 
       {/* Classifications Modal */}
-      <Drawer open={isClassificationsOpen} onOpenChange={setIsClassificationsOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Classificações</DrawerTitle>
-            <DrawerDescription className="sr-only">Ranking de membros do grupo</DrawerDescription>
-          </DrawerHeader>
-
-          <div className="flex-1 overflow-y-auto px-4 pb-4">
-            <div className="space-y-2">
-              {groupCheckIns.length > 0 ? (
-                // Group check-ins by user and count
-                Object.entries(
-                  groupCheckIns.reduce((acc: { [key: string]: { userName: string; count: number } }, checkIn) => {
-                    if (!acc[checkIn.userId]) {
-                      acc[checkIn.userId] = { userName: checkIn.userName, count: 0 };
-                    }
-                    acc[checkIn.userId].count++;
-                    return acc;
-                  }, {})
-                )
-                  .sort((a, b) => b[1].count - a[1].count)
-                  .map(([userId, data], index) => (
-                    <div key={userId} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border border-border/40">
-                      <div className="text-lg font-bold text-brand w-8 text-center">
-                        {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold">{data.userName}</p>
-                        <p className="text-xs text-muted-foreground">{data.count} check-ins</p>
-                      </div>
-                      <div className="text-lg font-bold text-brand">{data.count}</div>
-                    </div>
-                  ))
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-8">Nenhum check-in ainda</p>
-              )}
-            </div>
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <ClassificationsDrawer
+        open={isClassificationsOpen}
+        onOpenChange={setIsClassificationsOpen}
+        groupCheckIns={groupCheckIns}
+      />
 
       {/* Participants Modal */}
       <Drawer open={isParticipantsModalOpen} onOpenChange={(open) => {
@@ -3325,8 +3240,6 @@ export default function Community() {
                 className="w-full rounded-full gap-2"
                 onClick={() => {
                   setIsParticipantsModalOpen(false);
-                  setSelectedMembers(new Set());
-                  setAddMembersSearch("");
                   setIsAddMembersModalOpen(true);
                 }}
               >
@@ -3452,243 +3365,37 @@ export default function Community() {
       </Drawer>
 
       {/* Add Members Modal */}
-      <Drawer open={isAddMembersModalOpen} onOpenChange={setIsAddMembersModalOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Adicionar Membros</DrawerTitle>
-            <DrawerDescription className="sr-only">Convide pessoas para o grupo</DrawerDescription>
-          </DrawerHeader>
+      <AddMembersDrawer
+        open={isAddMembersModalOpen}
+        onOpenChange={setIsAddMembersModalOpen}
+        groupId={selectedGroupForView?.id ?? ""}
+        followers={followers}
+        existingMemberIds={groupParticipants.map((p) => p.userId)}
+        onMembersAdded={() => {
+          if (selectedGroupForView) {
+            getGroupParticipantsDb(selectedGroupForView.id)
+              .then(setGroupParticipants)
+              .catch((err: any) => {
+                console.error("Error refreshing participants:", err);
+                toast({ title: "Erro ao atualizar participantes", description: err?.message || "Tente novamente.", variant: "destructive" });
+              });
+          }
+        }}
+      />
 
-          <div className="flex-1 overflow-y-auto px-4 pb-4 flex flex-col">
-            {/* Search Field */}
-            {followers.length > 0 && (
-              <div className="mb-4">
-                <Input
-                  placeholder="Pesquisar seguidor..."
-                  value={addMembersSearch}
-                  onChange={(e) => setAddMembersSearch(e.target.value)}
-                  className="rounded-lg"
-                />
-              </div>
-            )}
-
-            {/* Followers List */}
-            <div className="space-y-2 flex-1 overflow-y-auto">
-              {followers.length > 0 ? (
-                followers
-                  .filter((f) =>
-                    f.nickname.toLowerCase().includes(addMembersSearch.toLowerCase()) &&
-                    !groupParticipants.some((p) => p.userId === f.id)
-                  )
-                  .map((follower) => (
-                    <button
-                      key={follower.id}
-                      onClick={() => {
-                        const newSelected = new Set(selectedMembers);
-                        if (newSelected.has(follower.id)) {
-                          newSelected.delete(follower.id);
-                        } else {
-                          newSelected.add(follower.id);
-                        }
-                        setSelectedMembers(newSelected);
-                      }}
-                      className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2 ${selectedMembers.has(follower.id)
-                          ? "border-brand bg-brand/10"
-                          : "border-border hover:border-brand/50"
-                        }`}
-                    >
-                      <div
-                        className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${selectedMembers.has(follower.id)
-                            ? "bg-brand border-brand"
-                            : "border-muted-foreground"
-                          }`}
-                      >
-                        {selectedMembers.has(follower.id) && (
-                          <Check className="h-3 w-3 text-white" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">
-                          {follower.nickname}
-                        </div>
-                      </div>
-                    </button>
-                  ))
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Você não segue ninguém ainda
-                </p>
-              )}
-            </div>
-
-            {/* Add Button */}
-            <div className="mt-4 pt-4 border-t border-border/40">
-              <Button
-                onClick={async () => {
-                  try {
-                    if (selectedGroupForView && selectedMembers.size > 0) {
-                      await addMembersToGroupDb(
-                        selectedGroupForView.id,
-                        Array.from(selectedMembers)
-                      );
-                      toast({
-                        title: "Membros adicionados!",
-                        description: `${selectedMembers.size} membro(s) adicionado(s) ao grupo.`,
-                      });
-                      setIsAddMembersModalOpen(false);
-                      setSelectedMembers(new Set());
-                      setAddMembersSearch("");
-                      // Refresh participants list
-                      if (selectedGroupForView) {
-                        getGroupParticipantsDb(selectedGroupForView.id).then(setGroupParticipants).catch((err: any) => {
-                          console.error("Error refreshing participants:", err);
-                          toast({ title: "Erro ao atualizar participantes", description: err?.message || "Tente novamente.", variant: "destructive" });
-                        });
-                      }
-                    } else if (selectedMembers.size === 0) {
-                      toast({
-                        title: "Selecione membros",
-                        description: "Selecione pelo menos um membro para adicionar",
-                        variant: "destructive",
-                      });
-                    }
-                  } catch (error: any) {
-                    toast({
-                      title: "Erro ao adicionar membros",
-                      description: error.message || "Tente novamente",
-                      variant: "destructive",
-                    });
-                  }
-                }}
-                className="w-full rounded-full"
-                disabled={selectedMembers.size === 0}
-              >
-                Adicionar {selectedMembers.size > 0 ? `(${selectedMembers.size})` : ""}
-              </Button>
-            </div>
-          </div>
-        </DrawerContent>
-      </Drawer>
-
-      {/* Edit Check-in Modal */}
-      <Drawer open={isEditCheckInOpen} onOpenChange={setIsEditCheckInOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Editar Check-in</DrawerTitle>
-            <DrawerDescription className="sr-only">Edite as informações do seu check-in</DrawerDescription>
-          </DrawerHeader>
-
-          <div className="flex-1 overflow-y-auto px-4 pb-4">
-            {selectedCheckInForDetail && (
-              <div className="space-y-4">
-                {/* Exercise */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Exercício *</label>
-                  <Input
-                    value={editCheckInForm.workoutInfo}
-                    onChange={(e) =>
-                      setEditCheckInForm({
-                        ...editCheckInForm,
-                        workoutInfo: e.target.value,
-                      })
-                    }
-                    placeholder="Ex: Supino Reto..."
-                  />
-                </div>
-
-                {/* Description */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Descrição</label>
-                  <Textarea
-                    value={editCheckInForm.description}
-                    onChange={(e) =>
-                      setEditCheckInForm({
-                        ...editCheckInForm,
-                        description: e.target.value,
-                      })
-                    }
-                    placeholder="Adicione detalhes sobre seu treino..."
-                    className="min-h-24"
-                  />
-                </div>
-
-                {/* Stats (Read-only) */}
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="text-center p-3 rounded-lg bg-muted/20">
-                    <div className="font-semibold text-brand text-lg">
-                      {selectedCheckInForDetail.series}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Séries</div>
-                  </div>
-                  <div className="text-center p-3 rounded-lg bg-muted/20">
-                    <div className="font-semibold text-brand text-lg">
-                      {selectedCheckInForDetail.volume}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Volume (kg)</div>
-                  </div>
-                  <div className="text-center p-3 rounded-lg bg-muted/20">
-                    <div className="font-semibold text-brand text-lg">✓</div>
-                    <div className="text-xs text-muted-foreground">Concluído</div>
-                  </div>
-                </div>
-
-                {/* Save Button */}
-                <Button
-                  onClick={async () => {
-                    try {
-                      if (editCheckInForm.workoutInfo.trim()) {
-                        await updateGroupCheckInDb(
-                          selectedCheckInForDetail.id,
-                          editCheckInForm.workoutInfo,
-                          editCheckInForm.description
-                        );
-
-                        // Update local state
-                        const updatedCheckIns = groupCheckIns.map((c) =>
-                          c.id === selectedCheckInForDetail.id
-                            ? {
-                              ...c,
-                              workoutInfo: editCheckInForm.workoutInfo,
-                              description: editCheckInForm.description,
-                            }
-                            : c
-                        );
-                        setGroupCheckIns(updatedCheckIns);
-                        setSelectedCheckInForDetail({
-                          ...selectedCheckInForDetail,
-                          workoutInfo: editCheckInForm.workoutInfo,
-                          description: editCheckInForm.description,
-                        });
-
-                        setIsEditCheckInOpen(false);
-                        toast({
-                          title: "Check-in atualizado!",
-                          description: "Suas alterações foram salvas com sucesso.",
-                        });
-                      } else {
-                        toast({
-                          title: "Campo obrigatório",
-                          description: "Preencha o campo de exercício",
-                          variant: "destructive",
-                        });
-                      }
-                    } catch (error: any) {
-                      toast({
-                        title: "Erro ao atualizar check-in",
-                        description: error.message || "Tente novamente",
-                        variant: "destructive",
-                      });
-                    }
-                  }}
-                  className="w-full rounded-full"
-                >
-                  Salvar Alterações
-                </Button>
-              </div>
-            )}
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <EditCheckInDrawer
+        open={isEditCheckInOpen}
+        onOpenChange={setIsEditCheckInOpen}
+        checkIn={selectedCheckInForDetail}
+        onUpdated={({ id, workoutInfo, description }) => {
+          setGroupCheckIns((prev) =>
+            prev.map((c) => c.id === id ? { ...c, workoutInfo, description } : c)
+          );
+          if (selectedCheckInForDetail?.id === id) {
+            setSelectedCheckInForDetail({ ...selectedCheckInForDetail, workoutInfo, description });
+          }
+        }}
+      />
 
       {/* Remove Member Confirm Dialog */}
       <AlertDialog open={removeMemberConfirm.open} onOpenChange={(open) => setRemoveMemberConfirm((prev) => ({ ...prev, open }))}>

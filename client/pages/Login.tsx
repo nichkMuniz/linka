@@ -341,7 +341,7 @@ export default function Login() {
     if (!commercialData.business_name.trim() || !commercialData.business_segment) {
       toast({
         title: "Preencha os campos obrigatórios",
-        description: "Segmento e Nome da Loja são obrigatórios.",
+        description: "Segmento e Nome da vitrine são obrigatórios.",
         variant: "destructive",
       });
       return;

@@ -3,7 +3,6 @@ import {
   getUserProfileDb,
   getUserPostsDb,
   getUserStatsDb,
-  updateUserProfileDb,
   getUserRoutinesDb,
   createRoutineDb,
   createUserWorkoutsDb,
@@ -27,14 +26,9 @@ import {
   getUserGoalsByUserIdDb,
   deletePostDb,
   updatePostDb,
-  deleteShotDb,
-  updateShotDb,
   deleteRoutineDb,
   getPostLikeUsersDb,
   getPostCommentsDb,
-  followUserDb,
-  unfollowUserDb,
-  isFollowingDb,
   getCommercialProfileDb,
   createOrUpdateCommercialProfileDb,
   deleteCommercialProfileDb,
@@ -43,10 +37,8 @@ import {
   type CommercialOffer,
   getWorkoutHistoryDb,
   getUserActiveStoriesDb,
-  getExpiredUserFlowsDb,
   getUserPostLikesDb,
   deleteAllUserDataDb,
-  updateUserPersonalDataDb,
   type UserProfile,
   type PostWithUser,
   type UserStats,
@@ -88,6 +80,11 @@ import { UserInsignias } from "@/components/profile/user-insignias";
 import { PostCarousel } from "@/components/post/post-carousel";
 import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
+import { FollowButton } from "@/components/shared/follow-button";
+import { FollowListDrawer } from "@/components/profile/follow-list-drawer";
+import { SettingsDrawer } from "@/components/profile/settings-drawer";
+import { ShotEditorDrawer } from "@/components/profile/shot-editor-drawer";
+import { WorkoutHistoryDrawer } from "@/components/profile/workout-history-drawer";
 import { togglePostLike } from "../services/post.service";
 import { ExerciseImage } from "@/components/shared/exercise-image";
 import { fetchExerciseCatalog, type CatalogExercise } from "@/lib/exercise-catalog";
@@ -121,33 +118,23 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import {
   Edit2,
-  Upload,
   Plus,
   ArrowLeft,
   Check,
   Tag,
   Settings,
   LogOut,
-  Moon,
-  Sun,
   Trash2,
   Heart,
-  UserPlus,
   MessageSquare,
   Filter,
-  Bell,
-  Globe,
-  BarChart3,
   Grid3X3,
   Film,
-  ChevronDown,
   Search,
   Share2,
-  User,
   ShoppingBag,
   ArrowRight,
   ExternalLink,
@@ -157,17 +144,12 @@ import {
 } from "lucide-react";
 import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
-import { useTheme } from "next-themes";
-import { useLanguage } from "@/lib/language-context";
 
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { userId } = useParams<{ userId?: string }>();
-  const { theme, setTheme, resolvedTheme } = useTheme();
-  const isDark = (resolvedTheme ?? theme) === "dark";
-  const { layoutMode, toggleLayoutMode } = useLayoutMode();
-  const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
+
 
   // Centralized confirmation dialog state (replaces native confirm())
   const [confirmDialog, setConfirmDialog] = React.useState<{
@@ -203,17 +185,9 @@ export default function Profile() {
   const [postUserLikes, setPostUserLikes] = React.useState<PostIncentiveType[]>([]);
   const [isTogglingPostLike, setIsTogglingPostLike] = React.useState(false);
   const [isLoadingPostData, setIsLoadingPostData] = React.useState(false);
-  const [isFlowHistoryOpen, setIsFlowHistoryOpen] = React.useState(false);
-  const [expiredFlows, setExpiredFlows] = React.useState<StoryWithUser[]>([]);
-  const [isLoadingFlowHistory, setIsLoadingFlowHistory] = React.useState(false);
   const [isLikesModalOpen, setIsLikesModalOpen] = React.useState(false);
   const [selectedShot, setSelectedShot] = React.useState<ShotWithUser | null>(null);
   const [isShotEditorOpen, setIsShotEditorOpen] = React.useState(false);
-  const [isEditingShot, setIsEditingShot] = React.useState(false);
-  const [editShotDescription, setEditShotDescription] = React.useState("");
-  const [isUpdatingShot, setIsUpdatingShot] = React.useState(false);
-  const [isFollowing, setIsFollowing] = React.useState(false);
-  const [isFollowingLoading, setIsFollowingLoading] = React.useState(false);
   const [stats, setStats] = React.useState<UserStats>({
     postsCount: 0,
     followersCount: 0,
@@ -223,8 +197,6 @@ export default function Profile() {
   });
   const [loading, setLoading] = React.useState(true);
   const [profileError, setProfileError] = React.useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
-  const [isSaving, setIsSaving] = React.useState(false);
   const [isCreateRoutineOpen, setIsCreateRoutineOpen] = React.useState(false);
   const [isCreatingRoutine, setIsCreatingRoutine] = React.useState(false);
   const [selectedRoutineType, setSelectedRoutineType] = React.useState<
@@ -287,41 +259,15 @@ export default function Profile() {
   const [following, setFollowing] = React.useState<any[]>([]);
   const [isLoadingFollowers, setIsLoadingFollowers] = React.useState(false);
   const [followerFollowStatus, setFollowerFollowStatus] = React.useState<Record<string, boolean>>({});
-  const [isTogglingFollow, setIsTogglingFollow] = React.useState<Record<string, boolean>>({});
 
   // Edit form state
-  const [editNickname, setEditNickname] = React.useState("");
-  const [editBio, setEditBio] = React.useState("");
-  const [editHandle, setEditHandle] = React.useState("");
-  const [editObjectives, setEditObjectives] = React.useState<string[]>([]);
-  const [editPhotoFile, setEditPhotoFile] = React.useState<File | null>(null);
-  const [editPhotoPreview, setEditPhotoPreview] = React.useState<string | null>(
-    null,
-  );
 
   const [profileOffers, setProfileOffers] = React.useState<CommercialOffer[]>([]);
 
   // Commercial profile state
-  const [isCommercialProfileOpen, setIsCommercialProfileOpen] = React.useState(false);
-  const [isCommercialDashboardOpen, setIsCommercialDashboardOpen] = React.useState(false);
   const [isPlansModalOpen, setIsPlansModalOpen] = React.useState(false);
   const [commercialProfile, setCommercialProfile] = React.useState<CommercialProfile | null>(null);
-  const [commercialFormData, setCommercialFormData] = React.useState({
-    business_segment: "",
-    business_name: "",
-    business_description: "",
-    business_phone: "",
-    business_email: "",
-    business_website: "",
-  });
-  const [isSavingCommercial, setIsSavingCommercial] = React.useState(false);
-  const [commercialLogoFile, setCommercialLogoFile] = React.useState<File | null>(null);
-  const [commercialLogoPreview, setCommercialLogoPreview] = React.useState<string | null>(null);
   const [servicePlans, setServicePlans] = React.useState<ServicePlan[]>([]);
-  const [isAddingPlan, setIsAddingPlan] = React.useState(false);
-  const [newPlanName, setNewPlanName] = React.useState("");
-  const [newPlanPrice, setNewPlanPrice] = React.useState("");
-  const [newPlanDescription, setNewPlanDescription] = React.useState("");
 
   // Delete account state (UI trigger not yet implemented)
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = React.useState(false);
@@ -329,25 +275,8 @@ export default function Profile() {
   const [deleteConfirmText, setDeleteConfirmText] = React.useState("");
 
   // Edit account state
-  const [isResettingPassword, setIsResettingPassword] = React.useState(false);
-  const [isDangerZoneOpen, setIsDangerZoneOpen] = React.useState(false);
-
-  // Language state (backed by global context)
-  const [isLanguageOpen, setIsLanguageOpen] = React.useState(false);
-  const { language: currentLanguage, setLanguage: setCurrentLanguage } = useLanguage();
 
   // Notifications state
-  const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false);
-  const [notifications, setNotifications] = React.useState({
-    workoutReminders: true,
-    achievementAlerts: true,
-    friendActivity: true,
-    messages: true,
-    sound: true,
-  });
-
-  // Time Management state
-  const [isTimeManagementOpen, setIsTimeManagementOpen] = React.useState(false);
   const [dailyUsageLimit, setDailyUsageLimit] = React.useState(() => {
     const stored = localStorage.getItem("ritmofit_daily_limit_minutes");
     return stored ? parseInt(stored, 10) : 0;
@@ -355,10 +284,6 @@ export default function Profile() {
   const [usageDataLast7Days] = React.useState<{ day: string; minutes: number }[]>([]);
 
   // Personalization state
-  const [isPersonalizationOpen, setIsPersonalizationOpen] = React.useState(false);
-  const [isPersonalDataOpen, setIsPersonalDataOpen] = React.useState(false);
-  const [personalDataForm, setPersonalDataForm] = React.useState({ gender: "", height: "", weight: "", age: "" });
-  const [isSavingPersonalData, setIsSavingPersonalData] = React.useState(false);
 
   const loadProfile = React.useCallback(async () => {
     if (!profileUserId) return;
@@ -368,7 +293,6 @@ export default function Profile() {
     setPosts([]);
     setShots([]);
     setRoutines([]);
-    setIsFollowing(false);
     setLoading(true);
 
     try {
@@ -381,14 +305,6 @@ export default function Profile() {
       setProfile(profileData);
       setStats(statsData);
       setPosts(postsData);
-      if (profileData) {
-        setPersonalDataForm({
-          gender: profileData.gender ?? "",
-          height: profileData.height ?? "",
-          weight: profileData.weight ?? "",
-          age: profileData.age ?? "",
-        });
-      }
       setLoading(false); // unblock UI as soon as critical data arrives
 
       // Batch 2 — below-the-fold tabs: load in background without blocking render
@@ -422,17 +338,6 @@ export default function Profile() {
       setCommercialProfile(commercialProfileData);
       setProfileOffers(offersData.filter((o) => o.is_active));
       setServicePlans(commercialPlansData.map((p) => ({ name: p.name, price: p.price, description: p.description ?? undefined })));
-      if (commercialProfileData) {
-        setCommercialFormData({
-          business_segment: commercialProfileData.business_segment || "",
-          business_name: commercialProfileData.business_name || "",
-          business_description: commercialProfileData.business_description || "",
-          business_phone: commercialProfileData.business_phone || "",
-          business_email: commercialProfileData.business_email || "",
-          business_website: commercialProfileData.business_website || "",
-        });
-        setCommercialLogoPreview(commercialProfileData.business_logo_url || null);
-      }
 
       // Batch 3 — stories: fire-and-forget
       getUserActiveStoriesDb(profileUserId).then(setProfileStories).catch((err) => console.error("Erro ao carregar stories do perfil:", err));
@@ -547,71 +452,6 @@ export default function Profile() {
     );
   }, [selectedPost, showConfirm]);
 
-  const handleUpdateShot = React.useCallback(async () => {
-    if (!selectedShot) return;
-
-    setIsUpdatingShot(true);
-    try {
-      const success = await updateShotDb(selectedShot.id, editShotDescription);
-
-      if (success) {
-        // Update local shots list
-        setShots((prevShots) =>
-          prevShots.map((r) =>
-            r.id === selectedShot.id
-              ? { ...r, description: editShotDescription }
-              : r
-          )
-        );
-
-        setIsShotEditorOpen(false);
-        setSelectedShot(null);
-
-        toast({
-          title: "Sucesso!",
-          description: "Shot atualizado com sucesso.",
-        });
-      } else {
-        toast({
-          title: "Erro ao atualizar",
-          description: "Tente novamente.",
-          variant: "destructive",
-        });
-      }
-    } catch (err: any) {
-      console.error("Error updating shot:", err);
-      toast({
-        title: "Erro ao atualizar",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUpdatingShot(false);
-    }
-  }, [selectedShot, editShotDescription]);
-
-  const handleDeleteShot = React.useCallback(() => {
-    if (!selectedShot) return;
-    showConfirm(
-      "Deletar shot",
-      "Tem certeza que deseja deletar este shot? Esta ação não pode ser desfeita.",
-      async () => {
-        setIsUpdatingShot(true);
-        try {
-          await deleteShotDb(selectedShot.id);
-          setShots((prevShots) => prevShots.filter((r) => r.id !== selectedShot.id));
-          setIsShotEditorOpen(false);
-          setSelectedShot(null);
-          toast({ title: "Sucesso!", description: "Shot deletado com sucesso." });
-        } catch (err: any) {
-          console.error("Error deleting shot:", err);
-          toast({ title: "Erro ao deletar", description: err?.message || "Tente novamente.", variant: "destructive" });
-        } finally {
-          setIsUpdatingShot(false);
-        }
-      }
-    );
-  }, [selectedShot, showConfirm]);
 
   // Define callback functions first
   const loadFollowersData = React.useCallback(async () => {
@@ -651,208 +491,7 @@ export default function Profile() {
     }
   }, [profileUserId]);
 
-  const checkFollowingStatus = React.useCallback(async () => {
-    if (isViewingOtherProfile && profileUserId) {
-      try {
-        const following = await isFollowingDb(profileUserId);
-        setIsFollowing(following);
-      } catch (err: any) {
-        console.error("Error checking follow status:", err);
-      }
-    }
-  }, [isViewingOtherProfile, profileUserId]);
 
-  const doFollowUnfollow = React.useCallback(async () => {
-    if (!profileUserId) return;
-    const wasFollowing = isFollowing;
-    setIsFollowing(!wasFollowing);
-    setIsFollowingLoading(true);
-    try {
-      const success = wasFollowing
-        ? await unfollowUserDb(profileUserId)
-        : await followUserDb(profileUserId);
-      if (!success) {
-        setIsFollowing(wasFollowing);
-        toast({ title: "Erro", description: "Tente novamente.", variant: "destructive" });
-      } else {
-        toast({
-          title: "Sucesso!",
-          description: wasFollowing ? "Você deixou de seguir este usuário." : "Você está seguindo este usuário.",
-        });
-      }
-    } catch (err: any) {
-      setIsFollowing(wasFollowing);
-      console.error("Error toggling follow:", err);
-      toast({ title: "Erro", description: err?.message || "Tente novamente.", variant: "destructive" });
-    } finally {
-      setIsFollowingLoading(false);
-    }
-  }, [profileUserId, isFollowing]);
-
-  const handleFollowUnfollow = React.useCallback(() => {
-    if (!profileUserId) return;
-    if (isFollowing) {
-      showConfirm(
-        "Deixar de seguir",
-        "Tem certeza que deseja parar de seguir este usuário?",
-        doFollowUnfollow
-      );
-    } else {
-      doFollowUnfollow();
-    }
-  }, [profileUserId, isFollowing, doFollowUnfollow, showConfirm]);
-
-  const handleToggleFollowInModal = React.useCallback((userId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-
-    const isCurrentlyFollowing = followerFollowStatus[userId] || false;
-
-    const doToggle = async () => {
-      setFollowerFollowStatus((prev) => ({ ...prev, [userId]: !isCurrentlyFollowing }));
-      setIsTogglingFollow((prev) => ({ ...prev, [userId]: true }));
-      try {
-        const success = isCurrentlyFollowing
-          ? await unfollowUserDb(userId)
-          : await followUserDb(userId);
-        if (!success) {
-          setFollowerFollowStatus((prev) => ({ ...prev, [userId]: isCurrentlyFollowing }));
-          toast({ title: "Erro", description: "Tente novamente.", variant: "destructive" });
-        } else {
-          toast({
-            title: "Sucesso!",
-            description: isCurrentlyFollowing ? "Você deixou de seguir este usuário." : "Você está seguindo este usuário.",
-          });
-        }
-      } catch (err: any) {
-        setFollowerFollowStatus((prev) => ({ ...prev, [userId]: isCurrentlyFollowing }));
-        console.error("Error toggling follow:", err);
-        toast({ title: "Erro", description: err?.message || "Tente novamente.", variant: "destructive" });
-      } finally {
-        setIsTogglingFollow((prev) => ({ ...prev, [userId]: false }));
-      }
-    };
-
-    if (isCurrentlyFollowing) {
-      showConfirm(
-        "Deixar de seguir",
-        "Tem certeza que deseja parar de seguir este usuário?",
-        doToggle
-      );
-    } else {
-      doToggle();
-    }
-  }, [followerFollowStatus, showConfirm]);
-
-  const loadCommercialProfile = React.useCallback(async () => {
-    if (!user) return;
-
-    try {
-      const [profile, plans] = await Promise.all([
-        getCommercialProfileDb(user.id),
-        getCommercialPlansDb(user.id),
-      ]);
-      if (profile) {
-        setCommercialProfile(profile);
-        setCommercialFormData({
-          business_segment: profile.business_segment || "",
-          business_name: profile.business_name || "",
-          business_description: profile.business_description || "",
-          business_phone: profile.business_phone || "",
-          business_email: profile.business_email || "",
-          business_website: profile.business_website || "",
-        });
-        setCommercialLogoPreview(profile.business_logo_url || null);
-      }
-      setServicePlans(plans.map((p) => ({ name: p.name, price: p.price, description: p.description ?? undefined })));
-    } catch (err: any) {
-      console.error("Error loading commercial profile:", err);
-    }
-  }, [user]);
-
-  const handleOpenCommercialProfile = React.useCallback(() => {
-    setIsAddingPlan(false);
-    setNewPlanName("");
-    setNewPlanPrice("");
-    setNewPlanDescription("");
-    setIsCommercialProfileOpen(true);
-    loadCommercialProfile();
-  }, [loadCommercialProfile]);
-
-  const handleSaveCommercialProfile = React.useCallback(async () => {
-    if (!user) return;
-
-    setIsSavingCommercial(true);
-    try {
-      // If preview was cleared, user wants to remove the logo
-      let logoUrl: string | null | undefined = commercialLogoPreview === null ? null : commercialProfile?.business_logo_url;
-
-      if (commercialLogoFile) {
-        const extension = commercialLogoFile.name.split(".").pop() || "jpg";
-        const filePath = `${user.id}/business-logo-${Date.now()}.${extension}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from("posts")
-          .upload(filePath, commercialLogoFile, { contentType: commercialLogoFile.type });
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage.from("posts").getPublicUrl(filePath);
-        logoUrl = publicUrl;
-        setCommercialLogoFile(null);
-      }
-
-      const [updated] = await Promise.all([
-        createOrUpdateCommercialProfileDb(user.id, {
-          ...commercialFormData,
-          business_logo_url: logoUrl,
-        }),
-        saveCommercialPlansDb(user.id, servicePlans),
-      ]);
-      setCommercialProfile(updated);
-
-      toast({
-        title: "Sucesso!",
-        description: "Perfil comercial atualizado com sucesso.",
-      });
-
-      setIsCommercialProfileOpen(false);
-    } catch (err: any) {
-      console.error("Error saving commercial profile:", err);
-      toast({
-        title: "Erro ao salvar",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSavingCommercial(false);
-    }
-  }, [user, commercialFormData, commercialLogoFile, commercialProfile, servicePlans]);
-
-  const handleDeleteCommercialProfile = React.useCallback(async () => {
-    if (!user) return;
-    if (!confirm("Tem certeza que deseja excluir seu perfil comercial? Esta ação não pode ser desfeita.")) return;
-
-    try {
-      await deleteCommercialProfileDb(user.id);
-      setCommercialProfile(null);
-      setIsCommercialDashboardOpen(false);
-      toast({
-        title: "Perfil comercial excluído",
-        description: "Seus dados comerciais foram removidos.",
-      });
-    } catch (err: any) {
-      console.error("Error deleting commercial profile:", err);
-      toast({
-        title: "Erro ao excluir",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
-    }
-  }, [user]);
-
-  React.useEffect(() => {
-    checkFollowingStatus();
-  }, [profileUserId, checkFollowingStatus]);
 
   React.useEffect(() => {
     loadProfile();
@@ -892,18 +531,6 @@ export default function Profile() {
     }
   }, [showFollowingModal, loadFollowingData]);
 
-  const openEditDialog = () => {
-    if (profile) {
-      setEditNickname(profile.nickname);
-      setEditBio(profile.bio);
-      setEditHandle(profile.handle ?? "");
-      setEditObjectives(profile.objectives ?? []);
-      setEditPhotoPreview(profile.photo);
-      setEditPhotoFile(null);
-      setIsEditDialogOpen(true);
-    }
-  };
-
   const openGoalIndicatorModal = async (routine: Routine) => {
     setGoalIndicatorRoutineId(routine.id);
 
@@ -917,18 +544,6 @@ export default function Profile() {
     } else {
       setLinkedGoal(null);
     }
-  };
-
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setEditPhotoFile(file);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setEditPhotoPreview(event.target?.result as string);
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleLinkGoal = async (goalId: string) => {
@@ -1055,65 +670,6 @@ export default function Profile() {
       });
     } finally {
       setIsDeletingRoutine(false);
-    }
-  };
-
-  const handleSaveProfile = async () => {
-    if (!user || !profile) return;
-    if (!editNickname.trim()) {
-      toast({ title: "Nome obrigatório", description: "O nome não pode ser vazio.", variant: "destructive" });
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      let photoUrl = profile.photo;
-
-      if (editPhotoFile) {
-        // Send original file without any modifications
-        const extension = editPhotoFile.name.split(".").pop() || "jpg";
-        const filePath = `${user.id}/profile-${Date.now()}.${extension}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from("posts")
-          .upload(filePath, editPhotoFile, {
-            contentType: editPhotoFile.type,
-          });
-
-
-        if (uploadError) throw uploadError;
-
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from("posts").getPublicUrl(filePath);
-        photoUrl = publicUrl;
-      }
-
-      const updatedProfile = await updateUserProfileDb(user.id, {
-        nickname: editNickname,
-        bio: editBio,
-        photo: photoUrl,
-        handle: editHandle.trim() || undefined,
-        objectives: editObjectives.length > 0 ? editObjectives : null,
-      });
-
-      if (updatedProfile) {
-        setProfile(updatedProfile);
-        toast({
-          title: "Perfil atualizado!",
-          description: "Suas alterações foram salvas com sucesso.",
-        });
-        setIsEditDialogOpen(false);
-      }
-    } catch (err: any) {
-      console.error("Error updating profile:", err);
-      toast({
-        title: "Erro ao atualizar perfil",
-        description: err.message || "Tente novamente mais tarde.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -1340,42 +896,7 @@ export default function Profile() {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await resetSupabaseAuth();
-      setIsSettingsOpen(false);
-      navigate("/");
-      toast({
-        title: "Desconectado com sucesso!",
-        description: "Você foi desconectado da sua conta.",
-      });
-    } catch (err: any) {
-      console.error("Error logging out:", err);
-      toast({
-        title: "Erro ao desconectar",
-        description: err.message || "Tente novamente mais tarde.",
-        variant: "destructive",
-      });
-    }
-  };
-
   // Phone formatting function for Brazilian format (XX) XXXXX-XXXX
-  const formatPhoneNumber = (value: string): string => {
-    // Remove all non-digits
-    const cleaned = value.replace(/\D/g, "");
-
-    // Limit to 11 digits (DDD + 9 digit number)
-    const limited = cleaned.slice(0, 11);
-
-    // Format: (XX) XXXXX-XXXX
-    if (limited.length <= 2) {
-      return limited.length > 0 ? `(${limited}` : "";
-    } else if (limited.length <= 7) {
-      return `(${limited.slice(0, 2)}) ${limited.slice(2)}`;
-    } else {
-      return `(${limited.slice(0, 2)}) ${limited.slice(2, 7)}-${limited.slice(7)}`;
-    }
-  };
 
   const handleDeleteAccount = async () => {
     if (!user) return;
@@ -1395,7 +916,6 @@ export default function Profile() {
       await resetSupabaseAuth();
 
       setIsDeleteAccountOpen(false);
-      setIsSettingsOpen(false);
       setDeleteConfirmText("");
 
       toast({
@@ -1559,1087 +1079,14 @@ export default function Profile() {
 
               {/* Settings Button - Only show for own profile */}
               {!isViewingOtherProfile && (
-                <Drawer open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                  <Button
-                    onClick={() => setIsSettingsOpen(true)}
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 rounded-full"
-                  >
-                    <Settings className="h-4 w-4" />
-                  </Button>
-
-                  <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                    <DrawerHeader className="shrink-0">
-                      <DrawerTitle>Configurações</DrawerTitle>
-                    </DrawerHeader>
-
-                    <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4">
-                      <Drawer
-                        open={isEditDialogOpen}
-                        onOpenChange={setIsEditDialogOpen}
-                      >
-                        <Button
-                          onClick={openEditDialog}
-                          variant="outline"
-                          className="gap-2 justify-between"
-                        >
-                          <span>Editar Perfil</span>
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-
-                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                          <DrawerHeader className="shrink-0 flex items-center gap-2">
-                            <button onClick={() => setIsEditDialogOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                              <ArrowLeft className="h-5 w-5" />
-                            </button>
-                            <DrawerTitle>Editar Perfil</DrawerTitle>
-                          </DrawerHeader>
-
-                          <div className="flex-1 overflow-y-auto px-4 pb-4">
-                            <div className="space-y-4">
-                              {/* Photo Preview and Upload */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">
-                                  Foto do Perfil
-                                </label>
-                                <div className="flex items-center gap-4">
-                                  <div className="h-16 w-16 rounded-full overflow-hidden bg-muted shrink-0">
-                                    {editPhotoPreview ? (
-                                      <img
-                                        src={editPhotoPreview}
-                                        alt="preview"
-                                        className="h-full w-full object-cover"
-                                      />
-                                    ) : (
-                                      <div className="h-full w-full bg-muted" />
-                                    )}
-                                  </div>
-                                  <label className="flex-1">
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      asChild
-                                    >
-                                      <span>
-                                        <Upload className="h-4 w-4 mr-2" />
-                                        Alterar foto
-                                      </span>
-                                    </Button>
-                                    <input
-                                      type="file"
-                                      accept="image/*"
-                                      onChange={handlePhotoChange}
-                                      className="hidden"
-                                    />
-                                  </label>
-                                </div>
-                              </div>
-
-                              {/* Nickname */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Nome</label>
-                                <Input
-                                  value={editNickname}
-                                  onChange={(e) => setEditNickname(e.target.value)}
-                                  placeholder="Seu nome"
-                                />
-                              </div>
-
-                              {/* Bio */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Bio</label>
-                                <Textarea
-                                  value={editBio}
-                                  onChange={(e) => setEditBio(e.target.value)}
-                                  placeholder="Sua bio"
-                                  className="min-h-24"
-                                />
-                              </div>
-
-                              {/* Handle */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">@ Usuário</label>
-                                <div className="flex items-center gap-1">
-                                  <span className="text-muted-foreground text-sm">@</span>
-                                  <Input
-                                    value={editHandle}
-                                    onChange={(e) => setEditHandle(e.target.value.replace(/[^a-zA-Z0-9_.]/g, ""))}
-                                    placeholder="seu_handle"
-                                  />
-                                </div>
-                                <p className="text-xs text-muted-foreground">Apenas letras, números, _ e .</p>
-                              </div>
-
-                              {/* Objectives */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Objetivos</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                  {[
-                                    { id: "fitness", label: "🏋️ Fitness & Musculação" },
-                                    { id: "cardio", label: "🏃 Cardio & Corrida" },
-                                    { id: "diets", label: "🥗 Dietas & Nutrição" },
-                                    { id: "habits", label: "🎯 Hábitos & Mindfulness" },
-                                    { id: "yoga", label: "🧘 Yoga & Flexibilidade" },
-                                    { id: "sports", label: "⚽ Esportes" },
-                                  ].map((obj) => {
-                                    const selected = editObjectives.includes(obj.id);
-                                    return (
-                                      <button
-                                        key={obj.id}
-                                        type="button"
-                                        onClick={() =>
-                                          setEditObjectives((prev) =>
-                                            selected ? prev.filter((o) => o !== obj.id) : [...prev, obj.id]
-                                          )
-                                        }
-                                        className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${selected
-                                          ? "bg-primary text-primary-foreground border-primary"
-                                          : "bg-muted border-border hover:bg-muted/80"
-                                          }`}
-                                      >
-                                        {obj.label}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-
-                              {/* Email */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Email</label>
-                                <Input
-                                  type="email"
-                                  value={user?.email || ""}
-                                  disabled
-                                  className="opacity-70"
-                                />
-                                <p className="text-xs text-muted-foreground">Email não pode ser alterado aqui</p>
-                              </div>
-
-                              {/* Password Reset Section */}
-                              <div className="border-t pt-4 space-y-2">
-                                <label className="text-sm font-medium">Redefinir Senha</label>
-                                <Button
-                                  onClick={async () => {
-                                    setIsResettingPassword(true);
-                                    try {
-                                      await supabase.auth.resetPasswordForEmail(user?.email || "", {
-                                        redirectTo: `${window.location.origin}/reset-password`,
-                                      });
-                                      toast({
-                                        title: "Email enviado",
-                                        description: "Verifique seu email para redefinir a senha",
-                                      });
-                                    } catch (error) {
-                                      toast({
-                                        title: "Erro",
-                                        description: "Falha ao enviar email de redefinição",
-                                        variant: "destructive",
-                                      });
-                                    } finally {
-                                      setIsResettingPassword(false);
-                                    }
-                                  }}
-                                  disabled={isResettingPassword}
-                                  variant="outline"
-                                  className="w-full rounded-full"
-                                >
-                                  {isResettingPassword ? "Enviando..." : "Redefinir Senha"}
-                                </Button>
-                                <p className="text-xs text-muted-foreground">Você receberá um link para redefinir sua senha</p>
-                              </div>
-
-                              {/* Restrição de Conta */}
-                              <div className="border-t pt-4">
-                                <Collapsible open={isDangerZoneOpen} onOpenChange={setIsDangerZoneOpen}>
-                                  <CollapsibleTrigger asChild>
-                                    <button className="flex items-center justify-between w-full text-left">
-                                      <h3 className="text-sm font-semibold">Restrição de Conta</h3>
-                                      <ChevronDown className={`h-4 w-4 transition-transform ${isDangerZoneOpen ? "rotate-180" : ""}`} />
-                                    </button>
-                                  </CollapsibleTrigger>
-                                  <CollapsibleContent className="pt-3 space-y-2">
-                                    <Button
-                                      onClick={() => {
-                                        setIsEditDialogOpen(false);
-                                        setIsDeleteAccountOpen(true);
-                                      }}
-                                      variant="destructive"
-                                      className="w-full rounded-full gap-2"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                      Encerrar Conta
-                                    </Button>
-                                    <p className="text-xs text-muted-foreground">Esta ação é permanente e não pode ser desfeita</p>
-                                  </CollapsibleContent>
-                                </Collapsible>
-                              </div>
-
-                              {/* Save Button */}
-                              <Button
-                                onClick={handleSaveProfile}
-                                disabled={isSaving}
-                                className="w-full rounded-full"
-                              >
-                                {isSaving ? "Salvando..." : "Salvar Alterações"}
-                              </Button>
-                            </div>
-                          </div>
-                        </DrawerContent>
-                      </Drawer>
-
-                      {commercialProfile && (
-                        <Button
-                          onClick={() => setIsCommercialDashboardOpen(true)}
-                          variant="outline"
-                          className="gap-2 justify-between"
-                        >
-                          <span>Gerenciar Perfil Comercial</span>
-                          <BarChart3 className="h-4 w-4" />
-                        </Button>
-                      )}
-
-                      <Drawer
-                        open={isCommercialProfileOpen}
-                        onOpenChange={setIsCommercialProfileOpen}
-                      >
-                        {!commercialProfile && (
-                          <Button
-                            onClick={handleOpenCommercialProfile}
-                            variant="outline"
-                            className="gap-2 justify-between"
-                          >
-                            <span>Perfil Comercial</span>
-                            <span className="text-lg">🏪</span>
-                          </Button>
-                        )}
-
-                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                          <DrawerHeader className="shrink-0">
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => setIsCommercialProfileOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                                <ArrowLeft className="h-5 w-5" />
-                              </button>
-                              <DrawerTitle>Configurar Perfil Comercial</DrawerTitle>
-                            </div>
-                          </DrawerHeader>
-
-                          <div className="flex-1 overflow-y-auto px-4 pb-4">
-                            <div className="space-y-4">
-                              {/* Business Segment */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Segmento *</label>
-                                <Select
-                                  value={commercialFormData.business_segment}
-                                  onValueChange={(value) =>
-                                    setCommercialFormData({
-                                      ...commercialFormData,
-                                      business_segment: value,
-                                    })
-                                  }
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Selecione um segmento" />
-                                  </SelectTrigger>
-                                  <SelectContent position="popper" className="z-[200]">
-                                    <SelectItem value="academia">Academia / Fitness</SelectItem>
-                                    <SelectItem value="personal_trainer">Personal Trainer</SelectItem>
-                                    <SelectItem value="nutricionista">Nutricionista</SelectItem>
-                                    <SelectItem value="psicologo">Psicólogo</SelectItem>
-                                    <SelectItem value="fisioterapeuta">Fisioterapeuta</SelectItem>
-                                    <SelectItem value="coach">Coach</SelectItem>
-                                    <SelectItem value="outros">Outros</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              {/* Business Name */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Nome da Loja / Negócio *</label>
-                                <Input
-                                  value={commercialFormData.business_name}
-                                  onChange={(e) =>
-                                    setCommercialFormData({
-                                      ...commercialFormData,
-                                      business_name: e.target.value,
-                                    })
-                                  }
-                                  placeholder="Ex: Academia Força Total"
-                                />
-                              </div>
-
-                              {/* Business Description */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Descrição</label>
-                                <Textarea
-                                  value={commercialFormData.business_description}
-                                  onChange={(e) =>
-                                    setCommercialFormData({
-                                      ...commercialFormData,
-                                      business_description: e.target.value,
-                                    })
-                                  }
-                                  placeholder="Descreva seu negócio..."
-                                  className="min-h-24"
-                                />
-                              </div>
-
-                              {/* Business Phone */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Telefone</label>
-                                <Input
-                                  type="tel"
-                                  value={commercialFormData.business_phone}
-                                  onChange={(e) =>
-                                    setCommercialFormData({
-                                      ...commercialFormData,
-                                      business_phone: formatPhoneNumber(e.target.value),
-                                    })
-                                  }
-                                  placeholder="(11) 99999-9999"
-                                  maxLength={15}
-                                />
-                              </div>
-
-                              {/* Business Email */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Email</label>
-                                <Input
-                                  type="email"
-                                  value={commercialFormData.business_email}
-                                  onChange={(e) =>
-                                    setCommercialFormData({
-                                      ...commercialFormData,
-                                      business_email: e.target.value,
-                                    })
-                                  }
-                                  placeholder="contato@negocio.com"
-                                />
-                              </div>
-
-                              {/* Business Website */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Site / Portfolio</label>
-                                <Input
-                                  type="url"
-                                  value={commercialFormData.business_website}
-                                  onChange={(e) =>
-                                    setCommercialFormData({
-                                      ...commercialFormData,
-                                      business_website: e.target.value,
-                                    })
-                                  }
-                                  placeholder="https://seu-site.com"
-                                />
-                              </div>
-
-                              {/* Business Logo */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Logo do Negócio</label>
-                                <div className="flex items-center gap-3">
-                                  {commercialLogoPreview ? (
-                                    <img
-                                      src={commercialLogoPreview}
-                                      alt="Logo"
-                                      className="h-20 w-20 rounded-lg object-cover border border-border"
-                                    />
-                                  ) : (
-                                    <div className="h-16 w-16 rounded-lg border border-dashed border-border flex items-center justify-center bg-muted text-muted-foreground text-xs text-center">
-                                      Sem logo
-                                    </div>
-                                  )}
-                                  <label className="cursor-pointer">
-                                    <span className="inline-flex items-center gap-1 text-sm text-brand font-medium hover:underline">
-                                      {commercialLogoPreview ? "Alterar logo" : "Adicionar logo"}
-                                    </span>
-                                    <input
-                                      type="file"
-                                      accept="image/*"
-                                      className="hidden"
-                                      onChange={(e) => {
-                                        const file = e.target.files?.[0];
-                                        if (!file) return;
-                                        setCommercialLogoFile(file);
-                                        setCommercialLogoPreview(URL.createObjectURL(file));
-                                      }}
-                                    />
-                                  </label>
-                                  {commercialLogoPreview && (
-                                    <button
-                                      type="button"
-                                      className="text-xs text-destructive hover:underline"
-                                      onClick={() => {
-                                        setCommercialLogoFile(null);
-                                        setCommercialLogoPreview(null);
-                                      }}
-                                    >
-                                      Remover
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Service Plans */}
-                              <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <label className="text-sm font-medium">Planos e Preços</label>
-                                  <span className="text-xs text-muted-foreground">{servicePlans.length}/5</span>
-                                </div>
-
-                                {/* Confirmed plans list */}
-                                {servicePlans.length > 0 && (
-                                  <div className="space-y-2">
-                                    {servicePlans.map((plan, idx) => (
-                                      <div key={idx} className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
-                                        <div className="flex-1 min-w-0">
-                                          <p className="text-sm font-medium truncate">{plan.name}</p>
-                                          {plan.price != null && (
-                                            <p className="text-xs text-brand font-semibold">
-                                              R$ {plan.price.toFixed(2).replace(".", ",")}
-                                            </p>
-                                          )}
-                                          {plan.description && (
-                                            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{plan.description}</p>
-                                          )}
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => setServicePlans((prev) => prev.filter((_, i) => i !== idx))}
-                                          className="p-1 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 mt-0.5"
-                                          aria-label="Remover plano"
-                                        >
-                                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {/* Draft form — shown only when adding */}
-                                {servicePlans.length < 5 && (
-                                  isAddingPlan ? (
-                                    <div className="space-y-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
-                                      <p className="text-xs font-medium text-brand">Novo plano</p>
-                                      <input
-                                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
-                                        placeholder="Nome do plano (ex: Consulta avulsa) *"
-                                        value={newPlanName}
-                                        onChange={(e) => setNewPlanName(e.target.value)}
-                                        maxLength={60}
-                                        autoFocus
-                                      />
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
-                                        placeholder="Preço (R$) — opcional"
-                                        value={newPlanPrice}
-                                        onChange={(e) => setNewPlanPrice(e.target.value)}
-                                      />
-                                      <input
-                                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
-                                        placeholder="Descrição breve — opcional"
-                                        value={newPlanDescription}
-                                        onChange={(e) => setNewPlanDescription(e.target.value)}
-                                        maxLength={100}
-                                      />
-                                      <div className="flex gap-2">
-                                        <button
-                                          type="button"
-                                          disabled={!newPlanName.trim()}
-                                          aria-label="Confirmar plano"
-                                          onClick={() => {
-                                            if (!newPlanName.trim()) return;
-                                            setServicePlans((prev) => [
-                                              ...prev,
-                                              {
-                                                name: newPlanName.trim(),
-                                                price: newPlanPrice ? parseFloat(newPlanPrice) : null,
-                                                description: newPlanDescription.trim() || undefined,
-                                              },
-                                            ]);
-                                            setNewPlanName("");
-                                            setNewPlanPrice("");
-                                            setNewPlanDescription("");
-                                            setIsAddingPlan(false);
-                                          }}
-                                          className="flex-1 flex items-center justify-center gap-1.5 rounded-md bg-brand text-white text-sm font-medium py-2 hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                        >
-                                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                          Confirmar plano
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setIsAddingPlan(false);
-                                            setNewPlanName("");
-                                            setNewPlanPrice("");
-                                            setNewPlanDescription("");
-                                          }}
-                                          className="px-3 rounded-md border border-border text-sm text-muted-foreground hover:text-foreground transition-colors"
-                                        >
-                                          Cancelar
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => setIsAddingPlan(true)}
-                                      className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2.5 text-sm text-muted-foreground hover:text-foreground hover:border-brand/50 transition-colors"
-                                    >
-                                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                                      Adicionar Plano
-                                    </button>
-                                  )
-                                )}
-
-                                {servicePlans.length >= 5 && (
-                                  <p className="text-xs text-muted-foreground text-center">Limite de 5 planos atingido</p>
-                                )}
-                              </div>
-
-                              {/* Save Button */}
-                              <Button
-                                onClick={handleSaveCommercialProfile}
-                                disabled={isSavingCommercial || !commercialFormData.business_name}
-                                className="w-full rounded-full"
-                              >
-                                {isSavingCommercial ? "Salvando..." : "Salvar Perfil Comercial"}
-                              </Button>
-                            </div>
-                          </div>
-                        </DrawerContent>
-                      </Drawer>
-
-                      {/* Languages Drawer */}
-                      <Drawer
-                        open={isLanguageOpen}
-                        onOpenChange={setIsLanguageOpen}
-                      >
-                        <Button
-                          onClick={() => setIsLanguageOpen(true)}
-                          variant="outline"
-                          className="gap-2 justify-between"
-                        >
-                          <span>Idioma</span>
-                          <Globe className="h-4 w-4" />
-                        </Button>
-
-                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                          <DrawerHeader className="shrink-0">
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => setIsLanguageOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                                <ArrowLeft className="h-5 w-5" />
-                              </button>
-                              <DrawerTitle>Selecione o Idioma</DrawerTitle>
-                            </div>
-                          </DrawerHeader>
-
-                          <div className="flex-1 overflow-y-auto px-4 pb-4">
-                            <div className="space-y-2">
-                              {(["pt", "en"] as const).map((lang) => (
-                                <button
-                                  key={lang}
-                                  onClick={() => {
-                                    setCurrentLanguage(lang);
-                                    setIsLanguageOpen(false);
-                                  }}
-                                  className={`w-full p-3 rounded-lg border text-left transition-colors ${currentLanguage === lang
-                                    ? "border-brand bg-brand/10"
-                                    : "border-border hover:border-brand/50"
-                                    }`}
-                                >
-                                  <div className="font-medium">
-                                    {lang === "pt" ? "Português (Brasil)" : "English"}
-                                  </div>
-                                  <div className="text-xs text-muted-foreground">
-                                    {lang === "pt" ? "pt-BR" : "en-US"}
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </DrawerContent>
-                      </Drawer>
-
-                      {/* Notifications Drawer */}
-                      <Drawer
-                        open={isNotificationsOpen}
-                        onOpenChange={setIsNotificationsOpen}
-                      >
-                        <Button
-                          onClick={() => setIsNotificationsOpen(true)}
-                          variant="outline"
-                          className="gap-2 justify-between"
-                        >
-                          <span>Notificações</span>
-                          <Bell className="h-4 w-4" />
-                        </Button>
-
-                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                          <DrawerHeader className="shrink-0">
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => setIsNotificationsOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                                <ArrowLeft className="h-5 w-5" />
-                              </button>
-                              <DrawerTitle>Configurar Notificações</DrawerTitle>
-                            </div>
-                          </DrawerHeader>
-
-                          <div className="flex-1 overflow-y-auto px-4 pb-4">
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
-                                <div>
-                                  <div className="text-sm font-medium">Lembretes de Treino</div>
-                                  <div className="text-xs text-muted-foreground">Notificações sobre seus treinos</div>
-                                </div>
-                                <button
-                                  onClick={() => setNotifications({ ...notifications, workoutReminders: !notifications.workoutReminders })}
-                                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.workoutReminders ? "bg-brand" : "bg-muted"
-                                    }`}
-                                >
-                                  <span
-                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.workoutReminders ? "translate-x-6" : "translate-x-1"
-                                      }`}
-                                  />
-                                </button>
-                              </div>
-
-                              <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
-                                <div>
-                                  <div className="text-sm font-medium">Alertas de Conquistas</div>
-                                  <div className="text-xs text-muted-foreground">Notificações sobre suas metas atingidas</div>
-                                </div>
-                                <button
-                                  onClick={() => setNotifications({ ...notifications, achievementAlerts: !notifications.achievementAlerts })}
-                                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.achievementAlerts ? "bg-brand" : "bg-muted"
-                                    }`}
-                                >
-                                  <span
-                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.achievementAlerts ? "translate-x-6" : "translate-x-1"
-                                      }`}
-                                  />
-                                </button>
-                              </div>
-
-                              <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
-                                <div>
-                                  <div className="text-sm font-medium">Atividade de Amigos</div>
-                                  <div className="text-xs text-muted-foreground">Atividades de pessoas que você segue</div>
-                                </div>
-                                <button
-                                  onClick={() => setNotifications({ ...notifications, friendActivity: !notifications.friendActivity })}
-                                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.friendActivity ? "bg-brand" : "bg-muted"
-                                    }`}
-                                >
-                                  <span
-                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.friendActivity ? "translate-x-6" : "translate-x-1"
-                                      }`}
-                                  />
-                                </button>
-                              </div>
-
-                              <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
-                                <div>
-                                  <div className="text-sm font-medium">Mensagens</div>
-                                  <div className="text-xs text-muted-foreground">Notificações de mensagens diretas</div>
-                                </div>
-                                <button
-                                  onClick={() => setNotifications({ ...notifications, messages: !notifications.messages })}
-                                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.messages ? "bg-brand" : "bg-muted"
-                                    }`}
-                                >
-                                  <span
-                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.messages ? "translate-x-6" : "translate-x-1"
-                                      }`}
-                                  />
-                                </button>
-                              </div>
-
-                              <div className="border-t pt-4 mt-4">
-                                <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
-                                  <div>
-                                    <div className="text-sm font-medium">Sons</div>
-                                    <div className="text-xs text-muted-foreground">Ativar som das notificações</div>
-                                  </div>
-                                  <button
-                                    onClick={() => setNotifications({ ...notifications, sound: !notifications.sound })}
-                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.sound ? "bg-brand" : "bg-muted"
-                                      }`}
-                                  >
-                                    <span
-                                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.sound ? "translate-x-6" : "translate-x-1"
-                                        }`}
-                                    />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </DrawerContent>
-                      </Drawer>
-
-                      {/* Time Management Drawer */}
-                      <Drawer
-                        open={isTimeManagementOpen}
-                        onOpenChange={setIsTimeManagementOpen}
-                      >
-                        <Button
-                          onClick={() => setIsTimeManagementOpen(true)}
-                          variant="outline"
-                          className="gap-2 justify-between"
-                        >
-                          <span>Gerenciamento de Tempo</span>
-                          <BarChart3 className="h-4 w-4" />
-                        </Button>
-
-                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                          <DrawerHeader className="shrink-0">
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => setIsTimeManagementOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                                <ArrowLeft className="h-5 w-5" />
-                              </button>
-                              <DrawerTitle>Gerenciamento de Tempo</DrawerTitle>
-                            </div>
-                          </DrawerHeader>
-
-                          <div className="flex-1 overflow-y-auto px-4 pb-4">
-                            <div className="space-y-4">
-                              {/* Usage Chart */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Uso nos Últimos 7 Dias</label>
-                                <div className="p-4 rounded-lg border border-border/50 bg-muted/20">
-                                  {usageDataLast7Days.length > 0 ? (
-                                    <div className="flex items-end justify-between gap-2 h-32">
-                                      {usageDataLast7Days.map((data, idx) => {
-                                        const maxMinutes = Math.max(...usageDataLast7Days.map(d => d.minutes));
-                                        const heightPercent = (data.minutes / maxMinutes) * 100;
-                                        return (
-                                          <div key={idx} className="flex flex-col items-center gap-1 flex-1">
-                                            <div className="w-full bg-brand rounded-t" style={{ height: `${heightPercent}%` }} />
-                                            <div className="text-xs text-muted-foreground">{data.day}</div>
-                                            <div className="text-xs font-semibold">{data.minutes}m</div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  ) : (
-                                    <p className="text-xs text-muted-foreground text-center py-6">Histórico de uso não disponível</p>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Daily Limit */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Limite Diário de Uso</label>
-                                <div className="flex gap-2">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    value={dailyUsageLimit}
-                                    onChange={(e) => setDailyUsageLimit(parseInt(e.target.value) || 0)}
-                                    placeholder="Minutos por dia (0 = sem limite)"
-                                    className="flex-1"
-                                  />
-                                  <span className="text-sm text-muted-foreground py-2">min</span>
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                  {dailyUsageLimit === 0 ? "Sem limite estabelecido" : `Você poderá usar ${dailyUsageLimit} minutos por dia`}
-                                </p>
-                              </div>
-
-                              <Button
-                                onClick={() => {
-                                  if (dailyUsageLimit > 0) {
-                                    localStorage.setItem("ritmofit_daily_limit_minutes", String(dailyUsageLimit));
-                                    localStorage.setItem("ritmofit_daily_limit_date", new Date().toDateString());
-                                  } else {
-                                    localStorage.removeItem("ritmofit_daily_limit_minutes");
-                                    localStorage.removeItem("ritmofit_daily_limit_date");
-                                  }
-                                  toast({
-                                    title: "Limite salvo",
-                                    description: dailyUsageLimit > 0 ? `Limite de ${dailyUsageLimit} min/dia ativado` : "Limite removido",
-                                  });
-                                  setIsTimeManagementOpen(false);
-                                }}
-                                className="w-full rounded-full"
-                              >
-                                Salvar Limite
-                              </Button>
-                            </div>
-                          </div>
-                        </DrawerContent>
-                      </Drawer>
-
-                      {/* Personalization Drawer */}
-                      <Drawer
-                        open={isPersonalizationOpen}
-                        onOpenChange={setIsPersonalizationOpen}
-                      >
-                        <Button
-                          onClick={() => setIsPersonalizationOpen(true)}
-                          variant="outline"
-                          className="gap-2 justify-between"
-                        >
-                          <span>Personalização</span>
-                          <span>🎨</span>
-                        </Button>
-
-                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                          <DrawerHeader className="shrink-0">
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => setIsPersonalizationOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                                <ArrowLeft className="h-5 w-5" />
-                              </button>
-                              <DrawerTitle>Personalização</DrawerTitle>
-                            </div>
-                          </DrawerHeader>
-
-                          <div className="flex-1 overflow-y-auto px-4 pb-4">
-                            <div className="space-y-2">
-                              <Button
-                                onClick={() => {
-                                  toggleLayoutMode();
-                                  window.location.reload();
-                                }}
-                                variant="outline"
-                                className="w-full rounded-full gap-2"
-                              >
-                                <span>📐</span>
-                                {layoutMode === "novo" ? "Layout Antigo" : "Novo Layout"}
-                              </Button>
-
-                              <Button
-                                onClick={() => setTheme(isDark ? "light" : "dark")}
-                                variant="outline"
-                                className="w-full rounded-full gap-2"
-                              >
-                                {isDark ? (
-                                  <Sun className="h-4 w-4" />
-                                ) : (
-                                  <Moon className="h-4 w-4" />
-                                )}
-                                {isDark ? "Modo Claro" : "Modo Noturno"}
-                              </Button>
-                            </div>
-                          </div>
-                        </DrawerContent>
-                      </Drawer>
-
-                      {/* Flow History Drawer */}
-                      <Drawer
-                        open={isFlowHistoryOpen}
-                        onOpenChange={setIsFlowHistoryOpen}
-                      >
-                        <Button
-                          onClick={async () => {
-                            setIsFlowHistoryOpen(true);
-                            setIsLoadingFlowHistory(true);
-                            try {
-                              const flows = await getExpiredUserFlowsDb();
-                              setExpiredFlows(flows);
-                            } catch (err) {
-                              console.error("Error loading flow history:", err);
-                            } finally {
-                              setIsLoadingFlowHistory(false);
-                            }
-                          }}
-                          variant="outline"
-                          className="gap-2 justify-between"
-                        >
-                          <span>Arquivo de Flows</span>
-                          <span>🕐</span>
-                        </Button>
-
-                        <DrawerContent className="max-h-[85dvh] flex flex-col modal-enter">
-                          <DrawerHeader className="shrink-0">
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => setIsFlowHistoryOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                                <ArrowLeft className="h-5 w-5" />
-                              </button>
-                              <DrawerTitle>Arquivo de Flows</DrawerTitle>
-                            </div>
-                          </DrawerHeader>
-
-                          <div className="flex-1 overflow-y-auto px-4 pb-4">
-                            {isLoadingFlowHistory ? (
-                              <div className="flex justify-center py-8">
-                                <LoadingSpinner />
-                              </div>
-                            ) : expiredFlows.length === 0 ? (
-                              <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
-                                <span className="text-4xl">📂</span>
-                                <p className="text-sm text-muted-foreground">Nenhum flow arquivado ainda</p>
-                                <p className="text-xs text-muted-foreground">Os flows expirados (mais de 24h) aparecem aqui</p>
-                              </div>
-                            ) : (
-                              <div className="grid grid-cols-3 gap-1">
-                                {expiredFlows.map((flow) => (
-                                  <div
-                                    key={flow.id}
-                                    className="relative aspect-[9/16] rounded-lg overflow-hidden bg-muted border border-border/40"
-                                  >
-                                    {flow.media_url ? (
-                                      flow.media_url.includes(".mp4") || flow.media_url.includes(".mov") || flow.media_url.includes(".webm") ? (
-                                        <video
-                                          src={flow.media_url}
-                                          className="w-full h-full object-cover"
-                                          muted
-                                          playsInline
-                                        />
-                                      ) : (
-                                        <img
-                                          src={flow.media_url}
-                                          alt="flow"
-                                          className="w-full h-full object-cover"
-                                        />
-                                      )
-                                    ) : (
-                                      <div className="w-full h-full flex items-center justify-center bg-muted/50">
-                                        <span className="text-2xl">🌊</span>
-                                      </div>
-                                    )}
-                                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1.5">
-                                      <p className="text-[10px] text-white/80 truncate">
-                                        {new Date(flow.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
-                                      </p>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </DrawerContent>
-                      </Drawer>
-
-                      <Drawer open={isPersonalDataOpen} onOpenChange={setIsPersonalDataOpen}>
-                        <Button
-                          onClick={() => setIsPersonalDataOpen(true)}
-                          variant="outline"
-                          className="gap-2 justify-between"
-                        >
-                          <span>Meus Dados</span>
-                          <User className="h-4 w-4" />
-                        </Button>
-
-                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                          <DrawerHeader className="shrink-0 flex items-center gap-2">
-                            <button onClick={() => setIsPersonalDataOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                              <ArrowLeft className="h-5 w-5" />
-                            </button>
-                            <DrawerTitle>Meus Dados</DrawerTitle>
-                          </DrawerHeader>
-
-                          <div className="flex-1 overflow-y-auto px-4 pb-4">
-                            <div className="space-y-4">
-                              {/* Sexo */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Sexo</label>
-                                <Select
-                                  value={personalDataForm.gender}
-                                  onValueChange={(v) => setPersonalDataForm((prev) => ({ ...prev, gender: v }))}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Selecione" />
-                                  </SelectTrigger>
-                                  <SelectContent position="popper" className="z-[200]">
-                                    <SelectItem value="male">Masculino</SelectItem>
-                                    <SelectItem value="female">Feminino</SelectItem>
-                                    <SelectItem value="other">Outro</SelectItem>
-                                    <SelectItem value="prefer_not_to_say">Prefiro não informar</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              {/* Altura */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Altura (cm)</label>
-                                <Input
-                                  type="number"
-                                  min={100}
-                                  max={250}
-                                  step={1}
-                                  value={personalDataForm.height}
-                                  onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))}
-                                  placeholder="Ex: 175"
-                                />
-                              </div>
-
-                              {/* Peso */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Peso (kg)</label>
-                                <Input
-                                  type="number"
-                                  min={30}
-                                  max={300}
-                                  step="0.1"
-                                  value={personalDataForm.weight}
-                                  onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))}
-                                  placeholder="Ex: 70.5"
-                                />
-                              </div>
-
-                              {/* Idade */}
-                              <div className="space-y-2">
-                                <label className="text-sm font-medium">Idade</label>
-                                <Input
-                                  type="number"
-                                  min={10}
-                                  max={120}
-                                  step={1}
-                                  value={personalDataForm.age}
-                                  onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: String(Math.trunc(Number(e.target.value))) }))}
-                                  placeholder="Ex: 28"
-                                />
-                              </div>
-
-                              <Button
-                                onClick={async () => {
-                                  if (!user) return;
-                                  setIsSavingPersonalData(true);
-                                  try {
-                                    await updateUserPersonalDataDb(user.id, personalDataForm);
-                                    setProfile((prev) => prev ? {
-                                      ...prev,
-                                      gender: personalDataForm.gender || null,
-                                      height: personalDataForm.height || null,
-                                      weight: personalDataForm.weight || null,
-                                      age: personalDataForm.age || null,
-                                    } : prev);
-                                    toast({ title: "Dados salvos!", description: "Suas informações pessoais foram atualizadas." });
-                                    setIsPersonalDataOpen(false);
-                                  } catch (err: any) {
-                                    toast({ title: "Erro", description: err?.message || "Falha ao salvar dados.", variant: "destructive" });
-                                  } finally {
-                                    setIsSavingPersonalData(false);
-                                  }
-                                }}
-                                disabled={isSavingPersonalData}
-                                className="w-full rounded-full"
-                              >
-                                {isSavingPersonalData ? "Salvando..." : "Salvar"}
-                              </Button>
-                            </div>
-                          </div>
-                        </DrawerContent>
-                      </Drawer>
-
-                      <Button
-                        onClick={handleLogout}
-                        variant="destructive"
-                        className="gap-2"
-                      >
-                        <LogOut className="h-4 w-4" />
-                        Desconectar
-                      </Button>
-                    </div>
-                  </DrawerContent>
-                </Drawer>
+                <SettingsDrawer
+                  profile={profile}
+                  userId={user!.id}
+                  userEmail={user?.email ?? ""}
+                  stats={stats}
+                  onProfileUpdated={(updated) => setProfile(updated)}
+                  onRequestDeleteAccount={() => setIsDeleteAccountOpen(true)}
+                />
               )}
             </div>
 
@@ -2746,25 +1193,7 @@ export default function Profile() {
           {isViewingOtherProfile && (
             <div className="flex gap-2 justify-center">
               {/* Follow/Unfollow Button */}
-              <Button
-                onClick={handleFollowUnfollow}
-                disabled={isFollowingLoading}
-                variant={isFollowing ? "outline" : "default"}
-                size="sm"
-                className="rounded-full gap-2"
-              >
-                {isFollowing ? (
-                  <>
-                    <Check className="h-4 w-4" />
-                    Seguindo
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="h-4 w-4" />
-                    Seguir
-                  </>
-                )}
-              </Button>
+              <FollowButton targetUserId={profileUserId!} />
 
               {/* Message Button */}
               <Button
@@ -2835,9 +1264,9 @@ export default function Profile() {
             Shots ({shots.length})
           </TabsTrigger>
           {profileOffers.length > 0 && (
-            <TabsTrigger value="loja" className="flex items-center gap-1.5">
+            <TabsTrigger value="vitrine" className="flex items-center gap-1.5">
               {commercialProfile ? <Briefcase className="h-4 w-4" /> : <ShoppingBag className="h-4 w-4" />}
-              {commercialProfile ? `Serviços (${profileOffers.length})` : `Loja (${profileOffers.length})`}
+              {commercialProfile ? `Serviços (${profileOffers.length})` : `Vitrine (${profileOffers.length})`}
             </TabsTrigger>
           )}
         </TabsList>
@@ -2902,7 +1331,6 @@ export default function Profile() {
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedShot(shot);
-                        setEditShotDescription(shot.description);
                         setIsShotEditorOpen(true);
                       }}
                       className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg bg-black/50 hover:bg-black/70"
@@ -3741,9 +2169,9 @@ export default function Profile() {
           )}
         </TabsContent>}
 
-        {/* Serviços / Loja Tab */}
+        {/* Serviços / Vitrine Tab */}
         {profileOffers.length > 0 && (
-          <TabsContent value="loja" className="space-y-4 fade-in">
+          <TabsContent value="vitrine" className="space-y-4 fade-in">
             {/* Cabeçalho do negócio */}
             {commercialProfile && (
               <div className="rounded-2xl bg-card border border-border/50 overflow-hidden">
@@ -4067,226 +2495,41 @@ export default function Profile() {
       />
 
       {/* Followers Drawer */}
-      <Drawer open={showFollowersModal} onOpenChange={setShowFollowersModal}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Seguidores</DrawerTitle>
-          </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-4 space-y-3 pb-6">
-            {isLoadingFollowers ? (
-              <div className="text-center py-6 text-sm text-muted-foreground">
-                Carregando...
-              </div>
-            ) : followers.length > 0 ? (
-              followers.map((follower) => (
-                <div
-                  key={follower.id}
-                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition-colors"
-                >
-                  <button
-                    onClick={() => {
-                      setShowFollowersModal(false);
-                      navigate(`/usuario/${follower.id}`);
-                    }}
-                    className="flex items-center gap-3 flex-1 text-left hover:opacity-80 transition-opacity"
-                  >
-                    {follower.photo ? (
-                      <img
-                        src={follower.photo}
-                        alt={follower.nickname}
-                        className="h-10 w-10 rounded-full object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="h-10 w-10 rounded-full bg-muted flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{follower.nickname}</p>
-                    </div>
-                  </button>
-                  {follower.id !== user?.id && (
-                    <Button
-                      onClick={(e) => handleToggleFollowInModal(follower.id, e)}
-                      disabled={isTogglingFollow[follower.id] || false}
-                      variant={followerFollowStatus[follower.id] ? "outline" : "default"}
-                      size="sm"
-                      className="flex-shrink-0"
-                    >
-                      {isTogglingFollow[follower.id] ? (
-                        "..."
-                      ) : followerFollowStatus[follower.id] ? (
-                        <>
-                          <Check className="h-4 w-4 mr-1" />
-                          Seguindo
-                        </>
-                      ) : (
-                        "Seguir"
-                      )}
-                    </Button>
-                  )}
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-6 text-sm text-muted-foreground">
-                Nenhum seguidor ainda
-              </div>
-            )}
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <FollowListDrawer
+        open={showFollowersModal}
+        onOpenChange={setShowFollowersModal}
+        type="followers"
+        users={followers}
+        isLoading={isLoadingFollowers}
+        followStatus={followerFollowStatus}
+      />
 
       {/* Following Drawer */}
-      <Drawer open={showFollowingModal} onOpenChange={setShowFollowingModal}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Seguindo</DrawerTitle>
-          </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-4 space-y-3 pb-6">
-            {isLoadingFollowers ? (
-              <div className="text-center py-6 text-sm text-muted-foreground">
-                Carregando...
-              </div>
-            ) : following.length > 0 ? (
-              following.map((user) => (
-                <div
-                  key={user.id}
-                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition-colors"
-                >
-                  <button
-                    onClick={() => {
-                      setShowFollowingModal(false);
-                      navigate(`/usuario/${user.id}`);
-                    }}
-                    className="flex items-center gap-3 flex-1 text-left hover:opacity-80 transition-opacity"
-                  >
-                    {user.photo ? (
-                      <img
-                        src={user.photo}
-                        alt={user.nickname}
-                        className="h-10 w-10 rounded-full object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="h-10 w-10 rounded-full bg-muted flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{user.nickname}</p>
-                    </div>
-                  </button>
-                  <Button
-                    onClick={(e) => handleToggleFollowInModal(user.id, e)}
-                    disabled={isTogglingFollow[user.id] || false}
-                    variant="outline"
-                    size="sm"
-                    className="flex-shrink-0"
-                  >
-                    {isTogglingFollow[user.id] ? (
-                      "..."
-                    ) : (
-                      <>
-                        <Check className="h-4 w-4 mr-1" />
-                        Seguindo
-                      </>
-                    )}
-                  </Button>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-6 text-sm text-muted-foreground">
-                Não está seguindo ninguém
-              </div>
-            )}
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <FollowListDrawer
+        open={showFollowingModal}
+        onOpenChange={setShowFollowingModal}
+        type="following"
+        users={following}
+        isLoading={isLoadingFollowers}
+        followStatus={followerFollowStatus}
+      />
 
       {/* Shot Editor Drawer */}
-      <Drawer open={isShotEditorOpen} onOpenChange={setIsShotEditorOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>
-              {isEditingShot ? "Editar Shot" : "Opções do Shot"}
-            </DrawerTitle>
-          </DrawerHeader>
-
-          {selectedShot && (
-            <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
-              {/* Shot Video Preview */}
-              <div className="relative aspect-square overflow-hidden rounded-lg bg-black border border-border/60">
-                <video
-                  src={selectedShot.video_url}
-                  className="w-full h-full object-cover"
-                  controls
-                />
-              </div>
-
-              {/* Description */}
-              {isEditingShot ? (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Descrição</label>
-                  <Textarea
-                    value={editShotDescription}
-                    onChange={(e) => setEditShotDescription(e.target.value)}
-                    className="resize-none"
-                    rows={4}
-                  />
-                </div>
-              ) : (
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Descrição
-                  </label>
-                  <p className="text-sm mt-1">{selectedShot.description}</p>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex gap-2 pt-4">
-                {!isEditingShot ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => setIsEditingShot(true)}
-                    >
-                      <Edit2 className="h-4 w-4 mr-2" />
-                      Editar
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      className="flex-1"
-                      onClick={handleDeleteShot}
-                      disabled={isUpdatingShot}
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Deletar
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => {
-                        setIsEditingShot(false);
-                        setEditShotDescription(selectedShot.description);
-                      }}
-                      disabled={isUpdatingShot}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      className="flex-1"
-                      onClick={handleUpdateShot}
-                      disabled={isUpdatingShot}
-                    >
-                      {isUpdatingShot ? "Salvando..." : "Salvar"}
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-        </DrawerContent>
-      </Drawer>
+      <ShotEditorDrawer
+        open={isShotEditorOpen}
+        onOpenChange={setIsShotEditorOpen}
+        shot={selectedShot}
+        onSaved={(updatedDescription) => {
+          setShots((prev) =>
+            prev.map((s) => s.id === selectedShot?.id ? { ...s, description: updatedDescription } : s)
+          );
+          setSelectedShot(null);
+        }}
+        onDeleted={(shotId) => {
+          setShots((prev) => prev.filter((s) => s.id !== shotId));
+          setSelectedShot(null);
+        }}
+      />
 
       {/* Delete Routine Confirmation Dialog */}
       <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
@@ -4320,115 +2563,13 @@ export default function Profile() {
       </Dialog>
 
       {/* Workout History Modal */}
-      {selectedWorkoutForHistory && (
-        <Drawer open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
-          <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-            <DrawerHeader className="shrink-0">
-              <DrawerTitle>
-                Histórico de {selectedWorkoutForHistory?.name || "Exercício"}
-              </DrawerTitle>
-            </DrawerHeader>
-
-            <div className="flex-1 overflow-y-auto px-4 pb-6">
-              {isLoadingWorkoutHistory ? (
-                <div className="text-center py-6 text-sm text-muted-foreground">
-                  Carregando histórico...
-                </div>
-              ) : workoutHistory.length > 0 ? (
-                (() => {
-                  // Group records by day
-                  const groupedByDay: Record<string, typeof workoutHistory> = {};
-                  workoutHistory.forEach((record) => {
-                    const date = new Date(record.createdAt);
-                    const dateKey = date.toLocaleDateString("pt-BR");
-                    if (!groupedByDay[dateKey]) {
-                      groupedByDay[dateKey] = [];
-                    }
-                    groupedByDay[dateKey].push(record);
-                  });
-
-                  // Sort days in descending order (newest first)
-                  const sortedDates = Object.keys(groupedByDay).sort((a, b) => {
-                    const dateA = new Date(a.split("/").reverse().join("-"));
-                    const dateB = new Date(b.split("/").reverse().join("-"));
-                    return dateB.getTime() - dateA.getTime();
-                  });
-
-                  return sortedDates.map((dateKey) => {
-                    const dayRecords = groupedByDay[dateKey];
-                    const totalKilos = dayRecords
-                      .reduce((sum, r) => sum + (r.kilos || 0), 0);
-                    const totalReps = dayRecords.length;
-
-                    return (
-                      <div key={dateKey} className="mb-6">
-                        {/* Date Header */}
-                        <div className="sticky top-0 bg-background/95 py-2 mb-2">
-                          <p className="text-xs font-semibold text-muted-foreground uppercase">
-                            {dateKey}
-                          </p>
-                          <div className="flex gap-4 mt-1">
-                            <div>
-                              <p className="text-xs text-muted-foreground">
-                                {totalReps} série(s)
-                              </p>
-                            </div>
-                            {totalKilos > 0 && (
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  {totalKilos} kg total
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Records for this day */}
-                        <div className="space-y-1">
-                          {dayRecords.map((record) => {
-                            const time = new Date(record.createdAt).toLocaleTimeString(
-                              "pt-BR",
-                              { hour: "2-digit", minute: "2-digit" }
-                            );
-                            return (
-                              <div
-                                key={record.id || `${record.createdAt}-${record.kilos}`}
-                                className="flex items-center justify-between p-2 rounded hover:bg-muted/40 transition-colors"
-                              >
-                                <div className="flex items-center gap-2 flex-1 min-w-0">
-                                  <p className="text-xs text-muted-foreground w-10">
-                                    {time}
-                                  </p>
-                                  <div className="flex gap-2 flex-1 min-w-0 overflow-x-auto">
-                                    {record.kilos && (
-                                      <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
-                                        {record.kilos} kg
-                                      </span>
-                                    )}
-                                    {record.volume && (
-                                      <span className="text-xs font-medium px-2 py-1 bg-muted/50 rounded whitespace-nowrap">
-                                        {record.volume}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  });
-                })()
-              ) : (
-                <div className="text-center py-6 text-sm text-muted-foreground">
-                  Nenhum registro de treino encontrado
-                </div>
-              )}
-            </div>
-          </DrawerContent>
-        </Drawer>
-      )}
+      <WorkoutHistoryDrawer
+        open={workoutHistoryModalOpen}
+        onOpenChange={setWorkoutHistoryModalOpen}
+        workout={selectedWorkoutForHistory}
+        history={workoutHistory}
+        isLoading={isLoadingWorkoutHistory}
+      />
 
       {/* Flow Viewer Modal */}
       <FlowViewerModal
@@ -4518,147 +2659,6 @@ export default function Profile() {
       </Drawer>
 
       {/* Commercial Dashboard Drawer */}
-      <Drawer open={isCommercialDashboardOpen} onOpenChange={setIsCommercialDashboardOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <button onClick={() => setIsCommercialDashboardOpen(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
-                  <ArrowLeft className="h-5 w-5" />
-                </button>
-                <DrawerTitle>🏪 {commercialProfile?.business_name || "Perfil Comercial"}</DrawerTitle>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => {
-                    setIsCommercialDashboardOpen(false);
-                    handleOpenCommercialProfile();
-                  }}
-                  className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                  aria-label="Editar perfil comercial"
-                >
-                  <Edit2 className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={handleDeleteCommercialProfile}
-                  className="p-1.5 rounded-full hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
-                  aria-label="Excluir perfil comercial"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-5">
-            {/* Segment badge */}
-            {commercialProfile?.business_segment && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs px-2.5 py-1 rounded-full bg-brand/20 text-brand font-medium">
-                  {commercialProfile.business_segment === "academia" && "Academia / Fitness"}
-                  {commercialProfile.business_segment === "personal_trainer" && "Personal Trainer"}
-                  {commercialProfile.business_segment === "nutricionista" && "Nutricionista"}
-                  {commercialProfile.business_segment === "psicologo" && "Psicólogo"}
-                  {commercialProfile.business_segment === "fisioterapeuta" && "Fisioterapeuta"}
-                  {commercialProfile.business_segment === "coach" && "Coach"}
-                  {commercialProfile.business_segment === "outros" && "Outros"}
-                </span>
-              </div>
-            )}
-
-            {/* Business logo */}
-            {commercialProfile?.business_logo_url && (
-              <div className="flex justify-center">
-                <img
-                  src={commercialProfile.business_logo_url}
-                  alt="Logo do negócio"
-                  className="h-20 w-50 rounded-xl object-cover border border-border"
-                />
-              </div>
-            )}
-
-            {/* Key metrics */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
-                <p className="text-2xl font-bold text-foreground">{stats.followersCount}</p>
-                <p className="text-xs text-muted-foreground text-center">Seguidores</p>
-              </div>
-              <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
-                <p className="text-2xl font-bold text-foreground">{stats.postsCount}</p>
-                <p className="text-xs text-muted-foreground text-center">Posts</p>
-              </div>
-              <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
-                <p className="text-2xl font-bold text-foreground">{stats.followingCount}</p>
-                <p className="text-xs text-muted-foreground text-center">Seguindo</p>
-              </div>
-            </div>
-
-            {/* Engagement */}
-            <div>
-              <p className="text-sm font-semibold mb-2">Engajamento</p>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                  <span className="text-sm text-muted-foreground">Nível da conta</span>
-                  <span className="text-sm font-medium">Nível {stats.level}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                  <span className="text-sm text-muted-foreground">Pontos totais</span>
-                  <span className="text-sm font-medium">{stats.points} pts</span>
-                </div>
-                {stats.postsCount > 0 && (
-                  <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                    <span className="text-sm text-muted-foreground">Média seguidores/post</span>
-                    <span className="text-sm font-medium">
-                      {(stats.followersCount / stats.postsCount).toFixed(1)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Contact info */}
-            {(commercialProfile?.business_phone || commercialProfile?.business_email || commercialProfile?.business_website) && (
-              <div>
-                <p className="text-sm font-semibold mb-2">Informações de Contato</p>
-                <div className="space-y-2">
-                  {commercialProfile?.business_phone && (
-                    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                      <span className="text-sm text-muted-foreground">Telefone</span>
-                      <span className="text-sm font-medium">{commercialProfile.business_phone}</span>
-                    </div>
-                  )}
-                  {commercialProfile?.business_email && (
-                    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                      <span className="text-sm text-muted-foreground">E-mail</span>
-                      <span className="text-sm font-medium">{commercialProfile.business_email}</span>
-                    </div>
-                  )}
-                  {commercialProfile?.business_website && (
-                    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                      <span className="text-sm text-muted-foreground">Website</span>
-                      <a href={commercialProfile.business_website} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-brand hover:underline">
-                        {commercialProfile.business_website.replace(/^https?:\/\//, "")}
-                      </a>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {commercialProfile?.business_description && (
-              <div>
-                <p className="text-sm font-semibold mb-2">Descrição do Negócio</p>
-                <p className="text-sm text-muted-foreground leading-relaxed">{commercialProfile.business_description}</p>
-              </div>
-            )}
-
-            <div className="pt-2">
-              <p className="text-xs text-muted-foreground text-center">
-                Perfil ativo desde {new Date(commercialProfile?.created_at || "").toLocaleDateString("pt-BR")}
-              </p>
-            </div>
-          </div>
-        </DrawerContent>
-      </Drawer>
     </div>
   );
 }

@@ -33,7 +33,7 @@ client/components/
 │                                  │
 ├──────────────────────────────────┤
 │  Bottom Navigation (mobile)      │
-│  [Home][Shots][Nova][Metas][Loja]│
+│  [Home][Shots][Nova][Metas][Vitrine]│
 └──────────────────────────────────┘
 ```
 

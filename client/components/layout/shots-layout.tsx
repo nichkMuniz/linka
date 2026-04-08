@@ -31,7 +31,7 @@ const mobileNavItems: NavItem[] = [
   { to: "/shots", label: "Clips", icon: Video },
   { to: "/postar", label: "Nova", icon: PlusSquare },
   { to: "/metas", label: "Metas", icon: Dumbbell },
-  { to: "/loja", label: "Loja", icon: ShoppingBag },
+  { to: "/vitrine", label: "Vitrine", icon: ShoppingBag },
 ];
 
 function isActivePath(currentPath: string, to: string) {
@@ -89,7 +89,7 @@ export function ShotsLayout() {
     { to: "/shots", label: t("nav_clips"), icon: Video },
     { to: "/postar", label: t("nav_new"), icon: PlusSquare },
     { to: "/metas", label: t("nav_goals"), icon: Dumbbell },
-    { to: "/loja", label: t("nav_store"), icon: ShoppingBag },
+    { to: "/vitrine", label: t("nav_store"), icon: ShoppingBag },
     { to: "/buscar", label: t("nav_search") ?? "Buscar", icon: Search },
     { to: "/notificacoes", label: "Notificações", icon: Bell, badge: unreadNotificationsCount },
     { to: "/comunidade", label: t("nav_community") ?? "Comunidade", icon: Users2, badge: unreadCount },

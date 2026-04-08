@@ -132,7 +132,7 @@ export function AppLayout() {
       sessionStorage.setItem("ritmofit_usage_seconds_today", String(base + sessionSeconds));
       // Record to DB if session was at least 10 seconds
       if (sessionSeconds >= 10 && user) {
-        recordAccessSessionDb(user.id, sessionSeconds).catch(() => {});
+        recordAccessSessionDb(user.id, sessionSeconds).catch(() => { });
       }
       sessionStartRef.current = Date.now();
     };
@@ -253,7 +253,7 @@ export function AppLayout() {
     { to: "/shots", label: t("nav_clips"), icon: Video },
     { to: "/postar", label: t("nav_new"), icon: PlusSquare },
     { to: "/metas", label: t("nav_goals"), icon: Dumbbell },
-    { to: "/loja", label: t("nav_store"), icon: ShoppingBag },
+    { to: "/vitrine", label: t("nav_store"), icon: ShoppingBag },
   ], [t]);
 
   const sidebarExtraItems: NavItem[] = React.useMemo(() => [

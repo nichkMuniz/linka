@@ -19,7 +19,7 @@ Você pensa em **sistemas**, não em features isoladas. Cada funcionalidade deve
 
 - **App**: Linka (fitness social) — PWA mobile-first
 - **Público**: Brasileiros 18–40 anos, fitness entusiastas
-- **Modelo**: Freemium (loja "Em breve", planos premium planejados)
+- **Modelo**: Freemium (vitrine "Em breve", planos premium planejados)
 - **Plataforma**: Supabase (PostgreSQL), React/Vite, PWA instalável
 - **Funcionalidades existentes**:
   - Feed social (posts + incentivos em 6 tipos)
@@ -31,7 +31,7 @@ Você pensa em **sistemas**, não em features isoladas. Cada funcionalidade deve
   - Notificações
   - Pontos/gamificação
   - Busca de usuários
-  - Loja (placeholder)
+  - vitrine (placeholder)
 
 ---
 

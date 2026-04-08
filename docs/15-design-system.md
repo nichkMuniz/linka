@@ -1,0 +1,705 @@
+# Design System — RitmoFit
+
+> Fonte de verdade para decisões visuais e de componentes. Toda nova tela ou componente deve seguir este documento.
+
+---
+
+## Índice
+
+1. [Fundação Visual](#1-fundação-visual)
+2. [Tipografia](#2-tipografia)
+3. [Espaçamento](#3-espaçamento)
+4. [Bordas e Arredondamento](#4-bordas-e-arredondamento)
+5. [Sombras e Elevação](#5-sombras-e-elevação)
+6. [Componentes — Botões](#6-componentes--botões)
+7. [Componentes — Cards](#7-componentes--cards)
+8. [Componentes — Formulários](#8-componentes--formulários)
+9. [Componentes — Modais e Drawers](#9-componentes--modais-e-drawers)
+10. [Componentes — Feedback e Estados](#10-componentes--feedback-e-estados)
+11. [Ícones](#11-ícones)
+12. [Layout e Grid](#12-layout-e-grid)
+13. [Animações e Transições](#13-animações-e-transições)
+14. [Dark Mode](#14-dark-mode)
+15. [Padrões de Uso (Do's & Don'ts)](#15-padrões-de-uso-dos--donts)
+
+---
+
+## 1. Fundação Visual
+
+### 1.1 Paleta de Cores
+
+As cores são definidas via **CSS Custom Properties (HSL)** no `index.css` e consumidas pelo Tailwind como tokens semânticos. Nunca use valores hexadecimais hardcoded — use sempre os tokens.
+
+#### Tokens Semânticos
+
+| Token | Uso | Light | Dark |
+|---|---|---|---|
+| `background` | Fundo de página | `hsl(214, 40%, 97%)` | `hsl(214, 35%, 9%)` |
+| `foreground` | Texto principal | `hsl(214, 35%, 10%)` | `hsl(0, 0%, 98%)` |
+| `card` | Fundo de cards | `hsl(214, 30%, 99%)` | `hsl(214, 30%, 12%)` |
+| `card-foreground` | Texto dentro de cards | igual a `foreground` | igual a `foreground` |
+| `primary` | Ação principal, azul da marca | `hsl(214, 100%, 61%)` | `hsl(214, 100%, 65%)` |
+| `primary-foreground` | Texto sobre `primary` | branco | branco |
+| `secondary` | Fundo de elementos secundários | | |
+| `muted` | Fundos desativados, divisores | | |
+| `muted-foreground` | Texto de suporte, metadados | | |
+| `accent` | Hover de elementos interativos | | |
+| `destructive` | Ações perigosas, erros | vermelho | vermelho |
+| `border` | Bordas padrão | | |
+| `ring` | Focus ring | | |
+
+#### Cores da Marca (Brand)
+
+```css
+/* Gradiente principal — azul → roxo → laranja */
+background: linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 50%, #FF8A2A 100%);
+```
+
+| Nome | Hex | HSL | Uso |
+|---|---|---|---|
+| Brand Blue | `#3A8DFF` | `hsl(214, 100%, 61%)` | Cor primária, CTA principal |
+| Brand Purple | `#7B3FF2` | `hsl(263, 89%, 60%)` | Gradiente do meio |
+| Brand Orange | `#FF8A2A` | `hsl(28, 100%, 58%)` | Cor de energia, destaque |
+
+**Classes utilitárias disponíveis:**
+- `.bg-brand-gradient` — aplica o gradiente como background
+- `.text-brand-gradient` — aplica o gradiente em texto (via background-clip)
+
+#### Cores de Estado e Categoria
+
+| Contexto | Cor | Classes Tailwind |
+|---|---|---|
+| Apoio / Curtidas | Rosa | `text-rose-400`, `bg-rose-500/10` |
+| Fogo / Energia | Laranja | `text-orange-400`, `bg-orange-500/10` |
+| Conquista / Troféu | Amarelo | `text-amber-400`, `bg-yellow-500/10` |
+| Evolução / Crescimento | Verde | `text-emerald-400`, `bg-green-500/10` |
+| Força / Motivação | Azul | `text-blue-400`, `bg-blue-500/10` |
+| Raio / Energia | Amarelo brilhante | `text-yellow-400` |
+| Novo seguidor | Azul | `bg-blue-500/10`, `border-blue-200/50` |
+| Novo comentário | Roxo | `bg-purple-500/10`, `border-purple-200/50` |
+| Duelo | Laranja | `bg-orange-500/10`, `border-orange-700/40` |
+| Equipamento | Azul | `bg-blue-500/15 text-blue-400` |
+| Suplemento | Roxo | `bg-purple-500/15 text-purple-400` |
+| Alimento | Verde | `bg-green-500/15 text-green-400` |
+| Vestuário | Rosa | `bg-pink-500/15 text-pink-400` |
+| Serviço | Laranja | `bg-orange-500/15 text-orange-400` |
+
+> **Regra:** Opacidade `/10` ou `/15` para fundos de badges/notificações. Opacidade `/40` ou `/50` para bordas. Sempre use a versão `400` ou `500` para texto sobre fundo claro/escuro respectivamente.
+
+---
+
+## 2. Tipografia
+
+### 2.1 Font Family
+
+```css
+font-family: 'Inter', sans-serif;
+```
+
+Importada via Google Fonts. Pesos utilizados: **400, 500, 600, 700, 800**.
+
+### 2.2 Escala Tipográfica
+
+| Classe Tailwind | Tamanho | Uso |
+|---|---|---|
+| `text-[11px]` | 11px | Labels de navegação mobile, hints mínimos |
+| `text-xs` | 12px | Badges, metadados, timestamps |
+| `text-sm` | 14px | Descrições, textos secundários, labels |
+| `text-base` | 16px | Corpo de texto, parágrafos |
+| `text-lg` | 18px | Subtítulos, nomes de usuário em destaque |
+| `text-xl` | 20px | Títulos de seção |
+| `text-2xl` | 24px | Títulos principais de página |
+| `text-3xl+` | 30px+ | Evitar — reservar para landing pages |
+
+### 2.3 Font Weight
+
+| Classe | Peso | Uso |
+|---|---|---|
+| `font-normal` | 400 | Corpo de texto corrido |
+| `font-medium` | 500 | Texto de destaque sutil |
+| `font-semibold` | 600 | Títulos, labels de ação |
+| `font-bold` | 700 | Títulos principais, valores numéricos importantes |
+
+### 2.4 Combinações Recomendadas
+
+```
+Título de página:     text-2xl font-bold
+Subtítulo de seção:   text-lg font-semibold
+Nome de usuário:      text-sm font-semibold
+Texto de suporte:     text-sm text-muted-foreground
+Badge / Label:        text-xs font-medium
+Timestamp:            text-xs text-muted-foreground font-mono
+```
+
+---
+
+## 3. Espaçamento
+
+O projeto usa a escala padrão do Tailwind (base 4px).
+
+### 3.1 Escala de Uso Frequente
+
+| Valor | px | Uso típico |
+|---|---|---|
+| `gap-1` / `p-1` | 4px | Micro-espaços, ícones agrupados |
+| `gap-1.5` / `p-1.5` | 6px | Botões pequenos, badges |
+| `gap-2` / `p-2` | 8px | Espaço entre ícone e label |
+| `gap-3` / `p-3` | 12px | Espaço entre elementos de um card |
+| `gap-4` / `p-4` | 16px | Padding padrão de cards e containers |
+| `gap-6` / `p-6` | 24px | CardHeader / CardContent (Shadcn padrão) |
+
+### 3.2 Padrões de Layout
+
+```
+Row com ícone + texto:   flex items-center gap-2
+Coluna de elementos:     flex flex-col gap-3
+Separação entre cards:   space-y-3 ou gap-3
+Padding de página:       p-4 (mobile) / p-6 (desktop)
+```
+
+---
+
+## 4. Bordas e Arredondamento
+
+### 4.1 Border Radius
+
+| Classe | Valor | Uso |
+|---|---|---|
+| `rounded-full` | 9999px | Avatares, botões pill, badges status |
+| `rounded-2xl` | 1rem+4px | Botões grandes, cards de destaque |
+| `rounded-xl` | 1rem | Nav items ativos |
+| `rounded-lg` | ~0.75rem | Cards padrão, containers |
+| `rounded-md` | calc(var(--radius) - 2px) | Inputs, selects, elementos internos |
+| `rounded-sm` | calc(var(--radius) - 6px) | Elementos muito pequenos |
+
+> **Regra de ouro:** Botões de ação principal → `rounded-full`. Cards → `rounded-lg`. Inputs → `rounded-md`.
+
+### 4.2 Bordas
+
+```
+Borda padrão:         border border-border
+Borda sutil:          border border-border/40
+Borda de ênfase:      border border-border/60
+Borda colorida:       border border-blue-200/50
+Sem borda:            border-0 ou remover a classe border
+```
+
+---
+
+## 5. Sombras e Elevação
+
+| Classe | Uso |
+|---|---|
+| `shadow-sm` | Cards padrão, elevação sutil |
+| `shadow-md` | Drawers, dropdowns |
+| `shadow-lg` | Modais, FABs |
+| `shadow-xl` | Elementos em destaque máximo |
+
+> O projeto usa sombras com moderação. Preferir bordas (`border-border/40`) a sombras pesadas para separar elementos.
+
+---
+
+## 6. Componentes — Botões
+
+### 6.1 Variantes
+
+| Variante | Uso | Exemplo visual |
+|---|---|---|
+| `default` | Ação principal (CTA) | Fundo azul, texto branco |
+| `outline` | Ação secundária | Borda com fundo transparente |
+| `ghost` | Ação terciária, ícones | Apenas hover visível |
+| `secondary` | Ação alternativa neutra | Fundo cinza |
+| `destructive` | Ações perigosas | Fundo vermelho |
+| `link` | Navegação em texto | Texto azul sublinhado |
+
+### 6.2 Tamanhos
+
+| Size | Altura | Uso |
+|---|---|---|
+| `sm` | 36px (`h-9`) | Botões compactos, listas |
+| `default` | 40px (`h-10`) | Botão padrão |
+| `lg` | 44px (`h-11`) | CTAs principais, formulários |
+| `icon` | 40x40px (`h-10 w-10`) | Botões apenas com ícone |
+
+### 6.3 Padrões de Uso
+
+```tsx
+// CTA principal de uma tela
+<Button className="w-full rounded-full" size="lg">
+  Publicar
+</Button>
+
+// Ação secundária
+<Button variant="outline" size="sm" className="rounded-full">
+  Editar
+</Button>
+
+// Botão de ícone (ghost)
+<Button variant="ghost" size="icon">
+  <Heart className="h-5 w-5" />
+</Button>
+
+// Botão destrutivo
+<Button variant="destructive" className="rounded-full">
+  Excluir conta
+</Button>
+```
+
+### 6.4 Regras
+
+- **Sempre** use `rounded-full` em botões de ação principal e secundária
+- Botões de largura total (`w-full`) em formulários e drawers
+- Nunca misture `rounded-lg` e `rounded-full` no mesmo grupo de botões
+- Estados `disabled`: opacity-50 é aplicado automaticamente — não force visualmente
+- Gap entre ícone e texto: sempre `gap-2`
+
+---
+
+## 7. Componentes — Cards
+
+### 7.1 Card Padrão (Shadcn)
+
+```tsx
+<Card className="border-border/60">
+  <CardHeader>
+    <CardTitle>Título</CardTitle>
+    <CardDescription>Descrição</CardDescription>
+  </CardHeader>
+  <CardContent>
+    {/* conteúdo */}
+  </CardContent>
+</Card>
+```
+
+### 7.2 Anatomia dos Tipos de Card
+
+#### Card de Post (Feed)
+
+```
+┌─────────────────────────────────┐
+│ [Avatar] Nome  @handle  · tempo │ ← Header: flex items-center gap-2
+│─────────────────────────────────│
+│                                 │
+│     Imagem/Vídeo (aspect-square)│ ← Media container
+│                                 │
+│─────────────────────────────────│
+│ Caption em text-sm              │ ← Corpo do post
+│─────────────────────────────────│
+│ [❤️ 12] [💬 3] [🔥 5]          │ ← Actions: flex items-center gap-4
+└─────────────────────────────────┘
+```
+
+#### Card de Notificação
+
+```
+┌─────────────────────────────────────┐
+│ [bg-blue-500/10] [border-blue-200/50]│
+│ [Icon azul] Título em font-semibold  │
+│             Descrição em text-sm     │
+│             Tempo em text-xs muted   │
+└─────────────────────────────────────┘
+```
+
+#### Card de Produto (vitrine)
+
+```
+┌────────────────────────────────────────┐
+│ Imagem (aspect-video)                  │
+│ [Badge categoria]          [💙 likes]  │
+│ Título em font-semibold                │
+│ Descrição em text-sm muted-foreground  │
+│ R$ 99,90  ~~R$ 120,00~~               │
+│ [Avatar] Nome do vendedor              │
+└────────────────────────────────────────┘
+```
+
+### 7.3 Regras de Cards
+
+- Borda padrão: `border-border/60` (não `border` puro)
+- Rounded: `rounded-lg` (não `rounded-xl` ou `rounded-2xl`)
+- Background: `card` token (não `background`)
+- Padding de conteúdo: `p-4` (mobile) / `p-6` (CardContent padrão)
+
+---
+
+## 8. Componentes — Formulários
+
+### 8.1 Input
+
+```tsx
+<div className="space-y-1.5">
+  <Label htmlFor="campo">Campo</Label>
+  <Input id="campo" placeholder="Placeholder..." />
+</div>
+```
+
+- Altura: `h-10` (padrão Shadcn)
+- Rounded: `rounded-md`
+- Border: `border-input`
+- Focus: `ring-2 ring-ring ring-offset-2`
+
+### 8.2 Textarea
+
+```tsx
+<Textarea
+  placeholder="Escreva algo..."
+  className="min-h-[80px] resize-none"
+/>
+```
+
+### 8.3 Select
+
+```tsx
+<Select>
+  <SelectTrigger className="rounded-md">
+    <SelectValue placeholder="Escolha..." />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="opcao">Opção</SelectItem>
+  </SelectContent>
+</Select>
+```
+
+### 8.4 Grupo de Formulário (Padrão)
+
+```
+Espaçamento entre campos: space-y-4
+Espaçamento entre label e campo: space-y-1.5
+Botão de submit: w-full rounded-full (no final do form)
+```
+
+---
+
+## 9. Componentes — Modais e Drawers
+
+### 9.1 Quando usar Dialog vs Drawer
+
+| Situação | Componente |
+|---|---|
+| Confirmação de ação (sim/não) | `AlertDialog` |
+| Formulário simples (desktop-friendly) | `Dialog` |
+| Painéis de conteúdo ricos no mobile | `Drawer` |
+| Menus contextuais | `DropdownMenu` |
+| Info rápida ao hover | `Tooltip` |
+
+### 9.2 Dialog Padrão
+
+```tsx
+<Dialog>
+  <DialogTrigger asChild>
+    <Button variant="outline">Abrir</Button>
+  </DialogTrigger>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Título</DialogTitle>
+      <DialogDescription>Descrição</DialogDescription>
+    </DialogHeader>
+    {/* conteúdo */}
+    <DialogFooter>
+      <Button variant="outline">Cancelar</Button>
+      <Button>Confirmar</Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+```
+
+### 9.3 Drawer Padrão (Mobile-first)
+
+```tsx
+<Drawer>
+  <DrawerTrigger asChild>
+    <Button>Abrir</Button>
+  </DrawerTrigger>
+  <DrawerContent>
+    <DrawerHeader>
+      <DrawerTitle>Título</DrawerTitle>
+    </DrawerHeader>
+    <div className="p-4">
+      {/* conteúdo scrollável */}
+    </div>
+  </DrawerContent>
+</Drawer>
+```
+
+---
+
+## 10. Componentes — Feedback e Estados
+
+### 10.1 Toast (Obrigatório em ações assíncronas)
+
+```tsx
+const { toast } = useToast();
+
+// Sucesso
+toast({ title: "Publicado com sucesso!" });
+
+// Erro
+toast({
+  title: "Erro ao publicar",
+  description: "Tente novamente.",
+  variant: "destructive"
+});
+```
+
+> **Regra:** Todo `async/await` com efeito colateral visível (criar, editar, deletar, seguir) **deve** ter toast de sucesso e de erro.
+
+### 10.2 Loading States
+
+```tsx
+// Spinner (ações rápidas)
+import { LoadingSpinner } from "@/components/shared/animated-loading";
+<LoadingSpinner />
+
+// Dots (carregamentos de conteúdo)
+<LoadingDots />
+
+// Skeleton (listas e feeds)
+<PostSkeleton />
+<SkeletonLoader />
+```
+
+> **Regra:** Nunca mostre conteúdo vazio durante carregamento. Use sempre um skeleton ou spinner correspondente ao tipo de conteúdo.
+
+### 10.3 Empty States
+
+```tsx
+<div className="flex flex-col items-center justify-center gap-3 p-8 text-center">
+  <IconRelevante className="h-10 w-10 text-muted-foreground" />
+  <p className="text-sm text-muted-foreground">
+    Nenhum conteúdo encontrado.
+  </p>
+  <Button variant="outline" size="sm">Ação sugerida</Button>
+</div>
+```
+
+### 10.4 Estados de Botão com Loading
+
+```tsx
+<Button disabled={isLoading}>
+  {isLoading ? (
+    <Loader2 className="h-4 w-4 animate-spin" />
+  ) : (
+    "Publicar"
+  )}
+</Button>
+```
+
+---
+
+## 11. Ícones
+
+### 11.1 Biblioteca
+
+**Lucide React** é a biblioteca padrão. Não usar outras bibliotecas de ícones.
+
+```tsx
+import { Heart, MessageCircle, Home } from "lucide-react";
+```
+
+### 11.2 Tamanhos Padrão
+
+| Tamanho | Classe | Uso |
+|---|---|---|
+| Tiny | `h-3 w-3` | Micro-indicadores |
+| Small | `h-4 w-4` | Ícones em texto, badges |
+| Medium | `h-5 w-5` | Ícones de ação padrão |
+| Large | `h-6 w-6` | Navegação principal |
+| XL | `h-8 w-8` | Ilustrações de empty state |
+| XXL | `h-10 w-10` | Avatares, empty state ilustrativo |
+
+### 11.3 Ícones por Contexto
+
+| Contexto | Ícone |
+|---|---|
+| Feed / Home | `Home` |
+| Busca | `Search` |
+| Novo post | `PlusSquare` |
+| Treinos | `Dumbbell` |
+| Comunidade | `Users2` |
+| Notificações | `Bell` |
+| Shots/Reels | `Video` |
+| vitrine | `ShoppingBag` |
+| Perfil | (Avatar) |
+| Curtir | `Heart` |
+| Comentar | `MessageCircle` |
+| Seguir | `UserPlus` |
+| Seguindo | `UserCheck` |
+| Enviar | `Send` |
+| Deletar | `Trash2` |
+| Editar | `Edit2` / `Pencil` |
+| Mais opções | `MoreVertical` |
+| Voltar | `ArrowLeft` / `ChevronLeft` |
+| Configurações | `Settings` |
+| Compartilhar | `Share2` |
+| Fogo/Energia | `Flame` |
+| Raio | `Zap` |
+| Troféu | `Trophy` |
+| Alvo/Meta | `Target` |
+| Loading | `Loader2` (com `animate-spin`) |
+
+---
+
+## 12. Layout e Grid
+
+### 12.1 Estrutura Geral
+
+```
+Desktop (md+):
+┌──────────────┬─────────────────────┬──────────────┐
+│  Sidebar     │   Feed/Conteúdo     │  (futuro)    │
+│  244px fixed │   max-w-[680px]     │              │
+│              │   mx-auto           │              │
+└──────────────┴─────────────────────┴──────────────┘
+
+Mobile:
+┌───────────────────────────────────────┐
+│ Top Header (fixed)                    │
+├───────────────────────────────────────┤
+│ Conteúdo (pt para header, pb para nav)│
+├───────────────────────────────────────┤
+│ Bottom Nav (fixed, 5 itens)           │
+└───────────────────────────────────────┘
+```
+
+### 12.2 Breakpoints
+
+O projeto usa apenas o breakpoint `md:` (768px) para separar mobile de desktop.
+
+```css
+/* Mobile-first */
+.classe-mobile
+md:classe-desktop
+```
+
+### 12.3 Containers Padrão
+
+| Uso | Classes |
+|---|---|
+| Feed/Conteúdo central | `max-w-[680px] mx-auto w-full` |
+| Sidebar | `w-[244px] shrink-0` |
+| Página full-width | `w-full` |
+| Centralização vertical | `flex items-center justify-center min-h-dvh` |
+
+### 12.4 Grid Comum
+
+```tsx
+// Bottom Nav (5 itens)
+<nav className="grid grid-cols-5">
+
+// Duas colunas
+<div className="grid grid-cols-2 gap-3">
+
+// Emoji picker
+<div className="grid grid-cols-8 gap-0.5">
+```
+
+---
+
+## 13. Animações e Transições
+
+### 13.1 Classes Customizadas
+
+```css
+.transition-smooth      /* 300ms ease-out — padrão */
+.transition-smooth-fast /* 150ms ease-out — hover rápido */
+.transition-smooth-slow /* 500ms ease-out — entrada de tela */
+```
+
+### 13.2 Quando Usar Cada Animação
+
+| Situação | Classe |
+|---|---|
+| Hover de botões/links | `transition-colors duration-150` |
+| Hover de cards | `transition-all duration-200` |
+| Abrir/fechar drawer | gerenciado pelo Shadcn/Vaul |
+| Loading spinner | `animate-spin` (Loader2) |
+| Skeleton loading | `animate-pulse` |
+| Dots de carregamento | `animate-bounce` com delays |
+| Micro-interação de reação | `hover:scale-125 transition-transform` |
+| Botão pressionado | `active:scale-95` |
+
+### 13.3 Performance
+
+- Use `will-change-transform` apenas em elementos animados frequentemente (FAB, reações)
+- Prefira `transform` e `opacity` para animações (GPU-accelerated)
+- Evite animar `width`, `height` ou `top/left` — causam reflow
+
+---
+
+## 14. Dark Mode
+
+### 14.1 Implementação
+
+Via `next-themes` com atributo `class` na tag `<html>`. As cores são ajustadas automaticamente via CSS variables HSL.
+
+### 14.2 Regras
+
+- **Nunca hardcode cores** que não se adaptem ao dark mode. Use sempre os tokens semânticos (`text-foreground`, `bg-background`, `bg-card`, etc.)
+- Para overlays e opacidades, use o padrão `/10` ou `/15` que funciona em ambos os modos
+- Para lógica condicional de cor em componentes: `const { resolvedTheme } = useTheme()`
+
+```tsx
+// Correto — usa token semântico
+<div className="bg-card text-foreground">
+
+// Incorreto — hardcoded que quebra no dark mode
+<div className="bg-white text-gray-900">
+```
+
+### 14.3 Ajustes de Cor no Dark Mode
+
+As brand colors são levemente mais brilhantes no dark mode para manter o contraste:
+
+| Token | Light | Dark |
+|---|---|---|
+| `primary` | 61% lightness | 65% lightness |
+| brand-2 (laranja) | 58% lightness | 62% lightness |
+| brand-3 (roxo) | 60% lightness | 65% lightness |
+
+---
+
+## 15. Padrões de Uso (Do's & Don'ts)
+
+### ✅ Do's
+
+- **Imagens de usuário:** sempre usar `<ImageWithFallback>` — nunca `<img>` direto
+- **Ações assíncronas:** sempre toast de sucesso E erro
+- **Loading:** sempre mostrar skeleton ou spinner — nunca conteúdo vazio
+- **Botões de ação principal:** sempre `rounded-full`
+- **Ícones:** sempre Lucide, tamanho `h-4 w-4` (pequeno) ou `h-5 w-5` (médio)
+- **Cores:** sempre via tokens semânticos Tailwind
+- **Tipografia:** sempre via classes Tailwind (não `style={{ fontSize }}`)
+- **Bordas:** usar `border-border/40` ou `border-border/60` para bordas sutis
+- **Gap entre ícone e texto:** sempre `gap-2`
+
+### ❌ Don'ts
+
+- Não use `<img>` diretamente para avatares ou fotos de usuário
+- Não hardcode cores hex ou rgb em `style={}`
+- Não crie um novo componente se um Shadcn já resolve
+- Não misture `rounded-full` e `rounded-lg` no mesmo grupo de botões
+- Não use `animate-spin` em spinner customizado — use `<LoadingSpinner>` do projeto
+- Não use `text-gray-*` — use `text-muted-foreground`
+- Não use `bg-white` ou `bg-black` — use `bg-background` ou `bg-foreground`
+- Não omita toast em ações que salvam, deletam ou enviam dados
+- Não use `min-h-screen` — prefira `min-h-dvh` (dynamic viewport height, melhor no mobile)
+- Não crie shadow pesado (`shadow-2xl`) em cards do feed — use `shadow-sm` ou borda
+
+---
+
+## Apêndice — Checklist de Nova Tela
+
+Antes de considerar uma tela pronta, verifique:
+
+- [ ] Segue a paleta de cores via tokens semânticos
+- [ ] Tipografia usa a escala definida neste documento
+- [ ] Botões de ação principal têm `rounded-full`
+- [ ] Imagens de usuário usam `<ImageWithFallback>`
+- [ ] Todas as ações assíncronas têm toast de sucesso e erro
+- [ ] Estado de loading tem skeleton ou spinner adequado
+- [ ] Estado vazio (empty state) está implementado
+- [ ] Funciona em dark mode (verificar com DevTools ou toggle)
+- [ ] Layout responsivo: mobile (bottom nav) e desktop (sidebar) testados
+- [ ] Ícones são Lucide, nos tamanhos corretos
+- [ ] Nenhuma cor hardcoded em `style={}`
+- [ ] O arquivo `docs/` correspondente foi atualizado

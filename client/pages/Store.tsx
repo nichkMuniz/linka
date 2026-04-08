@@ -921,7 +921,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage }: Profe
                   className="p-0.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
                   aria-label="Plano anterior"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
                 </button>
                 <span className="text-[10px] text-muted-foreground">
                   {planIndex + 1} / {plans.length}
@@ -931,7 +931,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage }: Profe
                   className="p-0.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
                   aria-label="Próximo plano"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
                 </button>
               </div>
             )}
@@ -1074,10 +1074,10 @@ export default function Store() {
         prev.map((p) =>
           p.id === id
             ? {
-                ...p,
-                user_liked: result === "liked",
-                likes_count: (p.likes_count ?? 0) + (result === "liked" ? 1 : -1),
-              }
+              ...p,
+              user_liked: result === "liked",
+              likes_count: (p.likes_count ?? 0) + (result === "liked" ? 1 : -1),
+            }
             : p,
         ),
       );
@@ -1181,104 +1181,104 @@ export default function Store() {
 
         {activeTab === "promocoes" && (
           <>
-        {/* Search */}
-        <div className="max-w-2xl mx-auto px-4 pb-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input
-              placeholder="Buscar promoções..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-        </div>
+            {/* Search */}
+            <div className="max-w-2xl mx-auto px-4 pb-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="Buscar promoções..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
 
-        {/* Category filter */}
-        <div className="max-w-2xl mx-auto px-4 pb-3">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors">
-                {activeCategory === "todos" ? (
-                  <PackageOpen className="h-4 w-4" />
-                ) : (
-                  CATEGORY_ICONS[activeCategory]
-                )}
-                <span>
-                  {activeCategory === "todos"
-                    ? "Todos"
-                    : PROMOTION_CATEGORIES.find((c) => c.value === activeCategory)?.label}
-                </span>
-                <svg className="h-3.5 w-3.5 ml-0.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[160px]">
-              <DropdownMenuItem
-                onClick={() => setActiveCategory("todos")}
-                className={`flex items-center gap-2 text-xs ${activeCategory === "todos" ? "font-semibold text-brand" : ""}`}
-              >
-                <PackageOpen className="h-4 w-4" />
-                Todos
-              </DropdownMenuItem>
-              {PROMOTION_CATEGORIES.map((c) => (
-                <DropdownMenuItem
-                  key={c.value}
-                  onClick={() => setActiveCategory(c.value)}
-                  className={`flex items-center gap-2 text-xs ${activeCategory === c.value ? "font-semibold text-brand" : ""}`}
-                >
-                  {CATEGORY_ICONS[c.value]}
-                  {c.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+            {/* Category filter */}
+            <div className="max-w-2xl mx-auto px-4 pb-3">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors">
+                    {activeCategory === "todos" ? (
+                      <PackageOpen className="h-4 w-4" />
+                    ) : (
+                      CATEGORY_ICONS[activeCategory]
+                    )}
+                    <span>
+                      {activeCategory === "todos"
+                        ? "Todos"
+                        : PROMOTION_CATEGORIES.find((c) => c.value === activeCategory)?.label}
+                    </span>
+                    <svg className="h-3.5 w-3.5 ml-0.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-[160px]">
+                  <DropdownMenuItem
+                    onClick={() => setActiveCategory("todos")}
+                    className={`flex items-center gap-2 text-xs ${activeCategory === "todos" ? "font-semibold text-brand" : ""}`}
+                  >
+                    <PackageOpen className="h-4 w-4" />
+                    Todos
+                  </DropdownMenuItem>
+                  {PROMOTION_CATEGORIES.map((c) => (
+                    <DropdownMenuItem
+                      key={c.value}
+                      onClick={() => setActiveCategory(c.value)}
+                      className={`flex items-center gap-2 text-xs ${activeCategory === c.value ? "font-semibold text-brand" : ""}`}
+                    >
+                      {CATEGORY_ICONS[c.value]}
+                      {c.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </>
         )}
 
         {activeTab === "profissionais" && (
           <>
-        {/* Professionals search */}
-        <div className="max-w-2xl mx-auto px-4 pb-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input
-              placeholder="Buscar profissionais..."
-              value={proSearch}
-              onChange={(e) => setProSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-        </div>
+            {/* Professionals search */}
+            <div className="max-w-2xl mx-auto px-4 pb-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="Buscar profissionais..."
+                  value={proSearch}
+                  onChange={(e) => setProSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
 
-        {/* Segment filter */}
-        <div className="max-w-2xl mx-auto px-4 pb-3">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors">
-                <Briefcase className="h-4 w-4" />
-                <span>{proSegment === "todos" ? "Todos os segmentos" : SEGMENT_LABELS[proSegment] ?? proSegment}</span>
-                <svg className="h-3.5 w-3.5 ml-0.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[180px]">
-              <DropdownMenuItem onClick={() => setProSegment("todos")} className={`flex items-center gap-2 text-xs ${proSegment === "todos" ? "font-semibold text-brand" : ""}`}>
-                <Users className="h-4 w-4" />
-                Todos os segmentos
-              </DropdownMenuItem>
-              {Object.entries(SEGMENT_LABELS).map(([value, label]) => (
-                <DropdownMenuItem
-                  key={value}
-                  onClick={() => setProSegment(value)}
-                  className={`flex items-center gap-2 text-xs ${proSegment === value ? "font-semibold text-brand" : ""}`}
-                >
-                  <Briefcase className="h-4 w-4" />
-                  {label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+            {/* Segment filter */}
+            <div className="max-w-2xl mx-auto px-4 pb-3">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors">
+                    <Briefcase className="h-4 w-4" />
+                    <span>{proSegment === "todos" ? "Todos os segmentos" : SEGMENT_LABELS[proSegment] ?? proSegment}</span>
+                    <svg className="h-3.5 w-3.5 ml-0.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-[180px]">
+                  <DropdownMenuItem onClick={() => setProSegment("todos")} className={`flex items-center gap-2 text-xs ${proSegment === "todos" ? "font-semibold text-brand" : ""}`}>
+                    <Users className="h-4 w-4" />
+                    Todos os segmentos
+                  </DropdownMenuItem>
+                  {Object.entries(SEGMENT_LABELS).map(([value, label]) => (
+                    <DropdownMenuItem
+                      key={value}
+                      onClick={() => setProSegment(value)}
+                      className={`flex items-center gap-2 text-xs ${proSegment === value ? "font-semibold text-brand" : ""}`}
+                    >
+                      <Briefcase className="h-4 w-4" />
+                      {label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </>
         )}
       </div>
@@ -1384,7 +1384,7 @@ export default function Store() {
           <AlertDialogHeader>
             <AlertDialogTitle>Inativar promoção?</AlertDialogTitle>
             <AlertDialogDescription>
-              Ela deixará de aparecer na loja para outros usuários.
+              Ela deixará de aparecer na vitrine para outros usuários.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

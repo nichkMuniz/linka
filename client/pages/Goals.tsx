@@ -4,11 +4,9 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   getProgrammedGoalsDb,
   createUserGoalDb,
-  createCustomGoalAndSelectDb,
   createCustomWorkoutDb,
   createCustomDietDb,
   updateUserGoalDb,
-  deleteUserGoalDb,
   getUserSelectedGoalIdsDb,
   getWorkoutsDb,
   getDietsDb,
@@ -39,7 +37,6 @@ import {
   saveDietHistoryDb,
   saveHabitHistoryDb,
   updateRoutineGoalDb,
-  updateRoutineNameDb,
   hasCompletedRoutineToday,
   getRoutineTypeName,
   createPostDb,
@@ -52,7 +49,6 @@ import {
   getTodayMacroSummaryDb,
   awardNutritionBadgesDb,
   getTodayMoodDb,
-  saveTodayMoodDb,
   type MoodValue,
   type CompletedRoutineExercise,
   type ProgrammedGoal,
@@ -109,7 +105,6 @@ import {
   Timer,
   TrendingUp,
   Camera,
-  ImageIcon,
   Tag,
   Swords,
   Droplets,
@@ -118,7 +113,6 @@ import {
   Zap,
   Apple,
   AlertCircle,
-  CalendarIcon,
 } from "lucide-react";
 import {
   Dialog,
@@ -147,10 +141,17 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
-import { Calendar } from "@/components/ui/calendar";
 import { Switch } from "@/components/ui/switch";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
+import { EditGoalDrawer } from "@/components/goals/edit-goal-drawer";
+import { MoodDialog } from "@/components/goals/mood-dialog";
+import { RenameRoutineDialog } from "@/components/goals/rename-routine-dialog";
+import { ImageZoomDrawer } from "@/components/shared/image-zoom-drawer";
+import { CreateWorkoutDrawer } from "@/components/goals/create-workout-drawer";
+import { CreateGoalDrawer } from "@/components/goals/create-goal-drawer";
+import { LinkGoalDrawer } from "@/components/goals/link-goal-drawer";
+import { ExecuteAtDrawer } from "@/components/goals/execute-at-drawer";
 import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
@@ -214,9 +215,6 @@ export default function Goals() {
   const [selectedDietCategories, setSelectedDietCategories] = React.useState<Set<string>>(new Set());
   const [routineName, setRoutineName] = React.useState("");
   const [showExecuteAtStep, setShowExecuteAtStep] = React.useState(false);
-  const [executeAtDate, setExecuteAtDate] = React.useState<Date | undefined>(undefined);
-  const [executeAtTime, setExecuteAtTime] = React.useState("");
-  const [executeAtCalendarOpen, setExecuteAtCalendarOpen] = React.useState(false);
 
   // Base data for lookups
   const [workouts, setWorkouts] = React.useState<Workout[]>([]);
@@ -295,10 +293,6 @@ export default function Goals() {
   // Edit goal modal state
   const [editGoalModalOpen, setEditGoalModalOpen] = React.useState(false);
   const [editingGoal, setEditingGoal] = React.useState<UserGoal | null>(null);
-  const [editGoalDuration, setEditGoalDuration] = React.useState(0);
-  const [editGoalQuantity, setEditGoalQuantity] = React.useState(0);
-  const [isUpdatingGoal, setIsUpdatingGoal] = React.useState(false);
-  const [editGoalVisibility, setEditGoalVisibility] = React.useState<number>(1);
 
   // Check-in system state
   const [dailyCheckInDone, setDailyCheckInDone] = React.useState(false);
@@ -325,7 +319,6 @@ export default function Goals() {
   // ─── Humor do Dia ─────────────────────────────────────────────────────────
   const [moodModalOpen, setMoodModalOpen] = React.useState(false);
   const [todayMood, setTodayMood] = React.useState<MoodValue | null>(null);
-  const [isSavingMood, setIsSavingMood] = React.useState(false);
   // Ref para garantir que o modal de humor seja exibido apenas uma vez por sessão
   const moodModalShownRef = React.useRef(false);
 
@@ -369,18 +362,10 @@ export default function Goals() {
 
   // Create custom workout drawer state
   const [createWorkoutDrawerOpen, setCreateWorkoutDrawerOpen] = React.useState(false);
-  const [newWorkoutName, setNewWorkoutName] = React.useState("");
-  const [newWorkoutDescription, setNewWorkoutDescription] = React.useState("");
-  const [newWorkoutMuscleGroup, setNewWorkoutMuscleGroup] = React.useState("");
-  const [isCreatingWorkout, setIsCreatingWorkout] = React.useState(false);
+  const [createWorkoutInitialName, setCreateWorkoutInitialName] = React.useState("");
 
   // Create custom goal drawer state
   const [createGoalDrawerOpen, setCreateGoalDrawerOpen] = React.useState(false);
-  const [newGoalDescription, setNewGoalDescription] = React.useState("");
-  const [newGoalType, setNewGoalType] = React.useState<1 | 2 | 3>(1);
-  const [newGoalDuration, setNewGoalDuration] = React.useState(30);
-  const [newGoalQuantity, setNewGoalQuantity] = React.useState(1);
-  const [isCreatingGoal, setIsCreatingGoal] = React.useState(false);
 
   // Goal completion celebration modal state
   const [celebrationGoal, setCelebrationGoal] = React.useState<UserGoal | null>(null);
@@ -959,83 +944,6 @@ export default function Goals() {
     }
   };
 
-  const handleCreateCustomWorkout = async () => {
-    if (!newWorkoutName.trim()) {
-      toast({ title: "Nome obrigatório", description: "Informe o nome do exercício.", variant: "destructive" });
-      return;
-    }
-
-    setIsCreatingWorkout(true);
-    try {
-      const newWorkout = await createCustomWorkoutDb(
-        newWorkoutName.trim(),
-        newWorkoutDescription.trim(),
-        newWorkoutMuscleGroup.trim(),
-      );
-
-      // Add to local workouts list and auto-select it
-      setWorkouts((prev) => [newWorkout, ...prev]);
-      setSelectedItems((prev) => new Set([...prev, newWorkout.id]));
-
-      toast({ title: "Exercício criado!", description: newWorkoutName.trim() });
-      setCreateWorkoutDrawerOpen(false);
-      setNewWorkoutName("");
-      setNewWorkoutDescription("");
-      setNewWorkoutMuscleGroup("");
-    } catch (err: any) {
-      toast({ title: "Erro ao criar exercício", description: err?.message || "Tente novamente.", variant: "destructive" });
-    } finally {
-      setIsCreatingWorkout(false);
-    }
-  };
-
-  const handleCreateCustomGoal = async () => {
-    if (!user) return;
-    if (!newGoalDescription.trim()) {
-      toast({ title: "Descrição obrigatória", description: "Informe uma descrição para a meta.", variant: "destructive" });
-      return;
-    }
-
-    setIsCreatingGoal(true);
-    try {
-      const goalId = await createCustomGoalAndSelectDb(
-        user.id,
-        newGoalDescription.trim(),
-        newGoalType,
-        newGoalDuration,
-        newGoalQuantity,
-      );
-
-      // Refresh userGoals so the new goal appears in Metas Ativas immediately
-      const freshUserGoals = await getUserGoalsDb();
-      setUserGoals(freshUserGoals);
-      setSelectedGoalIds((prev) => [...prev, goalId]);
-
-      // Adiciona a meta customizada ao state goals para que apareça na seção "Metas Ativas"
-      setGoals((prev) => {
-        if (prev.some((g) => g.id === goalId)) return prev;
-        return [...prev, {
-          id: goalId,
-          description: newGoalDescription.trim(),
-          duration: newGoalDuration,
-          quantity: newGoalQuantity,
-          type: newGoalType,
-          created_by_user: 1,
-        }];
-      });
-
-      toast({ title: "Meta criada!", description: newGoalDescription.trim() });
-      setCreateGoalDrawerOpen(false);
-      setNewGoalDescription("");
-      setNewGoalType(1);
-      setNewGoalDuration(30);
-      setNewGoalQuantity(1);
-    } catch (err: any) {
-      toast({ title: "Erro ao criar meta", description: err?.message || "Tente novamente.", variant: "destructive" });
-    } finally {
-      setIsCreatingGoal(false);
-    }
-  };
 
   const handleAddRoutineClick = () => {
     setAddRoutineModalOpen(true);
@@ -1935,8 +1843,6 @@ export default function Goals() {
       setAddToRoutineCardName(null);
       setShowMuscleFilterPanel(false);
       setShowExecuteAtStep(false);
-      setExecuteAtDate(undefined);
-      setExecuteAtTime("");
 
       // Refresh routines and items data to show newly added items
       if (user) {
@@ -2158,9 +2064,6 @@ export default function Goals() {
                                       days_completed: userGoal?.days_completed ?? 0,
                                       visibility: userGoal?.visibility ?? 1,
                                     });
-                                    setEditGoalDuration(duration);
-                                    setEditGoalQuantity(quantity);
-                                    setEditGoalVisibility(userGoal?.visibility ?? 1);
                                     setEditGoalModalOpen(true);
                                   }}
                                 >
@@ -3501,7 +3404,7 @@ export default function Goals() {
                           size="sm"
                           className="rounded-full gap-2 text-xs"
                           onClick={() => {
-                            setNewWorkoutName(addToRoutineCardName || routineName.trim() || "");
+                            setCreateWorkoutInitialName(addToRoutineCardName || routineName.trim() || "");
                             setCreateWorkoutDrawerOpen(true);
                           }}
                         >
@@ -3667,118 +3570,15 @@ export default function Goals() {
         </DrawerContent>
       </Drawer>
 
-      {/* Execute At Step — schedule drawer for diet/habit */}
-      <Drawer open={showExecuteAtStep} onOpenChange={(open) => {
-        if (!open) {
+      <ExecuteAtDrawer
+        open={showExecuteAtStep}
+        onOpenChange={(v) => { if (!v) setShowExecuteAtStep(false); }}
+        isSaving={isAddingRoutine}
+        onConfirm={(executeAt) => {
+          handleSaveRoutines(executeAt);
           setShowExecuteAtStep(false);
-          setExecuteAtCalendarOpen(false);
-        }
-      }}>
-        <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Horário para realizar</DrawerTitle>
-          </DrawerHeader>
-          <div className="flex flex-col gap-4 px-4 pb-6 flex-1 overflow-y-auto">
-            <p className="text-sm text-muted-foreground">
-              Defina quando você pretende realizar esta rotina. Esse campo é opcional — você pode pular se preferir.
-            </p>
-
-            {/* Date picker — inline calendar toggle */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Data (opcional)</label>
-              <button
-                type="button"
-                onClick={() => setExecuteAtCalendarOpen((v) => !v)}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm hover:border-brand/60 transition-colors text-left"
-              >
-                <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                {executeAtDate
-                  ? executeAtDate.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "long", year: "numeric" })
-                  : <span className="text-muted-foreground">Escolher data...</span>
-                }
-                <ChevronDown className={`h-4 w-4 text-muted-foreground ml-auto transition-transform ${executeAtCalendarOpen ? "rotate-180" : ""}`} />
-              </button>
-
-              {executeAtCalendarOpen && (
-                <div className="rounded-lg border border-border/60 bg-background overflow-hidden">
-                  <Calendar
-                    mode="single"
-                    selected={executeAtDate}
-                    onSelect={(date) => {
-                      setExecuteAtDate(date);
-                      setExecuteAtCalendarOpen(false);
-                    }}
-                    disabled={(date) => {
-                      const today = new Date();
-                      today.setHours(0, 0, 0, 0);
-                      const maxDate = new Date(today);
-                      maxDate.setFullYear(maxDate.getFullYear() + 1);
-                      return date < today || date > maxDate;
-                    }}
-                    className="mx-auto"
-                  />
-                </div>
-              )}
-
-              {executeAtDate && (
-                <button
-                  type="button"
-                  onClick={() => { setExecuteAtDate(undefined); setExecuteAtTime(""); }}
-                  className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-                >
-                  Remover data
-                </button>
-              )}
-            </div>
-
-            {/* Time picker — only shown when date is selected */}
-            {executeAtDate && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Horário (opcional)</label>
-                <input
-                  type="time"
-                  value={executeAtTime}
-                  onChange={(e) => setExecuteAtTime(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-brand/40"
-                />
-              </div>
-            )}
-
-            <div className="flex gap-3 mt-auto pt-2">
-              <Button
-                variant="outline"
-                className="flex-1 rounded-full"
-                onClick={() => {
-                  handleSaveRoutines(null);
-                  setShowExecuteAtStep(false);
-                  setExecuteAtDate(undefined);
-                  setExecuteAtTime("");
-                }}
-                disabled={isAddingRoutine}
-              >
-                Pular
-              </Button>
-              <Button
-                className="flex-1 rounded-full"
-                onClick={() => {
-                  let executeAt: string | null = null;
-                  if (executeAtDate) {
-                    const dateStr = executeAtDate.toISOString().split("T")[0];
-                    executeAt = executeAtTime ? `${dateStr}T${executeAtTime}:00` : dateStr;
-                  }
-                  handleSaveRoutines(executeAt);
-                  setShowExecuteAtStep(false);
-                  setExecuteAtDate(undefined);
-                  setExecuteAtTime("");
-                }}
-                disabled={isAddingRoutine}
-              >
-                {isAddingRoutine ? "Salvando..." : "Salvar"}
-              </Button>
-            </div>
-          </div>
-        </DrawerContent>
-      </Drawer>
+        }}
+      />
 
       {/* Workout Modal */}
       <Drawer open={workoutModalOpen} onOpenChange={(open) => { if (!open) { if (workoutStartTime !== null) { setWorkoutMinimized(true); setWorkoutModalOpen(false); } else { setWorkoutModalOpen(false); setWorkoutDuration(0); setWorkoutStartTime(null); } } else { setWorkoutModalOpen(true); } }}>
@@ -4230,149 +4030,18 @@ export default function Goals() {
       )}
 
       {/* Edit Goal Drawer */}
-      <Drawer open={editGoalModalOpen} onOpenChange={setEditGoalModalOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Editar Meta</DrawerTitle>
-          </DrawerHeader>
-
-          {editingGoal && (
-            <div className="flex-1 overflow-y-auto px-4 pb-6">
-              <div className="space-y-4">
-                <div className="p-4 bg-muted/20 rounded-lg">
-                  <p className="text-sm font-medium">{editingGoal.description}</p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Duração (dias)</label>
-                  <input
-                    type="number"
-                    value={editGoalDuration === 0 ? "" : editGoalDuration}
-                    onChange={(e) => setEditGoalDuration(e.target.value === "" ? 0 : parseInt(e.target.value) || 0)}
-                    placeholder="Digite a duração"
-                    className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Frequência (dias)</label>
-                  <input
-                    type="number"
-                    value={editGoalQuantity === 0 ? "" : editGoalQuantity}
-                    onChange={(e) => setEditGoalQuantity(e.target.value === "" ? 0 : parseInt(e.target.value) || 0)}
-                    placeholder="Digite a quantidade"
-                    className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-muted/20 rounded-lg mb-2">
-                  <div className="space-y-0.5 pr-4">
-                    <Label htmlFor="goal-visibility" className="text-sm font-medium">Deixar meta visível para outros</Label>
-                    <p className="text-xs text-muted-foreground leading-relaxed">Se desativado, apenas você poderá ver esta meta em seu perfil.</p>
-                  </div>
-                  <Switch
-                    id="goal-visibility"
-                    checked={editGoalVisibility === 1}
-                    onCheckedChange={(checked) => setEditGoalVisibility(checked ? 1 : 0)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Button
-                    onClick={async () => {
-                      if (!user || !editingGoal) return;
-                      setIsUpdatingGoal(true);
-                      try {
-                        const currentActualProgress = editingGoal.days_completed ?? 0;
-                        const newPerc = editGoalDuration > 0
-                          ? Math.min(100, Math.round((currentActualProgress / editGoalDuration) * 100))
-                          : 0;
-
-                        await updateUserGoalDb(editingGoal.id, {
-                          duration: editGoalDuration,
-                          quantity: editGoalQuantity,
-                          days_completed: currentActualProgress,
-                          perc: newPerc,
-                          visibility: editGoalVisibility,
-                        });
-
-                        // Re-fetch from DB to confirm changes were persisted
-                        const [freshUserGoals, freshSelectedIds] = await Promise.all([
-                          getUserGoalsDb(),
-                          getUserSelectedGoalIdsDb(),
-                        ]);
-                        setUserGoals(freshUserGoals);
-                        setSelectedGoalIds(freshSelectedIds);
-
-                        toast({
-                          title: "Meta atualizada!",
-                          description: "Suas alterações foram salvas.",
-                        });
-                        setEditGoalModalOpen(false);
-                      } catch (err: any) {
-                        const errorMsg = err?.message || "Tente novamente.";
-                        console.error("Error updating goal:", errorMsg);
-                        toast({
-                          title: "Erro ao atualizar meta",
-                          description: errorMsg,
-                          variant: "destructive",
-                        });
-                      } finally {
-                        setIsUpdatingGoal(false);
-                      }
-                    }}
-                    disabled={isUpdatingGoal || editGoalDuration === 0 || editGoalQuantity === 0}
-                    className="w-full rounded-full"
-                  >
-                    {isUpdatingGoal ? "Atualizando..." : "Salvar Alterações"}
-                  </Button>
-
-                  <Button
-                    onClick={async () => {
-                      if (!editingGoal) return;
-                      if (!confirm("Tem certeza que deseja desistir desta meta? Esta ação não pode ser desfeita.")) {
-                        return;
-                      }
-                      setIsUpdatingGoal(true);
-                      try {
-                        await deleteUserGoalDb(editingGoal.id);
-
-                        // Re-fetch goals from DB to ensure UI reflects the deletion
-                        const updatedGoals = await getUserGoalsDb();
-                        setUserGoals(updatedGoals);
-
-                        // Remove from selected goals (selectedGoalIds contains goal_id, not user_goal id)
-                        setSelectedGoalIds(
-                          selectedGoalIds.filter((id) => id !== editingGoal.goal_id)
-                        );
-
-                        toast({
-                          title: "Meta removida!",
-                          description: "Você desistiu da meta.",
-                        });
-                        setEditGoalModalOpen(false);
-                      } catch (err: any) {
-                        toast({
-                          title: "Erro ao remover meta",
-                          description: err?.message || "Tente novamente.",
-                          variant: "destructive",
-                        });
-                      } finally {
-                        setIsUpdatingGoal(false);
-                      }
-                    }}
-                    disabled={isUpdatingGoal}
-                    variant="destructive"
-                    className="w-full rounded-full"
-                  >
-                    {isUpdatingGoal ? "Removendo..." : "Desistir da Meta"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-        </DrawerContent>
-      </Drawer>
+      <EditGoalDrawer
+        open={editGoalModalOpen}
+        onOpenChange={setEditGoalModalOpen}
+        goal={editingGoal}
+        onGoalUpdated={(freshGoals, freshIds) => {
+          setUserGoals(freshGoals);
+          setSelectedGoalIds(freshIds);
+        }}
+        onGoalDeleted={(goalId) => {
+          setSelectedGoalIds((prev) => prev.filter((id) => id !== goalId));
+        }}
+      />
 
       {/* Finish Workout Confirmation Drawer */}
       <Drawer open={finishWorkoutConfirmOpen} onOpenChange={setFinishWorkoutConfirmOpen}>
@@ -5876,135 +5545,27 @@ export default function Goals() {
         </DrawerContent>
       </Drawer>
 
-      {/* Create Custom Workout Drawer */}
-      <Drawer open={createWorkoutDrawerOpen} onOpenChange={setCreateWorkoutDrawerOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Criar Exercício Personalizado</DrawerTitle>
-          </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-4 pb-6">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Nome do Exercício *</Label>
-                <Input
-                  placeholder="Ex: Agachamento livre"
-                  value={newWorkoutName}
-                  onChange={(e) => setNewWorkoutName(e.target.value)}
-                  maxLength={100}
-                />
-              </div>
+      <CreateWorkoutDrawer
+        open={createWorkoutDrawerOpen}
+        onOpenChange={setCreateWorkoutDrawerOpen}
+        muscleGroups={uniqueMuscleGroups}
+        initialName={createWorkoutInitialName}
+        onCreated={(workout) => {
+          setWorkouts((prev) => [workout, ...prev]);
+          setSelectedItems((prev) => new Set([...prev, workout.id]));
+        }}
+      />
 
-              <div className="space-y-2">
-                <Label>Grupo Muscular</Label>
-                <select
-                  value={newWorkoutMuscleGroup}
-                  onChange={(e) => setNewWorkoutMuscleGroup(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm"
-                >
-                  <option value="">Selecione um grupo muscular</option>
-                  {uniqueMuscleGroups.map((group) => (
-                    <option key={group} value={group}>{group}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Descrição</Label>
-                <Input
-                  placeholder="Como executar o exercício..."
-                  value={newWorkoutDescription}
-                  onChange={(e) => setNewWorkoutDescription(e.target.value)}
-                  maxLength={200}
-                />
-              </div>
-
-              <Button
-                onClick={handleCreateCustomWorkout}
-                disabled={isCreatingWorkout || !newWorkoutName.trim()}
-                className="w-full rounded-full"
-              >
-                {isCreatingWorkout ? "Criando..." : "Criar e Adicionar Exercício"}
-              </Button>
-            </div>
-          </div>
-        </DrawerContent>
-      </Drawer>
-
-      {/* Create Custom Goal Drawer */}
-      <Drawer open={createGoalDrawerOpen} onOpenChange={setCreateGoalDrawerOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Criar Meta Personalizada</DrawerTitle>
-          </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-4 pb-6">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Descrição *</Label>
-                <Input
-                  placeholder="Ex: Correr 5km por dia"
-                  value={newGoalDescription}
-                  onChange={(e) => setNewGoalDescription(e.target.value)}
-                  maxLength={120}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Tipo</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {([
-                    { value: 1, label: "Fitness", color: "bg-blue-500/10 text-blue-600 border-blue-300" },
-                    { value: 2, label: "Saúde", color: "bg-emerald-500/10 text-emerald-600 border-emerald-300" },
-                    { value: 3, label: "Hábitos", color: "bg-orange-500/10 text-orange-600 border-orange-300" },
-                  ] as const).map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setNewGoalType(opt.value)}
-                      className={`rounded-lg border-2 px-3 py-2 text-xs font-semibold transition-all ${newGoalType === opt.value
-                        ? opt.color + " border-current"
-                        : "border-border/60 text-muted-foreground"
-                        }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Duração (dias)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={365}
-                    value={newGoalDuration}
-                    onChange={(e) => setNewGoalDuration(Math.max(1, Number(e.target.value)))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Frequência (em dias)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={9999}
-                    value={newGoalQuantity}
-                    onChange={(e) => setNewGoalQuantity(Math.max(1, Number(e.target.value)))}
-                  />
-                </div>
-              </div>
-
-              <Button
-                onClick={handleCreateCustomGoal}
-                disabled={isCreatingGoal || !newGoalDescription.trim()}
-                className="w-full rounded-full"
-              >
-                {isCreatingGoal ? "Criando..." : "Criar e Selecionar Meta"}
-              </Button>
-            </div>
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <CreateGoalDrawer
+        open={createGoalDrawerOpen}
+        onOpenChange={setCreateGoalDrawerOpen}
+        userId={user?.id ?? ""}
+        onCreated={({ goalId, freshUserGoals, newGoal }) => {
+          setUserGoals(freshUserGoals);
+          setSelectedGoalIds((prev) => [...prev, goalId]);
+          setGoals((prev) => prev.some((g) => g.id === goalId) ? prev : [...prev, newGoal]);
+        }}
+      />
 
       {/* Goal Completion Celebration Modal */}
       {celebrationGoal && (
@@ -6065,156 +5626,33 @@ export default function Goals() {
       )}
 
       {/* Link Goal from Routines Tab */}
-      <Drawer open={linkGoalForRoutineOpen} onOpenChange={setLinkGoalForRoutineOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>Vincular Meta</DrawerTitle>
-          </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-3 pt-4">
-            {userGoals.filter((g) => g.perc < 100).length === 0 ? (
-              <div className="text-center py-10 text-sm text-muted-foreground">
-                Nenhuma meta ativa. Adicione uma meta primeiro.
-              </div>
-            ) : (
-              userGoals
-                .filter((g) => g.perc < 100)
-                .map((goal) => (
-                  <button
-                    key={goal.id}
-                    className="w-full p-4 rounded-xl border border-border/60 hover:border-brand/50 hover:bg-brand/5 transition-all text-left space-y-2"
-                    onClick={async () => {
-                      if (!linkGoalRoutineKey) return;
-                      try {
-                        const matchingRoutines = routines.filter(
-                          (r) =>
-                            r.type === linkGoalRoutineKey.typeCode &&
-                            (linkGoalRoutineKey.name
-                              ? r.name === linkGoalRoutineKey.name
-                              : !r.name),
-                        );
-                        for (const r of matchingRoutines) {
-                          await updateRoutineGoalDb(r.id, String(goal.goal_id));
-                        }
-                        setRoutines((prev) =>
-                          prev.map((r) =>
-                            matchingRoutines.find((mr) => mr.id === r.id)
-                              ? { ...r, goal_id: String(goal.goal_id) }
-                              : r,
-                          ),
-                        );
-                        toast({ title: "Meta vinculada!", description: `"${goal.description}" vinculada à rotina.` });
-                        setLinkGoalForRoutineOpen(false);
-                        setLinkGoalRoutineKey(null);
-                      } catch {
-                        toast({ title: "Erro ao vincular meta", variant: "destructive" });
-                      }
-                    }}
-                  >
-                    <p className="text-sm font-semibold">{goal.description}</p>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-muted rounded-full h-1.5 overflow-hidden">
-                        <div className="bg-brand h-full rounded-full" style={{ width: `${goal.perc}%` }} />
-                      </div>
-                      <span className="text-xs text-muted-foreground">{Math.round(goal.perc)}%</span>
-                    </div>
-                  </button>
-                ))
-            )}
-          </div>
-        </DrawerContent>
-      </Drawer>
-      {/* Image Zoom Modal */}
-      <Drawer open={!!imageZoom} onOpenChange={(open) => { if (!open) setImageZoom(null); }}>
-        <DrawerContent className="h-[100dvh] flex flex-col modal-enter">
-          {imageZoom && (
-            <>
-              {/* Close button */}
-              <button
-                onClick={() => setImageZoom(null)}
-                className="absolute top-4 right-4 z-10 h-8 w-8 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-              {imageZoom.src ? (
-                <img
-                  src={imageZoom.src}
-                  alt={imageZoom.name}
-                  className="w-full flex-shrink-0 object-cover"
-                  style={{ height: imageZoom.description ? "60dvh" : "80dvh" }}
-                />
-              ) : (
-                <div className="w-full flex-shrink-0 bg-muted flex items-center justify-center" style={{ height: "40dvh" }}>
-                  <ImageIcon className="h-16 w-16 text-muted-foreground/40" />
-                </div>
-              )}
-              <div className="flex-1 overflow-y-auto p-5 space-y-3">
-                <p className="font-semibold text-lg">{imageZoom.name}</p>
-                {imageZoom.description && (
-                  <p className="text-sm text-muted-foreground leading-relaxed">{imageZoom.description}</p>
-                )}
-              </div>
-            </>
-          )}
-        </DrawerContent>
-      </Drawer>
+      <LinkGoalDrawer
+        open={linkGoalForRoutineOpen}
+        onOpenChange={(v) => { setLinkGoalForRoutineOpen(v); if (!v) setLinkGoalRoutineKey(null); }}
+        userGoals={userGoals}
+        routines={routines}
+        routineKey={linkGoalRoutineKey}
+        onLinked={(routineIds, goalId) => {
+          setRoutines((prev) =>
+            prev.map((r) => routineIds.includes(r.id) ? { ...r, goal_id: goalId } : r)
+          );
+        }}
+      />
+      <ImageZoomDrawer item={imageZoom} onClose={() => setImageZoom(null)} />
 
-      {/* Rename Routine Dialog */}
-      <Dialog open={renameRoutineOpen} onOpenChange={setRenameRoutineOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Editar nome da rotina</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <Input
-              placeholder="Nome da rotina"
-              value={renameRoutineValue}
-              onChange={(e) => setRenameRoutineValue(e.target.value)}
-              autoFocus
-            />
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1 rounded-full"
-                onClick={() => setRenameRoutineOpen(false)}
-              >
-                Cancelar
-              </Button>
-              <Button
-                className="flex-1 rounded-full"
-                disabled={!renameRoutineValue.trim()}
-                onClick={async () => {
-                  if (!user || !renameRoutineData || !renameRoutineValue.trim()) return;
-                  try {
-                    await updateRoutineNameDb(
-                      user.id,
-                      renameRoutineData.oldName,
-                      renameRoutineData.typeCode,
-                      renameRoutineValue.trim(),
-                    );
-                    // Refresh local state
-                    const [freshRoutines, freshWorkouts, freshDiets, freshHabits] = await Promise.all([
-                      getUserRoutinesDb(user.id),
-                      getUserWorkoutsDb(user.id),
-                      getUserDietsDb(user.id),
-                      getUserHabitsDb(user.id),
-                    ]);
-                    setRoutines(freshRoutines);
-                    setUserWorkouts(freshWorkouts);
-                    setUserDiets(freshDiets);
-                    setUserHabits(freshHabits);
-                    toast({ title: "Rotina renomeada!", description: `Nome atualizado para "${renameRoutineValue.trim()}".` });
-                    setRenameRoutineOpen(false);
-                  } catch {
-                    toast({ title: "Erro ao renomear rotina", variant: "destructive" });
-                  }
-                }}
-              >
-                Salvar
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <RenameRoutineDialog
+        open={renameRoutineOpen}
+        onOpenChange={setRenameRoutineOpen}
+        userId={user?.id ?? ""}
+        routineData={renameRoutineData}
+        initialValue={renameRoutineValue}
+        onRenamed={({ routines, userWorkouts, userDiets, userHabits }) => {
+          setRoutines(routines);
+          setUserWorkouts(userWorkouts);
+          setUserDiets(userDiets);
+          setUserHabits(userHabits);
+        }}
+      />
 
       {/* Hidden canvas for goal completion card */}
       <canvas ref={goalCompletionCanvasRef} width={800} height={800} className="hidden" />
@@ -6311,58 +5749,13 @@ export default function Goals() {
 
 
       {/* ─── Modal de Humor do Dia ─────────────────────────────────────────── */}
-      <Dialog open={moodModalOpen} onOpenChange={(open) => { if (!open) setMoodModalOpen(false); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-center text-lg">Como você está se sentindo? 😊</DialogTitle>
-          </DialogHeader>
-          <p className="text-center text-sm text-muted-foreground -mt-2">
-            Você completou suas rotinas hoje! Registre seu humor do dia.
-          </p>
-          <div className="flex justify-center gap-3 py-4">
-            {([
-              { value: "muito_triste" as const, emoji: "😢", label: "Muito triste" },
-              { value: "triste" as const, emoji: "😕", label: "Triste" },
-              { value: "neutro" as const, emoji: "😐", label: "Neutro" },
-              { value: "feliz" as const, emoji: "😊", label: "Feliz" },
-              { value: "muito_feliz" as const, emoji: "😄", label: "Muito feliz" },
-            ] as const).map(({ value, emoji, label }) => (
-              <button
-                key={value}
-                disabled={isSavingMood}
-                onClick={async () => {
-                  if (!user) return;
-                  setIsSavingMood(true);
-                  try {
-                    await saveTodayMoodDb(user.id, value);
-                    setTodayMood(value);
-                    setMoodModalOpen(false);
-                    toast({ title: "Humor registrado!", description: `Humor salvo! ${emoji}` });
-                  } catch {
-                    toast({ title: "Erro ao salvar humor", variant: "destructive" });
-                  } finally {
-                    setIsSavingMood(false);
-                  }
-                }}
-                title={label}
-                className={[
-                  "flex flex-col items-center gap-1 p-2 rounded-xl transition-all",
-                  "hover:bg-muted/60 active:scale-95",
-                  todayMood === value ? "bg-muted ring-2 ring-primary" : "",
-                ].join(" ")}
-              >
-                <span className="text-3xl leading-none">{emoji}</span>
-                <span className="text-[10px] text-muted-foreground">{label}</span>
-              </button>
-            ))}
-          </div>
-          <div className="flex justify-end">
-            <Button variant="ghost" size="sm" onClick={() => setMoodModalOpen(false)}>
-              Agora não
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <MoodDialog
+        open={moodModalOpen}
+        onOpenChange={setMoodModalOpen}
+        userId={user?.id ?? ""}
+        todayMood={todayMood}
+        onMoodSaved={(mood) => setTodayMood(mood)}
+      />
 
     </div>
   );

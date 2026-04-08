@@ -108,7 +108,7 @@ Cada post na grade:
 
 ---
 
-## Tab: Loja
+## Tab: Vitrine
 
 Exibida automaticamente quando o usuário possui ofertas ativas (`profileOffers.length > 0`). Visível tanto no próprio perfil quanto no perfil de outros usuários.
 
@@ -270,7 +270,7 @@ Aberto ao clicar nas estatísticas:
 | Ver posts | ✅ | ✅ |
 | Ver shots | ✅ | ✅ |
 | Ver rotinas | ✅ | ✅ |
-| Ver loja (se tem ofertas) | ✅ | ✅ |
+| Ver vitrine (se tem ofertas) | ✅ | ✅ |
 
 ---
 

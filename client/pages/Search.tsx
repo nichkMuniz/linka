@@ -7,8 +7,6 @@ import {
   searchUsersDb,
   searchRoutinesDb,
   getAllUsersDb,
-  followUserDb,
-  unfollowUserDb,
   getFollowingIdsDb,
   getRoutineWorkoutsDb,
   getRoutineDietsDb,
@@ -20,10 +18,11 @@ import {
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
-import { UserPlus, UserCheck, ChevronDown, ChevronUp, Copy } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { FollowButton } from "@/components/shared/follow-button";
 
 type RoutineCardProps = {
   routine: RoutineResult;
@@ -152,7 +151,6 @@ export default function Search() {
   const [isLoadingWorkouts, setIsLoadingWorkouts] = React.useState(false);
   const [isLoadingDiets, setIsLoadingDiets] = React.useState(false);
   const [followingIds, setFollowingIds] = React.useState<Set<string>>(new Set());
-  const [followingLoadingIds, setFollowingLoadingIds] = React.useState<Set<string>>(new Set());
 
   // Expanded dropdown state: key = "userId::routineName"
   const [expandedKeys, setExpandedKeys] = React.useState<Set<string>>(new Set());
@@ -228,40 +226,6 @@ export default function Search() {
       }
     },
     [activeTab, allUsers, allWorkouts, allDiets, user?.id],
-  );
-
-  const handleToggleFollow = React.useCallback(
-    async (userId: string) => {
-      if (!user || followingLoadingIds.has(userId)) return;
-      const isCurrentlyFollowing = followingIds.has(userId);
-      // Optimistic update
-      if (isCurrentlyFollowing) {
-        setFollowingIds((prev) => { const s = new Set(prev); s.delete(userId); return s; });
-      } else {
-        setFollowingIds((prev) => new Set(prev).add(userId));
-      }
-      setFollowingLoadingIds((prev) => new Set(prev).add(userId));
-      try {
-        if (isCurrentlyFollowing) {
-          await unfollowUserDb(userId);
-          toast({ title: "Deixou de seguir", description: "Você deixou de seguir este usuário." });
-        } else {
-          await followUserDb(userId);
-          toast({ title: "Seguindo!", description: "Você começou a seguir este usuário." });
-        }
-      } catch (err: any) {
-        // Rollback
-        if (isCurrentlyFollowing) {
-          setFollowingIds((prev) => new Set(prev).add(userId));
-        } else {
-          setFollowingIds((prev) => { const s = new Set(prev); s.delete(userId); return s; });
-        }
-        toast({ title: "Erro", description: err.message || "Tente novamente.", variant: "destructive" });
-      } finally {
-        setFollowingLoadingIds((prev) => { const s = new Set(prev); s.delete(userId); return s; });
-      }
-    },
-    [followingIds, followingLoadingIds, user],
   );
 
   const handleTabChange = (tab: string) => {
@@ -377,19 +341,12 @@ export default function Search() {
                       {u.bio && <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{u.bio}</p>}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant={followingIds.has(u.id) ? "secondary" : "default"}
-                    className="shrink-0 rounded-full gap-2"
-                    onClick={() => handleToggleFollow(u.id)}
-                    disabled={followingLoadingIds.has(u.id)}
-                  >
-                    {followingIds.has(u.id) ? (
-                      <><UserCheck className="h-4 w-4" />{t("search_following")}</>
-                    ) : (
-                      <><UserPlus className="h-4 w-4" />{t("search_follow")}</>
-                    )}
-                  </Button>
+                  {u.id !== user?.id && (
+                    <FollowButton
+                      targetUserId={u.id}
+                      initialIsFollowing={followingIds.has(u.id)}
+                    />
+                  )}
                 </div>
               </CardContent>
             </Card>

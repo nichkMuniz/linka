@@ -1,9 +1,8 @@
 import * as React from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { getPostByIdDb, getPostLikeUsersDb, getUserGoalByIdDb, deletePostDb, updatePostDb, type PostWithUser, type UserGoal } from "@/lib/ritmofit-db";
+import { getPostByIdDb, getPostLikeUsersDb, getUserGoalByIdDb, deletePostDb, type PostWithUser, type UserGoal } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -11,6 +10,7 @@ import { ArrowLeft, Edit2, Trash2, MoreVertical, Rocket } from "lucide-react";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
+import { EditPostDrawer } from "@/components/post/edit-post-drawer";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,13 +27,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 
 // Module-level flag: survives StrictMode remount cycles, resets on navigation
 let _likesAutoOpenConsumed = false;
@@ -52,8 +45,6 @@ export default function PostDetail() {
 
   // Edit post state
   const [editDialogOpen, setEditDialogOpen] = React.useState(false);
-  const [editDescription, setEditDescription] = React.useState("");
-  const [isSavingEdit, setIsSavingEdit] = React.useState(false);
 
   // Delete post state
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
@@ -115,23 +106,7 @@ export default function PostDetail() {
 
   const handleEditOpen = () => {
     if (!post) return;
-    setEditDescription(post.description ?? "");
     setEditDialogOpen(true);
-  };
-
-  const handleEditSave = async () => {
-    if (!post) return;
-    setIsSavingEdit(true);
-    try {
-      await updatePostDb(post.id, editDescription, post.user_goal_id ? String(post.user_goal_id) : null);
-      setPost((prev) => prev ? { ...prev, description: editDescription } : prev);
-      setEditDialogOpen(false);
-      toast({ title: "Post atualizado com sucesso" });
-    } catch (err: any) {
-      toast({ title: "Erro ao editar post", description: err?.message, variant: "destructive" });
-    } finally {
-      setIsSavingEdit(false);
-    }
   };
 
   const handleDeletePost = async () => {
@@ -277,29 +252,16 @@ export default function PostDetail() {
         likes={postLikes}
       />
 
-      {/* Edit Post Dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar post</DialogTitle>
-          </DialogHeader>
-          <Textarea
-            value={editDescription}
-            onChange={(e) => setEditDescription(e.target.value)}
-            placeholder="Descrição do post..."
-            className="min-h-[120px]"
-            maxLength={500}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={isSavingEdit}>
-              Cancelar
-            </Button>
-            <Button onClick={handleEditSave} disabled={isSavingEdit}>
-              {isSavingEdit ? "Salvando..." : "Salvar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EditPostDrawer
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        post={post}
+        onSaved={(newDescription) => {
+          if (newDescription !== undefined) {
+            setPost((prev) => prev ? { ...prev, description: newDescription } : prev);
+          }
+        }}
+      />
 
       {/* Delete Post Confirmation */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
