@@ -113,6 +113,8 @@ import {
   Zap,
   Apple,
   AlertCircle,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -245,6 +247,7 @@ export default function Goals() {
   const [swipedSeriesId, setSwipedSeriesId] = React.useState<string | null>(null);
   const [finishWorkoutConfirmOpen, setFinishWorkoutConfirmOpen] = React.useState(false);
   const [workoutModalSearchQuery, setWorkoutModalSearchQuery] = React.useState("");
+  const [workoutModalMuscleFilter, setWorkoutModalMuscleFilter] = React.useState<string | null>(null);
   const [workoutSummaryOpen, setWorkoutSummaryOpen] = React.useState(false);
   const [workoutRating, setWorkoutRating] = React.useState(0);
   const [workoutSummaryData, setWorkoutSummaryData] = React.useState<{
@@ -3581,8 +3584,8 @@ export default function Goals() {
       />
 
       {/* Workout Modal */}
-      <Drawer open={workoutModalOpen} onOpenChange={(open) => { if (!open) { setWorkoutModalSearchQuery(""); if (workoutStartTime !== null) { setWorkoutMinimized(true); setWorkoutModalOpen(false); } else { setWorkoutModalOpen(false); setWorkoutDuration(0); setWorkoutStartTime(null); } } else { setWorkoutModalOpen(true); } }}>
-        <DrawerContent className="max-h-[80dvh] overflow-hidden flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <Drawer shouldScaleBackground={false} open={workoutModalOpen} onOpenChange={(open) => { if (!open) { setWorkoutModalSearchQuery(""); setWorkoutModalMuscleFilter(null); if (workoutStartTime !== null) { setWorkoutModalOpen(false); setTimeout(() => setWorkoutMinimized(true), 300); } else { setWorkoutModalOpen(false); setWorkoutDuration(0); setWorkoutStartTime(null); } } }}>
+        <DrawerContent className="max-h-[100dvh] h-[100dvh] mt-0 rounded-none overflow-hidden flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0 pb-2">
             <DrawerTitle>Registrar Treino</DrawerTitle>
             {/* Search Field */}
@@ -3620,24 +3623,58 @@ export default function Goals() {
                 </button>
               )}
             </div>
+
+            {/* Muscle Group Filter Chips */}
+            {(() => {
+              const muscleGroups = Array.from(
+                new Set(
+                  userWorkouts
+                    .filter((w) => {
+                      if (!selectedRoutineName) return true;
+                      if (selectedRoutineName === "__unnamed__") return !w.name;
+                      return w.name === selectedRoutineName;
+                    })
+                    .map((w) => w.muscle_group)
+                    .filter(Boolean)
+                )
+              ) as string[];
+              if (muscleGroups.length < 2) return null;
+              return (
+                <div className="flex gap-2 mt-2 overflow-x-auto scrollbar-none pb-0.5">
+                  <button
+                    onClick={() => setWorkoutModalMuscleFilter(null)}
+                    className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                      workoutModalMuscleFilter === null
+                        ? "bg-brand text-white"
+                        : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    Todos
+                  </button>
+                  {muscleGroups.map((mg) => (
+                    <button
+                      key={mg}
+                      onClick={() => setWorkoutModalMuscleFilter(workoutModalMuscleFilter === mg ? null : mg)}
+                      className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                        workoutModalMuscleFilter === mg
+                          ? "bg-brand text-white"
+                          : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {mg}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
           </DrawerHeader>
 
           {/* Header and Stats */}
           {userWorkouts.length > 0 && (
             <div className="shrink-0 border-b border-border/40 px-4 py-4">
-              <div className="flex items-center justify-between gap-4 mb-3">
-                <button className="flex items-center gap-2">
-                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                  <span className="text-base font-semibold">Treinamento</span>
-                </button>
-                <button
-                  onClick={handleFinishWorkout}
-                  className="p-2 rounded-lg bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-colors"
-                  title="Finalizar treino"
-                  aria-label="Finalizar treino"
-                >
-                  <Pause className="h-5 w-5" />
-                </button>
+              <div className="flex items-center gap-2 mb-3">
+                <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                <span className="text-base font-semibold">Treinamento</span>
               </div>
 
               {/* Stats Row */}
@@ -3681,32 +3718,14 @@ export default function Goals() {
                     </>
                   );
                 })()}
-                <div className="flex items-center gap-2">
-                  {Array.from(
-                    new Set(
-                      userWorkouts
-                        .filter((w) => w.muscle_group)
-                        .map((w) => w.muscle_group)
-                    )
-                  )
-                    .slice(0, 3)
-                    .map((muscleGroup) => {
-                      const muscleIcons: Record<string, React.ReactNode> = {
-                        "Peito": <span className="text-sm">🏋️</span>,
-                        "Costas": <span className="text-sm">🔙</span>,
-                        "Pernas": <span className="text-sm">🦵</span>,
-                        "Ombros": <span className="text-sm">💪</span>,
-                        "Braços": <span className="text-sm">💪</span>,
-                        "Abdômen": <span className="text-sm">⚡</span>,
-                        "Glúteos": <span className="text-sm">🍑</span>,
-                      };
-                      return (
-                        <span key={muscleGroup} title={muscleGroup}>
-                          {muscleIcons[muscleGroup] || <span className="text-sm">💪</span>}
-                        </span>
-                      );
-                    })}
-                </div>
+                <button
+                  onClick={handleFinishWorkout}
+                  className="p-2 rounded-lg bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-colors"
+                  title="Finalizar treino"
+                  aria-label="Finalizar treino"
+                >
+                  <Pause className="h-5 w-5" />
+                </button>
               </div>
             </div>
           )}
@@ -3715,12 +3734,15 @@ export default function Goals() {
           {userWorkouts.length > 0 ? (
             <div className="flex-1 overflow-y-auto">
               {userWorkouts
-                .filter((workout) => {
+                .map((workout, originalIndex) => ({ workout, originalIndex }))
+                .filter(({ workout }) => {
                   // Filter by search query
                   if (workoutModalSearchQuery.trim()) {
                     const query = workoutModalSearchQuery.toLowerCase().trim();
                     if (!workout.workoutName?.toLowerCase().includes(query)) return false;
                   }
+                  // Filter by muscle group
+                  if (workoutModalMuscleFilter && workout.muscle_group !== workoutModalMuscleFilter) return false;
                   // If no routine selected, show all workouts
                   if (!selectedRoutineName) return true;
                   // If showing unnamed routines, show only workouts without a name
@@ -3730,13 +3752,25 @@ export default function Goals() {
                   // If routine selected, show only workouts with matching name
                   return workout.name === selectedRoutineName;
                 })
-                .map((workout) => {
+                .map(({ workout, originalIndex }, filteredIndex, filteredArr) => {
                   const series = workoutSeries[workout.workout_id] || [];
                   return (
                     <div key={workout.id} className="px-4 py-3">
                       <div className="bg-card border border-brand/20 rounded-lg p-3 mb-3">
                         {/* Exercise Header */}
                         <div className="flex items-center gap-3 mb-2">
+                          <button
+                            type="button"
+                            className="flex-shrink-0 rounded-lg overflow-hidden"
+                            onClick={(e) => { e.stopPropagation(); setImageZoom({ src: workout.workoutPhoto || null, name: workout.workoutName || "", description: workout.workoutDescription || undefined }); }}
+                          >
+                            <ExerciseImage
+                              photo={workout.workoutPhoto || null}
+                              name={workout.workoutName || ""}
+                              muscleGroup={workout.muscle_group || null}
+                              className="h-12 w-12 flex-shrink-0"
+                            />
+                          </button>
                           <button
                             onClick={() => handleOpenWorkoutHistory({
                               id: workout.workout_id,
@@ -3749,6 +3783,9 @@ export default function Goals() {
                             <h3 className="text-sm font-semibold text-brand">
                               {workout.workoutName}
                             </h3>
+                            {workout.muscle_group && (
+                              <p className="text-xs text-muted-foreground mt-0.5">{workout.muscle_group}</p>
+                            )}
                           </button>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -3757,6 +3794,22 @@ export default function Goals() {
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-44">
+                              {filteredIndex > 0 && (
+                                <DropdownMenuItem
+                                  onClick={() => handleReorderExercises(originalIndex, filteredArr[filteredIndex - 1].originalIndex)}
+                                >
+                                  <ArrowUp className="h-4 w-4 mr-2" />
+                                  Mover para cima
+                                </DropdownMenuItem>
+                              )}
+                              {filteredIndex < filteredArr.length - 1 && (
+                                <DropdownMenuItem
+                                  onClick={() => handleReorderExercises(originalIndex, filteredArr[filteredIndex + 1].originalIndex)}
+                                >
+                                  <ArrowDown className="h-4 w-4 mr-2" />
+                                  Mover para baixo
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem
                                 onClick={() => handleDeleteExercise(workout.id)}
                                 className="text-red-500"
