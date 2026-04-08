@@ -50,7 +50,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
-import { formatTimeAgo } from "@/lib/utils";
 import {
   Tag,
   Plus,
@@ -80,6 +79,29 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+
+// ─── Promotion Skeleton ──────────────────────────────────────────────────────
+
+function PromotionSkeleton() {
+  return (
+    <Card className="border-border/60 overflow-hidden flex flex-col animate-pulse">
+      <div className="w-full aspect-[4/3] bg-muted flex-shrink-0" />
+      <CardContent className="p-3 flex flex-col gap-2">
+        <div className="h-5 w-20 rounded-full bg-muted" />
+        <div className="h-4 w-3/4 rounded bg-muted" />
+        <div className="h-3 w-full rounded bg-muted" />
+        <div className="h-3 w-2/3 rounded bg-muted" />
+        <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-1">
+          <div className="flex items-center gap-1.5">
+            <div className="h-5 w-5 rounded-full bg-muted" />
+            <div className="h-3 w-16 rounded bg-muted" />
+          </div>
+          <div className="h-4 w-8 rounded bg-muted" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 // ─── Category icon map ──────────────────────────────────────────────────────
 
@@ -143,7 +165,7 @@ function PromotionCard({
     <Card className="border-border/60 overflow-hidden flex flex-col">
       {/* Image */}
       {promo.photo_url && (
-        <div className="relative w-full aspect-video bg-muted overflow-hidden flex-shrink-0">
+        <div className="relative w-full aspect-[4/3] bg-muted overflow-hidden flex-shrink-0">
           <ImageWithFallback
             src={promo.photo_url}
             alt={promo.title}
@@ -265,7 +287,7 @@ function PromotionCard({
               className="h-5 w-5 rounded-full object-cover flex-shrink-0"
               fallback="/placeholder.svg"
             />
-            <span className="text-xs text-muted-foreground truncate max-w-[60px]">
+            <span className="text-xs text-muted-foreground truncate max-w-[100px]">
               {promo.user_nickname}
             </span>
           </button>
@@ -730,24 +752,40 @@ type EditPromoDrawerProps = {
 };
 
 function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerProps) {
+  const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [couponCode, setCouponCode] = React.useState("");
+  const [originalPrice, setOriginalPrice] = React.useState("");
+  const [promoPrice, setPromoPrice] = React.useState("");
+  const [expiresAt, setExpiresAt] = React.useState("");
   const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
     if (promo) {
+      setTitle(promo.title || "");
       setDescription(promo.description || "");
       setCouponCode(promo.coupon_code || "");
+      setOriginalPrice(promo.original_price != null ? String(promo.original_price) : "");
+      setPromoPrice(promo.promo_price != null ? String(promo.promo_price) : "");
+      setExpiresAt(promo.expires_at ? promo.expires_at.slice(0, 10) : "");
     }
   }, [promo, open]);
 
   async function handleSubmit() {
     if (!promo) return;
+    if (!title.trim()) {
+      toast({ title: "O título não pode estar vazio.", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
       await updatePromotionDb(promo.id, {
+        title: title.trim(),
         description: description || undefined,
         coupon_code: couponCode || undefined,
+        original_price: originalPrice ? parseFloat(originalPrice) : null,
+        promo_price: promoPrice ? parseFloat(promoPrice) : null,
+        expires_at: expiresAt || null,
       });
       toast({ title: "Promoção atualizada!" });
       onUpdated();
@@ -773,24 +811,62 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
           </DrawerTitle>
         </DrawerHeader>
 
-        <div className="px-4 space-y-4 pb-6">
-          <p className="text-sm font-medium text-muted-foreground">{promo?.title}</p>
+        <div className="overflow-y-auto max-h-[65vh] px-4 space-y-4 pb-6">
+          {/* Title */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Título *</label>
+            <Input
+              placeholder="Ex: Whey Protein 25% OFF"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={120}
+            />
+          </div>
 
+          {/* Description */}
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Descrição</label>
             <Textarea
               placeholder="Descreva a promoção..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={4}
+              rows={3}
               maxLength={500}
             />
           </div>
 
+          {/* Prices */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Preço original (R$)</label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="99,90"
+                value={originalPrice}
+                onChange={(e) => setOriginalPrice(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Preço promo (R$)</label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="74,90"
+                value={promoPrice}
+                onChange={(e) => setPromoPrice(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Coupon */}
           <div className="space-y-1.5">
             <label className="text-sm font-medium flex items-center gap-1.5">
               <Ticket className="h-3.5 w-3.5 text-brand" />
               Cupom de desconto
+              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
             </label>
             <Input
               placeholder="Ex: NOVO10"
@@ -798,6 +874,16 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
               onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
               maxLength={30}
               className="font-mono tracking-wider"
+            />
+          </div>
+
+          {/* Expires at */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Válido até</label>
+            <Input
+              type="date"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
             />
           </div>
         </div>
@@ -1170,6 +1256,11 @@ export default function Store() {
           >
             <Tag className="h-4 w-4" />
             Promoções
+            {!loading && promotions.length > 0 && (
+              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full leading-none ${activeTab === "promocoes" ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"}`}>
+                {promotions.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab("profissionais")}
@@ -1177,6 +1268,11 @@ export default function Store() {
           >
             <Users className="h-4 w-4" />
             Profissionais
+            {!proLoading && professionals.length > 0 && (
+              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full leading-none ${activeTab === "profissionais" ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"}`}>
+                {professionals.length}
+              </span>
+            )}
           </button>
         </div>
 
@@ -1284,8 +1380,10 @@ export default function Store() {
       <div className="max-w-2xl mx-auto px-4 py-4">
         {activeTab === "promocoes" && (
           loading ? (
-            <div className="flex justify-center py-16">
-              <LoadingSpinner />
+            <div className="grid grid-cols-2 gap-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <PromotionSkeleton key={i} />
+              ))}
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
@@ -1308,7 +1406,7 @@ export default function Store() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 auto-rows-fr">
+            <div className="grid grid-cols-2 gap-3 auto-rows-fr">
               {filtered.map((p) => (
                 <PromotionCard
                   key={p.id}

@@ -9094,6 +9094,10 @@ export async function updatePromotionDb(
     description?: string;
     coupon_code?: string;
     is_active?: boolean;
+    title?: string;
+    original_price?: number | null;
+    promo_price?: number | null;
+    expires_at?: string | null;
   },
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
@@ -9106,6 +9110,10 @@ export async function updatePromotionDb(
   if (payload.description !== undefined) updateData.description = payload.description.trim() || null;
   if (payload.coupon_code !== undefined) updateData.coupon_code = payload.coupon_code.trim().toUpperCase() || null;
   if (payload.is_active !== undefined) updateData.is_active = payload.is_active;
+  if (payload.title !== undefined) updateData.title = payload.title.trim() || null;
+  if (payload.original_price !== undefined) updateData.original_price = payload.original_price;
+  if (payload.promo_price !== undefined) updateData.promo_price = payload.promo_price;
+  if (payload.expires_at !== undefined) updateData.expires_at = payload.expires_at || null;
 
   const { error } = await supabase
     .from("promotions")

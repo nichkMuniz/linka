@@ -52,7 +52,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2 } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
@@ -917,57 +917,57 @@ export default function Community() {
 
   return (
     <div className="w-full h-[calc(100dvh-68px)] md:h-[calc(100dvh-48px)] flex flex-col overflow-hidden">
-      {/* Tabs — minimalista, underline style */}
-      <div className="flex-shrink-0 border-b border-border/60 px-4 pt-5 md:pt-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-6">
-            {(["messages", "duels", "ranking"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`text-sm font-medium pb-1 ${activeTab === tab
-                    ? "text-foreground border-b-2 border-foreground"
-                    : "text-muted-foreground"
-                  }`}
-              >
-                {tab === "messages" ? t("community_messages") : tab === "duels" ? t("community_duels") : t("community_ranking")}
-              </button>
-            ))}
-            {(pendingInvites.length > 0 || pendingGroupRequests.length > 0) && (
-              <button
-                onClick={() => setActiveTab("requests")}
-                className={`text-sm font-medium pb-1 relative ${activeTab === "requests"
-                    ? "text-foreground border-b-2 border-foreground"
-                    : "text-muted-foreground"
-                  }`}
-              >
-                Solicitações
-                <span className="absolute -top-1 -right-3 h-4 w-4 rounded-full bg-destructive text-white text-[10px] flex items-center justify-center ring-2 ring-background font-bold">
-                  {pendingInvites.length + pendingGroupRequests.length}
-                </span>
-              </button>
-            )}
+      {/* Tabs — segmented control style (igual à tela de Loja) */}
+      <div className="flex-shrink-0 border-b border-border/60 px-4 pt-5 pb-3 md:pt-4">
+        <div className="flex items-center gap-3">
+          {/* Segmented tabs */}
+          <div className="flex flex-1 rounded-lg border border-border overflow-hidden">
+            <button
+              onClick={() => setActiveTab("messages")}
+              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "messages" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <MessageCircle className="h-4 w-4" />
+              {t("community_messages")}
+            </button>
+            <button
+              onClick={() => setActiveTab("duels")}
+              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "duels" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <Swords className="h-4 w-4" />
+              {t("community_duels")}
+            </button>
+            <button
+              onClick={() => setActiveTab("ranking")}
+              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "ranking" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <BarChart2 className="h-4 w-4" />
+              {t("community_ranking")}
+            </button>
           </div>
 
-          {/* Nova conversa — só aparece na aba de mensagens */}
-          {activeTab === "messages" && (
+          {/* Solicitações pendentes — badge compacto */}
+          {(pendingInvites.length > 0 || pendingGroupRequests.length > 0) && (
             <button
-              aria-label="Nova conversa"
-              onClick={() => { setIsNewConversationDrawerOpen(true); }}
-              className="p-2 rounded-full hover:bg-muted/50 transition-colors"
+              onClick={() => setActiveTab("requests")}
+              aria-label="Solicitações pendentes"
+              className={`relative p-2 rounded-lg border border-border transition-colors ${activeTab === "requests" ? "bg-brand text-white border-brand" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
             >
-              <PenSquare className="h-5 w-5 text-muted-foreground" />
+              <Users className="h-4 w-4" />
+              <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-white text-[10px] flex items-center justify-center ring-2 ring-background font-bold">
+                {pendingInvites.length + pendingGroupRequests.length}
+              </span>
             </button>
           )}
+
         </div>
       </div>
 
       {/* Messages Tab */}
       {activeTab === "messages" && (
         <>
-          {/* Search Bar */}
-          <div className="flex-shrink-0 px-4 pt-3 pb-2">
-            <div className="relative">
+          {/* Search Bar + Nova conversa */}
+          <div className="flex-shrink-0 px-4 pt-3 pb-2 flex items-center gap-2">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
                 placeholder="Buscar conversa..."
@@ -976,6 +976,13 @@ export default function Community() {
                 className="rounded-full pl-9 bg-muted/30 border-transparent focus:border-border/60 focus:bg-background"
               />
             </div>
+            <button
+              aria-label="Nova conversa"
+              onClick={() => { setIsNewConversationDrawerOpen(true); }}
+              className="flex-shrink-0 p-2 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+            >
+              <PenSquare className="h-4 w-4 text-muted-foreground" />
+            </button>
           </div>
 
           {/* Conversations List */}

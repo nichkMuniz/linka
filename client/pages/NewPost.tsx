@@ -21,7 +21,7 @@ import {
   type UserGoal,
   incrementGoalProgressDb,
 } from "@/lib/ritmofit-db";
-import { ImagePlus, Loader2, ChevronLeft, ChevronRight, X, Video } from "lucide-react";
+import { ImagePlus, Loader2, ChevronLeft, ChevronRight, X, Video, Sparkles, Target, Upload, Clapperboard } from "lucide-react";
 
 // Module-level draft store — persists across navigation within the same SPA session
 // (survives React unmount/remount; cleared on page reload or explicit reset)
@@ -411,31 +411,47 @@ export default function NewPost() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Criar Conteúdo</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
+    <div className="mx-auto w-full max-w-2xl px-4 py-6 pb-24">
+      {/* Header com gradiente da marca */}
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="p-2 rounded-xl bg-brand-gradient">
+            <Sparkles className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold">Criar Conteúdo</h1>
+            <p className="text-sm text-muted-foreground">Inspire a comunidade com sua jornada</p>
+          </div>
+        </div>
+      </div>
+
+      <Card className="border-border/60 shadow-sm">
+        <CardContent className="p-4 space-y-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="images" className="flex items-center gap-2">
+            {/* Tabs com personalidade */}
+            <TabsList className="grid w-full grid-cols-2 h-12 p-1 rounded-xl">
+              <TabsTrigger value="images" className="flex items-center gap-2 rounded-lg text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all">
                 <ImagePlus className="h-4 w-4" />
                 Postagem
               </TabsTrigger>
-              <TabsTrigger value="video" className="flex items-center gap-2">
-                <Video className="h-4 w-4" />
+              <TabsTrigger value="video" className="flex items-center gap-2 rounded-lg text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all">
+                <Clapperboard className="h-4 w-4" />
                 Shots
               </TabsTrigger>
             </TabsList>
 
             {/* IMAGES TAB */}
-            <TabsContent value="images" className="space-y-6 mt-6">
+            <TabsContent value="images" className="space-y-5 mt-5">
               {/* Image Selection */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Imagens ({selectedFiles.length})
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-semibold">Fotos</label>
+                  {selectedFiles.length > 0 && (
+                    <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                      {selectedFiles.length} {selectedFiles.length === 1 ? "foto" : "fotos"}
+                    </span>
+                  )}
+                </div>
 
                 {previewUrls.length > 0 ? (
                   <div className="space-y-3">
@@ -444,7 +460,7 @@ export default function NewPost() {
                       <img
                         src={previewUrls[currentPreviewIndex]}
                         alt={`Preview ${currentPreviewIndex + 1}`}
-                        className="w-full h-96 object-cover rounded-lg border border-border/60"
+                        className="w-full max-h-[32rem] object-contain rounded-lg border border-border/60 bg-black/5"
                       />
 
                       {/* Navigation Buttons */}
@@ -483,19 +499,6 @@ export default function NewPost() {
                         </>
                       )}
 
-                      {/* Change Photos Overlay */}
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                        <span className="text-white text-sm font-medium">
-                          Clique para adicionar mais
-                        </span>
-                      </div>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={handleFileChange}
-                        className="absolute inset-0 opacity-0 cursor-pointer rounded-lg"
-                      />
                     </div>
 
                     {/* Photo Thumbnails Strip */}
@@ -526,25 +529,33 @@ export default function NewPost() {
                       </div>
                     )}
 
-                    {/* Selected Files Info */}
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      {selectedFiles.map((file, index) => (
-                        <p key={index}>
-                          {file.name} ({Math.round(file.size / 1024)} KB)
-                        </p>
-                      ))}
-                    </div>
+                    {/* Add more button */}
+                    <label className="flex items-center justify-center gap-2 w-full py-2 rounded-lg border border-dashed border-border/60 text-xs text-muted-foreground hover:text-foreground hover:border-border cursor-pointer transition-colors">
+                      <ImagePlus className="h-3.5 w-3.5" />
+                      Adicionar mais fotos
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleFileChange}
+                        className="hidden"
+                      />
+                    </label>
                   </div>
                 ) : (
-                  <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border/60 rounded-lg bg-muted/20 cursor-pointer hover:bg-muted/40 transition-colors">
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <ImagePlus className="h-8 w-8 text-muted-foreground mb-2" />
-                      <p className="text-sm font-medium text-foreground">
-                        Clique ou arraste imagens
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        PNG, JPG, WebP ou GIF (máx. 10MB cada)
-                      </p>
+                  <label className="relative flex flex-col items-center justify-center w-full h-52 border-2 border-dashed border-primary/30 rounded-xl bg-primary/5 cursor-pointer hover:bg-primary/10 hover:border-primary/50 transition-all duration-200 group">
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <div className="p-4 rounded-full bg-primary/10 group-hover:bg-primary/20 transition-colors">
+                        <Upload className="h-7 w-7 text-primary" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-semibold text-foreground">
+                          Adicionar fotos
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          PNG, JPG, WebP ou GIF · máx. 10MB cada
+                        </p>
+                      </div>
                     </div>
                     <input
                       type="file"
@@ -559,30 +570,36 @@ export default function NewPost() {
 
               {/* Description */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Legenda <span className="text-muted-foreground font-normal">(opcional)</span></label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-semibold">Legenda</label>
+                  <span className={`text-xs font-medium transition-colors ${description.length > 450 ? "text-orange-400" : "text-muted-foreground"}`}>
+                    {description.length}/500
+                  </span>
+                </div>
                 <Textarea
-                  placeholder="Conte uma história sobre sua jornada de fitness..."
+                  placeholder="O que aconteceu no treino? Inspire quem está acompanhando sua jornada..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   maxLength={500}
-                  className="resize-none rounded-lg"
+                  className="resize-none rounded-xl min-h-[100px] text-sm leading-relaxed"
                   rows={4}
                 />
-                <p className="text-xs text-muted-foreground">
-                  {description.length}/500 caracteres
-                </p>
               </div>
 
               {/* Goal Selection */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Meta Vinculada (Opcional)</label>
+                <div className="flex items-center gap-2">
+                  <Target className="h-4 w-4 text-primary" />
+                  <label className="text-sm font-semibold">Vincular a uma meta</label>
+                  <span className="text-xs text-muted-foreground">(opcional)</span>
+                </div>
                 {isLoadingGoals ? (
-                  <div className="flex h-10 items-center rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground">
+                  <div className="flex h-10 items-center rounded-xl border border-input bg-muted px-3 text-sm text-muted-foreground">
                     Carregando metas...
                   </div>
                 ) : userGoals.length > 0 ? (
                   <Select value={selectedGoalId} onValueChange={setSelectedGoalId}>
-                    <SelectTrigger className="rounded-lg">
+                    <SelectTrigger className="rounded-xl">
                       <SelectValue
                         placeholder={
                           selectedGoalId
@@ -604,91 +621,103 @@ export default function NewPost() {
                   </Select>
                 ) : (
                   <div
-                    className="flex h-10 cursor-pointer items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground hover:bg-muted transition-colors"
+                    className="flex h-10 cursor-pointer items-center rounded-xl border border-dashed border-primary/40 bg-primary/5 px-3 text-sm text-muted-foreground hover:bg-primary/10 transition-colors"
                     onClick={() => navigate("/metas?tab=metas")}
                   >
                     Nenhuma meta criada.{" "}
-                    <span className="ml-1 text-primary underline">Criar meta</span>
+                    <span className="ml-1 text-primary font-medium">Criar meta →</span>
                   </div>
+                )}
+                {selectedGoalId && (
+                  <p className="text-xs text-emerald-400 flex items-center gap-1">
+                    <Sparkles className="h-3 w-3" />
+                    Progresso da meta será incrementado ao publicar
+                  </p>
                 )}
               </div>
 
               {/* Action Buttons */}
-              <div className="flex gap-3 pt-4">
+              <div className="flex gap-3 pt-2">
                 <Button
                   variant="outline"
-                  className="flex-1"
+                  className="flex-1 rounded-full"
                   onClick={() => navigate("/")}
                   disabled={isSubmitting}
                 >
                   Cancelar
                 </Button>
                 <Button
-                  className="flex-1"
+                  className="flex-1 rounded-full font-semibold"
                   onClick={handleImageSubmit}
                   disabled={selectedFiles.length === 0 || isSubmitting}
                 >
                   {isSubmitting ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Postando...
+                      Publicando...
                     </>
                   ) : (
-                    "Postar"
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Publicar
+                    </>
                   )}
                 </Button>
               </div>
             </TabsContent>
 
             {/* VIDEO TAB */}
-            <TabsContent value="video" className="space-y-6 mt-6">
+            <TabsContent value="video" className="space-y-5 mt-5">
               {/* Video Selection */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Vídeo</label>
+                <label className="text-sm font-semibold">Vídeo</label>
 
                 {videoPreview ? (
                   <div className="space-y-3">
                     {/* Video Preview */}
-                    <div className="relative group">
+                    <div className="relative rounded-xl overflow-hidden border border-border/60 bg-black">
                       <video
                         src={videoPreview}
                         controls
-                        className="w-full h-96 object-cover rounded-lg border border-border/60 bg-black"
+                        className="w-full max-h-96 object-contain"
                       />
                       <button
                         onClick={() => {
                           setVideoPreview(null);
                           setSelectedVideoFile(null);
                         }}
-                        className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-2 transition-colors"
+                        className="absolute top-2 right-2 bg-black/60 hover:bg-red-600 text-white rounded-full p-1.5 transition-colors"
+                        aria-label="Remover vídeo"
                       >
-                        <X className="h-5 w-5" />
+                        <X className="h-4 w-4" />
                       </button>
                     </div>
 
                     {/* Video File Info */}
                     {selectedVideoFile && (
-                      <div className="text-xs text-muted-foreground space-y-1 p-3 bg-muted rounded-lg">
-                        <p>
-                          <strong>Arquivo:</strong> {selectedVideoFile.name}
-                        </p>
-                        <p>
-                          <strong>Tamanho:</strong>{" "}
+                      <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-xl text-xs text-muted-foreground">
+                        <Clapperboard className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{selectedVideoFile.name}</span>
+                        <span className="shrink-0 ml-auto font-medium">
                           {Math.round(selectedVideoFile.size / (1024 * 1024))} MB
-                        </p>
+                        </span>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-border/60 rounded-lg bg-muted/20 cursor-pointer hover:bg-muted/40 transition-colors">
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <Video className="h-8 w-8 text-muted-foreground mb-2" />
-                      <p className="text-sm font-medium text-foreground">
-                        Clique para selecionar vídeo
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        MP4, WebM ou MOV (máx. 100MB)
-                      </p>
+                  <label className="relative flex flex-col items-center justify-center w-full h-52 border-2 border-dashed border-orange-400/30 rounded-xl bg-orange-500/5 cursor-pointer hover:bg-orange-500/10 hover:border-orange-400/50 transition-all duration-200 group">
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <div className="p-4 rounded-full bg-orange-500/10 group-hover:bg-orange-500/20 transition-colors">
+                        <Clapperboard className="h-7 w-7 text-orange-400" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-semibold text-foreground">
+                          Adicionar vídeo
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          MP4, WebM ou MOV · máx. 100MB
+                        </p>
+                      </div>
                     </div>
                     <input
                       type="file"
@@ -702,33 +731,34 @@ export default function NewPost() {
 
               {/* Description */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Descrição</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-semibold">Legenda</label>
+                  <span className={`text-xs font-medium transition-colors ${videoDescription.length > 450 ? "text-orange-400" : "text-muted-foreground"}`}>
+                    {videoDescription.length}/500
+                  </span>
+                </div>
                 <Textarea
-                  placeholder="Descreva seu vídeo..."
+                  placeholder="O que rolou nesse treino? Conta aí para a galera..."
                   value={videoDescription}
                   onChange={(e) => setVideoDescription(e.target.value)}
                   maxLength={500}
-                  className="resize-none rounded-lg"
+                  className="resize-none rounded-xl min-h-[100px] text-sm leading-relaxed"
                   rows={4}
                 />
-                <p className="text-xs text-muted-foreground">
-                  {videoDescription.length}/500 caracteres
-                </p>
               </div>
 
-
               {/* Action Buttons */}
-              <div className="flex gap-3 pt-4">
+              <div className="flex gap-3 pt-2">
                 <Button
                   variant="outline"
-                  className="flex-1"
+                  className="flex-1 rounded-full"
                   onClick={() => navigate("/")}
                   disabled={isSubmitting}
                 >
                   Cancelar
                 </Button>
                 <Button
-                  className="flex-1"
+                  className="flex-1 rounded-full font-semibold"
                   onClick={handleVideoSubmit}
                   disabled={!selectedVideoFile || isSubmitting}
                 >
@@ -738,7 +768,10 @@ export default function NewPost() {
                       Publicando...
                     </>
                   ) : (
-                    "Publicar Shots"
+                    <>
+                      <Clapperboard className="h-4 w-4 mr-2" />
+                      Publicar Shot
+                    </>
                   )}
                 </Button>
               </div>
@@ -749,3 +782,4 @@ export default function NewPost() {
     </div>
   );
 }
+

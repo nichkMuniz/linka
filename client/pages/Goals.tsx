@@ -2340,25 +2340,29 @@ export default function Goals() {
 
                 {/* Streak inside check-in card */}
                 {streakCount > 0 && (
-                  <div className={`flex items-center gap-3 rounded-xl px-3 py-2.5 mt-1 ${streakCount >= 30
-                    ? "bg-purple-500/10 border border-purple-500/30"
-                    : streakCount >= 7
-                      ? "bg-orange-500/10 border border-orange-500/30"
-                      : "bg-brand/10 border border-brand/20"
+                  <div className={`flex items-center gap-3 rounded-xl px-3 py-2.5 mt-1 ${!dailyCheckInDone
+                    ? "bg-muted/40 border border-muted-foreground/20"
+                    : streakCount >= 30
+                      ? "bg-purple-500/10 border border-purple-500/30"
+                      : streakCount >= 7
+                        ? "bg-orange-500/10 border border-orange-500/30"
+                        : "bg-brand/10 border border-brand/20"
                     }`}>
-                    <span className="text-2xl leading-none">
+                    <span className={`text-2xl leading-none ${!dailyCheckInDone ? "grayscale opacity-40" : ""}`}>
                       {streakCount >= 30 ? "👑" : streakCount >= 7 ? "🔥" : "⭐"}
                     </span>
-                    <div className="flex-1 min-w-0">
+                    <div className={`flex-1 min-w-0 ${!dailyCheckInDone ? "opacity-50" : ""}`}>
                       <p className="text-xs font-bold leading-tight">
                         {streakCount} {streakCount === 1 ? "dia" : "dias"} consecutivos!
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        {streakCount >= 30
-                          ? "Você é lendário!"
-                          : streakCount >= 7
-                            ? "Uma semana inteira! 💪"
-                            : "Continue todos os dias!"}
+                        {!dailyCheckInDone
+                          ? "Faça o check-in para manter a sequência!"
+                          : streakCount >= 30
+                            ? "Você é lendário!"
+                            : streakCount >= 7
+                              ? "Uma semana inteira! 💪"
+                              : "Continue todos os dias!"}
                       </p>
                     </div>
                   </div>
