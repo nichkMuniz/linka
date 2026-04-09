@@ -349,6 +349,42 @@ export async function fetchExerciseCatalog(): Promise<CatalogExercise[]> {
   return dbExercises;
 }
 
+/**
+ * Migrates existing exercises in the DB that still have wger.de URLs by downloading
+ * and re-uploading them to Supabase Storage. Call this once from an admin context.
+ * Returns the number of images successfully migrated.
+ */
+export async function migrateExerciseImagesToStorage(): Promise<number> {
+  const { getCatalogWorkoutsFromDb, uploadExerciseImageToStorage, bulkUpsertCatalogWorkoutsDb } = await import("@/lib/ritmofit-db");
+  const rows = await getCatalogWorkoutsFromDb();
+  const toMigrate = rows.filter((r) => r.photo && r.photo.includes("wger.de") && r.wgerId);
+
+  let migrated = 0;
+  const updated: Array<{ name: string; description: string; muscleGroup: string; photo: string | null; wgerId: number }> = [];
+
+  for (const row of toMigrate) {
+    const storageUrl = await uploadExerciseImageToStorage(row.wgerId!, row.photo!);
+    if (storageUrl) {
+      updated.push({
+        name: row.name,
+        description: row.description,
+        muscleGroup: row.muscleGroup,
+        photo: storageUrl,
+        wgerId: row.wgerId!,
+      });
+      migrated++;
+    }
+  }
+
+  if (updated.length > 0) {
+    await bulkUpsertCatalogWorkoutsDb(updated);
+    // Invalidate cache so next load picks up new URLs
+    cachedExercises = null;
+  }
+
+  return migrated;
+}
+
 // Search exercises by term (fast, uses wger search endpoint)
 export async function searchExerciseCatalog(term: string): Promise<CatalogExercise[]> {
   if (!term.trim()) return [];

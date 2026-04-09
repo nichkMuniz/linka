@@ -1254,6 +1254,20 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
   });
 }
 
+export async function uploadExerciseImageToStorage(wgerId: number, imageUrl: string): Promise<string | null> {
+  if (!supabase) return null;
+  try {
+    // Use Edge Function to proxy the download server-side (avoids CORS from wger.de)
+    const { data, error } = await supabase.functions.invoke("proxy-exercise-image", {
+      body: { wgerId, imageUrl },
+    });
+    if (error || !data?.publicUrl) return null;
+    return data.publicUrl as string;
+  } catch {
+    return null;
+  }
+}
+
 export async function bulkUpsertCatalogWorkoutsDb(
   exercises: Array<{ name: string; description: string; muscleGroup: string; photo: string | null; wgerId: number }>
 ): Promise<void> {
@@ -1399,6 +1413,7 @@ export type Diet = {
   name: string;
   description: string;
   photo: string | null;
+  category?: string | null;
   calories?: number | null;
   protein_g?: number | null;
   carbs_g?: number | null;
@@ -1412,7 +1427,7 @@ export async function getDietsDb(): Promise<Diet[]> {
   return cached("diets", CACHE_TTL_LONG, async () => {
   const { data, error } = await supabase
     .from("diets")
-    .select("id, name, description, photo, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
+    .select("id, name, description, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -1427,6 +1442,7 @@ export async function getDietsDb(): Promise<Diet[]> {
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
     photo: row.photo ? String(row.photo) : null,
+    category: row.category ? String(row.category) : null,
     calories: row.calories != null ? Number(row.calories) : null,
     protein_g: row.protein_g != null ? Number(row.protein_g) : null,
     carbs_g: row.carbs_g != null ? Number(row.carbs_g) : null,
@@ -9098,6 +9114,8 @@ export async function updatePromotionDb(
     original_price?: number | null;
     promo_price?: number | null;
     expires_at?: string | null;
+    category?: string;
+    photo_url?: string | null;
   },
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
@@ -9114,6 +9132,8 @@ export async function updatePromotionDb(
   if (payload.original_price !== undefined) updateData.original_price = payload.original_price;
   if (payload.promo_price !== undefined) updateData.promo_price = payload.promo_price;
   if (payload.expires_at !== undefined) updateData.expires_at = payload.expires_at || null;
+  if (payload.category !== undefined) updateData.category = payload.category;
+  if (payload.photo_url !== undefined) updateData.photo_url = payload.photo_url || null;
 
   const { error } = await supabase
     .from("promotions")

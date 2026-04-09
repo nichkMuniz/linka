@@ -68,7 +68,6 @@ import {
 import { supabase } from "@/lib/supabase";
 import { fetchExerciseCatalog, type CatalogExercise } from "@/lib/exercise-catalog";
 import { ExerciseImage } from "@/components/shared/exercise-image";
-import { fetchMealCatalog, type CatalogMeal } from "@/lib/diet-catalog";
 import { DietImage } from "@/components/shared/diet-image";
 import {
   Card,
@@ -221,7 +220,6 @@ export default function Goals() {
   // Base data for lookups
   const [workouts, setWorkouts] = React.useState<Workout[]>([]);
   const [catalogExercises, setCatalogExercises] = React.useState<CatalogExercise[]>([]);
-  const [catalogMeals, setCatalogMeals] = React.useState<CatalogMeal[]>([]);
   const [diets, setDiets] = React.useState<Diet[]>([]);
   const [habits, setHabits] = React.useState<Habit[]>([]);
 
@@ -776,17 +774,14 @@ export default function Goals() {
         console.error("Erro ao carregar catálogo base:", err?.message || err);
       }
       try {
-        const [catalogData, mealCatalogData] = await Promise.all([
-          fetchExerciseCatalog().catch(() => [] as CatalogExercise[]),
-          fetchMealCatalog().catch(() => [] as CatalogMeal[]),
-        ]);
+        const catalogData = await fetchExerciseCatalog().catch(() => [] as CatalogExercise[]);
         setCatalogExercises(catalogData);
-        setCatalogMeals(mealCatalogData);
       } catch (err: any) {
         console.error("Erro ao carregar catálogo externo:", err?.message || err);
       }
     })();
   }, []);
+
 
   // Load today's check-in status and week check-ins from database (all in parallel)
   React.useEffect(() => {
@@ -1191,64 +1186,21 @@ export default function Goals() {
     });
   }, [unifiedExercises, searchQuery, selectedMuscleGroups, selectedWorkoutType]);
 
-  // Unified diet list: local diets + catalog meals
-  type UnifiedDiet = {
-    key: string;
-    id: string;
-    name: string;
-    description: string;
-    photo: string | null;
-    category: string | null;
-    calories: number;
-    isLocal: boolean;
-    catalogId?: number;
-  };
-
-  const unifiedDiets = React.useMemo<UnifiedDiet[]>(() => {
-    const localNames = new Set(diets.map((d) => d.name.toLowerCase()));
-    const catalogFiltered = catalogMeals.filter(
-      (c) => !localNames.has(c.name.toLowerCase())
-    );
-    return [
-      ...diets.map((d) => ({
-        key: `local-${d.id}`,
-        id: d.id,
-        name: d.name,
-        description: d.description,
-        photo: d.photo,
-        category: null as string | null,
-        calories: d.calories,
-        isLocal: true,
-      })),
-      ...catalogFiltered.map((c) => ({
-        key: `catalog-${c.id}`,
-        id: `catalog-${c.id}`,
-        name: c.name,
-        description: c.description,
-        photo: c.image,
-        category: c.category || null,
-        calories: 0,
-        isLocal: false,
-        catalogId: c.id,
-      })),
-    ];
-  }, [diets, catalogMeals]);
-
   const uniqueDietCategories = React.useMemo(() => {
     const cats = new Set<string>();
-    unifiedDiets.forEach((d) => { if (d.category) cats.add(d.category); });
+    diets.forEach((d) => { if (d.category && d.category.trim()) cats.add(d.category.trim()); });
     return Array.from(cats).sort();
-  }, [unifiedDiets]);
+  }, [diets]);
 
   const filteredDiets = React.useMemo(() => {
-    return unifiedDiets.filter((d) => {
+    return diets.filter((d) => {
       const matchesSearch = d.name.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCategory =
         selectedDietCategories.size === 0 ||
         selectedDietCategories.has(d.category || "");
       return matchesSearch && matchesCategory;
     });
-  }, [unifiedDiets, searchQuery, selectedDietCategories]);
+  }, [diets, searchQuery, selectedDietCategories]);
 
   const handleSelectItem = (itemId: string) => {
     const newSelected = new Set(selectedItems);
@@ -3186,32 +3138,34 @@ export default function Goals() {
                           className="pl-10 h-9"
                         />
                       </div>
-                      {uniqueDietCategories.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() => setShowMuscleFilterPanel((v) => !v)}
+                            className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+                          >
+                            <Filter className={`h-3.5 w-3.5 ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
+                            <p className={`text-xs font-medium ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
+                              Categoria {selectedDietCategories.size > 0 ? `(${selectedDietCategories.size})` : ""}
+                            </p>
+                            <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
+                          </button>
+                          {selectedDietCategories.size > 0 && (
                             <button
-                              type="button"
-                              onClick={() => setShowMuscleFilterPanel((v) => !v)}
-                              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+                              onClick={() => setSelectedDietCategories(new Set())}
+                              className="text-xs text-brand hover:underline"
                             >
-                              <Filter className={`h-3.5 w-3.5 ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
-                              <p className={`text-xs font-medium ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
-                                Categoria {selectedDietCategories.size > 0 ? `(${selectedDietCategories.size})` : ""}
-                              </p>
-                              <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
+                              Limpar
                             </button>
-                            {selectedDietCategories.size > 0 && (
-                              <button
-                                onClick={() => setSelectedDietCategories(new Set())}
-                                className="text-xs text-brand hover:underline"
-                              >
-                                Limpar
-                              </button>
-                            )}
-                          </div>
-                          {showMuscleFilterPanel && (
-                            <div className="flex flex-wrap gap-2">
-                              {uniqueDietCategories.map((cat) => (
+                          )}
+                        </div>
+                        {showMuscleFilterPanel && (
+                          <div className="flex flex-wrap gap-2">
+                            {uniqueDietCategories.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">Carregando categorias...</p>
+                            ) : (
+                              uniqueDietCategories.map((cat) => (
                                 <button
                                   key={cat}
                                   onClick={() => handleToggleDietCategory(cat)}
@@ -3222,11 +3176,11 @@ export default function Goals() {
                                 >
                                   {cat}
                                 </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -3359,9 +3313,8 @@ export default function Goals() {
                               }`}
                           >
                             <div className="flex items-center gap-3">
-                              <button
-                                type="button"
-                                className="flex-shrink-0 rounded overflow-hidden"
+                              <div
+                                className="flex-shrink-0 rounded overflow-hidden cursor-pointer"
                                 onClick={(e) => { e.stopPropagation(); setImageZoom({ src: exercise.photo || null, name: exercise.name, description: exercise.description || undefined }); }}
                               >
                                 <ExerciseImage
@@ -3369,7 +3322,7 @@ export default function Goals() {
                                   name={exercise.name}
                                   muscleGroup={exercise.muscleGroup}
                                 />
-                              </button>
+                              </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-sm font-medium">
@@ -3433,30 +3386,8 @@ export default function Goals() {
                         const isNewSelection = selectedItems.has(diet.id);
                         return (
                           <button
-                            key={diet.key}
-                            onClick={async () => {
-                              if (!diet.isLocal && !selectedItems.has(diet.id)) {
-                                try {
-                                  const created = await createCustomDietDb(
-                                    diet.name,
-                                    diet.description,
-                                    diet.photo,
-                                    diet.calories,
-                                  );
-                                  diet.id = created.id;
-                                  diet.isLocal = true;
-                                  handleSelectItem(created.id);
-                                } catch (err: any) {
-                                  toast({
-                                    title: "Erro ao adicionar dieta",
-                                    description: err?.message || "Tente novamente.",
-                                    variant: "destructive",
-                                  });
-                                }
-                              } else {
-                                handleSelectItem(diet.id);
-                              }
-                            }}
+                            key={diet.id}
+                            onClick={() => handleSelectItem(diet.id)}
                             className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
                               ? "border-brand bg-brand/10"
                               : isAlreadyInRoutine
@@ -3465,9 +3396,8 @@ export default function Goals() {
                               }`}
                           >
                             <div className="flex items-center gap-3">
-                              <button
-                                type="button"
-                                className="flex-shrink-0 rounded overflow-hidden"
+                              <div
+                                className="flex-shrink-0 rounded overflow-hidden cursor-pointer"
                                 onClick={(e) => { e.stopPropagation(); setImageZoom({ src: (diet as any).photo || (diet as any).image || null, name: diet.name, description: diet.description || undefined }); }}
                               >
                                 <DietImage
@@ -3475,7 +3405,7 @@ export default function Goals() {
                                   name={diet.name}
                                   category={diet.category}
                                 />
-                              </button>
+                              </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="text-sm font-medium truncate">{diet.name}</span>
@@ -3496,7 +3426,7 @@ export default function Goals() {
                                     ✓ Já adicionado
                                   </span>
                                 )}
-                                {diet.calories > 0 && (
+                                {(diet.calories ?? 0) > 0 && (
                                   <p className="text-xs text-muted-foreground mt-1">{diet.calories} cal</p>
                                 )}
                               </div>

@@ -66,6 +66,7 @@ import {
   Search,
   Ticket,
   Copy,
+  Check,
   Link,
   ImageIcon,
   Upload,
@@ -132,6 +133,7 @@ function categoryLabel(cat: string) {
 type PromotionCardProps = {
   promo: Promotion;
   viewerUserId: string | null;
+  viewerLoading: boolean;
   onLike: (id: string) => void;
   onEdit: (promo: Promotion) => void;
   onInactivate: (id: string) => void;
@@ -142,13 +144,15 @@ type PromotionCardProps = {
 function PromotionCard({
   promo,
   viewerUserId,
+  viewerLoading,
   onLike,
   onEdit,
   onInactivate,
   onDelete,
   onUserClick,
 }: PromotionCardProps) {
-  const isOwner = viewerUserId === promo.user_id;
+  const isOwner = !viewerLoading && viewerUserId === promo.user_id;
+  const [couponCopied, setCouponCopied] = React.useState(false);
 
   const discountDisplay = (() => {
     if (promo.discount_percent) return `${promo.discount_percent}% OFF`;
@@ -242,6 +246,8 @@ function PromotionCard({
             onClick={() => {
               navigator.clipboard.writeText(promo.coupon_code!);
               toast({ title: "Cupom copiado!", description: promo.coupon_code });
+              setCouponCopied(true);
+              setTimeout(() => setCouponCopied(false), 2000);
             }}
             className="flex items-center gap-2 w-full rounded-lg border border-dashed border-brand/50 bg-brand/5 px-2.5 py-1.5 hover:bg-brand/10 transition-colors"
           >
@@ -249,7 +255,11 @@ function PromotionCard({
             <span className="font-mono text-xs font-bold text-brand tracking-wider flex-1 text-left">
               {promo.coupon_code}
             </span>
-            <Copy className="h-3 w-3 text-brand/60 flex-shrink-0" />
+            {couponCopied ? (
+              <Check className="h-3 w-3 text-green-500 flex-shrink-0" />
+            ) : (
+              <Copy className="h-3 w-3 text-brand/60 flex-shrink-0" />
+            )}
           </button>
         )}
 
@@ -451,10 +461,12 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
     } catch (err: any) {
       toast({
         title: "Não foi possível buscar o link",
-        description: err?.message ?? "Preencha manualmente.",
+        description: err?.message ?? "Preencha manualmente os campos abaixo.",
         variant: "destructive",
       });
       setExternalLink(url);
+      setTitle("");
+      setDescription("");
       setPrefilled(true);
     } finally {
       setFetching(false);
@@ -758,6 +770,8 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
   const [originalPrice, setOriginalPrice] = React.useState("");
   const [promoPrice, setPromoPrice] = React.useState("");
   const [expiresAt, setExpiresAt] = React.useState("");
+  const [category, setCategory] = React.useState<PromotionCategory>("equipamento");
+  const [photoUrl, setPhotoUrl] = React.useState("");
   const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
@@ -768,6 +782,8 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
       setOriginalPrice(promo.original_price != null ? String(promo.original_price) : "");
       setPromoPrice(promo.promo_price != null ? String(promo.promo_price) : "");
       setExpiresAt(promo.expires_at ? promo.expires_at.slice(0, 10) : "");
+      setCategory((promo.category as PromotionCategory) || "equipamento");
+      setPhotoUrl(promo.photo_url || "");
     }
   }, [promo, open]);
 
@@ -786,6 +802,8 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
         original_price: originalPrice ? parseFloat(originalPrice) : null,
         promo_price: promoPrice ? parseFloat(promoPrice) : null,
         expires_at: expiresAt || null,
+        category,
+        photo_url: photoUrl || null,
       });
       toast({ title: "Promoção atualizada!" });
       onUpdated();
@@ -835,6 +853,23 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
             />
           </div>
 
+          {/* Category */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Categoria *</label>
+            <Select value={category} onValueChange={(v) => setCategory(v as PromotionCategory)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="z-[9999]">
+                {PROMOTION_CATEGORIES.map((c) => (
+                  <SelectItem key={c.value} value={c.value}>
+                    {c.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Prices */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -859,6 +894,26 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
                 onChange={(e) => setPromoPrice(e.target.value)}
               />
             </div>
+          </div>
+
+          {/* Photo URL */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">URL da imagem</label>
+            <Input
+              placeholder="https://..."
+              value={photoUrl}
+              onChange={(e) => setPhotoUrl(e.target.value)}
+            />
+            {photoUrl && (
+              <div className="rounded-lg overflow-hidden aspect-video bg-muted">
+                <ImageWithFallback
+                  src={photoUrl}
+                  alt="preview"
+                  className="w-full h-full object-cover"
+                  fallback="/placeholder.svg"
+                />
+              </div>
+            )}
           </div>
 
           {/* Coupon */}
@@ -1050,7 +1105,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage }: Profe
           )}
           {pro.business_website && (
             <a
-              href={pro.business_website}
+              href={/^https?:\/\//.test(pro.business_website) ? pro.business_website : `https://${pro.business_website}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 hover:text-brand transition-colors"
@@ -1104,6 +1159,8 @@ export default function Store() {
   const [inactivateTargetId, setInactivateTargetId] = React.useState<string | null>(null);
   const [deleteTargetId, setDeleteTargetId] = React.useState<string | null>(null);
   const [viewerUserId, setViewerUserId] = React.useState<string | null>(null);
+  const [viewerLoading, setViewerLoading] = React.useState(true);
+  const likingRef = React.useRef<Set<string>>(new Set());
 
   // Professionals state
   const [professionals, setProfessionals] = React.useState<ProfessionalProfile[]>([]);
@@ -1112,7 +1169,11 @@ export default function Store() {
   const [proSegment, setProSegment] = React.useState<string>("todos");
 
   React.useEffect(() => {
-    getViewer().then((v) => setViewerUserId(v?.id ?? null));
+    setViewerLoading(true);
+    getViewer().then((v) => {
+      setViewerUserId(v?.id ?? null);
+      setViewerLoading(false);
+    });
   }, [user]);
 
   async function load() {
@@ -1154,6 +1215,9 @@ export default function Store() {
       toast({ title: "Faça login para curtir.", variant: "destructive" });
       return;
     }
+    // Prevent race condition: ignore if already processing this promotion
+    if (likingRef.current.has(id)) return;
+    likingRef.current.add(id);
     try {
       const result = await togglePromotionLikeDb(id);
       setPromotions((prev) =>
@@ -1162,7 +1226,7 @@ export default function Store() {
             ? {
               ...p,
               user_liked: result === "liked",
-              likes_count: (p.likes_count ?? 0) + (result === "liked" ? 1 : -1),
+              likes_count: Math.max(0, (p.likes_count ?? 0) + (result === "liked" ? 1 : -1)),
             }
             : p,
         ),
@@ -1171,6 +1235,8 @@ export default function Store() {
       const msg = err?.message ?? err?.error_description ?? JSON.stringify(err);
       console.error("[handleLike]", err);
       toast({ title: "Erro ao curtir", description: msg, variant: "destructive" });
+    } finally {
+      likingRef.current.delete(id);
     }
   }
 
@@ -1412,6 +1478,7 @@ export default function Store() {
                   key={p.id}
                   promo={p}
                   viewerUserId={viewerUserId}
+                  viewerLoading={viewerLoading}
                   onLike={handleLike}
                   onEdit={(promo) => setEditingPromo(promo)}
                   onInactivate={(id) => setInactivateTargetId(id)}
