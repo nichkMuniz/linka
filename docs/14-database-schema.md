@@ -11,6 +11,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [access_sessions](#access_sessions) | Sessões de acesso dos usuários |
 | [check_ins](#check_ins) | Check-ins diários de treino |
 | [comments](#comments) | Comentários em posts |
+| [commercial_offers](#commercial_offers) | Ofertas/produtos publicados por perfis comerciais |
 | [commercial_profiles](#commercial_profiles) | Perfis comerciais / vitrines |
 | [diets](#diets) | Catálogo de dietas disponíveis |
 | [duel_check_ins](#duel_check_ins) | Check-ins dentro de grupos de duelo |
@@ -91,6 +92,64 @@ Comentários feitos por usuários em posts do feed.
 | `post_id` | uuid | FK → `posts.id` | — | Post comentado |
 | `text` | text | — | — | Conteúdo do comentário |
 | `created_at` | timestamp | — | `now()` | Data de criação |
+
+---
+
+## commercial_offers
+
+Ofertas e produtos publicados por usuários com perfil comercial.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
+| `user_id` | uuid | FK → `auth.users` | — | Usuário dono da oferta |
+| `title` | text | ✓ | — | Título da oferta |
+| `price` | text | ✓ | — | Preço (texto livre, ex: "R$ 49,90") |
+| `link_url` | text | ✓ | — | URL de destino da oferta |
+| `coupon_code` | text | — | — | Código de cupom opcional |
+| `image_url` | text | ✓ | — | URL da imagem da oferta |
+| `additional_info` | text | — | — | Informações adicionais |
+| `is_active` | boolean | — | `true` | Se a oferta está ativa |
+| `view_count` | integer | — | `0` | Contador de visualizações |
+| `click_count` | integer | — | `0` | Contador de cliques |
+| `created_at` | timestamptz | — | `now()` | Data de criação |
+
+**SQL para criar a tabela:**
+```sql
+create table public.commercial_offers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null,
+  price text not null,
+  link_url text not null,
+  coupon_code text,
+  image_url text not null,
+  additional_info text,
+  is_active boolean not null default true,
+  view_count integer not null default 0,
+  click_count integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+-- RLS
+alter table public.commercial_offers enable row level security;
+
+create policy "Qualquer um pode ver ofertas ativas"
+  on public.commercial_offers for select
+  using (is_active = true or auth.uid() = user_id);
+
+create policy "Usuário pode criar suas próprias ofertas"
+  on public.commercial_offers for insert
+  with check (auth.uid() = user_id);
+
+create policy "Usuário pode editar suas próprias ofertas"
+  on public.commercial_offers for update
+  using (auth.uid() = user_id);
+
+create policy "Usuário pode deletar suas próprias ofertas"
+  on public.commercial_offers for delete
+  using (auth.uid() = user_id);
+```
 
 ---
 

@@ -65,9 +65,11 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
-              type="button"
+            <span
+              role="button"
+              tabIndex={0}
               onClick={handleClick}
+              onKeyDown={(e) => e.key === "Enter" && handleClick(e as unknown as React.MouseEvent)}
               className="inline-flex items-center gap-0.5 cursor-pointer focus:outline-none"
               aria-label={`Insígnia: ${topBadge.name}`}
             >
@@ -77,7 +79,7 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
                   {topBadge.name}
                 </span>
               )}
-            </button>
+            </span>
           </TooltipTrigger>
           <TooltipContent side="top" className="text-xs">
             <p className="font-semibold">{topBadge.name}</p>

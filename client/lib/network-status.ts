@@ -57,6 +57,7 @@ export async function checkSupabaseReachability(): Promise<boolean> {
   }
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   if (!supabaseUrl) {
     return false;
   }
@@ -68,6 +69,7 @@ export async function checkSupabaseReachability(): Promise<boolean> {
     const response = await fetch(`${supabaseUrl}/rest/v1/`, {
       method: "HEAD",
       signal: controller.signal,
+      headers: supabaseAnonKey ? { apikey: supabaseAnonKey } : {},
     });
 
     clearTimeout(timeoutId);
