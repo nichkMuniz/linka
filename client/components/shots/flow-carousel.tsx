@@ -7,6 +7,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Plus } from "lucide-react";
+import { UserAvatar } from "@/components/shared/user-avatar";
 
 interface FlowCarouselProps {
   stories: StoryWithUser[];
@@ -14,6 +15,8 @@ interface FlowCarouselProps {
   onStoryClick: (story: StoryWithUser) => void;
   currentUserId: string;
   currentUserPhoto?: string | null;
+  currentUserGender?: string | null;
+  currentUserNickname?: string | null;
   isOwnerViewing?: boolean;
   viewedStoryIds?: Set<string>;
 }
@@ -24,6 +27,8 @@ export function FlowCarousel({
   onStoryClick,
   currentUserId,
   currentUserPhoto,
+  currentUserGender,
+  currentUserNickname,
   isOwnerViewing,
   viewedStoryIds,
 }: FlowCarouselProps) {
@@ -65,15 +70,12 @@ export function FlowCarousel({
               <div className="relative">
                 <div className="h-[60px] w-[60px] rounded-full p-[3px] bg-brand-gradient transition-all">
                   <div className="h-full w-full rounded-full overflow-hidden ring-[2.5px] ring-background">
-                    {(currentUserPhoto || userStory.userPhoto) ? (
-                      <img
-                        src={currentUserPhoto || userStory.userPhoto!}
-                        alt={userStory.userNickname}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="h-full w-full bg-muted" />
-                    )}
+                    <UserAvatar
+                      photo={currentUserPhoto ?? userStory.userPhoto}
+                      gender={currentUserGender ?? userStory.userGender}
+                      nickname={currentUserNickname ?? userStory.userNickname}
+                      className="h-full w-full"
+                    />
                   </div>
                 </div>
                 {/* Status dot: gray when owner has viewed, green otherwise */}
@@ -104,17 +106,12 @@ export function FlowCarousel({
         >
           <div className="relative h-14 w-14">
             <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-transparent group-hover:ring-brand transition-all">
-              {currentUserPhoto ? (
-                <img
-                  src={currentUserPhoto}
-                  alt="Seu flow"
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <div className="h-full w-full bg-muted flex items-center justify-center">
-                  <Plus className="h-5 w-5" />
-                </div>
-              )}
+              <UserAvatar
+                photo={currentUserPhoto}
+                gender={currentUserGender}
+                nickname={currentUserNickname ?? "Seu flow"}
+                className="h-full w-full"
+              />
             </div>
             <div className="absolute bottom-0 right-0 h-5 w-5 bg-brand rounded-full flex items-center justify-center ring-2 ring-background">
               <Plus className="h-3 w-3 text-white" />
@@ -143,15 +140,12 @@ export function FlowCarousel({
                     : "bg-brand-gradient"
                 }`}>
                   <div className="h-full w-full rounded-full overflow-hidden ring-[2.5px] ring-background">
-                    {story.userPhoto ? (
-                      <img
-                        src={story.userPhoto}
-                        alt={story.userNickname}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="h-full w-full bg-muted" />
-                    )}
+                    <UserAvatar
+                      photo={story.userPhoto}
+                      gender={story.userGender}
+                      nickname={story.userNickname}
+                      className="h-full w-full"
+                    />
                   </div>
                 </div>
               </div>

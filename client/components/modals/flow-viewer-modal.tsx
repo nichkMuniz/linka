@@ -47,6 +47,7 @@ import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/shared/user-avatar";
 
 interface FlowViewerModalProps {
   story: StoryWithUser | null;
@@ -374,18 +375,48 @@ export function FlowViewerModal({
                   <div className="absolute top-0 left-0 right-0 z-[60] pt-3 pb-12 px-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
                     {/* Progress Bar */}
                     <div className="flex gap-1.5 mb-5 px-1">
-                      {userStories.map((s, idx) => (
-                        <div key={s.id} className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden backdrop-blur-sm">
-                          <motion.div
-                            initial={false}
-                            animate={{
-                              width: idx < storyIndexInUser ? "100%" : idx === storyIndexInUser ? `${100 - timerProgress}%` : "0%"
-                            }}
-                            transition={{ duration: idx === storyIndexInUser ? 0.05 : 0.3, ease: "linear" }}
-                            className="h-full bg-white"
-                          />
-                        </div>
-                      ))}
+                      {userStories.map((s, idx) => {
+                        const isActive = idx === storyIndexInUser;
+                        const isDone = idx < storyIndexInUser;
+                        const fillPercent = isDone ? 100 : isActive ? 100 - timerProgress : 0;
+                        return (
+                          <div key={s.id} className="flex-1 h-[3px] bg-white/15 rounded-full overflow-hidden relative">
+                            {/* Fill */}
+                            <motion.div
+                              initial={false}
+                              animate={{ width: `${fillPercent}%` }}
+                              transition={{ duration: isActive ? 0.05 : 0.3, ease: "linear" }}
+                              style={
+                                isDone
+                                  ? { background: "linear-gradient(to right, #3A8DFF, #7B3FF2, #FF8A2A)" }
+                                  : isActive
+                                  ? { background: "linear-gradient(to right, #3A8DFF, #7B3FF2, #FF8A2A)" }
+                                  : undefined
+                              }
+                              className={`h-full rounded-full relative overflow-hidden ${
+                                !isDone && !isActive ? "bg-white/40" : ""
+                              }`}
+                            >
+                              {/* Shimmer on active segment */}
+                              {isActive && !isPaused && (
+                                <motion.div
+                                  className="absolute inset-0 w-1/3 bg-gradient-to-r from-transparent via-white/50 to-transparent skew-x-12"
+                                  animate={{ x: ["-100%", "400%"] }}
+                                  transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut", repeatDelay: 0.6 }}
+                                />
+                              )}
+                              {/* Pulse glow when paused */}
+                              {isActive && isPaused && (
+                                <motion.div
+                                  className="absolute inset-0 bg-white/30 rounded-full"
+                                  animate={{ opacity: [0.3, 0.8, 0.3] }}
+                                  transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+                                />
+                              )}
+                            </motion.div>
+                          </div>
+                        );
+                      })}
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -397,14 +428,19 @@ export function FlowViewerModal({
                           exit={{ opacity: 0, x: 10 }}
                           className="flex items-center gap-3"
                         >
-                          <Avatar className="h-10 w-10 border-2 border-white/20 shadow-lg">
-                            <AvatarImage src={story.userPhoto} />
-                            <AvatarFallback>{story.userNickname?.charAt(0)}</AvatarFallback>
-                          </Avatar>
-                          <div className="flex flex-col">
-                            <span className="text-white text-sm font-bold drop-shadow-md">{story.userNickname}</span>
-                            <span className="text-white/70 text-[10px] drop-shadow-md">{formatTimeAgo(story.created_at)}</span>
-                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onOpenChange(false); navigate(`/usuario/${story.user_id}`); }}
+                            className="flex items-center gap-3 text-left active:opacity-70 transition-opacity"
+                          >
+                            <Avatar className="h-10 w-10 border-2 border-white/20 shadow-lg">
+                              <AvatarImage src={story.userPhoto} />
+                              <AvatarFallback>{story.userNickname?.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex flex-col">
+                              <span className="text-white text-sm font-bold drop-shadow-md">{story.userNickname}</span>
+                              <span className="text-white/70 text-[10px] drop-shadow-md">{formatTimeAgo(story.created_at)}</span>
+                            </div>
+                          </button>
                         </motion.div>
                       </AnimatePresence>
 
@@ -515,6 +551,14 @@ export function FlowViewerModal({
                                 transition={{ duration: 0.35, ease: "easeInOut" }}
                                 className="absolute inset-0 flex items-center gap-1.5"
                               >
+                                <div className="shrink-0 h-5 w-5 rounded-full overflow-hidden ring-1 ring-white/30">
+                                  <UserAvatar
+                                    photo={comment.userPhoto}
+                                    gender={comment.userGender}
+                                    nickname={comment.userName}
+                                    className="h-full w-full"
+                                  />
+                                </div>
                                 <span className="text-[11px] font-bold text-white shrink-0 drop-shadow">
                                   {comment.userName}
                                   {comment.userHandle && (
@@ -605,13 +649,23 @@ export function FlowViewerModal({
                 <div key={comment.id} className="flex flex-col gap-1.5">
                   <div className="flex items-start justify-between group">
                     <div className="flex items-start gap-2.5 min-w-0">
-                      <span className="text-sm font-bold shrink-0">
-                        {comment.userName}
-                        {comment.userHandle && (
-                          <span className="font-normal text-muted-foreground"> @{comment.userHandle}</span>
-                        )}
-                      </span>
-                      <span className="text-sm leading-normal break-words">{comment.text}</span>
+                      <div className="shrink-0 h-8 w-8 rounded-full overflow-hidden">
+                        <UserAvatar
+                          photo={comment.userPhoto}
+                          gender={comment.userGender}
+                          nickname={comment.userName}
+                          className="h-full w-full"
+                        />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-bold leading-tight">
+                          {comment.userName}
+                          {comment.userHandle && (
+                            <span className="font-normal text-muted-foreground"> @{comment.userHandle}</span>
+                          )}
+                        </span>
+                        <span className="text-sm leading-normal break-words">{comment.text}</span>
+                      </div>
                     </div>
                     {user?.id === comment.userId && (
                       <button

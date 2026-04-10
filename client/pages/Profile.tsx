@@ -74,6 +74,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { UserAvatar } from "@/components/shared/user-avatar";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
 import { UserInsignias } from "@/components/profile/user-insignias";
@@ -259,6 +260,7 @@ export default function Profile() {
   const [following, setFollowing] = React.useState<any[]>([]);
   const [isLoadingFollowers, setIsLoadingFollowers] = React.useState(false);
   const [followerFollowStatus, setFollowerFollowStatus] = React.useState<Record<string, boolean>>({});
+  const [followingFollowStatus, setFollowingFollowStatus] = React.useState<Record<string, boolean>>({});
 
   // Edit form state
 
@@ -480,6 +482,11 @@ export default function Profile() {
     try {
       const data = await getFollowingDb(profileUserId);
       setFollowing(data);
+
+      // All users in the "following" list are already followed by definition
+      const statusMap: Record<string, boolean> = {};
+      data.forEach((u: any) => { if (u.id) statusMap[u.id] = true; });
+      setFollowingFollowStatus(statusMap);
     } catch (err: any) {
       console.error("Error loading following:", err);
       toast({
@@ -987,26 +994,20 @@ export default function Profile() {
                       className="rounded-full p-[3px] bg-brand-gradient ring-0 cursor-pointer hover:opacity-90 transition-opacity"
                       title="Ver flow"
                     >
-                      {profile.photo ? (
-                        <ImageWithFallback
-                          src={profile.photo}
-                          alt={profile.nickname}
-                          fallback="/placeholder.svg"
-                          className="h-20 w-20 rounded-full object-cover ring-2 ring-background"
-                        />
-                      ) : (
-                        <div className="h-20 w-20 rounded-full bg-muted ring-2 ring-background" />
-                      )}
+                      <UserAvatar
+                        photo={profile.photo}
+                        gender={profile.gender}
+                        nickname={profile.nickname}
+                        className="h-20 w-20 ring-2 ring-background"
+                      />
                     </button>
-                  ) : profile.photo ? (
-                    <ImageWithFallback
-                      src={profile.photo}
-                      alt={profile.nickname}
-                      fallback="/placeholder.svg"
-                      className="h-20 w-20 rounded-full object-cover ring-2 ring-border/60"
-                    />
                   ) : (
-                    <div className="h-20 w-20 rounded-full bg-muted ring-2 ring-border/60" />
+                    <UserAvatar
+                      photo={profile.photo}
+                      gender={profile.gender}
+                      nickname={profile.nickname}
+                      className="h-20 w-20 ring-2 ring-border/60"
+                    />
                   )}
                 </div>
 
@@ -1019,6 +1020,9 @@ export default function Profile() {
                       </h1>
                       <UserInsignias userId={profileUserId || ""} showStreak />
                     </div>
+                    {profile.handle && (
+                      <p className="text-sm text-muted-foreground">@{profile.handle}</p>
+                    )}
 
                     {/* Level + Points badge */}
                     {stats.points > 0 && (
@@ -1174,7 +1178,7 @@ export default function Profile() {
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold">{plan.name}</span>
                       {plan.price && (
-                        <span className="text-sm font-bold text-brand">{plan.price}</span>
+                        <span className="text-sm font-bold text-brand">R$ {plan.price}</span>
                       )}
                     </div>
                     {plan.description && (
@@ -1191,7 +1195,7 @@ export default function Profile() {
 
           {/* Action Buttons - Below stats, centered */}
           {isViewingOtherProfile && (
-            <div className="flex gap-2 justify-center">
+            <div className="flex gap-2 justify-center mt-3">
               {/* Follow/Unfollow Button */}
               <FollowButton targetUserId={profileUserId!} />
 
@@ -2292,197 +2296,206 @@ export default function Profile() {
 
       {/* Post Viewer Drawer */}
       <Drawer open={isPostViewerOpen} onOpenChange={setIsPostViewerOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>
-              {isEditingPost ? "Editar Post" : "Visualizar Post"}
-            </DrawerTitle>
+        <DrawerContent className="max-h-[95dvh] flex flex-col modal-enter">
+          {/* Header compacto com autor inline */}
+          <DrawerHeader className="shrink-0 pb-2">
+            <div className="flex items-center justify-between">
+              <DrawerTitle className="text-base">
+                {isEditingPost ? "Editar Post" : "Post"}
+              </DrawerTitle>
+              {selectedPost && (
+                <div className="flex items-center gap-2">
+                  {selectedPost.userPhoto ? (
+                    <ImageWithFallback
+                      src={selectedPost.userPhoto}
+                      alt={selectedPost.userNickname}
+                      fallback="/placeholder.svg"
+                      className="h-7 w-7 rounded-full object-cover border border-border/60"
+                    />
+                  ) : (
+                    <div className="h-7 w-7 rounded-full bg-muted" />
+                  )}
+                  <span className="text-sm font-medium">{selectedPost.userNickname}</span>
+                </div>
+              )}
+            </div>
           </DrawerHeader>
 
           {selectedPost && (
-            <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
-              {/* Post Images Carousel */}
-              {selectedPost.photos && selectedPost.photos.length > 0 ? (
-                <PostCarousel photos={selectedPost.photos} alt={selectedPost.description} />
-              ) : (
-                <div className="relative aspect-square overflow-hidden rounded-lg bg-muted border border-border/60">
-                  <img
-                    src={selectedPost.photo}
-                    alt={selectedPost.description}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
-
-              {/* Post author with insignias */}
-              <div className="flex items-center gap-2">
-                {selectedPost.userPhoto ? (
-                  <ImageWithFallback
-                    src={selectedPost.userPhoto}
-                    alt={selectedPost.userNickname}
-                    fallback="/placeholder.svg"
-                    className="h-8 w-8 rounded-full object-cover border border-border/60"
-                  />
-                ) : (
-                  <div className="h-8 w-8 rounded-full bg-muted" />
-                )}
-                <span className="text-sm font-medium">{selectedPost.userNickname}</span>
-                <UserInsignias userId={selectedPost.user_id} />
-              </div>
-
-              {/* Description */}
-              {isEditingPost ? (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Descrição</label>
-                  <Textarea
-                    value={editPostDescription}
-                    onChange={(e) => setEditPostDescription(e.target.value)}
-                    className="resize-none"
-                    rows={4}
-                  />
-                </div>
-              ) : (
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Descrição
-                  </label>
-                  <p className="text-sm mt-1">{selectedPost.description}</p>
-                </div>
-              )}
-
-              {/* Goal Selection */}
-              {isEditingPost ? (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Meta Vinculada</label>
-                  {userGoals.length > 0 ? (
-                    <div className="space-y-2">
-                      <Select value={editPostGoalId} onValueChange={setEditPostGoalId}>
-                        <SelectTrigger className="rounded-lg">
-                          <SelectValue placeholder="Selecione uma meta ou deixe em branco" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {userGoals.map((goal) => (
-                            <SelectItem key={goal.id} value={goal.id}>
-                              {goal.description}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {editPostGoalId && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setEditPostGoalId("")}
-                          className="h-8 text-xs"
-                        >
-                          Remover meta
-                        </Button>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Nenhuma meta criada
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Meta Vinculada
-                  </label>
-                  <p className="text-sm mt-1">
-                    {selectedPost.user_goal_id
-                      ? userGoals.find((g) => g.id === selectedPost.user_goal_id)
-                        ?.description || "Meta removida"
-                      : "Nenhuma meta"}
-                  </p>
-                </div>
-              )}
-
-              {/* Incentives and Comments */}
-              {!isLoadingPostData && (
-                <div className="space-y-2 pt-2">
-                  <div className="flex items-center gap-1">
-                    {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                      <PostIncentiveButton
-                        key={type}
-                        type={type}
-                        isActive={postUserLikes.includes(type)}
-                        onClick={() => handleTogglePostIncentive(type)}
-                        loading={isTogglingPostLike}
-                      />
-                    ))}
-                    {!isEditingPost && selectedPost && (
-                      <div className="ml-auto">
-                        <PostCommentsDialog
-                          postId={selectedPost.id}
-                          commentCount={postComments.length}
-                          isPostOwner={!isViewingOtherProfile}
+            <>
+              {/* Layout: imagem + conteúdo lado a lado no md, empilhado no mobile */}
+              <div className="flex-1 overflow-y-auto">
+                <div className="md:flex md:gap-0 md:h-full">
+                  {/* Imagem — no mobile ocupa altura limitada, no desktop fica à esquerda */}
+                  <div className="md:w-[55%] md:shrink-0 md:sticky md:top-0">
+                    {selectedPost.photos && selectedPost.photos.length > 0 ? (
+                      <div className="md:h-full">
+                        <PostCarousel photos={selectedPost.photos} alt={selectedPost.description} />
+                      </div>
+                    ) : (
+                      <div className="relative aspect-[4/3] md:aspect-square overflow-hidden md:rounded-none bg-muted border-b border-border/40 md:border-b-0">
+                        <img
+                          src={selectedPost.photo}
+                          alt={selectedPost.description}
+                          className="w-full h-full object-cover"
                         />
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 px-1 pb-1">
-                    {postLikes.length > 0 && (
-                      <button
-                        onClick={() => setIsLikesModalOpen(true)}
-                        className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
-                      >
-                        {postLikes.length} incentivos
-                      </button>
+
+                  {/* Conteúdo — scroll apenas nesta área no desktop */}
+                  <div className="md:flex-1 md:overflow-y-auto px-4 pb-4 pt-3 space-y-3">
+                    {/* Insignias separadas do header no mobile */}
+                    <div className="flex items-center gap-2">
+                      <UserInsignias userId={selectedPost.user_id} />
+                      <span className="text-xs text-muted-foreground ml-auto font-mono">
+                        {formatTimeAgo(selectedPost.created_at)}
+                      </span>
+                    </div>
+
+                    {/* Description */}
+                    {isEditingPost ? (
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Descrição</label>
+                        <Textarea
+                          value={editPostDescription}
+                          onChange={(e) => setEditPostDescription(e.target.value)}
+                          className="resize-none"
+                          rows={3}
+                        />
+                      </div>
+                    ) : (
+                      selectedPost.description && (
+                        <p className="text-sm text-foreground leading-relaxed">
+                          {selectedPost.description}
+                        </p>
+                      )
                     )}
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      {formatTimeAgo(selectedPost.created_at)}
-                    </span>
+
+                    {/* Goal */}
+                    {isEditingPost ? (
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Meta Vinculada</label>
+                        {userGoals.length > 0 ? (
+                          <div className="space-y-2">
+                            <Select value={editPostGoalId} onValueChange={setEditPostGoalId}>
+                              <SelectTrigger className="rounded-lg">
+                                <SelectValue placeholder="Selecione uma meta ou deixe em branco" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {userGoals.map((goal) => (
+                                  <SelectItem key={goal.id} value={goal.id}>
+                                    {goal.description}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {editPostGoalId && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setEditPostGoalId("")}
+                                className="h-8 text-xs"
+                              >
+                                Remover meta
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Nenhuma meta criada</p>
+                        )}
+                      </div>
+                    ) : selectedPost.user_goal_id ? (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/40 border border-border/40">
+                        <span className="text-xs text-muted-foreground">Meta:</span>
+                        <span className="text-xs font-medium truncate">
+                          {userGoals.find((g) => g.id === selectedPost.user_goal_id)?.description || "Meta removida"}
+                        </span>
+                      </div>
+                    ) : null}
+
+                    {/* Incentives + Comments */}
+                    {!isLoadingPostData && (
+                      <div className="space-y-1.5 pt-1">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                            <PostIncentiveButton
+                              key={type}
+                              type={type}
+                              isActive={postUserLikes.includes(type)}
+                              onClick={() => handleTogglePostIncentive(type)}
+                              loading={isTogglingPostLike}
+                            />
+                          ))}
+                          {!isEditingPost && selectedPost && (
+                            <div className="ml-auto">
+                              <PostCommentsDialog
+                                postId={selectedPost.id}
+                                commentCount={postComments.length}
+                                isPostOwner={!isViewingOtherProfile}
+                              />
+                            </div>
+                          )}
+                        </div>
+                        {postLikes.length > 0 && (
+                          <button
+                            onClick={() => setIsLikesModalOpen(true)}
+                            className="text-xs font-semibold text-foreground hover:text-primary transition-colors px-1"
+                          >
+                            {postLikes.length} incentivos
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    {!isViewingOtherProfile && (
+                      <div className="flex gap-2 pt-2">
+                        {!isEditingPost ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              className="flex-1 rounded-full"
+                              onClick={() => setIsEditingPost(true)}
+                            >
+                              <Edit2 className="h-4 w-4 mr-2" />
+                              Editar
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              className="flex-1 rounded-full"
+                              onClick={handleDeletePost}
+                              disabled={isUpdatingPost}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Deletar
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              variant="outline"
+                              className="flex-1 rounded-full"
+                              onClick={() => setIsEditingPost(false)}
+                              disabled={isUpdatingPost}
+                            >
+                              Cancelar
+                            </Button>
+                            <Button
+                              className="flex-1 rounded-full"
+                              onClick={handleUpdatePost}
+                              disabled={isUpdatingPost}
+                            >
+                              {isUpdatingPost ? "Salvando..." : "Salvar"}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
-
-              {/* Action Buttons */}
-              {!isViewingOtherProfile && (
-                <div className="flex gap-2 pt-4">
-                  {!isEditingPost ? (
-                    <>
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => setIsEditingPost(true)}
-                      >
-                        <Edit2 className="h-4 w-4 mr-2" />
-                        Editar
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        className="flex-1"
-                        onClick={handleDeletePost}
-                        disabled={isUpdatingPost}
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Deletar
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => setIsEditingPost(false)}
-                        disabled={isUpdatingPost}
-                      >
-                        Cancelar
-                      </Button>
-                      <Button
-                        className="flex-1"
-                        onClick={handleUpdatePost}
-                        disabled={isUpdatingPost}
-                      >
-                        {isUpdatingPost ? "Salvando..." : "Salvar"}
-                      </Button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
+              </div>
+            </>
           )}
         </DrawerContent>
       </Drawer>
@@ -2511,7 +2524,7 @@ export default function Profile() {
         type="following"
         users={following}
         isLoading={isLoadingFollowers}
-        followStatus={followerFollowStatus}
+        followStatus={followingFollowStatus}
       />
 
       {/* Shot Editor Drawer */}

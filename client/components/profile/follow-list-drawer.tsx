@@ -7,12 +7,14 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { FollowButton } from "@/components/shared/follow-button";
+import { UserAvatar } from "@/components/shared/user-avatar";
 import { useAuth } from "@/hooks/useAuth";
 
 interface FollowUser {
   id: string;
   nickname: string;
   photo?: string | null;
+  gender?: string | null;
 }
 
 interface FollowListDrawerProps {
@@ -64,15 +66,13 @@ export function FollowListDrawer({
                   }}
                   className="flex items-center gap-3 flex-1 text-left hover:opacity-80 transition-opacity"
                 >
-                  {u.photo ? (
-                    <img
-                      src={u.photo}
-                      alt={u.nickname}
-                      className="h-10 w-10 rounded-full object-cover flex-shrink-0"
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded-full bg-muted flex-shrink-0" />
-                  )}
+                  <UserAvatar
+                    photo={u.photo}
+                    gender={u.gender}
+                    nickname={u.nickname}
+                    size="md"
+                    className="flex-shrink-0"
+                  />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{u.nickname}</p>
                   </div>

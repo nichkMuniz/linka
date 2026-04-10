@@ -5,6 +5,7 @@ import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, ty
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { UserAvatar } from "@/components/shared/user-avatar";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import {
   AlertDialog,
@@ -206,13 +207,13 @@ export default function Notifications() {
     groupedCount?: number;
     groupedNicknames?: string[];
     groupedIncentiveTypes?: number[];
-    groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
+    groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; userGender?: string | null; incentiveTypes: number[] }>;
   }> => {
     type GroupedNotif = NotificationItem & {
       groupedCount?: number;
       groupedNicknames?: string[];
       groupedIncentiveTypes?: number[];
-      groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
+      groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; userGender?: string | null; incentiveTypes: number[] }>;
     };
 
     const result: GroupedNotif[] = [];
@@ -233,7 +234,7 @@ export default function Notifications() {
               existingUser.incentiveTypes.push(n.incentiveType!);
             }
           } else {
-            users.push({ userId: n.userId, userNickname: n.userNickname, userPhoto: n.userPhoto, incentiveTypes: [n.incentiveType!] });
+            users.push({ userId: n.userId, userNickname: n.userNickname, userPhoto: n.userPhoto, userGender: n.userGender, incentiveTypes: [n.incentiveType!] });
             existing.groupedNicknames = users.map(u => u.userNickname);
             existing.groupedCount = users.length;
           }
@@ -248,7 +249,7 @@ export default function Notifications() {
             groupedCount: 1,
             groupedNicknames: [n.userNickname],
             groupedIncentiveTypes: [n.incentiveType!],
-            groupedUsers: [{ userId: n.userId, userNickname: n.userNickname, userPhoto: n.userPhoto, incentiveTypes: [n.incentiveType!] }],
+            groupedUsers: [{ userId: n.userId, userNickname: n.userNickname, userPhoto: n.userPhoto, userGender: n.userGender, incentiveTypes: [n.incentiveType!] }],
           });
         }
       } else {
@@ -500,31 +501,27 @@ export default function Notifications() {
                                 {groupedCount > 1 ? (
                                   <>
                                     {/* Back avatar (second user or same user repeated) */}
-                                    <div className={`absolute top-0 right-0 h-9 w-9 rounded-full border-2 bg-muted ${isRead ? "border-background/60 opacity-50" : "border-background"} overflow-hidden`}>
-                                      {(groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto) ? (
-                                        <ImageWithFallback src={groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto ?? ""} alt="" className="h-full w-full object-cover" fallback="/placeholder.svg" />
-                                      ) : null}
-                                    </div>
+                                    <UserAvatar
+                                      photo={groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto}
+                                      gender={groupedUsers[1]?.userGender ?? groupedUsers[0]?.userGender}
+                                      nickname={groupedUsers[1]?.userNickname ?? groupedUsers[0]?.userNickname}
+                                      className={`absolute top-0 right-0 h-9 w-9 border-2 ${isRead ? "border-background/60 opacity-50" : "border-background"}`}
+                                    />
                                     {/* Front avatar (first user) */}
-                                    <div className={`absolute bottom-0 left-0 h-9 w-9 rounded-full border-2 bg-muted ${isRead ? "border-background/60 opacity-60" : "border-background"} overflow-hidden`}>
-                                      {groupedUsers[0]?.userPhoto ? (
-                                        <ImageWithFallback src={groupedUsers[0].userPhoto} alt={groupedUsers[0].userNickname} className="h-full w-full object-cover" fallback="/placeholder.svg" />
-                                      ) : null}
-                                    </div>
+                                    <UserAvatar
+                                      photo={groupedUsers[0]?.userPhoto}
+                                      gender={groupedUsers[0]?.userGender}
+                                      nickname={groupedUsers[0]?.userNickname}
+                                      className={`absolute bottom-0 left-0 h-9 w-9 border-2 ${isRead ? "border-background/60 opacity-60" : "border-background"}`}
+                                    />
                                   </>
-                                ) : notification.userPhoto ? (
-                                  <ImageWithFallback
-                                    src={notification.userPhoto}
-                                    alt={notification.userNickname}
-                                    className={`h-12 w-12 rounded-full object-cover border ${
-                                      isRead
-                                        ? "border-border/20 opacity-60"
-                                        : "border-border/40"
-                                    }`}
-                                    fallback="/placeholder.svg"
-                                  />
                                 ) : (
-                                  <div className={`h-12 w-12 rounded-full bg-muted ${isRead ? "opacity-40" : ""} border ${isRead ? "border-border/20" : "border-border/40"}`} />
+                                  <UserAvatar
+                                    photo={notification.userPhoto}
+                                    gender={notification.userGender}
+                                    nickname={notification.userNickname}
+                                    className={`h-12 w-12 border ${isRead ? "border-border/20 opacity-60" : "border-border/40"}`}
+                                  />
                                 )}
                               </div>
 

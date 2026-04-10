@@ -114,6 +114,8 @@ import {
   AlertCircle,
   ArrowUp,
   ArrowDown,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import {
   Dialog,
@@ -153,6 +155,12 @@ import { CreateWorkoutDrawer } from "@/components/goals/create-workout-drawer";
 import { CreateGoalDrawer } from "@/components/goals/create-goal-drawer";
 import { LinkGoalDrawer } from "@/components/goals/link-goal-drawer";
 import { ExecuteAtDrawer } from "@/components/goals/execute-at-drawer";
+import { ScheduledTimeDrawer } from "@/components/goals/scheduled-time-drawer";
+import { useRoutineNotifications, requestNotificationPermission, formatScheduledTime } from "@/hooks/use-routine-notifications";
+import {
+  updateRoutineScheduledTimeDb,
+  type RoutineType,
+} from "@/lib/ritmofit-db";
 import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
@@ -161,6 +169,7 @@ export default function Goals() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
+  const { syncAll: syncRoutineNotifications } = useRoutineNotifications(user?.id ?? null);
   const { t } = useLanguage();
   const {
     workoutMinimized, setWorkoutMinimized,
@@ -417,6 +426,11 @@ export default function Goals() {
   const [renameRoutineOpen, setRenameRoutineOpen] = React.useState(false);
   const [renameRoutineData, setRenameRoutineData] = React.useState<{ typeCode: number; oldName: string | null } | null>(null);
   const [renameRoutineValue, setRenameRoutineValue] = React.useState("");
+
+  // Scheduled time (notification) state
+  const [scheduledTimeDrawerOpen, setScheduledTimeDrawerOpen] = React.useState(false);
+  const [scheduledTimeTarget, setScheduledTimeTarget] = React.useState<{ id: string; type: RoutineType; name: string; currentTime: string | null } | null>(null);
+  const [isSavingScheduledTime, setIsSavingScheduledTime] = React.useState(false);
 
   // Tracks which existing routine card we're adding items to (for pre-fill name context)
   const [addToRoutineCardName, setAddToRoutineCardName] = React.useState<string | null>(null);
@@ -1002,6 +1016,47 @@ export default function Goals() {
         description: err?.message || "Tente novamente.",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleSaveScheduledTime = async (scheduledTime: string | null) => {
+    if (!scheduledTimeTarget) return;
+    setIsSavingScheduledTime(true);
+    try {
+      const granted = scheduledTime ? await requestNotificationPermission() : true;
+      if (scheduledTime && !granted) {
+        toast({
+          title: "Permissão necessária",
+          description: "Ative as notificações nas configurações do navegador para receber lembretes.",
+          variant: "destructive",
+        });
+        return;
+      }
+      await updateRoutineScheduledTimeDb(scheduledTimeTarget.type, scheduledTimeTarget.id, scheduledTime);
+      // Update local state optimistically
+      if (scheduledTimeTarget.type === "workout") {
+        setUserWorkouts((prev) =>
+          prev.map((w) => w.id === scheduledTimeTarget.id ? { ...w, scheduled_time: scheduledTime } : w)
+        );
+      } else if (scheduledTimeTarget.type === "diet") {
+        setUserDiets((prev) =>
+          prev.map((d) => d.id === scheduledTimeTarget.id ? { ...d, scheduled_time: scheduledTime } : d)
+        );
+      } else {
+        setUserHabits((prev) =>
+          prev.map((h) => h.id === scheduledTimeTarget.id ? { ...h, scheduled_time: scheduledTime } : h)
+        );
+      }
+      await syncRoutineNotifications();
+      toast({
+        title: scheduledTime
+          ? `Lembrete definido para ${formatScheduledTime(scheduledTime)}`
+          : "Lembrete removido",
+      });
+    } catch {
+      toast({ title: "Erro ao salvar lembrete", variant: "destructive" });
+    } finally {
+      setIsSavingScheduledTime(false);
     }
   };
 
@@ -1734,7 +1789,7 @@ export default function Goals() {
     }
   };
 
-  const handleSaveRoutines = async (executeAtOverride?: string | null) => {
+  const handleSaveRoutines = async (executeAtOverrides?: (string | null)[]) => {
     if (!user || selectedRoutineType === null || selectedItems.size === 0) {
       toast({
         title: "Selecione pelo menos um item",
@@ -1759,6 +1814,8 @@ export default function Goals() {
         return;
       }
 
+      const datesToSave = executeAtOverrides && executeAtOverrides.length > 0 ? executeAtOverrides : [null];
+
       if (selectedRoutineType === 1) {
         // Save workouts — only new ones
         if (itemIds.length > 0) {
@@ -1767,17 +1824,21 @@ export default function Goals() {
           });
         }
       } else if (selectedRoutineType === 2) {
-        // Save diets
-        await createUserDietsDb(user.id, itemIds, {
-          name: routineName.trim() || undefined,
-          execute_at: executeAtOverride ?? null,
-        });
+        // Save diets — one entry per selected date
+        for (const executeAt of datesToSave) {
+          await createUserDietsDb(user.id, itemIds, {
+            name: routineName.trim() || undefined,
+            execute_at: executeAt ?? null,
+          });
+        }
       } else if (selectedRoutineType === 3) {
-        // Save habits
-        await createUserHabitsDb(user.id, itemIds, {
-          name: routineName.trim() || undefined,
-          execute_at: executeAtOverride ?? null,
-        });
+        // Save habits — one entry per selected date
+        for (const executeAt of datesToSave) {
+          await createUserHabitsDb(user.id, itemIds, {
+            name: routineName.trim() || undefined,
+            execute_at: executeAt ?? null,
+          });
+        }
       }
 
       const typeLabel =
@@ -2941,6 +3002,36 @@ export default function Goals() {
                                         </div>
                                       </div>
 
+                                      {/* Scheduled time (notification) button */}
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const routineType: RoutineType =
+                                            typeCode === 1 ? "workout" : typeCode === 2 ? "diet" : "habit";
+                                          const itemName =
+                                            typeCode === 1
+                                              ? item.workoutName
+                                              : typeCode === 2
+                                                ? item.dietName
+                                                : item.habitName;
+                                          setScheduledTimeTarget({
+                                            id: item.id,
+                                            type: routineType,
+                                            name: itemName || "Item",
+                                            currentTime: item.scheduled_time ?? null,
+                                          });
+                                          setScheduledTimeDrawerOpen(true);
+                                        }}
+                                        className={`p-2 hover:bg-brand/10 rounded transition-colors flex-shrink-0 ${item.scheduled_time ? "text-brand" : "text-muted-foreground"}`}
+                                        title={item.scheduled_time ? `Lembrete: ${formatScheduledTime(item.scheduled_time)}` : "Definir lembrete"}
+                                      >
+                                        {item.scheduled_time ? (
+                                          <Bell className="h-4 w-4" />
+                                        ) : (
+                                          <BellOff className="h-4 w-4" />
+                                        )}
+                                      </button>
+
                                       {/* Delete button */}
                                       <button
                                         onClick={async (e) => {
@@ -3511,8 +3602,8 @@ export default function Goals() {
         open={showExecuteAtStep}
         onOpenChange={(v) => { if (!v) setShowExecuteAtStep(false); }}
         isSaving={isAddingRoutine}
-        onConfirm={(executeAt) => {
-          handleSaveRoutines(executeAt);
+        onConfirm={(executeDates) => {
+          handleSaveRoutines(executeDates.length > 0 ? executeDates : [null]);
           setShowExecuteAtStep(false);
         }}
       />
@@ -5666,6 +5757,15 @@ export default function Goals() {
         }}
       />
       <ImageZoomDrawer item={imageZoom} onClose={() => setImageZoom(null)} />
+
+      <ScheduledTimeDrawer
+        open={scheduledTimeDrawerOpen}
+        onOpenChange={setScheduledTimeDrawerOpen}
+        isSaving={isSavingScheduledTime}
+        routineName={scheduledTimeTarget?.name ?? ""}
+        currentTime={scheduledTimeTarget?.currentTime ?? null}
+        onConfirm={handleSaveScheduledTime}
+      />
 
       <RenameRoutineDialog
         open={renameRoutineOpen}

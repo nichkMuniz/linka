@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <rect width="100" height="100" rx="50" fill="#EC4899"/>
+  <!-- Body -->
+  <path d="M22 88 Q28 58 50 58 Q72 58 78 88 Z" fill="#BE185D"/>
+  <!-- Head -->
+  <circle cx="50" cy="38" r="18" fill="#FBCFE8"/>
+  <!-- Hair -->
+  <path d="M32 32 Q32 16 50 16 Q68 16 68 32 Q68 22 50 20 Q32 22 32 32 Z" fill="#BE185D"/>
+  <path d="M32 32 Q28 44 30 54" stroke="#BE185D" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <path d="M68 32 Q72 44 70 54" stroke="#BE185D" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <!-- Face details -->
+  <circle cx="44" cy="36" r="2.5" fill="#BE185D"/>
+  <circle cx="56" cy="36" r="2.5" fill="#BE185D"/>
+  <path d="M44 46 Q50 51 56 46" stroke="#BE185D" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <!-- Shoulders -->
+  <ellipse cx="30" cy="60" rx="8" ry="6" fill="#BE185D"/>
+  <ellipse cx="70" cy="60" rx="8" ry="6" fill="#BE185D"/>
+</svg>

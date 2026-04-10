@@ -23,6 +23,7 @@ import {
   type PostComment,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
+import { UserAvatar } from "@/components/shared/user-avatar";
 
 // Module-level flag: survives StrictMode remount cycles, resets when postId changes
 let _commentsAutoOpenConsumed = false;
@@ -198,6 +199,13 @@ export function PostCommentsDialog({
                 className="rounded-lg border border-border/30 bg-background/50 p-3"
               >
                 <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                    <UserAvatar
+                      photo={comment.userPhoto}
+                      gender={comment.userGender}
+                      nickname={comment.userName}
+                      size="sm"
+                    />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <div className="text-xs font-medium">
@@ -211,6 +219,7 @@ export function PostCommentsDialog({
                       {new Date(comment.createdAt).toLocaleString("pt-BR")}
                     </div>
                     <CommentReactions commentType="post" commentId={comment.id} commentOwnerId={comment.userId} sourceId={postId} isOwnComment={!!(user && user.id === comment.userId)} />
+                  </div>
                   </div>
 
                   {user && user.id === comment.userId && (

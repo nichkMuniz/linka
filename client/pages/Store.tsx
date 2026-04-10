@@ -49,6 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { UserAvatar } from "@/components/shared/user-avatar";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import {
   Tag,
@@ -291,11 +292,11 @@ function PromotionCard({
             onClick={() => onUserClick(promo.user_id)}
             className="flex items-center gap-1.5 min-w-0"
           >
-            <ImageWithFallback
-              src={promo.user_photo ?? ""}
-              alt={promo.user_nickname ?? ""}
-              className="h-5 w-5 rounded-full object-cover flex-shrink-0"
-              fallback="/placeholder.svg"
+            <UserAvatar
+              photo={promo.user_photo}
+              gender={promo.user_gender}
+              nickname={promo.user_nickname}
+              className="h-5 w-5 flex-shrink-0"
             />
             <span className="text-xs text-muted-foreground truncate max-w-[100px]">
               {promo.user_nickname}
@@ -1009,14 +1010,12 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage }: Profe
             fallback="/placeholder.svg"
           />
         ) : null}
-        <div className="relative z-10 h-14 w-14 rounded-full border-2 border-border bg-muted overflow-hidden flex-shrink-0">
-          <ImageWithFallback
-            src={pro.photo ?? ""}
-            alt={pro.nickname}
-            className="h-full w-full object-cover"
-            fallback="/placeholder.svg"
-          />
-        </div>
+        <UserAvatar
+          photo={pro.photo}
+          gender={pro.gender}
+          nickname={pro.nickname}
+          className="relative z-10 h-14 w-14 border-2 border-border flex-shrink-0"
+        />
       </div>
 
       <CardContent className="p-3 flex flex-col flex-1 gap-2">
@@ -1044,37 +1043,62 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage }: Profe
           <p className="text-xs text-muted-foreground line-clamp-2">{pro.business_description}</p>
         )}
 
-        {/* Service plans carousel */}
+        {/* Service plans — até 3 em linha, carrossel quando há mais */}
         {plans.length > 0 ? (
           <div className="flex-1 flex flex-col gap-1">
-            <div className="flex items-center justify-between rounded-md bg-muted/30 px-2 py-1.5 gap-2 min-h-[32px]">
-              <span className="text-xs font-medium truncate flex-1">{plans[planIndex].name}</span>
-              {plans[planIndex].price != null && (
-                <span className="text-xs font-bold text-brand flex-shrink-0 whitespace-nowrap">
-                  R$ {plans[planIndex].price.toFixed(2).replace(".", ",")}
-                </span>
-              )}
-            </div>
-            {plans.length > 1 && (
-              <div className="flex items-center justify-between gap-1">
-                <button
-                  onClick={() => setPlanIndex((i) => (i - 1 + plans.length) % plans.length)}
-                  className="p-0.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
-                  aria-label="Plano anterior"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-                </button>
-                <span className="text-[10px] text-muted-foreground">
-                  {planIndex + 1} / {plans.length}
-                </span>
-                <button
-                  onClick={() => setPlanIndex((i) => (i + 1) % plans.length)}
-                  className="p-0.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
-                  aria-label="Próximo plano"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
-                </button>
+            {plans.length <= 3 ? (
+              <div className="flex gap-1">
+                {plans.map((plan, idx) => (
+                  <div
+                    key={idx}
+                    className="flex-1 flex flex-col rounded-md bg-muted/30 px-2 py-1.5 gap-0.5 min-w-0"
+                  >
+                    <span className="text-[10px] font-medium truncate leading-tight">{plan.name}</span>
+                    {plan.price != null && (
+                      <span className="text-[10px] font-bold text-brand whitespace-nowrap">
+                        R$ {plan.price.toFixed(2).replace(".", ",")}
+                      </span>
+                    )}
+                  </div>
+                ))}
               </div>
+            ) : (
+              <>
+                <div className="flex gap-1">
+                  {plans.slice(planIndex * 3, planIndex * 3 + 3).map((plan, idx) => (
+                    <div
+                      key={idx}
+                      className="flex-1 flex flex-col rounded-md bg-muted/30 px-2 py-1.5 gap-0.5 min-w-0"
+                    >
+                      <span className="text-[10px] font-medium truncate leading-tight">{plan.name}</span>
+                      {plan.price != null && (
+                        <span className="text-[10px] font-bold text-brand whitespace-nowrap">
+                          R$ {plan.price.toFixed(2).replace(".", ",")}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-1">
+                  <button
+                    onClick={() => setPlanIndex((i) => (i - 1 + Math.ceil(plans.length / 3)) % Math.ceil(plans.length / 3))}
+                    className="p-0.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Planos anteriores"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+                  </button>
+                  <span className="text-[10px] text-muted-foreground">
+                    {planIndex + 1} / {Math.ceil(plans.length / 3)}
+                  </span>
+                  <button
+                    onClick={() => setPlanIndex((i) => (i + 1) % Math.ceil(plans.length / 3))}
+                    className="p-0.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Próximos planos"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+                  </button>
+                </div>
+              </>
             )}
           </div>
         ) : (
@@ -1298,7 +1322,7 @@ export default function Store() {
     <div className="min-h-screen bg-background">
       {/* Header — only title + action button stays sticky */}
       <div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border/50">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+        <div className="max-w-2xl mx-auto px-4 py-1 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Tag className="h-5 w-5 text-brand" />
             <h1 className="font-bold text-lg">Vitrine</h1>
@@ -1313,7 +1337,7 @@ export default function Store() {
       </div>
 
       {/* Tabs + filters — scroll with content */}
-      <div className="max-w-2xl mx-auto px-4 pt-3 pb-3 space-y-3">
+      <div className="max-w-2xl mx-auto px-4 pt-2 pb-3 space-y-2">
         {/* Tabs */}
         <div className="flex rounded-lg border border-border overflow-hidden">
           <button
@@ -1344,22 +1368,20 @@ export default function Store() {
 
         {activeTab === "promocoes" && (
           <>
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              <Input
-                placeholder="Buscar promoções..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-
-            {/* Category filter */}
-            <div>
+            {/* Search + Category filter inline */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="Buscar promoções..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9 h-9"
+                />
+              </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors">
+                  <button className="flex items-center gap-2 text-xs font-medium px-3 h-9 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap flex-shrink-0">
                     {activeCategory === "todos" ? (
                       <PackageOpen className="h-4 w-4" />
                     ) : (
@@ -1399,22 +1421,20 @@ export default function Store() {
 
         {activeTab === "profissionais" && (
           <>
-            {/* Professionals search */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-              <Input
-                placeholder="Buscar profissionais..."
-                value={proSearch}
-                onChange={(e) => setProSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-
-            {/* Segment filter */}
-            <div>
+            {/* Professionals search + Segment filter inline */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="Buscar profissionais..."
+                  value={proSearch}
+                  onChange={(e) => setProSearch(e.target.value)}
+                  className="pl-9 h-9"
+                />
+              </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors">
+                  <button className="flex items-center gap-2 text-xs font-medium px-3 h-9 rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap flex-shrink-0">
                     <Briefcase className="h-4 w-4" />
                     <span>{proSegment === "todos" ? "Todos os segmentos" : SEGMENT_LABELS[proSegment] ?? proSegment}</span>
                     <svg className="h-3.5 w-3.5 ml-0.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>

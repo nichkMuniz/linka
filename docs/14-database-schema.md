@@ -582,6 +582,7 @@ Dietas ativas associadas a um usuário.
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `is_completed` | boolean | — | `false` | Meta concluída |
 | `name` | text | — | — | Nome customizado (denormalizado) |
+| `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
 
 ---
 
@@ -669,6 +670,7 @@ Hábitos ativos associados a um usuário.
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `is_completed` | boolean | — | `false` | Concluído hoje |
 | `name` | text | — | — | Nome customizado (denormalizado) |
+| `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
 
 ---
 
@@ -716,6 +718,7 @@ Treinos salvos / atribuídos a um usuário.
 | `created_at` | timestamptz | ✓ | `now()` | Data de associação |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `name` | text | — | — | Nome customizado (denormalizado) |
+| `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
 
 ---
 

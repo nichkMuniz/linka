@@ -47,6 +47,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { UserAvatar } from "@/components/shared/user-avatar";
 
 export default function Shots({ footerHeight = 0, isDesktop = false }: { footerHeight?: number; isDesktop?: boolean }) {
   const { user } = useAuth();
@@ -515,11 +516,12 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                   onClick={() => navigate(`/usuario/${shot.user_id}`)}
                   className="flex items-center gap-3 hover:opacity-80 transition-opacity"
                 >
-                  <ImageWithFallback
-                    src={shot.userPhoto}
-                    alt={shot.userNickname || "Usuário"}
-                    fallback="/placeholder.svg"
-                    className="h-12 w-12 rounded-full object-cover border-2 border-white/30 shadow-lg"
+                  <UserAvatar
+                    photo={shot.userPhoto}
+                    gender={shot.userGender}
+                    nickname={shot.userNickname || "Usuário"}
+                    size="lg"
+                    className="border-2 border-white/30 shadow-lg"
                   />
                   <div>
                     <p className="text-sm font-bold text-white drop-shadow-md">
@@ -700,11 +702,17 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                   key={comment.id}
                   className="flex items-start gap-3 pb-3 border-b border-border/60"
                 >
+                  <UserAvatar
+                    photo={comment.userPhoto}
+                    gender={comment.userGender}
+                    nickname={comment.userName}
+                    size="sm"
+                  />
                   <div className="flex-1">
                     <p className="text-sm font-medium">
                       {comment.userName || "Usuário"}
                       <span className="ml-1 text-xs text-muted-foreground">
-                        @{comment.userHandle || "@user"}
+                        {comment.userHandle ? (comment.userHandle.startsWith("@") ? comment.userHandle : `@${comment.userHandle}`) : "@user"}
                       </span>
                     </p>
                     <p className="text-sm text-foreground mt-1">

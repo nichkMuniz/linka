@@ -7,7 +7,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
-import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { UserAvatar } from "@/components/shared/user-avatar";
 import { type SearchUser, type Conversation } from "@/lib/ritmofit-db";
 
 interface NewConversationDrawerProps {
@@ -70,10 +70,12 @@ export function NewConversationDrawer({
                   onOpenChange(false);
                 }}
               >
-                <ImageWithFallback
-                  src={follower.photo}
-                  alt={follower.nickname}
-                  className="w-10 h-10 rounded-full object-cover shrink-0"
+                <UserAvatar
+                  photo={follower.photo}
+                  gender={follower.gender}
+                  nickname={follower.nickname}
+                  size="md"
+                  className="shrink-0"
                 />
                 <span className="font-medium text-sm">{follower.nickname}</span>
               </button>

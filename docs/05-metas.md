@@ -91,7 +91,18 @@ Cada rotina exibe:
 - Botão de compartilhar rotina
 - Menu: Adicionar itens | Editar rotina (renomear) | Vincular Meta | Excluir rotina
 
+Cada **item** dentro da rotina exibe:
+- Ícone de sino (`Bell` / `BellOff`): abre o `ScheduledTimeDrawer` para definir ou remover lembrete diário
+  - Sino colorido (brand) = lembrete ativo; sino acinzentado = sem lembrete
+  - Ao confirmar, salva `scheduled_time` (formato `HH:MM`) no banco e sincroniza com o Service Worker
+
 **Editar rotina:** Dialog para renomear. Atualiza `routines.name`, `user_workouts.name`, `user_diets.name` ou `user_habits.name` via `updateRoutineNameDb`.
+
+**Lembrete diário (notificação):** Cada item de rotina pode ter um `scheduled_time` (ex: `07:30`). O `ScheduledTimeDrawer` permite definir ou remover esse horário. Ao salvar:
+1. Pede permissão de notificação ao navegador (se ainda não concedida)
+2. Persiste `scheduled_time` via `updateRoutineScheduledTimeDb`
+3. Sincroniza todos os horários com o Service Worker via `syncAll` do hook `useRoutineNotifications`
+4. O SW agenda um `setTimeout` para disparar `showNotification` no horário exato, re-agendando diariamente
 
 **Filtro de grupo muscular / categoria:** Oculto por padrão, expandido ao clicar no ícone de filtro (chevron toggle). Mostra contador de filtros ativos.
 
@@ -345,6 +356,7 @@ Usuário quer adicionar dieta ou hábito
 | Hidratação do dia | `getTodayHydrationDb()` — soma de `hydration_logs` de hoje |
 | Macro acumulado do dia | `getTodayMacroSummaryDb()` — agrega dietas concluídas hoje |
 | Humor do dia | `getTodayMoodDb()` — registro único de `mood_logs` para hoje |
+| Horários de lembretes | `getRoutineSchedulesDb(userId)` — retorna todos os itens com `scheduled_time` não nulo |
 
 ---
 
@@ -353,6 +365,7 @@ Usuário quer adicionar dieta ou hábito
 | Dado | Função DB |
 |---|---|
 | Renomear rotina (routines + items) | `updateRoutineNameDb(userId, oldName, typeCode, newName)` |
+| Salvar horário de lembrete | `updateRoutineScheduledTimeDb(type, id, scheduledTime)` — atualiza `scheduled_time` em `user_workouts`/`user_diets`/`user_habits` |
 | Toggle conclusão dieta (com timestamp) | `toggleUserDietCompletionDb(id, isCompleted)` — salva `completed_at` |
 | Toggle conclusão hábito (com timestamp) | `toggleUserHabitCompletionDb(id, isCompleted)` — salva `completed_at` |
 | Grupos de duelo (criados + participante) | `getEnrichedDuelGroupsDb(userId)` — `myGroups` inclui grupos onde usuário é participante |
@@ -370,6 +383,7 @@ Usuário quer adicionar dieta ou hábito
 | `Drawer` | Painel deslizante de detalhes |
 | `Progress` | Barra de progresso |
 | `Select` | Seletor de tipo de meta/rotina |
+| `ScheduledTimeDrawer` | Drawer para definir/remover horário de lembrete diário de um item de rotina |
 
 ---
 

@@ -15,6 +15,7 @@ export type PostWithStats = PostWithLikes & {
   hasActivity: boolean;
   userNickname: string;
   userPhoto: string | null;
+  userGender?: string | null;
   userGoal?: {
     id: string;
     goal_id: string;
@@ -108,6 +109,7 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
       hasActivity: totalLikes > 0 || commentCount > 0,
       userNickname: profile?.nickname || "Usuário",
       userPhoto: profile?.photo || null,
+      userGender: profile?.gender || null,
       userGoal,
     };
   });
@@ -188,6 +190,7 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
       hasActivity: totalLikes > 0 || commentCount > 0,
       userNickname: profile?.nickname || "Usuário",
       userPhoto: profile?.photo || null,
+      userGender: profile?.gender || null,
       userGoal,
     };
   });

@@ -12,9 +12,11 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
+import { motion } from "framer-motion";
+import { PageTransition } from "@/components/layout/page-transition";
 
 import { Button } from "@/components/ui/button";
-import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { UserAvatar } from "@/components/shared/user-avatar";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -70,6 +72,7 @@ export function AppLayout() {
   const [unreadCount, setUnreadCount] = React.useState(0);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = React.useState(0);
   const [profilePhoto, setProfilePhoto] = React.useState<string | null>(null);
+  const [profileGender, setProfileGender] = React.useState<string | null>(null);
 
   // Daily usage timer
   const [usageSecondsElapsed, setUsageSecondsElapsed] = React.useState(0);
@@ -202,6 +205,9 @@ export function AppLayout() {
         if (profile?.photo) {
           setProfilePhoto(profile.photo);
         }
+        if (profile?.gender) {
+          setProfileGender(String(profile.gender));
+        }
       } catch (err) {
         console.error("Error loading profile photo:", err);
       }
@@ -300,27 +306,33 @@ export function AppLayout() {
               const active = isActivePath(location.pathname, item.to);
               const Icon = item.icon;
               return (
-                <Link
+                <motion.div
                   key={item.to}
-                  to={item.to}
-                  aria-label={item.label}
-                  className={cn(
-                    "flex items-center gap-4 rounded-xl px-3 py-3 text-[15px] font-medium transition-colors",
-                    active
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                  )}
+                  whileTap={{ scale: 0.97 }}
+                  whileHover={{ x: 2 }}
+                  transition={{ duration: 0.15 }}
                 >
-                  <span className="relative flex-shrink-0">
-                    <Icon className="h-6 w-6" />
-                    {item.badge && item.badge > 0 ? (
-                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold">
-                        {item.badge > 9 ? "9+" : item.badge}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span>{item.label}</span>
-                </Link>
+                  <Link
+                    to={item.to}
+                    aria-label={item.label}
+                    className={cn(
+                      "flex items-center gap-4 rounded-xl px-3 py-3 text-[15px] font-medium transition-colors",
+                      active
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    <span className="relative flex-shrink-0">
+                      <Icon className="h-6 w-6" />
+                      {item.badge && item.badge > 0 ? (
+                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold">
+                          {item.badge > 9 ? "9+" : item.badge}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span>{item.label}</span>
+                  </Link>
+                </motion.div>
               );
             })}
           </nav>
@@ -345,20 +357,12 @@ export function AppLayout() {
             aria-label="Perfil"
             className="flex items-center gap-3 rounded-xl px-3 py-3 transition hover:bg-muted/50"
           >
-            {profilePhoto ? (
-              <ImageWithFallback
-                src={profilePhoto}
-                alt="Seu Perfil"
-                fallback="/placeholder.svg"
-                className="h-9 w-9 rounded-full object-cover border border-border/60 flex-shrink-0"
-              />
-            ) : (
-              <div className="h-9 w-9 rounded-full bg-muted border border-border/60 flex items-center justify-center flex-shrink-0">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  {t("nav_you")}
-                </span>
-              </div>
-            )}
+            <UserAvatar
+              photo={profilePhoto}
+              gender={profileGender}
+              size="sm"
+              className="h-9 w-9 border border-border/60"
+            />
             <span className="text-[15px] font-medium text-muted-foreground group-hover:text-foreground truncate">
               {t("nav_profile") ?? "Perfil"}
             </span>
@@ -368,7 +372,9 @@ export function AppLayout() {
         {/* Feed column — centered after sidebar */}
         <div className="ml-[244px] flex flex-1 justify-center">
           <main className="w-full max-w-[680px] min-h-dvh px-0 py-6">
-            <Outlet />
+            <PageTransition>
+              <Outlet />
+            </PageTransition>
           </main>
         </div>
       </div>
@@ -385,18 +391,12 @@ export function AppLayout() {
             {/* Left: Profile + Timer */}
             <div className="absolute left-4 flex items-center gap-2">
               <Link to="/perfil" aria-label="Perfil" className="flex-shrink-0 rounded-full hover:opacity-80 transition">
-                {profilePhoto ? (
-                  <ImageWithFallback
-                    src={profilePhoto}
-                    alt="Seu Perfil"
-                    fallback="/placeholder.svg"
-                    className="h-10 w-10 rounded-full object-cover border-2 border-border/60"
-                  />
-                ) : (
-                  <div className="h-10 w-10 rounded-full bg-muted border-2 border-border/60 flex items-center justify-center">
-                    <span className="text-xs font-semibold text-muted-foreground">{t("nav_you")}</span>
-                  </div>
-                )}
+                <UserAvatar
+                  photo={profilePhoto}
+                  gender={profileGender}
+                  size="md"
+                  className="border-2 border-border/60"
+                />
               </Link>
               {showTimer && (
                 <div className={cn(
@@ -461,7 +461,9 @@ export function AppLayout() {
           "flex-1 w-full px-4 pt-6",
           layoutMode === "default" ? "pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)]" : "pb-6"
         )}>
-          <Outlet />
+          <PageTransition>
+            <Outlet />
+          </PageTransition>
         </main>
 
         {layoutMode === "default" && (
@@ -479,14 +481,19 @@ export function AppLayout() {
                       active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    <span className={cn(
-                      "grid h-11 w-11 place-items-center rounded-2xl ring-1 transition",
-                      active
-                        ? "text-white ring-transparent bg-brand-gradient"
-                        : "bg-transparent ring-transparent",
-                    )}>
+                    <motion.span
+                      whileTap={{ scale: 0.82 }}
+                      animate={active ? { scale: [1, 1.18, 1] } : { scale: 1 }}
+                      transition={{ duration: 0.28, ease: "easeOut" }}
+                      className={cn(
+                        "grid h-11 w-11 place-items-center rounded-2xl ring-1 transition-colors",
+                        active
+                          ? "text-white ring-transparent bg-brand-gradient"
+                          : "bg-transparent ring-transparent",
+                      )}
+                    >
                       <Icon className="h-6 w-6" />
-                    </span>
+                    </motion.span>
                     <span className="hidden sm:block">{item.label}</span>
                   </Link>
                 );

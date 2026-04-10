@@ -185,17 +185,36 @@ Botão "Salvar" → `updateUserProfileDb`
 
 ## Drawer de Configurações (próprio)
 
-Aberto pelo botão "Configurações":
+Aberto pelo botão "Configurações". O menu é organizado em seções com separadores:
+
+### Seção: Perfil
 
 | Configuração | Tipo | Descrição |
 |---|---|---|
-| Editar Perfil | Botão → Drawer aninhado | Edição de nome, bio, foto, banner, segmentos |
+| Meu Perfil | Botão → Drawer aninhado com abas | Drawer unificado com duas abas: **Público** (foto, nome, bio, handle, objetivos) e **Pessoal** (sexo, altura, peso, idade) |
+| Conta e Segurança | Botão → Drawer aninhado | Email (somente leitura), redefinir senha e zona de perigo (encerrar conta) |
+
+### Seção: Negócio *(exibida apenas se o usuário tem perfil comercial)*
+
+| Configuração | Tipo | Descrição |
+|---|---|---|
+| Gerenciar Perfil Comercial | Botão → Drawer aninhado | Dashboard do negócio com stats e edição |
+| Perfil Comercial | Botão → Drawer aninhado | Formulário de criação *(exibido quando não há perfil comercial)* |
+
+### Seção: Preferências
+
+| Configuração | Tipo | Descrição |
+|---|---|---|
 | Idioma | Botão → Drawer aninhado | Selecionar pt-BR ou en-US |
 | Notificações | Botão → Drawer aninhado | Toggles de treino, conquistas, amigos, mensagens, sons |
-| Gerenciamento de Tempo | Botão → Drawer aninhado | Histórico de uso 7 dias + limite diário |
+| Gerenciamento de Tempo | Botão → Drawer aninhado | Limite diário de uso em minutos |
 | Personalização | Botão → Drawer aninhado | Trocar layout e tema dark/light |
+
+### Seção: Outros
+
+| Configuração | Tipo | Descrição |
+|---|---|---|
 | Arquivo de Flows | Botão → Drawer aninhado | Histórico de flows expirados (> 24h) |
-| Meus Dados | Botão → Drawer aninhado | Dados pessoais: sexo, altura, peso e idade |
 | Desconectar | Botão destrutivo | Logout |
 
 **Perfil Comercial (se ativado):**

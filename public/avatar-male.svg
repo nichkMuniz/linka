@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <rect width="100" height="100" rx="50" fill="#3B82F6"/>
+  <!-- Body -->
+  <rect x="28" y="58" width="44" height="30" rx="8" fill="#1D4ED8"/>
+  <!-- Head -->
+  <circle cx="50" cy="38" r="18" fill="#BFDBFE"/>
+  <!-- Face details -->
+  <circle cx="44" cy="36" r="2.5" fill="#1D4ED8"/>
+  <circle cx="56" cy="36" r="2.5" fill="#1D4ED8"/>
+  <path d="M44 46 Q50 51 56 46" stroke="#1D4ED8" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <!-- Shoulders -->
+  <ellipse cx="30" cy="60" rx="8" ry="6" fill="#1D4ED8"/>
+  <ellipse cx="70" cy="60" rx="8" ry="6" fill="#1D4ED8"/>
+</svg>

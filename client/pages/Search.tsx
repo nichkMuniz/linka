@@ -18,10 +18,11 @@ import {
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
-import { ChevronDown, ChevronUp, Copy } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Dumbbell, Users, Salad, SearchX } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { UserAvatar } from "@/components/shared/user-avatar";
 import { FollowButton } from "@/components/shared/follow-button";
 
 type RoutineCardProps = {
@@ -63,16 +64,12 @@ function RoutineCard({
         <div className="flex items-center gap-2">
           {/* Small user avatar + name */}
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            {routine.userPhoto ? (
-              <ImageWithFallback
-                src={routine.userPhoto}
-                alt={routine.userNickname}
-                className="h-5 w-5 rounded-full object-cover flex-shrink-0"
-                fallback="/placeholder.svg"
-              />
-            ) : (
-              <div className="h-5 w-5 rounded-full bg-muted flex-shrink-0" />
-            )}
+            <UserAvatar
+              photo={routine.userPhoto}
+              gender={routine.userGender}
+              nickname={routine.userNickname}
+              className="h-5 w-5 flex-shrink-0"
+            />
             <button
               onClick={() => onNavigate(routine.userId)}
               className="text-xs text-muted-foreground hover:text-brand transition-colors truncate"
@@ -319,18 +316,33 @@ export default function Search() {
         <TabsContent value="people" className="space-y-3">
           {isLoadingPeople && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
           {!isLoadingPeople && searchUsers.length === 0 && (
-            <div className="text-center py-6 text-sm text-muted-foreground">{t("search_no_people")}</div>
+            <div className="relative flex flex-col items-center justify-center py-16 text-center overflow-hidden">
+              <Users className="absolute opacity-[0.04] h-48 w-48 text-foreground" aria-hidden="true" />
+              <div className="relative flex flex-col items-center gap-3">
+                <div className="flex items-center justify-center h-14 w-14 rounded-full bg-muted/60">
+                  <SearchX className="h-7 w-7 text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-foreground">Nenhuma pessoa encontrada</p>
+                  <p className="text-xs text-muted-foreground max-w-[220px]">
+                    Tente buscar por um nome ou @nickname diferente
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
           {searchUsers.map((u) => (
             <Card key={u.id} className="border-border/60 hover:bg-muted/50 transition-colors">
               <CardContent className="p-4">
                 <div className="flex items-start gap-3 justify-between">
                   <div className="flex items-start gap-3 flex-1">
-                    {u.photo ? (
-                      <ImageWithFallback src={u.photo} alt={u.nickname} className="h-12 w-12 rounded-full object-cover flex-shrink-0" fallback="/placeholder.svg" />
-                    ) : (
-                      <div className="h-12 w-12 rounded-full bg-muted flex-shrink-0" />
-                    )}
+                    <UserAvatar
+                      photo={u.photo}
+                      gender={u.gender}
+                      nickname={u.nickname}
+                      size="lg"
+                      className="flex-shrink-0"
+                    />
                     <div className="flex-1 min-w-0">
                       <button
                         onClick={() => navigate(`/usuario/${u.id}`)}
@@ -357,8 +369,19 @@ export default function Search() {
         <TabsContent value="workouts" className="space-y-3">
           {isLoadingWorkouts && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
           {!isLoadingWorkouts && searchWorkouts.length === 0 && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              {t("search_no_workouts")}
+            <div className="relative flex flex-col items-center justify-center py-16 text-center overflow-hidden">
+              <Dumbbell className="absolute opacity-[0.04] h-48 w-48 text-foreground" aria-hidden="true" />
+              <div className="relative flex flex-col items-center gap-3">
+                <div className="flex items-center justify-center h-14 w-14 rounded-full bg-muted/60">
+                  <Dumbbell className="h-7 w-7 text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-foreground">Nenhum treino cadastrado ainda</p>
+                  <p className="text-xs text-muted-foreground max-w-[220px]">
+                    Quando alguém compartilhar um treino, ele aparece aqui para você copiar
+                  </p>
+                </div>
+              </div>
             </div>
           )}
           {searchWorkouts.map((routine) => (
@@ -384,8 +407,19 @@ export default function Search() {
         <TabsContent value="diets" className="space-y-3">
           {isLoadingDiets && <div className="text-center py-6 text-sm text-muted-foreground">{t("search_loading")}</div>}
           {!isLoadingDiets && searchDiets.length === 0 && (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              {t("search_no_diets")}
+            <div className="relative flex flex-col items-center justify-center py-16 text-center overflow-hidden">
+              <Salad className="absolute opacity-[0.04] h-48 w-48 text-foreground" aria-hidden="true" />
+              <div className="relative flex flex-col items-center gap-3">
+                <div className="flex items-center justify-center h-14 w-14 rounded-full bg-muted/60">
+                  <Salad className="h-7 w-7 text-muted-foreground" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-foreground">Nenhuma dieta cadastrada ainda</p>
+                  <p className="text-xs text-muted-foreground max-w-[220px]">
+                    Quando alguém compartilhar uma dieta, ela aparece aqui para você copiar
+                  </p>
+                </div>
+              </div>
             </div>
           )}
           {searchDiets.map((routine) => (

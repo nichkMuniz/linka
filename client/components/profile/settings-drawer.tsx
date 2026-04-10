@@ -56,6 +56,7 @@ import {
   BarChart3,
   ChevronDown,
   User,
+  X,
 } from "lucide-react";
 
 interface SettingsDrawerProps {
@@ -84,25 +85,32 @@ export function SettingsDrawer({
 
   const [isOpen, setIsOpen] = React.useState(false);
 
-  // --- Edit Profile ---
+  // --- My Profile (unified drawer with tabs) ---
   const [isEditOpen, setIsEditOpen] = React.useState(false);
+  const [profileTab, setProfileTab] = React.useState<"public" | "personal">("public");
+
+  // --- Account & Security ---
+  const [isAccountOpen, setIsAccountOpen] = React.useState(false);
+  const [isDangerZoneOpen, setIsDangerZoneOpen] = React.useState(false);
   const [editNickname, setEditNickname] = React.useState("");
   const [editBio, setEditBio] = React.useState("");
   const [editHandle, setEditHandle] = React.useState("");
   const [editObjectives, setEditObjectives] = React.useState<string[]>([]);
   const [editPhotoFile, setEditPhotoFile] = React.useState<File | null>(null);
   const [editPhotoPreview, setEditPhotoPreview] = React.useState<string | null>(null);
+  const [removePhoto, setRemovePhoto] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
-  const [isDangerZoneOpen, setIsDangerZoneOpen] = React.useState(false);
 
-  const openEditProfile = () => {
+  const openEditProfile = (tab: "public" | "personal" = "public") => {
     setEditNickname(profile.nickname);
     setEditBio(profile.bio ?? "");
     setEditHandle(profile.handle ?? "");
     setEditObjectives(profile.objectives ?? []);
     setEditPhotoPreview(profile.photo ?? null);
     setEditPhotoFile(null);
+    setRemovePhoto(false);
+    setProfileTab(tab);
     setIsEditOpen(true);
   };
 
@@ -110,9 +118,16 @@ export function SettingsDrawer({
     const file = e.target.files?.[0];
     if (!file) return;
     setEditPhotoFile(file);
+    setRemovePhoto(false);
     const reader = new FileReader();
     reader.onload = (ev) => setEditPhotoPreview(ev.target?.result as string);
     reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhoto = () => {
+    setEditPhotoFile(null);
+    setEditPhotoPreview(null);
+    setRemovePhoto(true);
   };
 
   const handleSaveProfile = async () => {
@@ -122,7 +137,7 @@ export function SettingsDrawer({
     }
     setIsSaving(true);
     try {
-      let photoUrl = profile.photo;
+      let photoUrl: string | null = removePhoto ? null : (profile.photo ?? null);
       if (editPhotoFile) {
         const extension = editPhotoFile.name.split(".").pop() || "jpg";
         const filePath = `${userId}/profile-${Date.now()}.${extension}`;
@@ -287,7 +302,6 @@ export function SettingsDrawer({
   };
 
   // --- Personal Data ---
-  const [isPersonalDataOpen, setIsPersonalDataOpen] = React.useState(false);
   const [personalDataForm, setPersonalDataForm] = React.useState({
     gender: profile.gender ?? "",
     height: profile.height ?? "",
@@ -301,7 +315,6 @@ export function SettingsDrawer({
     try {
       await updateUserPersonalDataDb(userId, personalDataForm);
       toast({ title: "Dados salvos!", description: "Suas informações pessoais foram atualizadas." });
-      setIsPersonalDataOpen(false);
     } catch (err: any) {
       toast({ title: "Erro", description: err?.message || "Falha ao salvar dados.", variant: "destructive" });
     } finally {
@@ -344,85 +357,174 @@ export function SettingsDrawer({
             <DrawerTitle>Configurações</DrawerTitle>
           </DrawerHeader>
 
-          <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4">
+          <div className="flex flex-col flex-1 gap-2 overflow-y-auto px-4 pb-4">
 
-            {/* Edit Profile */}
+            {/* ── Perfil ── */}
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-1 pb-0.5">Perfil</p>
+
+            {/* My Profile (unified) */}
             <Drawer open={isEditOpen} onOpenChange={setIsEditOpen}>
-              <Button onClick={openEditProfile} variant="outline" className="gap-2 justify-between">
-                <span>Editar Perfil</span>
-                <Edit2 className="h-4 w-4" />
+              <Button onClick={() => openEditProfile("public")} variant="outline" className="gap-2 justify-between">
+                <span>Meu Perfil</span>
+                <User className="h-4 w-4" />
               </Button>
               <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
                 <DrawerHeader className="shrink-0 flex items-center gap-2">
                   {subDrawerBack(setIsEditOpen)}
-                  <DrawerTitle>Editar Perfil</DrawerTitle>
+                  <DrawerTitle>Meu Perfil</DrawerTitle>
+                </DrawerHeader>
+
+                {/* Tabs */}
+                <div className="shrink-0 px-4 pb-2">
+                  <div className="flex rounded-lg bg-muted p-1 gap-1">
+                    <button
+                      onClick={() => setProfileTab("public")}
+                      className={`flex-1 text-sm font-medium py-1.5 rounded-md transition-colors ${profileTab === "public" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      Público
+                    </button>
+                    <button
+                      onClick={() => setProfileTab("personal")}
+                      className={`flex-1 text-sm font-medium py-1.5 rounded-md transition-colors ${profileTab === "personal" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      Pessoal
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-4 pb-4">
+                  {profileTab === "public" ? (
+                    <div className="space-y-4">
+                      {/* Photo */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Foto do Perfil</label>
+                        <div className="flex items-center gap-4">
+                          <div className="h-16 w-16 rounded-full overflow-hidden bg-muted shrink-0">
+                            {editPhotoPreview ? (
+                              <img src={editPhotoPreview} alt="preview" className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="h-full w-full bg-muted" />
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <label>
+                              <Button type="button" variant="outline" size="sm" asChild>
+                                <span><Upload className="h-4 w-4 mr-2" />Alterar foto</span>
+                              </Button>
+                              <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                            </label>
+                            {editPhotoPreview && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive gap-1.5 px-2"
+                                onClick={handleRemovePhoto}
+                              >
+                                <X className="h-4 w-4" />
+                                Remover foto
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {/* Name */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Nome</label>
+                        <Input value={editNickname} onChange={(e) => setEditNickname(e.target.value)} placeholder="Seu nome" />
+                      </div>
+                      {/* Bio */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Bio</label>
+                        <Textarea value={editBio} onChange={(e) => setEditBio(e.target.value)} placeholder="Sua bio" className="min-h-24" />
+                      </div>
+                      {/* Handle */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">@ Usuário</label>
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground text-sm">@</span>
+                          <Input value={editHandle} onChange={(e) => setEditHandle(e.target.value.replace(/[^a-zA-Z0-9_.]/g, ""))} placeholder="seu_handle" />
+                        </div>
+                        <p className="text-xs text-muted-foreground">Apenas letras, números, _ e .</p>
+                      </div>
+                      {/* Objectives */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Objetivos</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { id: "fitness", label: "🏋️ Fitness & Musculação" },
+                            { id: "cardio", label: "🏃 Cardio & Corrida" },
+                            { id: "diets", label: "🥗 Dietas & Nutrição" },
+                            { id: "habits", label: "🎯 Hábitos & Mindfulness" },
+                            { id: "yoga", label: "🧘 Yoga & Flexibilidade" },
+                            { id: "sports", label: "⚽ Esportes" },
+                          ].map((obj) => {
+                            const selected = editObjectives.includes(obj.id);
+                            return (
+                              <button
+                                key={obj.id}
+                                type="button"
+                                onClick={() => setEditObjectives((prev) => selected ? prev.filter((o) => o !== obj.id) : [...prev, obj.id])}
+                                className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-muted border-border hover:bg-muted/80"}`}
+                              >
+                                {obj.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <Button onClick={handleSaveProfile} disabled={isSaving} className="w-full rounded-full">
+                        {isSaving ? "Salvando..." : "Salvar Alterações"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Sexo</label>
+                        <Select value={personalDataForm.gender} onValueChange={(v) => setPersonalDataForm((prev) => ({ ...prev, gender: v }))}>
+                          <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                          <SelectContent position="popper" className="z-[200]">
+                            <SelectItem value="male">Masculino</SelectItem>
+                            <SelectItem value="female">Feminino</SelectItem>
+                            <SelectItem value="other">Outro</SelectItem>
+                            <SelectItem value="prefer_not_to_say">Prefiro não informar</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Altura (cm)</label>
+                        <Input type="number" min={100} max={250} step={1} value={personalDataForm.height} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 175" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Peso (kg)</label>
+                        <Input type="number" min={30} max={300} step="0.1" value={personalDataForm.weight} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))} placeholder="Ex: 70.5" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Idade</label>
+                        <Input type="number" min={10} max={120} step={1} value={personalDataForm.age} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 28" />
+                      </div>
+                      <Button onClick={handleSavePersonalData} disabled={isSavingPersonalData} className="w-full rounded-full">
+                        {isSavingPersonalData ? "Salvando..." : "Salvar"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </DrawerContent>
+            </Drawer>
+
+            {/* Account & Security */}
+            <Drawer open={isAccountOpen} onOpenChange={setIsAccountOpen}>
+              <Button onClick={() => setIsAccountOpen(true)} variant="outline" className="gap-2 justify-between">
+                <span>Conta e Segurança</span>
+                <Settings className="h-4 w-4" />
+              </Button>
+              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+                <DrawerHeader className="shrink-0 flex items-center gap-2">
+                  {subDrawerBack(setIsAccountOpen)}
+                  <DrawerTitle>Conta e Segurança</DrawerTitle>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-4">
-                    {/* Photo */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Foto do Perfil</label>
-                      <div className="flex items-center gap-4">
-                        <div className="h-16 w-16 rounded-full overflow-hidden bg-muted shrink-0">
-                          {editPhotoPreview ? (
-                            <img src={editPhotoPreview} alt="preview" className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="h-full w-full bg-muted" />
-                          )}
-                        </div>
-                        <label className="flex-1">
-                          <Button type="button" variant="outline" size="sm" asChild>
-                            <span><Upload className="h-4 w-4 mr-2" />Alterar foto</span>
-                          </Button>
-                          <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
-                        </label>
-                      </div>
-                    </div>
-                    {/* Name */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Nome</label>
-                      <Input value={editNickname} onChange={(e) => setEditNickname(e.target.value)} placeholder="Seu nome" />
-                    </div>
-                    {/* Bio */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Bio</label>
-                      <Textarea value={editBio} onChange={(e) => setEditBio(e.target.value)} placeholder="Sua bio" className="min-h-24" />
-                    </div>
-                    {/* Handle */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">@ Usuário</label>
-                      <div className="flex items-center gap-1">
-                        <span className="text-muted-foreground text-sm">@</span>
-                        <Input value={editHandle} onChange={(e) => setEditHandle(e.target.value.replace(/[^a-zA-Z0-9_.]/g, ""))} placeholder="seu_handle" />
-                      </div>
-                      <p className="text-xs text-muted-foreground">Apenas letras, números, _ e .</p>
-                    </div>
-                    {/* Objectives */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Objetivos</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { id: "fitness", label: "🏋️ Fitness & Musculação" },
-                          { id: "cardio", label: "🏃 Cardio & Corrida" },
-                          { id: "diets", label: "🥗 Dietas & Nutrição" },
-                          { id: "habits", label: "🎯 Hábitos & Mindfulness" },
-                          { id: "yoga", label: "🧘 Yoga & Flexibilidade" },
-                          { id: "sports", label: "⚽ Esportes" },
-                        ].map((obj) => {
-                          const selected = editObjectives.includes(obj.id);
-                          return (
-                            <button
-                              key={obj.id}
-                              type="button"
-                              onClick={() => setEditObjectives((prev) => selected ? prev.filter((o) => o !== obj.id) : [...prev, obj.id])}
-                              className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-muted border-border hover:bg-muted/80"}`}
-                            >
-                              {obj.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
                     {/* Email (read-only) */}
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Email</label>
@@ -430,7 +532,7 @@ export function SettingsDrawer({
                       <p className="text-xs text-muted-foreground">Email não pode ser alterado aqui</p>
                     </div>
                     {/* Password Reset */}
-                    <div className="border-t pt-4 space-y-2">
+                    <div className="space-y-2">
                       <label className="text-sm font-medium">Redefinir Senha</label>
                       <Button
                         onClick={async () => {
@@ -459,13 +561,13 @@ export function SettingsDrawer({
                       <Collapsible open={isDangerZoneOpen} onOpenChange={setIsDangerZoneOpen}>
                         <CollapsibleTrigger asChild>
                           <button className="flex items-center justify-between w-full text-left">
-                            <h3 className="text-sm font-semibold">Restrição de Conta</h3>
-                            <ChevronDown className={`h-4 w-4 transition-transform ${isDangerZoneOpen ? "rotate-180" : ""}`} />
+                            <h3 className="text-sm font-semibold text-destructive">Zona de Perigo</h3>
+                            <ChevronDown className={`h-4 w-4 transition-transform text-destructive ${isDangerZoneOpen ? "rotate-180" : ""}`} />
                           </button>
                         </CollapsibleTrigger>
                         <CollapsibleContent className="pt-3 space-y-2">
                           <Button
-                            onClick={() => { setIsEditOpen(false); onRequestDeleteAccount(); }}
+                            onClick={() => { setIsAccountOpen(false); onRequestDeleteAccount(); }}
                             variant="destructive"
                             className="w-full rounded-full gap-2"
                           >
@@ -476,14 +578,15 @@ export function SettingsDrawer({
                         </CollapsibleContent>
                       </Collapsible>
                     </div>
-                    {/* Save */}
-                    <Button onClick={handleSaveProfile} disabled={isSaving} className="w-full rounded-full">
-                      {isSaving ? "Salvando..." : "Salvar Alterações"}
-                    </Button>
                   </div>
                 </div>
               </DrawerContent>
             </Drawer>
+
+            {/* ── Negócio ── */}
+            {(commercialProfile) && (
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">Negócio</p>
+            )}
 
             {/* Commercial Profile Dashboard */}
             {commercialProfile && (
@@ -748,6 +851,9 @@ export function SettingsDrawer({
               </DrawerContent>
             </Drawer>
 
+            {/* ── Preferências ── */}
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">Preferências</p>
+
             {/* Language */}
             <Drawer open={isLanguageOpen} onOpenChange={setIsLanguageOpen}>
               <Button onClick={() => setIsLanguageOpen(true)} variant="outline" className="gap-2 justify-between">
@@ -890,6 +996,9 @@ export function SettingsDrawer({
               </DrawerContent>
             </Drawer>
 
+            {/* ── Outros ── */}
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">Outros</p>
+
             {/* Flow History */}
             <Drawer open={isFlowHistoryOpen} onOpenChange={setIsFlowHistoryOpen}>
               <Button onClick={openFlowHistory} variant="outline" className="gap-2 justify-between">
@@ -932,51 +1041,6 @@ export function SettingsDrawer({
                       ))}
                     </div>
                   )}
-                </div>
-              </DrawerContent>
-            </Drawer>
-
-            {/* Personal Data */}
-            <Drawer open={isPersonalDataOpen} onOpenChange={setIsPersonalDataOpen}>
-              <Button onClick={() => setIsPersonalDataOpen(true)} variant="outline" className="gap-2 justify-between">
-                <span>Meus Dados</span>
-                <User className="h-4 w-4" />
-              </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
-                <DrawerHeader className="shrink-0 flex items-center gap-2">
-                  {subDrawerBack(setIsPersonalDataOpen)}
-                  <DrawerTitle>Meus Dados</DrawerTitle>
-                </DrawerHeader>
-                <div className="flex-1 overflow-y-auto px-4 pb-4">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Sexo</label>
-                      <Select value={personalDataForm.gender} onValueChange={(v) => setPersonalDataForm((prev) => ({ ...prev, gender: v }))}>
-                        <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                        <SelectContent position="popper" className="z-[200]">
-                          <SelectItem value="male">Masculino</SelectItem>
-                          <SelectItem value="female">Feminino</SelectItem>
-                          <SelectItem value="other">Outro</SelectItem>
-                          <SelectItem value="prefer_not_to_say">Prefiro não informar</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Altura (cm)</label>
-                      <Input type="number" min={100} max={250} step={1} value={personalDataForm.height} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 175" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Peso (kg)</label>
-                      <Input type="number" min={30} max={300} step="0.1" value={personalDataForm.weight} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))} placeholder="Ex: 70.5" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Idade</label>
-                      <Input type="number" min={10} max={120} step={1} value={personalDataForm.age} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 28" />
-                    </div>
-                    <Button onClick={handleSavePersonalData} disabled={isSavingPersonalData} className="w-full rounded-full">
-                      {isSavingPersonalData ? "Salvando..." : "Salvar"}
-                    </Button>
-                  </div>
                 </div>
               </DrawerContent>
             </Drawer>

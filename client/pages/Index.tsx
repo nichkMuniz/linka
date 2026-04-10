@@ -58,6 +58,7 @@ import { FlowCreationDialog } from "@/components/modals/flow-creation-dialog";
 import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
 import { PostCarousel } from "@/components/post/post-carousel";
 import { UserInsignias } from "@/components/profile/user-insignias";
+import { UserAvatar } from "@/components/shared/user-avatar";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
@@ -85,6 +86,7 @@ export default function Index() {
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
   const [currentUserNickname, setCurrentUserNickname] = React.useState<string | null>(null);
+  const [currentUserGender, setCurrentUserGender] = React.useState<string | null>(null);
   const [ownerHasViewedFlow, setOwnerHasViewedFlow] = React.useState(false);
   const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(new Set());
   const [activeViewerStories, setActiveViewerStories] = React.useState<StoryWithUser[]>([]);
@@ -223,6 +225,7 @@ export default function Index() {
       .then((profile) => {
         if (profile?.photo) setCurrentUserPhoto(profile.photo);
         if (profile?.nickname) setCurrentUserNickname(profile.nickname);
+        if (profile?.gender) setCurrentUserGender(profile.gender);
       })
       .catch((err) => console.error("Erro ao carregar foto do perfil:", err));
   }, [user?.id]);
@@ -692,6 +695,8 @@ export default function Index() {
           onStoryClick={handleStoryClick}
           currentUserId={user?.id || ""}
           currentUserPhoto={currentUserPhoto}
+          currentUserGender={currentUserGender}
+          currentUserNickname={currentUserNickname}
           isOwnerViewing={ownerHasViewedFlow}
           viewedStoryIds={viewedStoryIds}
         />
@@ -740,16 +745,13 @@ export default function Index() {
                           onClick={() => navigate(`/usuario/${post.user_id}`)}
                           className="flex items-center gap-2 hover:opacity-80 transition-opacity"
                         >
-                          {post.userPhoto ? (
-                            <ImageWithFallback
-                              src={post.userPhoto}
-                              alt={post.userNickname}
-                              fallback="/placeholder.svg"
-                              className="h-8 w-8 rounded-full object-cover border border-white/30"
-                            />
-                          ) : (
-                            <div className="h-8 w-8 rounded-full bg-white/30" />
-                          )}
+                          <UserAvatar
+                            photo={post.userPhoto}
+                            gender={post.userGender}
+                            nickname={post.userNickname}
+                            size="sm"
+                            className="border border-white/30"
+                          />
                           <div className="flex items-center gap-1">
                             <span className="text-xs font-medium text-white drop-shadow-sm">
                               {post.userNickname}
@@ -915,16 +917,13 @@ export default function Index() {
                           onClick={() => navigate(`/usuario/${post.user_id}`)}
                           className="flex items-center gap-2 hover:opacity-80 transition-opacity"
                         >
-                          {post.userPhoto ? (
-                            <ImageWithFallback
-                              src={post.userPhoto}
-                              alt={post.userNickname}
-                              fallback="/placeholder.svg"
-                              className="h-8 w-8 rounded-full object-cover border border-white/30"
-                            />
-                          ) : (
-                            <div className="h-8 w-8 rounded-full bg-white/30" />
-                          )}
+                          <UserAvatar
+                            photo={post.userPhoto}
+                            gender={post.userGender}
+                            nickname={post.userNickname}
+                            size="sm"
+                            className="border border-white/30"
+                          />
                           <div className="flex items-center gap-1">
                             <span className="text-xs font-medium text-white drop-shadow-sm">
                               {post.userNickname}
@@ -1107,11 +1106,13 @@ export default function Index() {
                         ) : null}
                         <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
                           <button onClick={() => navigate(`/usuario/${post.user_id}`)} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                            {post.userPhoto ? (
-                              <ImageWithFallback src={post.userPhoto} alt={post.userNickname} fallback="/placeholder.svg" className="h-8 w-8 rounded-full object-cover border border-white/30" />
-                            ) : (
-                              <div className="h-8 w-8 rounded-full bg-white/30" />
-                            )}
+                            <UserAvatar
+                              photo={post.userPhoto}
+                              gender={post.userGender}
+                              nickname={post.userNickname}
+                              size="sm"
+                              className="border border-white/30"
+                            />
                             <div className="flex items-center gap-1">
                               <span className="text-xs font-medium text-white drop-shadow-sm">{post.userNickname}</span>
                               <span onClick={(e) => e.stopPropagation()}>

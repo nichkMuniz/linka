@@ -1,4 +1,5 @@
 import * as React from "react";
+import * as ReactDOM from "react-dom";
 import {
   getConversationsDb,
   getConversationMessagesDb,
@@ -92,6 +93,7 @@ import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { UserAvatar } from "@/components/shared/user-avatar";
 
 type ViewMode = "conversations" | "conversation";
 
@@ -582,8 +584,26 @@ export default function Community() {
       setReplyingTo(null);
 
       if (newMessage) {
-        // Realtime subscription will append the message; just clear input
         setMessageText("");
+
+        // Optimistic update: add message immediately to UI without waiting for realtime
+        const optimisticMsg: MessageWithUser = {
+          id: newMessage.id,
+          user_id: newMessage.user_id,
+          following_id: newMessage.following_id,
+          text: newMessage.text ?? "",
+          read: newMessage.read ?? 0,
+          created_at: newMessage.created_at ?? new Date().toISOString(),
+          emoji: newMessage.emoji ?? null,
+          senderNickname: "Você",
+          senderPhoto: null,
+          recipientNickname: selectedConversation.userNickname || "Usuário",
+          recipientPhoto: selectedConversation.userPhoto || null,
+        };
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === optimisticMsg.id)) return prev;
+          return [...prev, optimisticMsg];
+        });
 
         // Update last message in conversation list
         setConversations((prev) =>
@@ -700,8 +720,8 @@ export default function Community() {
       ? "bottom-0"
       : "bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:bottom-0";
 
-    return (
-      <div className={`fixed top-0 left-0 md:left-[244px] right-0 md:right-0 ${bottomClass} bg-background flex flex-col z-[60]`}>
+    return ReactDOM.createPortal(
+      <div className={`fixed top-0 left-0 md:left-[244px] right-0 md:right-0 ${bottomClass} bg-background flex flex-col z-[100]`}>
         {/* Header */}
         <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3">
           <button
@@ -714,14 +734,13 @@ export default function Community() {
             onClick={() => navigate(`/usuario/${selectedConversation.userId}`)}
             className="flex items-center gap-3 min-w-0 hover:opacity-80 transition-opacity text-left"
           >
-            {selectedConversation.userPhoto && (
-              <ImageWithFallback
-                src={selectedConversation.userPhoto}
-                alt={selectedConversation.userNickname}
-                className="h-10 w-10 rounded-full object-cover flex-shrink-0"
-                fallback="/placeholder.svg"
-              />
-            )}
+            <UserAvatar
+              photo={selectedConversation.userPhoto}
+              gender={selectedConversation.userGender}
+              nickname={selectedConversation.userNickname}
+              size="md"
+              className="flex-shrink-0"
+            />
             <p className="text-sm font-medium truncate">
               {selectedConversation.userNickname}
             </p>
@@ -733,11 +752,11 @@ export default function Community() {
         <div className="flex-1 overflow-y-auto space-y-4 px-4 py-4">
           {/* Profile card — always shown at top of conversation */}
           <div className="flex flex-col items-center gap-3 py-6 mb-2">
-            <ImageWithFallback
-              src={selectedConversation.userPhoto}
-              alt={selectedConversation.userNickname}
-              className="w-20 h-20 rounded-full object-cover ring-2 ring-border"
-              fallback="/placeholder.svg"
+            <UserAvatar
+              photo={selectedConversation.userPhoto}
+              gender={selectedConversation.userGender}
+              nickname={selectedConversation.userNickname}
+              className="w-20 h-20 ring-2 ring-border"
             />
             <p className="font-semibold text-base">{selectedConversation.userNickname}</p>
             <button
@@ -902,7 +921,8 @@ export default function Community() {
             </div>
           </div>
         )}
-      </div>
+      </div>,
+      document.body
     );
   }
 
@@ -997,20 +1017,12 @@ export default function Community() {
                     >
                       {/* Avatar com ring se não lido */}
                       <div className="relative shrink-0">
-                        {conversation.userPhoto ? (
-                          <ImageWithFallback
-                            src={conversation.userPhoto}
-                            alt={conversation.userNickname}
-                            className="h-12 w-12 rounded-full object-cover"
-                            fallback="/placeholder.svg"
-                          />
-                        ) : (
-                          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-                            <span className="text-sm font-semibold text-muted-foreground">
-                              {conversation.userNickname?.charAt(0).toUpperCase() || "?"}
-                            </span>
-                          </div>
-                        )}
+                        <UserAvatar
+                          photo={conversation.userPhoto}
+                          gender={conversation.userGender}
+                          nickname={conversation.userNickname}
+                          size="lg"
+                        />
                       </div>
 
                       <div className="flex-1 min-w-0">
@@ -1052,17 +1064,16 @@ export default function Community() {
                 {searchQuery && filteredFollowers.filter(f => !conversations.some(c => c.userId === f.id)).map((follower) => (
                   <button
                     key={follower.id}
-                    onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
+                    onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, userGender: follower.gender, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
                     className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors text-left"
                   >
                     <div className="shrink-0">
-                      {follower.photo ? (
-                        <ImageWithFallback src={follower.photo} alt={follower.nickname} className="h-12 w-12 rounded-full object-cover" fallback="/placeholder.svg" />
-                      ) : (
-                        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-                          <span className="text-sm font-semibold text-muted-foreground">{follower.nickname?.charAt(0).toUpperCase() || "?"}</span>
-                        </div>
-                      )}
+                      <UserAvatar
+                        photo={follower.photo}
+                        gender={follower.gender}
+                        nickname={follower.nickname}
+                        size="lg"
+                      />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium">{follower.nickname}</p>
@@ -1085,7 +1096,7 @@ export default function Community() {
                   {filteredFollowers.map((follower) => (
                     <button
                       key={follower.id}
-                      onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
+                      onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, userGender: follower.gender, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
                       className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors text-left"
                     >
                       <div className="shrink-0">
@@ -1371,13 +1382,12 @@ export default function Community() {
                                   }}
                                 >
                                   {/* Avatar */}
-                                  <div className="w-8 h-8 rounded-full overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
-                                    {checkIn.userPhoto ? (
-                                      <ImageWithFallback src={checkIn.userPhoto} alt={checkIn.userName} className="w-full h-full object-cover" fallback="/placeholder.svg" />
-                                    ) : (
-                                      <span className="text-[10px] font-bold text-muted-foreground">{checkIn.userName.charAt(0).toUpperCase()}</span>
-                                    )}
-                                  </div>
+                                  <UserAvatar
+                                    photo={checkIn.userPhoto}
+                                    gender={checkIn.userGender}
+                                    nickname={checkIn.userName}
+                                    className="w-8 h-8 flex-shrink-0"
+                                  />
                                   {/* Content */}
                                   <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium truncate text-foreground/90">
@@ -1578,8 +1588,8 @@ export default function Community() {
                           </div>
                         </div>
                         <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{group.description}</p>
-                        {/* Creator info (only for groups where user is a participant, not creator) */}
-                        {group.createdBy !== user?.id && (
+                        {/* Creator info */}
+                        {(
                           <div className="flex items-center gap-1.5 mb-2">
                             {group.creatorPhoto ? (
                               <img
@@ -1643,19 +1653,12 @@ export default function Community() {
                         <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{group.description}</p>
                         {/* Creator info */}
                         <div className="flex items-center gap-1.5 mb-3">
-                          {group.creatorPhoto ? (
-                            <img
-                              src={group.creatorPhoto}
-                              alt={group.creatorNickname}
-                              className="h-5 w-5 rounded-full object-cover flex-shrink-0"
-                            />
-                          ) : (
-                            <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                              <span className="text-[9px] font-semibold text-muted-foreground">
-                                {group.creatorNickname?.[0]?.toUpperCase() || "?"}
-                              </span>
-                            </div>
-                          )}
+                          <UserAvatar
+                            photo={group.creatorPhoto}
+                            gender={group.creatorGender}
+                            nickname={group.creatorNickname}
+                            className="h-5 w-5 flex-shrink-0"
+                          />
                           <span className="text-xs text-muted-foreground truncate">
                             por <span className="font-medium">{group.creatorNickname}</span>
                           </span>
@@ -1780,15 +1783,12 @@ export default function Community() {
                           </div>
 
                           <div className="flex items-center gap-3 flex-1">
-                            {rankUser.userPhoto ? (
-                              <img
-                                src={rankUser.userPhoto}
-                                alt={rankUser.userNickname}
-                                className="h-12 w-12 rounded-full object-cover"
-                              />
-                            ) : (
-                              <div className="h-12 w-12 rounded-full bg-muted" />
-                            )}
+                            <UserAvatar
+                              photo={rankUser.userPhoto}
+                              gender={rankUser.userGender}
+                              nickname={rankUser.userNickname}
+                              size="lg"
+                            />
 
                             <div className="flex-1">
                               <p className="font-semibold text-sm">
@@ -1920,13 +1920,12 @@ export default function Community() {
                   <Card key={`${req.groupId}-${req.userId}`} className="border-border/60 mb-3">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-3">
-                        {req.userPhoto ? (
-                          <ImageWithFallback src={req.userPhoto} alt={req.userNickname} className="h-10 w-10 rounded-full object-cover flex-shrink-0" fallback="/placeholder.svg" />
-                        ) : (
-                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                            <span className="text-sm font-semibold text-muted-foreground">{req.userNickname.charAt(0).toUpperCase()}</span>
-                          </div>
-                        )}
+                        <UserAvatar
+                          photo={req.userPhoto}
+                          nickname={req.userNickname}
+                          size="md"
+                          className="flex-shrink-0"
+                        />
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-sm">{req.userNickname}</p>
                           <p className="text-xs text-muted-foreground truncate">quer entrar em <span className="font-medium">{req.groupName}</span></p>
@@ -2616,7 +2615,6 @@ export default function Community() {
                     const checkIn = await addGroupCheckInDb(
                       selectedGroupForView.id,
                       user.id,
-                      userNickname || "Usuário",
                       uploadedUrls[0] || "",
                       checkInForm.description,
                       exerciseName,
@@ -2624,7 +2622,6 @@ export default function Community() {
                       selectedRoutine?.totalVolume || 0,
                       selectedRoutine?.primaryMuscleGroup || null,
                       selectedRoutine?.exercises || [],
-                      userPhoto,
                       uploadedUrls,
                     );
 
@@ -2723,13 +2720,12 @@ export default function Community() {
               <div className="space-y-3">
                 {/* User + meta inline */}
                 <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-full overflow-hidden bg-muted flex items-center justify-center flex-shrink-0">
-                    {selectedCheckInForDetail.userPhoto ? (
-                      <ImageWithFallback src={selectedCheckInForDetail.userPhoto} alt={selectedCheckInForDetail.userName} className="w-full h-full object-cover" fallback="/placeholder.svg" />
-                    ) : (
-                      <span className="text-[10px] font-bold text-muted-foreground">{selectedCheckInForDetail.userName.charAt(0).toUpperCase()}</span>
-                    )}
-                  </div>
+                  <UserAvatar
+                    photo={selectedCheckInForDetail.userPhoto}
+                    gender={selectedCheckInForDetail.userGender}
+                    nickname={selectedCheckInForDetail.userName}
+                    className="h-8 w-8 flex-shrink-0"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className="text-sm font-semibold truncate">{selectedCheckInForDetail.userName}</span>
@@ -2810,13 +2806,11 @@ export default function Community() {
                     <div className="space-y-2.5">
                       {checkInComments.map((comment) => (
                         <div key={comment.id} className="flex gap-2">
-                          <div className="w-7 h-7 rounded-full overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
-                            {comment.userPhoto ? (
-                              <ImageWithFallback src={comment.userPhoto} alt={comment.userNickname} className="w-full h-full object-cover" fallback="/placeholder.svg" />
-                            ) : (
-                              <span className="text-[9px] font-bold text-muted-foreground">{comment.userNickname.charAt(0).toUpperCase()}</span>
-                            )}
-                          </div>
+                          <UserAvatar
+                            photo={comment.userPhoto}
+                            nickname={comment.userNickname}
+                            className="w-7 h-7 flex-shrink-0"
+                          />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-1">
                               <div className="flex items-baseline gap-1.5 flex-wrap flex-1 min-w-0">
@@ -3184,13 +3178,12 @@ export default function Community() {
                       <>
                         <div className="flex items-center justify-center gap-1.5 mb-1">
                           <span className="text-xl font-bold text-brand leading-none">{topReactionUser.count}</span>
-                          <div className="h-6 w-6 rounded-full overflow-hidden bg-muted flex items-center justify-center border border-border/40" title={topReactionUser.userName}>
-                            {topReactionUser.userPhoto ? (
-                              <ImageWithFallback src={topReactionUser.userPhoto} alt={topReactionUser.userName} className="w-full h-full object-cover" fallback="/placeholder.svg" />
-                            ) : (
-                              <span className="text-[10px] font-bold text-muted-foreground">{topReactionUser.userName.charAt(0).toUpperCase()}</span>
-                            )}
-                          </div>
+                          <UserAvatar
+                            photo={topReactionUser.userPhoto}
+                            nickname={topReactionUser.userName}
+                            className="h-6 w-6 border border-border/40"
+                            title={topReactionUser.userName}
+                          />
                         </div>
                         <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Mais Reações</span>
                       </>
@@ -3213,17 +3206,12 @@ export default function Community() {
                     onClick={() => setParticipantDetailsId(participant.userId)}
                     className="p-3 rounded-lg bg-muted/30 border border-border/40 flex items-center gap-3 cursor-pointer hover:bg-muted/50 transition-colors"
                   >
-                    {participant.userPhoto ? (
-                      <img
-                        src={participant.userPhoto}
-                        alt={participant.userNickname}
-                        className="w-10 h-10 rounded-full object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm font-semibold text-muted-foreground">{participant.userNickname.charAt(0).toUpperCase()}</span>
-                      </div>
-                    )}
+                    <UserAvatar
+                      photo={participant.userPhoto}
+                      nickname={participant.userNickname}
+                      size="md"
+                      className="flex-shrink-0"
+                    />
                     <p className="text-sm font-medium flex-1">{participant.userNickname}</p>
                     {selectedGroupForView?.createdBy === user?.id && participant.userId !== user?.id && (
                       <button
@@ -3305,13 +3293,12 @@ export default function Community() {
 
                 <div className="flex-1 overflow-y-auto px-4 py-3 bg-background flex flex-col justify-center">
                   <div className="flex flex-col items-center mb-4">
-                    <div className="w-16 h-16 rounded-full overflow-hidden mb-2 border-2 border-border/40 flex items-center justify-center bg-muted">
-                      {pInfo?.userPhoto ? (
-                        <ImageWithFallback src={pInfo.userPhoto} alt={pInfo?.userNickname || ""} className="w-full h-full object-cover" fallback="/placeholder.svg" />
-                      ) : (
-                        <span className="text-2xl font-bold text-muted-foreground">{pInfo?.userNickname.charAt(0).toUpperCase()}</span>
-                      )}
-                    </div>
+                    <UserAvatar
+                      photo={pInfo?.userPhoto}
+                      nickname={pInfo?.userNickname}
+                      size="xl"
+                      className="mb-2 border-2 border-border/40"
+                    />
                     <h2 className="text-lg font-bold">{pInfo?.userNickname}</h2>
                   </div>
 
