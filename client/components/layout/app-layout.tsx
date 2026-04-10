@@ -386,6 +386,7 @@ export function AppLayout() {
             "sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55 transition-transform duration-200",
             headerHidden ? "-translate-y-full pointer-events-none" : "translate-y-0",
           )}
+          style={{ paddingTop: "env(safe-area-inset-top)" }}
         >
           <div className="relative flex h-16 w-full items-center justify-center gap-4 px-4">
             {/* Left: Profile + Timer */}

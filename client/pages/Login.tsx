@@ -744,16 +744,12 @@ export default function Login() {
   };
 
   if (showSplash) {
-    const splashLogo = resolvedTheme === "dark" ? "/logo-animada-preto.mp4" : "/logo-animada.mp4";
     return (
-      <div className="grid min-h-dvh place-items-center bg-background">
-        <video
-          src={splashLogo}
+      <div className="grid min-h-dvh place-items-center bg-white">
+        <img
+          src="/logo-animada-v2.gif"
           alt="LinKa"
           className="w-50 h-50 object-contain"
-          autoPlay
-          muted
-          loop
         />
       </div>
     );
