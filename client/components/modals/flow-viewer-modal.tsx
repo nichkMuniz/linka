@@ -372,7 +372,7 @@ export function FlowViewerModal({
               <div className="relative w-full h-full md:aspect-[3/4] md:h-[95vh] md:w-auto bg-black md:rounded-2xl overflow-hidden flex flex-col shadow-2xl border-0 md:border md:border-white/10">
                 <main className="relative w-full h-full flex flex-col">
                   {/* Header Overlay */}
-                  <div className="absolute top-0 left-0 right-0 z-[60] pt-3 pb-12 px-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+                  <div className="absolute top-0 left-0 right-0 z-[60] pb-12 px-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent" style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}>
                     {/* Progress Bar */}
                     <div className="flex gap-1.5 mb-5 px-1">
                       {userStories.map((s, idx) => {

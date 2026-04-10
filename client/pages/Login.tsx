@@ -745,7 +745,7 @@ export default function Login() {
 
   if (showSplash) {
     return (
-      <div className="grid min-h-dvh place-items-center bg-white">
+      <div className="grid min-h-dvh place-items-center" style={{ backgroundColor: "#FCFCFF" }}>
         <img
           src="/logo-animada-v2.gif"
           alt="LinKa"

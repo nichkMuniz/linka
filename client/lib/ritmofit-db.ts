@@ -6105,35 +6105,43 @@ export async function createCheckInDb(userId: string): Promise<CheckIn> {
   if (!supabase) throw new Error("Supabase não configurado");
 
   try {
+    // Check if already checked in today (using most recent record within last 24h)
+    // Avoids triggering the bank's duplicate constraint (409) by not attempting a redundant insert
+    const { data: existing } = await supabase
+      .from("check_ins")
+      .select()
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      // Verify the existing record is actually from today (local date)
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      if (existing.check_in_date === todayStr) {
+        return existing as CheckIn;
+      }
+    }
+
     const today = new Date();
     const checkInDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const dayOfWeek = today.getDay();
 
-    const { data, error } = await supabase
+    const { data: inserted, error: insertError } = await supabase
       .from("check_ins")
-      .insert({
-        user_id: userId,
-        check_in_date: checkInDate,
-        day_of_week: dayOfWeek,
-      })
+      .insert({ user_id: userId, check_in_date: checkInDate, day_of_week: dayOfWeek })
       .select()
       .single();
 
-    if (error) {
-      // If unique constraint error, it means check-in already exists for today
-      if (error.code === '23505') {
-        throw new Error("Você já fez check-in hoje");
-      }
-      throw error;
-    }
+    if (insertError) throw insertError;
 
-    return data as CheckIn;
+    invalidateQueryCache("todayCheckIn"); invalidateQueryCache("weekCheckIns"); invalidateQueryCache("checkInHistory"); invalidateQueryCache("completedRoutines");
+    return inserted as CheckIn;
   } catch (err: any) {
     console.error("Error creating check-in:", err);
     throw err;
   }
-
-  invalidateQueryCache("todayCheckIn"); invalidateQueryCache("weekCheckIns"); invalidateQueryCache("checkInHistory"); invalidateQueryCache("completedRoutines");
 }
 
 export async function getTodayCheckInDb(userId: string): Promise<CheckIn | null> {

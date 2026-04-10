@@ -468,8 +468,8 @@ export function AppLayout() {
         </main>
 
         {layoutMode === "default" && (
-          <nav className="fixed bottom-[env(safe-area-inset-bottom)] left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65">
-            <div className="grid w-full grid-cols-5 px-1">
+          <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65">
+            <div className="grid w-full grid-cols-5 px-1" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
               {mainNavItems.map((item) => {
                 const active = isActivePath(location.pathname, item.to);
                 const Icon = item.icon;

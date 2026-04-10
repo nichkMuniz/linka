@@ -411,6 +411,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         bottom: `${footerHeight}px`,
         width: "100vw",
         overflow: "hidden",
+        paddingTop: "env(safe-area-inset-top)",
       }}
     >
       {/* Shots Container - Scroll Snap com overflow-y-scroll */}

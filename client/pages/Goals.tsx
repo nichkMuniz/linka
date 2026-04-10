@@ -1550,7 +1550,7 @@ export default function Goals() {
         title: "Check-in automático realizado! ✓",
         description: "Sua rotina foi concluída e o check-in do dia foi registrado.",
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Auto check-in failed:", err);
     } finally {
       checkInInProgressRef.current = false;
@@ -2779,7 +2779,7 @@ export default function Goals() {
 
                         {/* Expanded content */}
                         {isExpanded && (
-                          <div className="border-t border-border/60 bg-muted/20 p-2.5 space-y-1.5 overflow-hidden">
+                          <div className="border-t border-border/60 bg-muted/20 p-2.5 space-y-1.5 overflow-hidden w-full max-w-full">
                             {(() => {
                               const showCompleted = showCompletedForRoutine.has(key);
                               const visibleItems = itemsForRoutine.filter((item: any) => {
@@ -2794,7 +2794,7 @@ export default function Goals() {
                                     key={item.id}
                                     className="space-y-1.5"
                                   >
-                                    <div className="flex items-start gap-2.5 rounded-lg min-w-0 overflow-hidden">
+                                    <div className="flex items-center gap-1.5 rounded-lg min-w-0 overflow-hidden w-full">
                                       {/* Mark as completed checkbox for diets (left side) */}
                                       {typeCode === 2 && (
                                         <button
@@ -2913,7 +2913,7 @@ export default function Goals() {
                                       )}
 
                                       {/* Item content */}
-                                      <div className="flex-1 flex items-start gap-3 p-2 rounded-lg min-w-0">
+                                      <div className="flex-1 flex items-start gap-2 rounded-lg min-w-0 overflow-hidden">
                                         {/* Image thumbnail */}
                                         {typeCode === 1 && (
                                           <button
@@ -2942,7 +2942,7 @@ export default function Goals() {
                                             />
                                           </button>
                                         )}
-                                        <div className="flex-1 min-w-0 text-left">
+                                        <div className="flex-1 min-w-0 overflow-hidden text-left">
                                           {typeCode === 1 ? (
                                             <button
                                               className="text-sm font-medium truncate block text-left hover:opacity-80 transition-opacity"
@@ -3022,7 +3022,7 @@ export default function Goals() {
                                           });
                                           setScheduledTimeDrawerOpen(true);
                                         }}
-                                        className={`p-2 hover:bg-brand/10 rounded transition-colors flex-shrink-0 ${item.scheduled_time ? "text-brand" : "text-muted-foreground"}`}
+                                        className={`p-1.5 hover:bg-brand/10 rounded transition-colors flex-shrink-0 ${item.scheduled_time ? "text-brand" : "text-muted-foreground"}`}
                                         title={item.scheduled_time ? `Lembrete: ${formatScheduledTime(item.scheduled_time)}` : "Definir lembrete"}
                                       >
                                         {item.scheduled_time ? (
@@ -3057,7 +3057,7 @@ export default function Goals() {
                                             toast({ title: typeCode === 2 ? "Dieta removida" : "Hábito removido" });
                                           }
                                         }}
-                                        className="p-2 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
+                                        className="p-1.5 hover:bg-red-500/10 rounded transition-colors flex-shrink-0"
                                         title="Remover item"
                                       >
                                         <Trash2 className="h-4 w-4 text-red-500" />

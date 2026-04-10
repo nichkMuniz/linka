@@ -348,7 +348,7 @@ export default function Messages() {
     return (
       <div className="fixed top-0 left-0 right-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] bg-background flex flex-col z-50">
         {/* Header */}
-        <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3 pt-safe">
+        <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3" style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}>
           <button
             onClick={handleBackToConversations}
             className="text-muted-foreground hover:text-foreground flex-shrink-0"
@@ -510,7 +510,7 @@ export default function Messages() {
         </div>
 
         {/* Input */}
-        <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2 pb-safe">
+        <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2">
           <Input
             placeholder="Envie uma mensagem..."
             value={messageText}
