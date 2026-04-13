@@ -120,6 +120,7 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { ShareDrawer } from "@/components/shared/share-drawer";
 import {
   Edit2,
   Plus,
@@ -172,6 +173,8 @@ export default function Profile() {
   const profileUserId = userId || user?.id;
 
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
+  const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
+  const [shareDrawerText, setShareDrawerText] = React.useState("");
   const [posts, setPosts] = React.useState<PostWithUser[]>([]);
   const [shots, setShots] = React.useState<ShotWithUser[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
@@ -979,110 +982,11 @@ export default function Profile() {
       {/* Profile Header Card */}
       <Card className="border-border/60">
         <CardContent className="pt-6">
-          {/* Top row: Avatar and Info with Settings button for own profile */}
-          <div className="flex flex-col gap-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex gap-4 flex-1 min-w-0">
-                {/* Avatar */}
-                <div className="shrink-0 relative">
-                  {profileStories.length > 0 ? (
-                    <button
-                      onClick={() => {
-                        setSelectedProfileStory(profileStories[0]);
-                        setIsStoryViewerOpen(true);
-                      }}
-                      className="rounded-full p-[3px] bg-brand-gradient ring-0 cursor-pointer hover:opacity-90 transition-opacity"
-                      title="Ver flow"
-                    >
-                      <UserAvatar
-                        photo={profile.photo}
-                        gender={profile.gender}
-                        nickname={profile.nickname}
-                        className="h-20 w-20 ring-2 ring-background"
-                      />
-                    </button>
-                  ) : (
-                    <UserAvatar
-                      photo={profile.photo}
-                      gender={profile.gender}
-                      nickname={profile.nickname}
-                      className="h-20 w-20 ring-2 ring-border/60"
-                    />
-                  )}
-                </div>
-
-                {/* Info */}
-                <div className="space-y-2 flex-1 min-w-0">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h1 className="text-xl font-semibold tracking-tight truncate">
-                        {profile.nickname}
-                      </h1>
-                      <UserInsignias userId={profileUserId || ""} showStreak />
-                    </div>
-                    {profile.handle && (
-                      <p className="text-sm text-muted-foreground">@{profile.handle}</p>
-                    )}
-
-                    {/* Level + Points badge */}
-                    {stats.points > 0 && (
-                      <div className="flex items-center gap-2 mt-1">
-                        {(() => {
-                          const tier =
-                            stats.points >= 1000
-                              ? { label: "Elite", icon: "💎", bg: "bg-cyan-500/20", text: "text-cyan-300", border: "border-cyan-500/40" }
-                              : stats.points >= 500
-                                ? { label: "Ouro", icon: "🥇", bg: "bg-yellow-500/20", text: "text-yellow-400", border: "border-yellow-500/40" }
-                                : stats.points >= 200
-                                  ? { label: "Prata", icon: "🥈", bg: "bg-slate-400/20", text: "text-slate-300", border: "border-slate-400/40" }
-                                  : { label: "Bronze", icon: "🥉", bg: "bg-orange-700/20", text: "text-orange-400", border: "border-orange-700/40" };
-                          return (
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${tier.bg} ${tier.text} ${tier.border}`}>
-                              {tier.icon} Nível {stats.level} · {tier.label}
-                            </span>
-                          );
-                        })()}
-                        <span className="text-xs text-muted-foreground">{stats.points} pts</span>
-                      </div>
-                    )}
-
-                    {/* Stats Row - Horizontal inline */}
-                    <div className="flex gap-4 mt-2">
-                      <div className="flex flex-col items-center">
-                        <div className="text-base font-semibold">
-                          {stats.postsCount}
-                        </div>
-                        <div className="text-xs text-muted-foreground whitespace-nowrap">Posts</div>
-                      </div>
-                      <button
-                        onClick={() => setShowFollowersModal(true)}
-                        className="flex flex-col hover:opacity-80 transition-opacity items-center"
-                      >
-                        <div className="text-base font-semibold">
-                          {stats.followersCount}
-                        </div>
-                        <div className="text-xs text-muted-foreground whitespace-nowrap">
-                          Seguidores
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => setShowFollowingModal(true)}
-                        className="flex flex-col hover:opacity-80 transition-opacity items-center"
-                      >
-                        <div className="text-base font-semibold">
-                          {stats.followingCount}
-                        </div>
-                        <div className="text-xs text-muted-foreground whitespace-nowrap">
-                          Seguindo
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Settings Button - Only show for own profile */}
-              {!isViewingOtherProfile && (
+          {/* Profile Header — Avatar centralizado + info abaixo */}
+          <div className="flex flex-col gap-5">
+            {/* Settings button no topo direito */}
+            {!isViewingOtherProfile && (
+              <div className="flex justify-end -mt-2 -mr-2">
                 <SettingsDrawer
                   profile={profile}
                   userId={user!.id}
@@ -1091,13 +995,75 @@ export default function Profile() {
                   onProfileUpdated={(updated) => setProfile(updated)}
                   onRequestDeleteAccount={() => setIsDeleteAccountOpen(true)}
                 />
-              )}
-            </div>
+              </div>
+            )}
 
-            {/* Bio and Commercial Profile - Below avatar, left-aligned */}
+            {/* Avatar + identidade centralizado */}
+            <div className="flex flex-col items-center gap-3">
+              {/* Avatar */}
+              <div className="shrink-0">
+                {profileStories.length > 0 ? (
+                  <button
+                    onClick={() => {
+                      setSelectedProfileStory(profileStories[0]);
+                      setIsStoryViewerOpen(true);
+                    }}
+                    className="rounded-full p-[3px] bg-brand-gradient ring-0 cursor-pointer hover:opacity-90 transition-opacity block"
+                    title="Ver flow"
+                  >
+                    <UserAvatar
+                      photo={profile.photo}
+                      gender={profile.gender}
+                      nickname={profile.nickname}
+                      className="h-24 w-24 ring-2 ring-background"
+                    />
+                  </button>
+                ) : (
+                  <UserAvatar
+                    photo={profile.photo}
+                    gender={profile.gender}
+                    nickname={profile.nickname}
+                    className="h-24 w-24 ring-2 ring-border/60"
+                  />
+                )}
+              </div>
+
+              {/* Nome + insignias */}
+              <div className="flex items-center gap-2 flex-wrap justify-center">
+                <h1 className="text-xl font-bold tracking-tight">
+                  {profile.nickname}
+                </h1>
+                <UserInsignias userId={profileUserId || ""} showStreak />
+              </div>
+
+              {/* Handle */}
+              {profile.handle && (
+                <p className="text-sm text-muted-foreground -mt-2">@{profile.handle}</p>
+              )}
+
+              {/* Stats inline minimalista */}
+              <div className="flex items-center gap-1.5 text-sm">
+                <span className="font-semibold">{stats.postsCount}</span>
+                <span className="text-muted-foreground">posts</span>
+                <span className="text-muted-foreground/40">·</span>
+                <button onClick={() => setShowFollowersModal(true)} className="flex items-center gap-1.5 hover:opacity-70 transition-opacity">
+                  <span className="font-semibold">{stats.followersCount}</span>
+                  <span className="text-muted-foreground">seguidores</span>
+                </button>
+                <span className="text-muted-foreground/40">·</span>
+                <button onClick={() => setShowFollowingModal(true)} className="flex items-center gap-1.5 hover:opacity-70 transition-opacity">
+                  <span className="font-semibold">{stats.followingCount}</span>
+                  <span className="text-muted-foreground">seguindo</span>
+                </button>
+              </div>
+
+            </div>
+          </div>
+
+            {/* Bio and Commercial Profile */}
             <div className="space-y-2">
               {profile.bio && (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground text-center">
                   {profile.bio}
                 </p>
               )}
@@ -1158,7 +1124,6 @@ export default function Profile() {
                 </div>
               )}
             </div>
-          </div>
 
           {/* Plans Modal */}
           <Dialog open={isPlansModalOpen} onOpenChange={setIsPlansModalOpen}>
@@ -1217,12 +1182,8 @@ export default function Profile() {
                 className="rounded-full gap-2"
                 onClick={() => {
                   const text = `Confira o perfil de @${profile?.nickname} no Linka! 💪`;
-                  if (navigator.share) {
-                    navigator.share({ text }).catch(() => { });
-                  } else {
-                    navigator.clipboard.writeText(text).catch(() => { });
-                    toast({ title: "Copiado!", description: "Link copiado para a área de transferência." });
-                  }
+                  setShareDrawerText(text);
+                  setShareDrawerOpen(true);
                 }}
               >
                 <Share2 className="h-4 w-4" />
@@ -1240,12 +1201,8 @@ export default function Profile() {
                 onClick={() => {
                   const tier = stats.points >= 1000 ? "Elite" : stats.points >= 500 ? "Ouro" : stats.points >= 200 ? "Prata" : "Bronze";
                   const text = `Estou no Linka no nível ${stats.level} (${tier}) com ${stats.points} pontos! 🏋️ Junte-se a mim: @${profile.nickname}`;
-                  if (navigator.share) {
-                    navigator.share({ text }).catch(() => { });
-                  } else {
-                    navigator.clipboard.writeText(text).catch(() => { });
-                    toast({ title: "Copiado!", description: "Texto copiado para a área de transferência." });
-                  }
+                  setShareDrawerText(text);
+                  setShareDrawerOpen(true);
                 }}
               >
                 <Share2 className="h-3.5 w-3.5" />
@@ -2542,6 +2499,13 @@ export default function Profile() {
           setShots((prev) => prev.filter((s) => s.id !== shotId));
           setSelectedShot(null);
         }}
+      />
+
+      <ShareDrawer
+        open={shareDrawerOpen}
+        onOpenChange={setShareDrawerOpen}
+        text={shareDrawerText}
+        title="Compartilhar perfil"
       />
 
       {/* Delete Routine Confirmation Dialog */}

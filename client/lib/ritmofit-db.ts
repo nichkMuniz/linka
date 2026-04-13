@@ -5955,6 +5955,49 @@ export async function updatePostDb(
   invalidateQueryCache("userPosts"); invalidateQueryCache("post:");
 }
 
+export async function removePostPhotoDb(
+  postId: string,
+  photoUrl: string,
+): Promise<string[]> {
+  if (!supabase) throw new Error("Supabase não configurado");
+
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+
+  const { data: postData, error: fetchError } = await supabase
+    .from("posts")
+    .select("user_id, photo, photos")
+    .eq("id", postId)
+    .single();
+
+  if (fetchError) throw fetchError;
+  if (!postData) throw new Error("Post não encontrado");
+  if (postData.user_id !== viewer.id) throw new Error("Sem permissão para editar este post");
+
+  const currentPhotos: string[] = Array.isArray(postData.photos)
+    ? postData.photos
+    : [postData.photo].filter(Boolean);
+
+  if (currentPhotos.length <= 1) {
+    throw new Error("Não é possível remover a última foto do post");
+  }
+
+  const updatedPhotos = currentPhotos.filter((p) => p !== photoUrl);
+
+  const { error } = await supabase
+    .from("posts")
+    .update({
+      photo: updatedPhotos[0],
+      photos: updatedPhotos.length > 1 ? updatedPhotos : null,
+    })
+    .eq("id", postId);
+
+  if (error) throw error;
+
+  invalidateQueryCache("userPosts"); invalidateQueryCache("post:");
+  return updatedPhotos;
+}
+
 export async function getUserShotsDb(userId: string): Promise<ShotWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   return cached(`userShots:${userId}`, CACHE_TTL_SHORT, async () => {
@@ -6159,7 +6202,19 @@ export async function createCheckInDb(userId: string): Promise<CheckIn> {
       .select()
       .single();
 
-    if (insertError) throw insertError;
+    if (insertError) {
+      // 409 = unique constraint violation — check-in already exists for today
+      if (insertError.code === '23505' || (insertError as any).status === 409) {
+        const { data: existingToday } = await supabase
+          .from("check_ins")
+          .select()
+          .eq("user_id", userId)
+          .eq("check_in_date", checkInDate)
+          .maybeSingle();
+        if (existingToday) return existingToday as CheckIn;
+      }
+      throw insertError;
+    }
 
     invalidateQueryCache("todayCheckIn"); invalidateQueryCache("weekCheckIns"); invalidateQueryCache("checkInHistory"); invalidateQueryCache("completedRoutines");
     return inserted as CheckIn;
@@ -8776,7 +8831,9 @@ export async function awardBadgesForCheckInsDb(userId: string): Promise<void> {
       .eq("user_id", userId);
 
     if (!existingRows || existingRows.length === 0) {
-      await supabase.from("user_badges").insert({ user_id: userId, badge_id: highestBadge.id });
+      await supabase
+        .from("user_badges")
+        .upsert({ user_id: userId, badge_id: highestBadge.id }, { onConflict: "user_id,badge_id", ignoreDuplicates: true });
     }
     // Note: We don't auto-update anymore to avoid overwriting user selection.
     // If we wanted to "auto-upgrade" only if they haven't manually selected,

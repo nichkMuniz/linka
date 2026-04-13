@@ -31,6 +31,7 @@ import {
 } from "@/lib/ritmofit-db";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { ReportDrawer } from "@/components/shared/report-drawer";
+import { ShareDrawer } from "@/components/shared/share-drawer";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
 import {
   AlertDialog,
@@ -90,6 +91,8 @@ export default function Index() {
   const [ownerHasViewedFlow, setOwnerHasViewedFlow] = React.useState(false);
   const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(new Set());
   const [activeViewerStories, setActiveViewerStories] = React.useState<StoryWithUser[]>([]);
+  const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
+  const [shareDrawerText, setShareDrawerText] = React.useState("");
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "post" | null>(
     null,
@@ -577,12 +580,8 @@ export default function Index() {
 
   const handleSharePost = React.useCallback((post: PostWithStats) => {
     const text = `Confira o post de @${post.userNickname} no Linka! 💪${post.description ? `\n"${post.description}"` : ""}`;
-    if (navigator.share) {
-      navigator.share({ text }).catch(() => { });
-    } else {
-      navigator.clipboard.writeText(text).catch(() => { });
-      toast({ title: "Copiado!", description: "Link copiado para a área de transferência." });
-    }
+    setShareDrawerText(text);
+    setShareDrawerOpen(true);
   }, []);
 
   const handleReportUser = React.useCallback((post: PostWithStats) => {
@@ -1486,6 +1485,13 @@ export default function Index() {
           userName: reportedPost.userNickname,
           description: reportedPost.description,
         } : null}
+      />
+
+      <ShareDrawer
+        open={shareDrawerOpen}
+        onOpenChange={setShareDrawerOpen}
+        text={shareDrawerText}
+        title="Compartilhar post"
       />
 
       {/* Post Likes Modal */}

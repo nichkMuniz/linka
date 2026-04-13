@@ -604,6 +604,54 @@ export default function Login() {
     navigate("/", { replace: true });
   };
 
+  // Derives a 256-bit AES-GCM key from a raw key material (credential id bytes)
+  const deriveKey = async (keyMaterial: Uint8Array): Promise<CryptoKey> => {
+    const baseKey = await crypto.subtle.importKey("raw", keyMaterial, "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: new TextEncoder().encode("linka-biometric-salt"), iterations: 100000, hash: "SHA-256" },
+      baseKey,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  };
+
+  const encryptPassword = async (pwd: string, keyMaterial: Uint8Array): Promise<string> => {
+    const key = await deriveKey(keyMaterial);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      new TextEncoder().encode(pwd)
+    );
+    // Pack iv + ciphertext as base64
+    const combined = new Uint8Array(iv.byteLength + encrypted.byteLength);
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(encrypted), iv.byteLength);
+    return btoa(String.fromCharCode(...combined));
+  };
+
+  const decryptPassword = async (encryptedB64: string, keyMaterial: Uint8Array): Promise<string> => {
+    const key = await deriveKey(keyMaterial);
+    const combined = Uint8Array.from(atob(encryptedB64), (c) => c.charCodeAt(0));
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+    return new TextDecoder().decode(decrypted);
+  };
+
+  // rp.id must be a real domain; in Capacitor apps the hostname is 'localhost'
+  // which iOS rejects for WebAuthn. We omit rp.id so the browser uses the current
+  // effective domain automatically (Capacitor handles this correctly).
+  const getRpConfig = () => {
+    const hostname = window.location.hostname;
+    // Only set rp.id when running in a real browser with a proper domain
+    if (hostname && hostname !== "localhost" && hostname !== "") {
+      return { name: "LinKa", id: hostname };
+    }
+    return { name: "LinKa" };
+  };
+
   const handleRegisterBiometric = async (redirectAfter: boolean = false) => {
     if (!biometricAvailable) {
       toast({
@@ -622,21 +670,18 @@ export default function Login() {
       const credential = await navigator.credentials.create({
         publicKey: {
           challenge,
-          rp: {
-            name: "LinKa",
-            id: window.location.hostname,
-          },
+          rp: getRpConfig(),
           user: {
             id: new Uint8Array(16),
             name: email,
-            displayName: displayName,
+            displayName: displayName || email,
           },
           pubKeyCredParams: [{ alg: -7, type: "public-key" }],
           timeout: 60000,
           attestation: "none",
           authenticatorSelection: {
             authenticatorAttachment: "platform",
-            userVerification: "preferred",
+            userVerification: "required",
             residentKey: "preferred",
           },
         },
@@ -654,17 +699,19 @@ export default function Login() {
         return;
       }
 
-      // Store credential info in localStorage
+      // Use credential id bytes as key material for encrypting the password
+      const credentialIdBytes = new Uint8Array(credential.id);
+      const credentialIdB64 = btoa(String.fromCharCode(...credentialIdBytes));
+      const encryptedPwd = await encryptPassword(password, credentialIdBytes);
+
       localStorage.setItem("biometric_registered", "true");
       localStorage.setItem("biometric_email", email);
-      localStorage.setItem(
-        "biometric_credential_id",
-        btoa(String.fromCharCode(...new Uint8Array(credential.id)))
-      );
+      localStorage.setItem("biometric_credential_id", credentialIdB64);
+      localStorage.setItem("biometric_encrypted_pwd", encryptedPwd);
 
       toast({
         title: "Biometria registrada",
-        description: "Você pode usar sua face ou digital para próximos logins.",
+        description: "Você pode usar Face ID ou digital para próximos logins.",
       });
 
       if (redirectAfter) {
@@ -700,33 +747,35 @@ export default function Login() {
     setBusy(true);
 
     try {
-      const challenge = new Uint8Array(32);
-      crypto.getRandomValues(challenge);
-
       const storedCredentialId = localStorage.getItem("biometric_credential_id");
-      if (!storedCredentialId) {
+      const storedEmail = localStorage.getItem("biometric_email");
+      const storedEncryptedPwd = localStorage.getItem("biometric_encrypted_pwd");
+
+      if (!storedCredentialId || !storedEmail || !storedEncryptedPwd) {
         toast({
           title: "Biometria não registrada",
-          description: "Registre sua biometria primeiro.",
+          description: "Registre sua biometria primeiro fazendo login com email e senha.",
         });
+        setBusy(false);
         return;
       }
 
-      const credentialId = Uint8Array.from(atob(storedCredentialId), (c) =>
-        c.charCodeAt(0)
-      );
+      const credentialIdBytes = Uint8Array.from(atob(storedCredentialId), (c) => c.charCodeAt(0));
+
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
 
       const assertion = await navigator.credentials.get({
         publicKey: {
           challenge,
           allowCredentials: [
             {
-              id: credentialId,
+              id: credentialIdBytes,
               type: "public-key",
               transports: ["internal"],
             },
           ],
-          userVerification: "preferred",
+          userVerification: "required",
           timeout: 60000,
         },
       });
@@ -736,48 +785,56 @@ export default function Login() {
           title: "Autenticação cancelada",
           description: "Você cancelou a autenticação biométrica.",
         });
+        setBusy(false);
         return;
       }
 
-      // Get stored email and login with it
-      const storedEmail = localStorage.getItem("biometric_email");
-      if (!storedEmail) {
+      // Decrypt the stored password using the credential id as key material
+      const decryptedPwd = await decryptPassword(storedEncryptedPwd, credentialIdBytes);
+
+      // Perform actual Supabase login
+      if (!supabase) throw new Error("Supabase não configurado");
+      const { error } = await supabase.auth.signInWithPassword({
+        email: storedEmail,
+        password: decryptedPwd,
+      });
+
+      if (error) {
+        // If login fails, clear stored biometric data so user re-registers
+        localStorage.removeItem("biometric_registered");
+        localStorage.removeItem("biometric_email");
+        localStorage.removeItem("biometric_credential_id");
+        localStorage.removeItem("biometric_encrypted_pwd");
+        setHasBiometricRegistered(false);
         toast({
-          title: "Erro de autenticação",
-          description:
-            "Não foi possível recuperar suas informações de login.",
+          title: "Falha no login biométrico",
+          description: "Sua senha pode ter sido alterada. Faça login com email e senha para reativar o Face ID.",
         });
         return;
       }
 
       toast({
-        title: "Biometria verificada",
-        description: "Email preenchido. Digite sua senha para entrar.",
+        title: "Bem-vindo!",
+        description: "Login com Face ID realizado com sucesso.",
       });
-
-      // Set email for login
-      setEmail(storedEmail);
-      setTab("login");
+      navigate("/", { replace: true });
     } catch (err: any) {
       console.error("Biometric login error:", err);
 
-      // Handle specific errors
       if (err.name === "NotAllowedError") {
         toast({
           title: "Autenticação recusada",
-          description:
-            "A autenticação foi recusada. Tente novamente ou use email e senha.",
+          description: "A autenticação foi recusada. Tente novamente ou use email e senha.",
         });
       } else if (err.name === "NotSupportedError") {
         toast({
           title: "Biometria não suportada",
-          description: "Seu navegador não suporta autenticação biométrica.",
+          description: "Seu dispositivo não suporta autenticação biométrica.",
         });
       } else {
         toast({
           title: "Erro na autenticação biométrica",
-          description:
-            err.message || "Não foi possível autenticar. Tente novamente.",
+          description: err.message || "Não foi possível autenticar. Tente novamente.",
         });
       }
     } finally {

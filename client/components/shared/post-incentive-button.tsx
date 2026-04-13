@@ -52,7 +52,7 @@ const incentiveConfig: Record<PostIncentiveType, IncentiveConfig> = {
     emoji: "💪",
     Icon: Dumbbell,
     iconClassName: "text-blue-400",
-    activeClassName: "text-blue-500",
+    activeClassName: "text-blue-500 fill-blue-500",
   },
   6: {
     label: "Energia máxima! ⚡",

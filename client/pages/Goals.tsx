@@ -119,6 +119,7 @@ import {
   Bell,
   BellOff,
   MapPin,
+  GripVertical,
 } from "lucide-react";
 import {
   Dialog,
@@ -155,6 +156,7 @@ import { MoodDialog } from "@/components/goals/mood-dialog";
 import { RenameRoutineDialog } from "@/components/goals/rename-routine-dialog";
 import { ImageZoomDrawer } from "@/components/shared/image-zoom-drawer";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
+import { ShareDrawer } from "@/components/shared/share-drawer";
 import { CreateWorkoutDrawer } from "@/components/goals/create-workout-drawer";
 import { CreateGoalDrawer } from "@/components/goals/create-goal-drawer";
 import { LinkGoalDrawer } from "@/components/goals/link-goal-drawer";
@@ -275,6 +277,8 @@ export default function Goals() {
   } | null>(null);
 
   const [isDuelShareModalOpen, setIsDuelShareModalOpen] = React.useState(false);
+  const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
+  const [shareDrawerText, setShareDrawerText] = React.useState("");
   const [isSharingDuel, setIsSharingDuel] = React.useState(false);
   const [duelGroups, setDuelGroups] = React.useState<Array<{ id: string; name: string; goal: string }>>([]);
   const [selectedDuelGroupId, setSelectedDuelGroupId] = React.useState<string | null>(null);
@@ -301,6 +305,7 @@ export default function Goals() {
   const [workoutCoverFiles, setWorkoutCoverFiles] = React.useState<File[]>([]);
   const [workoutCoverPreviews, setWorkoutCoverPreviews] = React.useState<string[]>([]);
   const [coverCarouselIndex, setCoverCarouselIndex] = React.useState(0);
+  const dragPhotoIndexRef = React.useRef(-1);
   const [pendingCoverCropSrc, setPendingCoverCropSrc] = React.useState<string | null>(null);
   const pendingCoverFileRef = React.useRef<File | null>(null);
   const pendingCoverQueueRef = React.useRef<File[]>([]);
@@ -1506,9 +1511,8 @@ export default function Goals() {
       const dayOfWeek = new Date().getDay();
       setWeekCheckIns((prev) => new Set(prev).add(dayOfWeek));
 
-      // Award badges based on total check-ins and refresh local state
+      // Refresh badges after check-in (trigger handles awarding automatically)
       try {
-        await awardBadgesForCheckInsDb(user.id);
         const [earned, catalog, total] = await Promise.all([
           getUserBadgesDb(user.id),
           getAllBadgesDb(),
@@ -1518,7 +1522,7 @@ export default function Goals() {
         setAllBadges(catalog);
         setTotalCheckIns(total);
       } catch (badgeErr) {
-        console.error("Error awarding badges:", badgeErr);
+        console.error("Error refreshing badges:", badgeErr);
       }
 
       // Recalcula streak com dados reais do banco (evita incremento otimista incorreto)
@@ -2706,10 +2710,16 @@ export default function Goals() {
                       })()
                       : null;
 
+                    const isAllCompleted = (typeCode === 2 || typeCode === 3) &&
+                      itemsForRoutine.length > 0 &&
+                      itemsForRoutine.every((item: any) =>
+                        typeCode === 2 ? completedDietIds.has(item.id) : completedHabitIds.has(item.id)
+                      );
+
                     return (
                       <Card
                         key={key}
-                        className="border-border/60 overflow-hidden min-w-0"
+                        className={`overflow-hidden min-w-0 transition-colors ${isAllCompleted ? "border-emerald-500/50 bg-emerald-500/5" : "border-border/60"}`}
                       >
                         <div className="w-full p-3 flex items-center gap-1 hover:bg-muted/30 transition-colors text-left min-w-0">
                           {/* Text — flush left, takes remaining space */}
@@ -2721,13 +2731,21 @@ export default function Goals() {
                             }
                             className="flex-1 flex flex-col justify-center min-w-0 text-left"
                           >
-                            <p className="text-sm font-medium truncate w-full">{displayLabel}</p>
+                            <p className={`text-sm font-medium truncate w-full ${isAllCompleted ? "text-emerald-500" : ""}`}>{displayLabel}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              {itemsForRoutine.length > 0
-                                ? `${itemsForRoutine.length} item(ns)`
-                                : "Sem itens"}
-                              {lastDateLabel && (
-                                <span className="ml-1.5 text-[10px] text-brand/70">· {lastDateLabel}</span>
+                              {isAllCompleted ? (
+                                <span className="text-emerald-500 flex items-center gap-1">
+                                  <CheckCircle2 className="h-3 w-3 inline" /> Todas concluídas
+                                </span>
+                              ) : (
+                                <>
+                                  {itemsForRoutine.length > 0
+                                    ? `${itemsForRoutine.length} item(ns)`
+                                    : "Sem itens"}
+                                  {lastDateLabel && (
+                                    <span className="ml-1.5 text-[10px] text-brand/70">· {lastDateLabel}</span>
+                                  )}
+                                </>
                               )}
                             </p>
                           </button>
@@ -4440,6 +4458,7 @@ export default function Goals() {
           setWorkoutCoverFiles([]);
           setWorkoutCoverPreviews([]);
           setCoverCarouselIndex(0);
+          dragPhotoIndexRef.current = -1;
           setCanvasPreviewUrl(null);
           setPrCanvasPreviewUrl(null);
           setWorkoutRating(0);
@@ -4511,12 +4530,13 @@ export default function Goals() {
                 }
               }
 
-              // 3. Upload all user-selected photos
+              // 3. Upload all user-selected photos in the reordered sequence
               if (workoutCoverFiles.length > 0) {
+                const duelUploadBase = Date.now();
                 for (let i = 0; i < workoutCoverFiles.length; i++) {
                   const file = workoutCoverFiles[i];
                   const ext = file.name.split(".").pop() || "jpg";
-                  const filePath = `${user.id}/${Date.now()}-duel-checkin-${i}.${ext}`;
+                  const filePath = `${user.id}/${duelUploadBase}-duel-checkin-${i}.${ext}`;
                   const { error: uploadError } = await supabase.storage
                     .from("posts")
                     .upload(filePath, file, { contentType: file.type, upsert: false });
@@ -4658,10 +4678,12 @@ export default function Goals() {
               }
             }
 
-            // Then upload any user-picked photos
-            for (const file of workoutCoverFiles) {
+            // Then upload any user-picked photos in the reordered sequence
+            const uploadBase = Date.now();
+            for (let i = 0; i < workoutCoverFiles.length; i++) {
+              const file = workoutCoverFiles[i];
               const ext = file.name.split(".").pop() || "jpg";
-              const filePath = `${user.id}/${Date.now()}-workout.${ext}`;
+              const filePath = `${user.id}/${uploadBase}-workout-${i}.${ext}`;
               const { error: uploadError } = await supabase.storage
                 .from("posts")
                 .upload(filePath, file, { contentType: file.type, upsert: false });
@@ -4774,7 +4796,7 @@ export default function Goals() {
                 // Index of current slide in userPhotos array (offset by canvas slides)
                 const userPhotoIndex = safeIndex - canvasSlides.length;
                 return (
-                  <div className="mx-4 mb-4 relative rounded-2xl overflow-hidden aspect-square md:aspect-auto md:h-[400px] bg-slate-950/40 border border-brand/20 flex-shrink-0 flex items-center justify-center">
+                  <div className="mx-4 mb-2 relative rounded-2xl overflow-hidden bg-slate-950/40 border border-brand/20 flex-shrink-0 flex items-center justify-center" style={{ height: workoutCoverPreviews.length > 0 ? "56vw" : "72vw", maxHeight: workoutCoverPreviews.length > 0 ? 320 : 400 }}>
                     {/* Current slide */}
                     {currentSlide ? (
                       <img src={currentSlide.src} alt={`Slide ${safeIndex + 1}`} className="max-w-full max-h-full w-auto h-auto object-contain" />
@@ -4836,6 +4858,62 @@ export default function Goals() {
                         <input type="file" accept="image/*" multiple className="hidden" onChange={handlePickPhoto} />
                       </label>
                     )}
+                  </div>
+                );
+              })()}
+
+              {/* Photo reorder thumbnails — shown when there are user photos (drag to reorder) */}
+              {workoutCoverPreviews.length > 0 && (() => {
+                const canvasCount = (prCanvasPreviewUrl ? 1 : 0) + (canvasPreviewUrl ? 1 : 0);
+
+                const handleDragStart = (e: React.DragEvent<HTMLDivElement>, idx: number) => {
+                  dragPhotoIndexRef.current = idx;
+                  e.dataTransfer.effectAllowed = "move";
+                };
+
+                const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetIdx: number) => {
+                  e.preventDefault();
+                  const from = dragPhotoIndexRef.current;
+                  if (from === -1 || from === targetIdx) return;
+                  const newPreviews = [...workoutCoverPreviews];
+                  const newFiles = [...workoutCoverFiles];
+                  const [previewItem] = newPreviews.splice(from, 1);
+                  const [fileItem] = newFiles.splice(from, 1);
+                  newPreviews.splice(targetIdx, 0, previewItem);
+                  newFiles.splice(targetIdx, 0, fileItem);
+                  setWorkoutCoverPreviews(newPreviews);
+                  setWorkoutCoverFiles(newFiles);
+                  setCoverCarouselIndex(canvasCount + targetIdx);
+                  dragPhotoIndexRef.current = -1;
+                };
+
+                return (
+                  <div className="mx-4 mb-3">
+                    {workoutCoverPreviews.length > 1 && (
+                      <p className="text-[10px] text-muted-foreground mb-1.5 flex items-center gap-1">
+                        <GripVertical className="h-3 w-3" /> Arraste para reordenar
+                      </p>
+                    )}
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                    {workoutCoverPreviews.map((src, idx) => {
+                      const slideIdx = canvasCount + idx;
+                      const isActive = Math.min(coverCarouselIndex, (canvasCount + workoutCoverPreviews.length) - 1) === slideIdx;
+                      return (
+                        <div
+                          key={idx}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, idx)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => handleDrop(e, idx)}
+                          onClick={() => setCoverCarouselIndex(slideIdx)}
+                          className={`relative flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing border-2 transition-all ${isActive ? "border-brand" : "border-transparent opacity-60 hover:opacity-80"}`}
+                        >
+                          <img src={src} alt={`Foto ${idx + 1}`} className="w-full h-full object-cover" />
+                          <span className="absolute bottom-0 left-0 right-0 text-center text-[9px] font-bold bg-black/50 text-white">{idx + 1}</span>
+                        </div>
+                      );
+                    })}
+                    </div>
                   </div>
                 );
               })()}
@@ -5967,13 +6045,8 @@ export default function Goals() {
                 className="w-full rounded-full gap-2"
                 onClick={() => {
                   const text = `🏆 Completei minha meta no Linka: "${celebrationGoal.description}"! ${celebrationGoal.quantity} dias de dedicação. Baixe o app e junte-se a mim! 💪`;
-                  if (navigator.share) {
-                    navigator.share({ text }).catch(() => { });
-                  } else {
-                    navigator.clipboard.writeText(text).then(() => {
-                      toast({ title: "Copiado!", description: "Texto da conquista copiado para a área de transferência." });
-                    }).catch(() => { });
-                  }
+                  setShareDrawerText(text);
+                  setShareDrawerOpen(true);
                   setCelebrationGoal(null);
                 }}
               >
@@ -6006,6 +6079,13 @@ export default function Goals() {
       />
       <ImageZoomDrawer item={imageZoom} onClose={() => setImageZoom(null)} />
 
+      <ShareDrawer
+        open={shareDrawerOpen}
+        onOpenChange={setShareDrawerOpen}
+        text={shareDrawerText}
+        title="Compartilhar conquista"
+      />
+
       {/* Cropper para fotos de capa do treino */}
       <ImageCropperDrawer
         imageSrc={pendingCoverCropSrc}
@@ -6015,12 +6095,14 @@ export default function Goals() {
           if (!file) return;
           const croppedFile = new File([blob], file.name, { type: "image/jpeg" });
           setWorkoutCoverFiles((prev) => {
-            const next = [...prev, croppedFile].slice(0, 10);
+            const next = [croppedFile, ...prev].slice(0, 10);
             return next;
           });
           setWorkoutCoverPreviews((prev) => {
-            const next = [...prev, dataUrl].slice(0, 10);
-            setCoverCarouselIndex(1 + next.length - 1);
+            const next = [dataUrl, ...prev].slice(0, 10);
+            // canvas slides (PR + workout) come before user photos; jump to the first user photo
+            const canvasCount = (prCanvasPreviewUrl ? 1 : 0) + (canvasPreviewUrl ? 1 : 0);
+            setCoverCarouselIndex(canvasCount);
             return next;
           });
           pendingCoverQueueRef.current = pendingCoverQueueRef.current.slice(1);
