@@ -9,6 +9,7 @@ import {
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { useNavigate } from "react-router-dom";
 import { Heart } from "lucide-react";
+import { useLanguage } from "@/lib/language-context";
 
 const INCENTIVE_ICONS: Record<number, string> = {
   1: "❤️",
@@ -19,14 +20,7 @@ const INCENTIVE_ICONS: Record<number, string> = {
   6: "⚡",
 };
 
-const INCENTIVE_NAME_TO_TYPE: Record<string, number> = {
-  "Apoio": 1,
-  "Tá pegando fogo!": 2,
-  "Vencedor!": 3,
-  "Evolução!": 4,
-  "Força total!": 5,
-  "Energia máxima!": 6,
-};
+const INCENTIVE_TYPE_MAP: Record<number, number> = { 1:1, 2:2, 3:3, 4:4, 5:5, 6:6 };
 
 export interface PostLike {
   userId: string;
@@ -43,17 +37,14 @@ interface PostLikesModalProps {
 
 export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProps) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   const getIncentiveTypeName = (type: number): string => {
-    const incentiveNames: { [key: number]: string } = {
-      1: "Apoio",
-      2: "Tá pegando fogo!",
-      3: "Vencedor!",
-      4: "Evolução!",
-      5: "Força total!",
-      6: "Energia máxima!",
+    const map: Record<number, "incentive_1"|"incentive_2"|"incentive_3"|"incentive_4"|"incentive_5"|"incentive_6"> = {
+      1: "incentive_1", 2: "incentive_2", 3: "incentive_3",
+      4: "incentive_4", 5: "incentive_5", 6: "incentive_6",
     };
-    return incentiveNames[type] || "Incentivo";
+    return map[type] ? t(map[type]) : t("incentive_default");
   };
 
   const handleUserClick = (userId: string) => {
@@ -64,14 +55,13 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
   // Count distinct users (not total incentives)
   const distinctUsers = new Set(likes.map((like) => like.userId)).size;
 
-  // Count incentives by type
+  // Count incentives by numeric type
   const incentiveTypeCounts = likes.reduce(
     (acc, like) => {
-      const typeName = getIncentiveTypeName(like.type);
-      acc[typeName] = (acc[typeName] || 0) + 1;
+      acc[like.type] = (acc[like.type] || 0) + 1;
       return acc;
     },
-    {} as { [key: string]: number }
+    {} as { [key: number]: number }
   );
 
   return (
@@ -81,30 +71,29 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
           <div className="space-y-3">
             <DrawerTitle className="flex items-center gap-2">
               <Heart className="h-5 w-5 text-red-500 fill-red-500" />
-              Incentivos
+              {t("incentives_title")}
             </DrawerTitle>
-            <DrawerDescription className="sr-only">Lista de pessoas que incentivaram este post</DrawerDescription>
+            <DrawerDescription className="sr-only">{t("incentives_desc")}</DrawerDescription>
 
             {/* Distinct Users Counter */}
             <div className="bg-muted/50 rounded-lg p-3">
               <p className="text-sm font-medium text-foreground">
-                {distinctUsers} {distinctUsers === 1 ? "pessoa te incentivou" : "pessoas te incentivaram"}
+                {distinctUsers} {distinctUsers === 1 ? t("incentives_one") : t("incentives_many")}
               </p>
             </div>
 
             {/* Incentive Type Breakdown with Icons - Single Line */}
             {Object.keys(incentiveTypeCounts).length > 0 && (
               <div className="flex flex-wrap gap-3">
-                {Object.entries(incentiveTypeCounts).map(([typeName, count]) => {
-                  const typeNum = INCENTIVE_NAME_TO_TYPE[typeName] ?? 1;
-
+                {Object.entries(incentiveTypeCounts).map(([typeStr, count]) => {
+                  const typeNum = Number(typeStr);
                   return (
                     <div
-                      key={typeName}
+                      key={typeStr}
                       className="flex items-center gap-2 px-3 py-1.5 bg-muted/40 rounded-full text-sm"
                     >
                       <span className="font-semibold text-foreground">{count}</span>
-                      <p className="text-muted-foreground">{typeName}</p>
+                      <p className="text-muted-foreground">{getIncentiveTypeName(typeNum)}</p>
                       <span className="text-base ml-1">
                         {INCENTIVE_ICONS[typeNum] || "👍"}
                       </span>
@@ -120,7 +109,7 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
           {likes.length === 0 ? (
             <div className="flex items-center justify-center py-8">
               <p className="text-sm text-muted-foreground">
-                Nenhum incentivo recebido
+                {t("incentives_none")}
               </p>
             </div>
           ) : (

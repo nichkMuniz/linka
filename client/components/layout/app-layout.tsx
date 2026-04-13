@@ -271,7 +271,7 @@ export function AppLayout() {
 
   const sidebarExtraItems: NavItem[] = React.useMemo(() => [
     { to: "/buscar", label: t("nav_search") ?? "Buscar", icon: Search },
-    { to: "/notificacoes", label: "Notificações", icon: Bell, badge: unreadNotificationsCount },
+    { to: "/notificacoes", label: t("settings_notifications"), icon: Bell, badge: unreadNotificationsCount },
     { to: "/comunidade", label: t("nav_community") ?? "Comunidade", icon: Users2, badge: unreadCount },
   ], [t, unreadNotificationsCount, unreadCount]);
 

@@ -10,6 +10,7 @@ import {
 import { type Badge, type UserBadge, setSelectedBadgeDb, getViewer } from "@/lib/ritmofit-db";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/lib/language-context";
 
 interface InsigniasDrawerProps {
   open: boolean;
@@ -28,6 +29,7 @@ const BADGE_COLORS: Record<string, { active: string; check: string; bar: string;
 };
 
 export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, totalCheckIns }: InsigniasDrawerProps) {
+  const { t } = useLanguage();
   const [isSelecting, setIsSelecting] = React.useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null);
 
@@ -49,7 +51,7 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
   const handleSelect = async (badge: Badge) => {
     if (isSelecting) return;
     if (totalCheckIns < badge.required_checkins) {
-      toast.error("Você ainda não atingiu o requisito para esta insígnia.");
+      toast.error(t("badges_not_reached"));
       return;
     }
     if (badge.id === activeBadgeId) return;
@@ -57,13 +59,13 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
     try {
       setIsSelecting(badge.id);
       await setSelectedBadgeDb(badge.id);
-      toast.success(`Insígnia ${badge.name} selecionada!`);
+      toast.success(t("badges_selected").replace("{name}", badge.name));
       // Simples refresh forçado (reload) ou o componente pai deve atualizar
       // Como o Drawer é controlado por props, idealmente o pai deveria ter um onSelect
       // Mas para manter simples e imediato:
       window.location.reload();
     } catch (err: any) {
-      toast.error(err.message || "Erro ao selecionar insígnia");
+      toast.error(err.message || t("badges_error"));
     } finally {
       setIsSelecting(null);
     }
@@ -75,10 +77,10 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
         <DrawerHeader className="shrink-0 border-b border-border/60">
           <DrawerTitle className="flex items-center gap-2">
             <span className="text-2xl">🏆</span>
-            Insígnias
+            {t("badges_title")}
           </DrawerTitle>
           <DrawerDescription className="">
-            Escolha a insígnia que deseja exibir no seu perfil.
+            {t("badges_desc")}
           </DrawerDescription>
         </DrawerHeader>
 
@@ -88,7 +90,7 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Star className="h-4 w-4 text-brand animate-pulse" />
-                <p className="font-semibold text-sm">Próximo Nível</p>
+                <p className="font-semibold text-sm">{t("badges_next_level")}</p>
               </div>
               <p className="font-bold text-lg tabular-nums">
                 {totalCheckIns}/{targetRequired}
@@ -102,10 +104,10 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
             </div>
             <p className="text-xs text-muted-foreground mt-3 font-medium">
               {isMaxed
-                ? "Incrível! Você já pode usar qualquer insígnia!"
-                : nextBadge 
-                  ? `Faltam ${nextBadge.required_checkins - totalCheckIns} check-in(s) para liberar "${nextBadge.name}".`
-                  : "Continue treinando!"}
+                ? t("badges_maxed")
+                : nextBadge
+                  ? t("badges_remaining").replace("{n}", String(nextBadge.required_checkins - totalCheckIns)).replace("{name}", nextBadge.name)
+                  : t("badges_keep_training")}
             </p>
           </div>
 
@@ -146,7 +148,7 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
                           <p className="font-bold text-sm tracking-tight">{badge.name}</p>
                           {isActive && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand/20 text-brand font-bold uppercase tracking-wider">
-                              Ativo
+                              {t("badges_active")}
                             </span>
                           )}
                         </div>
@@ -195,8 +197,8 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
         <div className="border-t border-border/60 p-5 bg-background/95 sticky bottom-0">
           <p className="text-xs font-medium text-muted-foreground text-center">
             {isMaxed
-              ? "Você é uma lenda! Escolha seu título com sabedoria." 
-              : "Continue treinando para liberar novas insígnias!"
+              ? t("badges_bottom_maxed")
+              : t("badges_bottom_progress")
             }
           </p>
         </div>

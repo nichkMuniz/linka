@@ -1006,6 +1006,8 @@ export async function incrementGoalProgressDb(
 
   if (!data) return null;
 
+  invalidateQueryCache("userGoals");
+
   return {
     id: String(data.id),
     goal_id: String(data.goal_id ?? ""),
@@ -1017,8 +1019,6 @@ export async function incrementGoalProgressDb(
     days_completed: newDaysCompleted,
     visibility: Number(data.visibility ?? 1),
   };
-
-  invalidateQueryCache("userGoals");
 }
 
 export async function getUserSelectedGoalIdsDb(): Promise<string[]> {
@@ -6795,6 +6795,42 @@ export async function getWorkoutHistoriesBatchDb(
     return result;
   } catch (err: any) {
     console.error("Error fetching workout histories batch:", err);
+    return {};
+  }
+}
+
+/**
+ * Returns the most recent date_completed for each user_workout_id (routine).
+ * Used to display "last executed" date on exercise routine cards.
+ * Returns a map of user_workout_id → ISO date string of last execution.
+ */
+export async function getRoutineLastDatesBatchDb(
+  userId: string,
+  userWorkoutIds: string[],
+): Promise<Record<string, string>> {
+  if (!hasSupabaseConfig || !supabase || userWorkoutIds.length === 0) return {};
+
+  try {
+    const { data, error } = await supabase
+      .from("user_workouts_hist")
+      .select("user_workout_id, date_completed")
+      .eq("user_id", userId)
+      .in("user_workout_id", userWorkoutIds)
+      .order("date_completed", { ascending: false });
+
+    if (error) throw error;
+
+    const result: Record<string, string> = {};
+    (data ?? []).forEach((row: any) => {
+      const uwId = String(row.user_workout_id);
+      if (!result[uwId] && row.date_completed) {
+        result[uwId] = String(row.date_completed);
+      }
+    });
+
+    return result;
+  } catch (err: any) {
+    console.error("Error fetching routine last dates:", err);
     return {};
   }
 }

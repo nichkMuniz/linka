@@ -25,6 +25,7 @@ export type PostWithStats = PostWithLikes & {
     quantity: number;
     type_goal: number;
     actual_progress: number;
+    visibility: number;
   };
 };
 
@@ -72,18 +73,24 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
       const map = new Map<string, any>();
       if (goalIds.length > 0) {
         const { data: goalsData } = await supabase
-          .rpc("get_user_goals_by_ids", { goal_ids: goalIds.map(Number) });
+          .from("user_goals")
+          .select("id, goal_id, duration, quantity, type_goal, perc, visibility, goals(description)")
+          .in("id", goalIds.map(Number));
         if (goalsData?.length) {
           goalsData.forEach((g: any) => {
+            const description = Array.isArray(g.goals)
+              ? (g.goals[0]?.description ?? "")
+              : (g.goals?.description ?? "");
             map.set(String(g.id), {
               id: String(g.id),
               goal_id: String(g.goal_id),
-              description: g.description ?? "",
+              description,
               perc: Number(g.perc ?? 0),
               duration: Number(g.duration ?? 0),
               quantity: Number(g.quantity ?? 0),
               type_goal: Number(g.type_goal ?? 0),
               actual_progress: Math.round((Number(g.perc ?? 0) / 100) * Number(g.quantity ?? 0)),
+              visibility: Number(g.visibility ?? 1),
             });
           });
         }
@@ -99,7 +106,8 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
     const commentCount = commentCountsMap.get(post.id) ?? 0;
     const profile = profilesMap.get(post.user_id);
     const totalLikes = Object.values(likes).reduce((a: number, b: number) => a + b, 0);
-    const userGoal = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
+    const goalData = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
+    const userGoal = goalData?.visibility === 1 ? goalData : undefined;
 
     return {
       ...post,
@@ -154,18 +162,24 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
       const map = new Map<string, any>();
       if (goalIds.length > 0) {
         const { data: goalsData } = await supabase
-          .rpc("get_user_goals_by_ids", { goal_ids: goalIds.map(Number) });
+          .from("user_goals")
+          .select("id, goal_id, duration, quantity, type_goal, perc, visibility, goals(description)")
+          .in("id", goalIds.map(Number));
         if (goalsData?.length) {
           goalsData.forEach((g: any) => {
+            const description = Array.isArray(g.goals)
+              ? (g.goals[0]?.description ?? "")
+              : (g.goals?.description ?? "");
             map.set(String(g.id), {
               id: String(g.id),
               goal_id: String(g.goal_id),
-              description: g.description ?? "",
+              description,
               perc: Number(g.perc ?? 0),
               duration: Number(g.duration ?? 0),
               quantity: Number(g.quantity ?? 0),
               type_goal: Number(g.type_goal ?? 0),
               actual_progress: Math.round((Number(g.perc ?? 0) / 100) * Number(g.quantity ?? 0)),
+              visibility: Number(g.visibility ?? 1),
             });
           });
         }
@@ -180,7 +194,8 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
     const commentCount = commentCountsMap.get(post.id) ?? 0;
     const profile = profilesMap.get(post.user_id);
     const totalLikes = Object.values(likes).reduce((a: number, b: number) => a + b, 0);
-    const userGoal = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
+    const goalData = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
+    const userGoal = goalData?.visibility === 1 ? goalData : undefined;
 
     return {
       ...post,

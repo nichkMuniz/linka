@@ -23,6 +23,7 @@ import {
 } from "@/lib/ritmofit-db";
 import { ImagePlus, Loader2, ChevronLeft, ChevronRight, X, Video, Sparkles, Target, Upload, Clapperboard, Crop } from "lucide-react";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
+import { useLanguage } from "@/lib/language-context";
 
 // Module-level draft store — persists across navigation within the same SPA session
 // (survives React unmount/remount; cleared on page reload or explicit reset)
@@ -32,6 +33,7 @@ const videoDraft: { file: File | null; preview: string | null } = { file: null, 
 export default function NewPost() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
+  const { t } = useLanguage();
 
   // Image/Post state — initialised from module-level draft (survives navigation)
   const [selectedFiles, setSelectedFiles] = React.useState<File[]>(() => imageDraft.files);
@@ -94,8 +96,8 @@ export default function NewPost() {
       .catch((err) => {
         console.error("Error loading user goals:", err);
         toast({
-          title: "Erro ao carregar metas",
-          description: "Não foi possível carregar suas metas.",
+          title: t("newpost_goals_load_error"),
+          description: t("newpost_goals_load_error_desc"),
           variant: "destructive",
         });
       })
@@ -147,16 +149,16 @@ export default function NewPost() {
     for (const file of files) {
       if (!file.type.startsWith("image/")) {
         toast({
-          title: "Tipo inválido",
-          description: `${file.name} não é uma imagem válida.`,
+          title: t("newpost_invalid_type"),
+          description: `${file.name} ${t("newpost_invalid_image")}`,
           variant: "destructive",
         });
         continue;
       }
       if (file.size > 10 * 1024 * 1024) {
         toast({
-          title: "Arquivo muito grande",
-          description: `${file.name} deve ter no máximo 10MB.`,
+          title: t("newpost_file_too_large"),
+          description: `${file.name} ${t("newpost_image_max_size")}`,
           variant: "destructive",
         });
         continue;
@@ -182,8 +184,8 @@ export default function NewPost() {
     // Validate file type
     if (!file.type.startsWith("video/")) {
       toast({
-        title: "Tipo inválido",
-        description: "Selecione um arquivo de vídeo válido (MP4, WebM, etc).",
+        title: t("newpost_invalid_type"),
+        description: t("newpost_invalid_video"),
         variant: "destructive",
       });
       return;
@@ -192,8 +194,8 @@ export default function NewPost() {
     // Validate file size (max 100MB for videos)
     if (file.size > 100 * 1024 * 1024) {
       toast({
-        title: "Arquivo muito grande",
-        description: "O vídeo deve ter no máximo 100MB.",
+        title: t("newpost_file_too_large"),
+        description: t("newpost_video_max_size"),
         variant: "destructive",
       });
       return;
@@ -237,8 +239,8 @@ export default function NewPost() {
   const handleImageSubmit = React.useCallback(async () => {
     if (!user || selectedFiles.length === 0) {
       toast({
-        title: "Erro",
-        description: "Selecione pelo menos uma imagem para postar.",
+        title: t("error"),
+        description: t("newpost_no_image_selected"),
         variant: "destructive",
       });
       return;
@@ -246,8 +248,8 @@ export default function NewPost() {
 
     if (!hasSupabaseConfig || !supabase) {
       toast({
-        title: "Erro",
-        description: "Supabase não configurado.",
+        title: t("error"),
+        description: t("newpost_supabase_error"),
         variant: "destructive",
       });
       return;
@@ -302,8 +304,8 @@ export default function NewPost() {
       }
 
       toast({
-        title: "Sucesso!",
-        description: "Sua postagem foi publicada no feed.",
+        title: t("newpost_success"),
+        description: t("newpost_post_published"),
       });
 
       // Reset form
@@ -322,8 +324,8 @@ export default function NewPost() {
     } catch (err: any) {
       console.error("Error creating post:", err);
       toast({
-        title: "Erro ao postar",
-        description: err?.message || "Tente novamente mais tarde.",
+        title: t("newpost_post_error"),
+        description: err?.message || t("newpost_try_later"),
         variant: "destructive",
       });
     } finally {
@@ -335,8 +337,8 @@ export default function NewPost() {
   const handleVideoSubmit = React.useCallback(async () => {
     if (!user || !selectedVideoFile) {
       toast({
-        title: "Erro",
-        description: "Selecione um vídeo para publicar.",
+        title: t("error"),
+        description: t("newpost_no_video"),
         variant: "destructive",
       });
       return;
@@ -344,8 +346,8 @@ export default function NewPost() {
 
     if (!hasSupabaseConfig || !supabase) {
       toast({
-        title: "Erro",
-        description: "Supabase não configurado.",
+        title: t("error"),
+        description: t("newpost_supabase_error"),
         variant: "destructive",
       });
       return;
@@ -383,8 +385,8 @@ export default function NewPost() {
       );
 
       toast({
-        title: "Sucesso!",
-        description: "Seu Shots foi publicado.",
+        title: t("newpost_success"),
+        description: t("newpost_shot_published"),
       });
 
       // Reset form
@@ -400,8 +402,8 @@ export default function NewPost() {
     } catch (err: any) {
       console.error("Error creating shot:", err);
       toast({
-        title: "Erro ao publicar vídeo",
-        description: err?.message || "Tente novamente mais tarde.",
+        title: t("newpost_shot_error"),
+        description: err?.message || t("newpost_try_later"),
         variant: "destructive",
       });
     } finally {
@@ -412,7 +414,7 @@ export default function NewPost() {
   if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <p className="text-muted-foreground">Carregando...</p>
+        <p className="text-muted-foreground">{t("newpost_loading")}</p>
       </div>
     );
   }
@@ -422,14 +424,14 @@ export default function NewPost() {
       <div className="flex items-center justify-center min-h-[60vh]">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle>Acesso Negado</CardTitle>
+            <CardTitle>{t("newpost_access_denied")}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              Você precisa estar logado para criar uma postagem.
+              {t("newpost_login_required")}
             </p>
             <Button onClick={() => navigate("/login")} className="w-full">
-              Ir para Login
+              {t("newpost_go_login")}
             </Button>
           </CardContent>
         </Card>
@@ -446,8 +448,8 @@ export default function NewPost() {
             <Sparkles className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">Criar Conteúdo</h1>
-            <p className="text-sm text-muted-foreground">Inspire a comunidade com sua jornada</p>
+            <h1 className="text-2xl font-bold">{t("newpost_title")}</h1>
+            <p className="text-sm text-muted-foreground">{t("newpost_subtitle")}</p>
           </div>
         </div>
       </div>
@@ -459,11 +461,11 @@ export default function NewPost() {
             <TabsList className="grid w-full grid-cols-2 h-12 p-1 rounded-xl">
               <TabsTrigger value="images" className="flex items-center gap-2 rounded-lg text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all">
                 <ImagePlus className="h-4 w-4" />
-                Postagem
+                {t("newpost_tab_post")}
               </TabsTrigger>
               <TabsTrigger value="video" className="flex items-center gap-2 rounded-lg text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground transition-all">
                 <Clapperboard className="h-4 w-4" />
-                Shots
+                {t("newpost_tab_shots")}
               </TabsTrigger>
             </TabsList>
 
@@ -472,10 +474,10 @@ export default function NewPost() {
               {/* Image Selection */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold">Fotos</label>
+                  <label className="text-sm font-semibold">{t("newpost_photos_label")}</label>
                   {selectedFiles.length > 0 && (
                     <span className="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                      {selectedFiles.length} {selectedFiles.length === 1 ? "foto" : "fotos"}
+                      {selectedFiles.length} {selectedFiles.length === 1 ? t("newpost_photo_singular") : t("newpost_photo_plural")}
                     </span>
                   )}
                 </div>
@@ -495,7 +497,7 @@ export default function NewPost() {
                         className="absolute top-2 left-2 flex items-center gap-1 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-2.5 py-1.5 rounded-full transition-colors"
                       >
                         <Crop className="h-3.5 w-3.5" />
-                        Editar
+                        {t("newpost_edit_crop")}
                       </button>
 
                       {/* Navigation Buttons */}
@@ -567,7 +569,7 @@ export default function NewPost() {
                     {/* Add more button */}
                     <label className="flex items-center justify-center gap-2 w-full py-2 rounded-lg border border-dashed border-border/60 text-xs text-muted-foreground hover:text-foreground hover:border-border cursor-pointer transition-colors">
                       <ImagePlus className="h-3.5 w-3.5" />
-                      Adicionar mais fotos
+                      {t("newpost_add_more_photos")}
                       <input
                         type="file"
                         accept="image/*"
@@ -585,7 +587,7 @@ export default function NewPost() {
                       </div>
                       <div className="text-center">
                         <p className="text-sm font-semibold text-foreground">
-                          Adicionar fotos
+                          {t("newpost_add_photos")}
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           PNG, JPG, WebP ou GIF · máx. 10MB cada
@@ -606,13 +608,13 @@ export default function NewPost() {
               {/* Description */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold">Legenda</label>
+                  <label className="text-sm font-semibold">{t("newpost_caption_label")}</label>
                   <span className={`text-xs font-medium transition-colors ${description.length > 450 ? "text-orange-400" : "text-muted-foreground"}`}>
                     {description.length}/500
                   </span>
                 </div>
                 <Textarea
-                  placeholder="O que aconteceu no treino? Inspire quem está acompanhando sua jornada..."
+                  placeholder={t("newpost_caption_placeholder")}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   maxLength={500}
@@ -625,12 +627,12 @@ export default function NewPost() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Target className="h-4 w-4 text-primary" />
-                  <label className="text-sm font-semibold">Vincular a uma meta</label>
-                  <span className="text-xs text-muted-foreground">(opcional)</span>
+                  <label className="text-sm font-semibold">{t("newpost_link_goal")}</label>
+                  <span className="text-xs text-muted-foreground">{t("newpost_optional")}</span>
                 </div>
                 {isLoadingGoals ? (
                   <div className="flex h-10 items-center rounded-xl border border-input bg-muted px-3 text-sm text-muted-foreground">
-                    Carregando metas...
+                    {t("newpost_goals_loading")}
                   </div>
                 ) : userGoals.length > 0 ? (
                   <Select value={selectedGoalId} onValueChange={setSelectedGoalId}>
@@ -640,7 +642,7 @@ export default function NewPost() {
                           selectedGoalId
                             ? userGoals.find((g) => g.id === selectedGoalId)
                               ?.description
-                            : "Selecione uma meta"
+                            : t("newpost_select_goal")
                         }
                       />
                     </SelectTrigger>
@@ -659,14 +661,14 @@ export default function NewPost() {
                     className="flex h-10 cursor-pointer items-center rounded-xl border border-dashed border-primary/40 bg-primary/5 px-3 text-sm text-muted-foreground hover:bg-primary/10 transition-colors"
                     onClick={() => navigate("/metas?tab=metas")}
                   >
-                    Nenhuma meta criada.{" "}
-                    <span className="ml-1 text-primary font-medium">Criar meta →</span>
+                    {t("newpost_no_goals")}{" "}
+                    <span className="ml-1 text-primary font-medium">{t("newpost_create_goal")}</span>
                   </div>
                 )}
                 {selectedGoalId && (
                   <p className="text-xs text-emerald-400 flex items-center gap-1">
                     <Sparkles className="h-3 w-3" />
-                    Progresso da meta será incrementado ao publicar
+                    {t("newpost_goal_progress_hint")}
                   </p>
                 )}
               </div>
@@ -679,7 +681,7 @@ export default function NewPost() {
                   onClick={() => navigate("/")}
                   disabled={isSubmitting}
                 >
-                  Cancelar
+                  {t("newpost_cancel")}
                 </Button>
                 <Button
                   className="flex-1 rounded-full font-semibold"
@@ -689,12 +691,12 @@ export default function NewPost() {
                   {isSubmitting ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Publicando...
+                      {t("newpost_publishing")}
                     </>
                   ) : (
                     <>
                       <Sparkles className="h-4 w-4 mr-2" />
-                      Publicar
+                      {t("newpost_publish")}
                     </>
                   )}
                 </Button>
@@ -705,7 +707,7 @@ export default function NewPost() {
             <TabsContent value="video" className="space-y-5 mt-5">
               {/* Video Selection */}
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Vídeo</label>
+                <label className="text-sm font-semibold">{t("newpost_video_label")}</label>
 
                 {videoPreview ? (
                   <div className="space-y-3">
@@ -722,7 +724,7 @@ export default function NewPost() {
                           setSelectedVideoFile(null);
                         }}
                         className="absolute top-2 right-2 bg-black/60 hover:bg-red-600 text-white rounded-full p-1.5 transition-colors"
-                        aria-label="Remover vídeo"
+                        aria-label={t("newpost_remove_video_label")}
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -747,7 +749,7 @@ export default function NewPost() {
                       </div>
                       <div className="text-center">
                         <p className="text-sm font-semibold text-foreground">
-                          Adicionar vídeo
+                          {t("newpost_add_video")}
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           MP4, WebM ou MOV · máx. 100MB
@@ -767,13 +769,13 @@ export default function NewPost() {
               {/* Description */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold">Legenda</label>
+                  <label className="text-sm font-semibold">{t("newpost_caption_label")}</label>
                   <span className={`text-xs font-medium transition-colors ${videoDescription.length > 450 ? "text-orange-400" : "text-muted-foreground"}`}>
                     {videoDescription.length}/500
                   </span>
                 </div>
                 <Textarea
-                  placeholder="O que rolou nesse treino? Conta aí para a galera..."
+                  placeholder={t("newpost_caption_video_placeholder")}
                   value={videoDescription}
                   onChange={(e) => setVideoDescription(e.target.value)}
                   maxLength={500}
@@ -790,7 +792,7 @@ export default function NewPost() {
                   onClick={() => navigate("/")}
                   disabled={isSubmitting}
                 >
-                  Cancelar
+                  {t("newpost_cancel")}
                 </Button>
                 <Button
                   className="flex-1 rounded-full font-semibold"
@@ -800,12 +802,12 @@ export default function NewPost() {
                   {isSubmitting ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Publicando...
+                      {t("newpost_publishing")}
                     </>
                   ) : (
                     <>
                       <Clapperboard className="h-4 w-4 mr-2" />
-                      Publicar Shot
+                      {t("newpost_publish_shot")}
                     </>
                   )}
                 </Button>

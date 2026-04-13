@@ -30,6 +30,7 @@ import {
   getWeekCheckInsDb,
   getCheckInHistoryDb,
   getWorkoutHistoriesBatchDb,
+  getRoutineLastDatesBatchDb,
   saveWorkoutHistoryDb,
   getWorkoutHistoryDb,
   toggleUserDietCompletionDb,
@@ -48,6 +49,7 @@ import {
   undoLastHydrationDb,
   getTodayMacroSummaryDb,
   awardNutritionBadgesDb,
+  incrementGoalProgressDb,
   getTodayMoodDb,
   type MoodValue,
   type CompletedRoutineExercise,
@@ -116,6 +118,7 @@ import {
   ArrowDown,
   Bell,
   BellOff,
+  MapPin,
 } from "lucide-react";
 import {
   Dialog,
@@ -268,6 +271,7 @@ export default function Goals() {
     prs: Array<{ exerciseName: string; kg: number; reps: number }>;
     isAllCardio: boolean;
     totalKm: number;
+    totalCardioTimeSecs: number;
   } | null>(null);
 
   const [isDuelShareModalOpen, setIsDuelShareModalOpen] = React.useState(false);
@@ -385,6 +389,9 @@ export default function Goals() {
   // Goal completion celebration modal state
   const [celebrationGoal, setCelebrationGoal] = React.useState<UserGoal | null>(null);
 
+  // Map of user_workout_id → last date_completed ISO string
+  const [routineLastDates, setRoutineLastDates] = React.useState<Record<string, string>>({});
+
   // Workout history modal state
   const [workoutHistoryModalOpen, setWorkoutHistoryModalOpen] = React.useState(false);
   const [selectedWorkoutForHistory, setSelectedWorkoutForHistory] = React.useState<Workout | null>(null);
@@ -472,10 +479,18 @@ export default function Goals() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const { duration, totalVolume, totalSeries, exerciseNames, routineName } = workoutSummaryData;
+    const { duration, totalVolume, totalSeries, exerciseNames, routineName, isAllCardio, totalKm, totalCardioTimeSecs } = workoutSummaryData;
     const mins = Math.floor(duration / 60);
     const secs = duration % 60;
     const durationStr = mins > 0 ? `${mins}m ${secs > 0 ? `${secs}s` : ""}`.trim() : `${secs}s`;
+    const fmtCardioSecs = (t: number) => {
+      const h = Math.floor(t / 3600);
+      const m = Math.floor((t % 3600) / 60);
+      const s = t % 60;
+      if (h > 0) return `${h}h ${String(m).padStart(2, "0")}min${s > 0 ? ` ${String(s).padStart(2, "0")}s` : ""}`;
+      if (s > 0) return `${m}min ${String(s).padStart(2, "0")}s`;
+      return `${m}min`;
+    };
     // Background
     const grad = ctx.createLinearGradient(0, 0, 800, 800);
     grad.addColorStop(0, "#0f172a");
@@ -497,11 +512,17 @@ export default function Goals() {
     ctx.strokeStyle = "rgba(34,197,94,0.3)"; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(100, 420); ctx.lineTo(700, 420); ctx.stroke();
     // Stats
-    const statsData = [
-      { label: "Duração", value: durationStr },
-      { label: "Volume", value: totalVolume > 0 ? `${totalVolume} kg` : "—" },
-      { label: "Séries", value: String(totalSeries) },
-    ];
+    const statsData = isAllCardio
+      ? [
+          { label: "Tempo", value: totalCardioTimeSecs > 0 ? fmtCardioSecs(totalCardioTimeSecs) : durationStr },
+          { label: "Distância", value: totalKm > 0 ? `${totalKm} km` : "—" },
+          { label: "Séries", value: String(totalSeries) },
+        ]
+      : [
+          { label: "Duração", value: durationStr },
+          { label: "Volume", value: totalVolume > 0 ? `${totalVolume} kg` : "—" },
+          { label: "Séries", value: String(totalSeries) },
+        ];
     statsData.forEach((s, i) => {
       const x = 170 + i * 230;
       ctx.fillStyle = "#86efac"; ctx.font = "bold 44px system-ui, sans-serif"; ctx.fillText(s.value, x, 510);
@@ -526,7 +547,16 @@ export default function Goals() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const { prs } = workoutSummaryData;
+    const { prs, isAllCardio } = workoutSummaryData;
+
+    const fmtCardioTime = (totalSecs: number) => {
+      const h = Math.floor(totalSecs / 3600);
+      const m = Math.floor((totalSecs % 3600) / 60);
+      const s = totalSecs % 60;
+      if (h > 0) return `${h}h ${String(m).padStart(2, "0")}min${s > 0 ? ` ${String(s).padStart(2, "0")}s` : ""}`;
+      if (s > 0) return `${m}min ${String(s).padStart(2, "0")}s`;
+      return `${m}min`;
+    };
 
     // Background: dark gold gradient
     const grad = ctx.createLinearGradient(0, 0, 800, 800);
@@ -573,8 +603,10 @@ export default function Goals() {
       const nameText = pr.exerciseName.length > 28 ? pr.exerciseName.slice(0, 26) + "…" : pr.exerciseName;
       ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.font = "30px system-ui, sans-serif";
       ctx.fillText(nameText, 400, y);
-      // kg value
-      const valueText = `${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`;
+      // value line
+      const valueText = isAllCardio
+        ? [pr.kg > 0 ? `${Math.round(pr.kg * 10) / 10} km` : "", pr.reps > 0 ? fmtCardioTime(pr.reps) : ""].filter(Boolean).join("  ·  ")
+        : `${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`;
       ctx.fillStyle = "#fbbf24"; ctx.font = "bold 38px system-ui, sans-serif";
       ctx.fillText(valueText, 400, y + 46);
     }
@@ -692,7 +724,12 @@ export default function Goals() {
         setSelectedGoalIds(criticalResults[1]);
         if (user) {
           setRoutines(criticalResults[2]);
-          setUserWorkouts(criticalResults[3]);
+          const loadedUserWorkouts = criticalResults[3];
+          setUserWorkouts(loadedUserWorkouts);
+          const uwIds = loadedUserWorkouts.map((w: any) => w.id).filter(Boolean);
+          if (uwIds.length > 0) {
+            getRoutineLastDatesBatchDb(user.id, uwIds).then(setRoutineLastDates);
+          }
           const loadedDiets = criticalResults[4];
           const loadedHabits = criticalResults[5];
           setUserDiets(loadedDiets);
@@ -767,8 +804,8 @@ export default function Goals() {
         const errorMessage = err instanceof Error ? err.message : String(err);
         console.error("Erro ao carregar dados:", errorMessage);
         toast({
-          title: "Erro ao carregar dados",
-          description: errorMessage || "Tente novamente.",
+          title: t("goals_load_error"),
+          description: errorMessage || t("goals_try_again"),
           variant: "destructive",
         });
         setLoading(false);
@@ -1635,6 +1672,7 @@ export default function Goals() {
       // Calculate summary stats from completed series + detect PRs
       let totalVolume = 0;
       let totalKm = 0;
+      let totalCardioTimeSecs = 0;
       let totalSeries = 0;
       const exerciseNames: string[] = [];
       const exercises: CompletedRoutineExercise[] = [];
@@ -1655,6 +1693,7 @@ export default function Goals() {
           for (const s of completed) {
             if (isCardioExercise) {
               totalKm += (s.kg || 0);
+              totalCardioTimeSecs += (s.reps || 0);
             } else {
               totalVolume += (s.kg || 0) * (s.reps || 0);
             }
@@ -1692,6 +1731,7 @@ export default function Goals() {
         prs,
         isAllCardio: allCardio && exerciseNames.length > 0,
         totalKm: Math.round(totalKm * 10) / 10,
+        totalCardioTimeSecs,
       });
       setFinishWorkoutConfirmOpen(false);
       setWorkoutModalOpen(false);
@@ -1705,7 +1745,16 @@ export default function Goals() {
         const rStr = rName ? `Treino de ${rName}` : "Treino concluído";
         const mins2 = Math.floor(workoutDuration / 60);
         const secs2 = workoutDuration % 60;
-        const dStr = mins2 > 0 ? `${mins2}m ${secs2 > 0 ? `${secs2}s` : ""}`.trim() : `${secs2}s`;
+        const dStrBase = mins2 > 0 ? `${mins2}m ${secs2 > 0 ? `${secs2}s` : ""}`.trim() : `${secs2}s`;
+        const cardioH2 = Math.floor(totalCardioTimeSecs / 3600);
+        const cardioM2 = Math.floor((totalCardioTimeSecs % 3600) / 60);
+        const cardioS2 = totalCardioTimeSecs % 60;
+        const cardioTimeStr2 = totalCardioTimeSecs > 0
+          ? cardioH2 > 0
+            ? `${cardioH2}h ${String(cardioM2).padStart(2, "0")}min${cardioS2 > 0 ? ` ${String(cardioS2).padStart(2, "0")}s` : ""}`
+            : cardioS2 > 0 ? `${cardioM2}min ${String(cardioS2).padStart(2, "0")}s` : `${cardioM2}min`
+          : null;
+        const dStr = (allCardio && exerciseNames.length > 0 && cardioTimeStr2) ? cardioTimeStr2 : dStrBase;
         const exList = exerciseNames.length > 0 ? `\n🏋️ ${exerciseNames.join(" · ")}` : "";
         const volStr = Math.round(totalVolume * 10) / 10 > 0 ? `\n📦 Volume: ${Math.round(totalVolume * 10) / 10} kg` : "";
         if (prs.length > 0) {
@@ -1747,6 +1796,10 @@ export default function Goals() {
         setUserWorkouts(userWorkoutsData);
         setUserDiets(userDietsData);
         setUserHabits(userHabitsData);
+        const uwIds = userWorkoutsData.map((w: any) => w.id).filter(Boolean);
+        if (uwIds.length > 0) {
+          getRoutineLastDatesBatchDb(user.id, uwIds).then(setRoutineLastDates);
+        }
       });
 
       await performAutoCheckIn();
@@ -1883,6 +1936,10 @@ export default function Goals() {
           setUserWorkouts(userWorkoutsData);
           setUserDiets(userDietsData);
           setUserHabits(userHabitsData);
+          const uwIds2 = userWorkoutsData.map((w: any) => w.id).filter(Boolean);
+          if (uwIds2.length > 0) {
+            getRoutineLastDatesBatchDb(user.id, uwIds2).then(setRoutineLastDates);
+          }
         } catch (err) {
           console.error("Error refreshing routines and items:", err);
         }
@@ -1903,7 +1960,7 @@ export default function Goals() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <LoadingSpinner className="h-12 w-12" />
-        <p className="text-sm text-muted-foreground">Carregando dados...</p>
+        <p className="text-sm text-muted-foreground">{t("goals_loading")}</p>
       </div>
     );
   }
@@ -1918,7 +1975,7 @@ export default function Goals() {
             {t("goals_title")}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Gerencie suas metas e rotinas.
+            {t("goals_subtitle")}
           </p>
         </div>
 
@@ -1936,7 +1993,7 @@ export default function Goals() {
               }
             }}
             className={`h-10 w-10 rounded-full border flex items-center justify-center transition-all ${hasNewBadge ? "animate-pulse border-yellow-500 shadow-md shadow-yellow-500/30" : "border-border"}`}
-            title="Ver insignias"
+            title={t("goals_see_badges")}
           >
             <span className="text-lg">🏆</span>
           </button>
@@ -1954,8 +2011,8 @@ export default function Goals() {
 
       <Tabs defaultValue={initialTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="metas">Metas</TabsTrigger>
-          <TabsTrigger value="rotinas">Rotinas</TabsTrigger>
+          <TabsTrigger value="metas">{t("goals_tab_metas")}</TabsTrigger>
+          <TabsTrigger value="rotinas">{t("goals_tab_rotinas")}</TabsTrigger>
         </TabsList>
 
         {/* Metas Tab */}
@@ -1966,7 +2023,7 @@ export default function Goals() {
               {selectedGoalIds.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Minhas Metas Ativas</h3>
+                    <h3 className="text-sm font-semibold">{t("goals_my_active")}</h3>
                     <span className="text-xs text-muted-foreground">
                       {selectedGoalIds.length} meta{selectedGoalIds.length > 1 ? "s" : ""}
                     </span>
@@ -1982,10 +2039,10 @@ export default function Goals() {
 
                         const goalTypeLabel =
                           goal.type === 1
-                            ? "Fitness"
+                            ? t("goals_type_fitness")
                             : goal.type === 2
-                              ? "Saúde"
-                              : "Hábitos";
+                              ? t("goals_type_health")
+                              : t("goals_type_habits");
                         const goalTypeColor =
                           goal.type === 1
                             ? "bg-blue-500/10 text-blue-600"
@@ -2001,9 +2058,9 @@ export default function Goals() {
                             <div className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold flex items-center justify-between`}>
                               <span>✓ {goalTypeLabel}</span>
                               {goal.created_by_user === 1 ? (
-                                <span className="text-[10px] font-medium bg-orange-500/15 text-orange-600 px-1.5 py-0.5 rounded-full">Personalizada</span>
+                                <span className="text-[10px] font-medium bg-orange-500/15 text-orange-600 px-1.5 py-0.5 rounded-full">{t("goals_custom")}</span>
                               ) : (
-                                <span className="text-[10px] font-medium bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">Padrão</span>
+                                <span className="text-[10px] font-medium bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">{t("goals_default")}</span>
                               )}
                             </div>
                             <CardHeader className="pb-2 pt-2">
@@ -2014,11 +2071,11 @@ export default function Goals() {
                             <CardContent className="space-y-2 flex-1 flex flex-col">
                               <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
                                 <div className="bg-muted rounded p-1.5">
-                                  <p className="text-muted-foreground">Duração</p>
+                                  <p className="text-muted-foreground">{t("goals_duration")}</p>
                                   <p className="font-bold">{duration}d</p>
                                 </div>
                                 <div className="bg-muted rounded p-1.5">
-                                  <p className="text-muted-foreground">Frequência</p>
+                                  <p className="text-muted-foreground">{t("goals_frequency")}</p>
                                   <p className="font-bold">{quantity}</p>
                                 </div>
                               </div>
@@ -2026,7 +2083,7 @@ export default function Goals() {
                               {userGoal && (
                                 <div className="space-y-1">
                                   <div className="flex items-center justify-between text-xs">
-                                    <span className="text-muted-foreground">Progresso</span>
+                                    <span className="text-muted-foreground">{t("goals_progress")}</span>
                                     <span className="font-bold text-brand">{Math.round(userGoal.perc)}%</span>
                                   </div>
                                   <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
@@ -2063,8 +2120,8 @@ export default function Goals() {
                                       }}
                                     >
                                       {linkedGroupCount > 0
-                                        ? `Ver Rotinas (${linkedGroupCount})`
-                                        : "Vincular Rotina"}
+                                        ? t("goals_view_routines").replace("{n}", String(linkedGroupCount))
+                                        : t("goals_link_routine")}
                                     </Button>
                                   );
                                 })()}
@@ -2088,7 +2145,7 @@ export default function Goals() {
                                     setEditGoalModalOpen(true);
                                   }}
                                 >
-                                  Editar
+                                  {t("goals_edit")}
                                 </Button>
                               </div>
                             </CardContent>
@@ -2105,7 +2162,7 @@ export default function Goals() {
                   <AccordionItem value="available-goals" className="border-border/60">
                     <AccordionTrigger className="hover:no-underline">
                       <div className="flex items-center justify-between w-full pr-4">
-                        <h3 className="text-sm font-semibold">Metas Disponíveis</h3>
+                        <h3 className="text-sm font-semibold">{t("goals_available")}</h3>
                         <span className="text-xs text-muted-foreground">
                           {goals.filter((g) => !selectedGoalIds.includes(g.id)).length} meta{
                             goals.filter((g) => !selectedGoalIds.includes(g.id)).length > 1 ? "s" : ""
@@ -2120,10 +2177,10 @@ export default function Goals() {
                           .map((goal) => {
                             const goalTypeLabel =
                               goal.type === 1
-                                ? "Fitness"
+                                ? t("goals_type_fitness")
                                 : goal.type === 2
-                                  ? "Saúde"
-                                  : "Hábitos";
+                                  ? t("goals_type_health")
+                                  : t("goals_type_habits");
                             const goalTypeColor =
                               goal.type === 1
                                 ? "bg-blue-500/10 text-blue-600"
@@ -2141,9 +2198,9 @@ export default function Goals() {
                                   <span className="flex items-center gap-1.5">
                                     {goalTypeLabel}
                                     {goal.created_by_user === 1 ? (
-                                      <span className="text-[10px] font-medium bg-orange-500/15 text-orange-600 px-1.5 py-0.5 rounded-full">Personalizada</span>
+                                      <span className="text-[10px] font-medium bg-orange-500/15 text-orange-600 px-1.5 py-0.5 rounded-full">{t("goals_custom")}</span>
                                     ) : (
-                                      <span className="text-[10px] font-medium bg-black/10 text-current px-1.5 py-0.5 rounded-full">Padrão</span>
+                                      <span className="text-[10px] font-medium bg-black/10 text-current px-1.5 py-0.5 rounded-full">{t("goals_default")}</span>
                                     )}
                                   </span>
                                   <button
@@ -2173,7 +2230,7 @@ export default function Goals() {
                                     <div className="space-y-2">
                                       <div className="grid grid-cols-2 gap-2">
                                         <div>
-                                          <p className="text-xs text-muted-foreground mb-1">Duração (dias)</p>
+                                          <p className="text-xs text-muted-foreground mb-1">{t("goals_duration_days")}</p>
                                           <input
                                             type="number"
                                             min={1}
@@ -2184,7 +2241,7 @@ export default function Goals() {
                                           />
                                         </div>
                                         <div>
-                                          <p className="text-xs text-muted-foreground mb-1">Quantidade</p>
+                                          <p className="text-xs text-muted-foreground mb-1">{t("goals_quantity")}</p>
                                           <input
                                             type="number"
                                             min={1}
@@ -2206,18 +2263,18 @@ export default function Goals() {
                                           handleSelectGoal(customGoal);
                                         }}
                                       >
-                                        {selectingGoalId === goal.id ? "Salvando..." : "Confirmar"}
+                                        {selectingGoalId === goal.id ? t("goals_saving") : t("goals_confirm")}
                                       </Button>
                                     </div>
                                   ) : (
                                     <>
                                       <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
                                         <div className="bg-muted rounded p-1.5">
-                                          <p className="text-muted-foreground">Duração</p>
+                                          <p className="text-muted-foreground">{t("goals_duration")}</p>
                                           <p className="font-bold">{goal.duration}d</p>
                                         </div>
                                         <div className="bg-muted rounded p-1.5">
-                                          <p className="text-muted-foreground">Qtd</p>
+                                          <p className="text-muted-foreground">{t("goals_qty")}</p>
                                           <p className="font-bold">{goal.quantity}</p>
                                         </div>
                                       </div>
@@ -2228,7 +2285,7 @@ export default function Goals() {
                                         disabled={selectingGoalId === goal.id}
                                         onClick={() => handleSelectGoal(goal)}
                                       >
-                                        {selectingGoalId === goal.id ? "Salvando..." : "Selecionar"}
+                                        {selectingGoalId === goal.id ? t("goals_saving") : t("goals_select")}
                                       </Button>
                                     </>
                                   )}
@@ -2250,7 +2307,7 @@ export default function Goals() {
                   onClick={() => setCreateGoalDrawerOpen(true)}
                 >
                   <Plus className="h-4 w-4" />
-                  Crie sua própria meta
+                  {t("goals_create_own")}
                 </Button>
               </div>
             </>
@@ -2266,7 +2323,7 @@ export default function Goals() {
                 onClick={() => setCreateGoalDrawerOpen(true)}
               >
                 <Plus className="h-4 w-4" />
-                Criar Meta Personalizada
+                {t("goals_create_custom")}
               </Button>
             </div>
           )}
@@ -2284,12 +2341,12 @@ export default function Goals() {
                 {/* Title and Description */}
                 <div className="text-center">
                   <p className="text-sm font-medium text-muted-foreground mb-2">
-                    {dailyCheckInDone ? "Check-in realizado hoje! ✓" : "Check-in Diário"}
+                    {dailyCheckInDone ? t("goals_checkin_done") : t("goals_checkin_daily")}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {dailyCheckInDone
-                      ? "Volte amanhã para fazer novo check-in"
-                      : "Conclua uma rotina e faça seu check-in"}
+                      ? t("goals_checkin_tomorrow")
+                      : t("goals_checkin_prompt")}
                   </p>
                 </div>
 
@@ -2315,7 +2372,7 @@ export default function Goals() {
                   const daysToShow = checkInWeekOffset === 0 ? weekCheckIns : displayedDays;
 
                   const isCurrentWeek = checkInWeekOffset === 0;
-                  const weekLabel = isCurrentWeek ? "Esta semana" : (() => {
+                  const weekLabel = isCurrentWeek ? t("goals_this_week") : (() => {
                     const end = new Date(displayedWeekEnd);
                     return `${displayedSunday.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} – ${end.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}`;
                   })();
@@ -2339,7 +2396,7 @@ export default function Goals() {
                         </button>
                       </div>
                       <div className="grid grid-cols-7 gap-1 w-full">
-                        {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"].map((day, index) => (
+                        {[t("goals_day_sun"), t("goals_day_mon"), t("goals_day_tue"), t("goals_day_wed"), t("goals_day_thu"), t("goals_day_fri"), t("goals_day_sat")].map((day, index) => (
                           <div
                             key={index}
                             className={`flex flex-col items-center justify-center aspect-square rounded-lg transition-all ${daysToShow.has(index)
@@ -2370,16 +2427,16 @@ export default function Goals() {
                     </span>
                     <div className={`flex-1 min-w-0 ${!dailyCheckInDone ? "opacity-50" : ""}`}>
                       <p className="text-xs font-bold leading-tight">
-                        {streakCount} {streakCount === 1 ? "dia" : "dias"} consecutivos!
+                        {streakCount} {streakCount === 1 ? t("goals_streak_day") : t("goals_streak_days")} {t("goals_streak_consecutive")}
                       </p>
                       <p className="text-[10px] text-muted-foreground">
                         {!dailyCheckInDone
-                          ? "Faça o check-in para manter a sequência!"
+                          ? t("goals_streak_keep")
                           : streakCount >= 30
-                            ? "Você é lendário!"
+                            ? t("goals_streak_legendary")
                             : streakCount >= 7
-                              ? "Uma semana inteira! 💪"
-                              : "Continue todos os dias!"}
+                              ? t("goals_streak_week")
+                              : t("goals_streak_continue")}
                       </p>
                     </div>
                   </div>
@@ -2395,7 +2452,7 @@ export default function Goals() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Droplets className="h-4 w-4 text-blue-500" />
-                    <span className="text-sm font-semibold">Hidratação</span>
+                    <span className="text-sm font-semibold">{t("goals_hydration")}</span>
                   </div>
                   <span className="text-xs text-muted-foreground">
                     {hydrationMl}ml / {hydrationGoalMl}ml
@@ -2425,12 +2482,12 @@ export default function Goals() {
                         try {
                           await addHydrationDb(user.id, ml);
                           if (hydrationMl + ml >= hydrationGoalMl && prev < hydrationGoalMl) {
-                            toast({ title: "Meta de hidratação atingida! 💧", description: "Ótimo trabalho!" });
+                            toast({ title: t("goals_hydration_goal_reached"), description: t("goals_great_work") });
                             awardNutritionBadgesDb(user.id).catch(() => { });
                           }
                         } catch {
                           setHydrationMl(prev);
-                          toast({ title: "Erro ao registrar hidratação", variant: "destructive" });
+                          toast({ title: t("goals_hydration_error"), variant: "destructive" });
                         } finally {
                           setIsAddingHydration(false);
                         }
@@ -2453,7 +2510,7 @@ export default function Goals() {
                         const updated = await getTodayHydrationDb(user.id);
                         setHydrationMl(updated);
                       } catch {
-                        toast({ title: "Erro ao desfazer", variant: "destructive" });
+                        toast({ title: t("goals_undo_error"), variant: "destructive" });
                       } finally {
                         setIsAddingHydration(false);
                       }
@@ -2465,7 +2522,7 @@ export default function Goals() {
 
                 {hydrationMl >= hydrationGoalMl && (
                   <p className="text-xs text-blue-600 dark:text-blue-400 font-medium text-center">
-                    Meta atingida hoje! 💧
+                    {t("goals_hydration_today_done")}
                   </p>
                 )}
               </div>
@@ -2480,7 +2537,7 @@ export default function Goals() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Salad className="h-4 w-4 text-emerald-500" />
-                      <span className="text-sm font-semibold">Macro de Hoje</span>
+                      <span className="text-sm font-semibold">{t("goals_macro_today")}</span>
                     </div>
                     {todayMacro.calories > 0 && (
                       <span className="text-xs text-muted-foreground">{Math.round(todayMacro.calories)} kcal</span>
@@ -2490,15 +2547,15 @@ export default function Goals() {
                   {/* Macro chips */}
                   <div className="grid grid-cols-3 gap-2">
                     <div className="rounded-lg bg-blue-500/10 p-2 text-center">
-                      <p className="text-xs text-muted-foreground">Proteína</p>
+                      <p className="text-xs text-muted-foreground">{t("goals_macro_protein")}</p>
                       <p className="text-sm font-bold text-blue-600 dark:text-blue-400">{Math.round(todayMacro.protein_g)}g</p>
                     </div>
                     <div className="rounded-lg bg-amber-500/10 p-2 text-center">
-                      <p className="text-xs text-muted-foreground">Carboidrato</p>
+                      <p className="text-xs text-muted-foreground">{t("goals_macro_carb")}</p>
                       <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{Math.round(todayMacro.carbs_g)}g</p>
                     </div>
                     <div className="rounded-lg bg-red-500/10 p-2 text-center">
-                      <p className="text-xs text-muted-foreground">Gordura</p>
+                      <p className="text-xs text-muted-foreground">{t("goals_macro_fat")}</p>
                       <p className="text-sm font-bold text-red-600 dark:text-red-400">{Math.round(todayMacro.fat_g)}g</p>
                     </div>
                   </div>
@@ -2506,26 +2563,26 @@ export default function Goals() {
                   {/* Score de qualidade */}
                   {(todayMacro.quality_counts.in_natura + todayMacro.quality_counts.processado + todayMacro.quality_counts.ultraprocessado) > 0 && (
                     <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground font-medium">Qualidade da dieta</p>
+                      <p className="text-xs text-muted-foreground font-medium">{t("goals_diet_quality")}</p>
                       <div className="flex gap-2 flex-wrap">
                         {todayMacro.quality_counts.in_natura > 0 && (
                           <span className="text-xs bg-green-500/10 text-green-700 dark:text-green-400 px-2 py-1 rounded-full flex items-center gap-1">
-                            <Apple className="h-3 w-3" /> {todayMacro.quality_counts.in_natura}x Natural
+                            <Apple className="h-3 w-3" /> {todayMacro.quality_counts.in_natura}x {t("goals_food_natural")}
                           </span>
                         )}
                         {todayMacro.quality_counts.processado > 0 && (
                           <span className="text-xs bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 px-2 py-1 rounded-full">
-                            {todayMacro.quality_counts.processado}x Processado
+                            {todayMacro.quality_counts.processado}x {t("goals_food_processed")}
                           </span>
                         )}
                         {todayMacro.quality_counts.ultraprocessado > 0 && (
                           <span className="text-xs bg-orange-500/10 text-orange-700 dark:text-orange-400 px-2 py-1 rounded-full flex items-center gap-1">
-                            <AlertCircle className="h-3 w-3" /> {todayMacro.quality_counts.ultraprocessado}x Ultra
+                            <AlertCircle className="h-3 w-3" /> {todayMacro.quality_counts.ultraprocessado}x {t("goals_food_ultra")}
                           </span>
                         )}
                       </div>
                       {todayMacro.quality_counts.ultraprocessado === 0 && (todayMacro.quality_counts.in_natura + todayMacro.quality_counts.processado) > 0 && (
-                        <p className="text-xs text-green-600 dark:text-green-400">Sem ultraprocessados hoje! 🥗</p>
+                        <p className="text-xs text-green-600 dark:text-green-400">{t("goals_no_ultra_today")}</p>
                       )}
                     </div>
                   )}
@@ -2567,7 +2624,10 @@ export default function Goals() {
                   }
                   namedEntries.forEach(([name, groupItems]) => {
                     const lastDate = typeCode === 1
-                      ? groupItems.reduce((max: string, i: any) => (i.created_at || "") > max ? (i.created_at || "") : max, "")
+                      ? groupItems.reduce((max: string, i: any) => {
+                          const d = routineLastDates[i.id] || "";
+                          return d > max ? d : max;
+                        }, "")
                       : null;
                     cards.push({
                       key: `named-${typeCode}-${name}`,
@@ -2575,14 +2635,17 @@ export default function Goals() {
                       displayLabel: name,
                       itemsForRoutine: groupItems,
                       isNamed: true,
-                      lastDate,
+                      lastDate: lastDate || null,
                     });
                   });
 
                   // Unnamed items grouped into one card
                   if (unnamedItems.length > 0) {
                     const lastDate = typeCode === 1
-                      ? unnamedItems.reduce((max: string, i: any) => (i.created_at || "") > max ? (i.created_at || "") : max, "")
+                      ? unnamedItems.reduce((max: string, i: any) => {
+                          const d = routineLastDates[i.id] || "";
+                          return d > max ? d : max;
+                        }, "")
                       : null;
                     cards.push({
                       key: `unnamed-${typeCode}`,
@@ -2590,20 +2653,20 @@ export default function Goals() {
                       displayLabel: defaultLabel,
                       itemsForRoutine: unnamedItems,
                       isNamed: false,
-                      lastDate,
+                      lastDate: lastDate || null,
                     });
                   }
                 };
 
-                groupItemsByName(userWorkouts, 1, "Exercícios");
-                groupItemsByName(userDiets, 2, "Dietas");
-                groupItemsByName(userHabits, 3, "Hábitos");
+                groupItemsByName(userWorkouts, 1, t("goals_rt_exercises"));
+                groupItemsByName(userDiets, 2, t("goals_rt_diets"));
+                groupItemsByName(userHabits, 3, t("goals_rt_habits"));
 
                 // Group cards by section (type)
                 const sectionConfigs = [
-                  { sType: 1, sLabel: "🏋️ Exercícios", sColor: "text-blue-600" },
-                  { sType: 2, sLabel: "🥗 Dietas", sColor: "text-emerald-600" },
-                  { sType: 3, sLabel: "🌱 Hábitos", sColor: "text-orange-600" },
+                  { sType: 1, sLabel: `🏋️ ${t("goals_rt_exercises")}`, sColor: "text-blue-600" },
+                  { sType: 2, sLabel: `🥗 ${t("goals_rt_diets")}`, sColor: "text-emerald-600" },
+                  { sType: 3, sLabel: `🌱 ${t("goals_rt_habits")}`, sColor: "text-orange-600" },
                 ];
 
                 return sectionConfigs.flatMap(({ sType, sLabel, sColor }) => {
@@ -2949,7 +3012,7 @@ export default function Goals() {
                                         <div className="flex-1 min-w-0 overflow-hidden text-left">
                                           {typeCode === 1 ? (
                                             <button
-                                              className="text-sm font-medium truncate block text-left hover:opacity-80 transition-opacity"
+                                              className="text-sm font-medium truncate block w-full text-left hover:opacity-80 transition-opacity"
                                               onClick={() => handleOpenWorkoutHistory({
                                                 id: item.workout_id,
                                                 name: item.workoutName,
@@ -2957,12 +3020,12 @@ export default function Goals() {
                                                 photo: item.workoutPhoto || undefined,
                                               } as any)}
                                             >
-                                              {item.workoutName?.length > 35 ? item.workoutName.slice(0, 35) + "…" : item.workoutName}
+                                              {item.workoutName?.length > 30 ? item.workoutName.slice(0, 30) + "…" : item.workoutName}
                                             </button>
                                           ) : (
-                                            <p className="text-sm font-medium truncate">
-                                              {(typeCode === 2 ? item.dietName : item.habitName)?.length > 35
-                                                ? (typeCode === 2 ? item.dietName : item.habitName).slice(0, 35) + "…"
+                                            <p className="text-sm font-medium truncate w-full">
+                                              {(typeCode === 2 ? item.dietName : item.habitName)?.length > 30
+                                                ? (typeCode === 2 ? item.dietName : item.habitName).slice(0, 30) + "…"
                                                 : (typeCode === 2 ? item.dietName : item.habitName)}
                                             </p>
                                           )}
@@ -3101,9 +3164,9 @@ export default function Goals() {
             <div className="flex justify-center pt-12 pb-12">
               <div className="text-center space-y-4 max-w-xs">
                 <p className="text-2xl">🏋️</p>
-                <p className="text-sm font-medium">Nenhuma rotina ainda</p>
+                <p className="text-sm font-medium">{t("goals_no_routines")}</p>
                 <p className="text-xs text-muted-foreground">
-                  Adicione exercícios, dietas ou hábitos para montar sua rotina diária e fazer check-ins.
+                  {t("goals_no_routines_desc")}
                 </p>
                 <Button
                   onClick={handleAddRoutineClick}
@@ -3111,7 +3174,7 @@ export default function Goals() {
                   size="lg"
                 >
                   <Plus className="h-5 w-5" />
-                  Criar Rotina
+                  {t("goals_create_routine")}
                 </Button>
               </div>
             </div>
@@ -3123,14 +3186,14 @@ export default function Goals() {
       <Drawer open={addRoutineModalOpen} onOpenChange={(open) => { setAddRoutineModalOpen(open); if (!open) setIsAddingFromWorkout(false); }}>
         <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>Adicionar Rotina</DrawerTitle>
+            <DrawerTitle>{t("goals_add_routine_title")}</DrawerTitle>
           </DrawerHeader>
 
           <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
             {/* Context banner when adding to an existing named routine */}
             {addToRoutineCardName && selectedRoutineType !== null && (
               <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-brand/10 border border-brand/20 rounded-lg">
-                <span className="text-xs text-brand">Adicionando à rotina:</span>
+                <span className="text-xs text-brand">{t("goals_adding_to")}</span>
                 <span className="text-xs font-semibold text-brand">{addToRoutineCardName}</span>
               </div>
             )}
@@ -3141,7 +3204,7 @@ export default function Goals() {
                 {/* Nome da rotina — destacado */}
                 <div className="rounded-xl border-2 border-brand/40 bg-brand/5 p-4 space-y-2">
                   <Label htmlFor="routine_name" className="text-sm font-semibold text-brand">
-                    Nome da Rotina (opcional)
+                    {t("goals_routine_name_label")}
                   </Label>
                   <Input
                     id="routine_name"
@@ -3151,17 +3214,17 @@ export default function Goals() {
                     className="h-10 border-brand/30 focus:border-brand bg-background"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Dê um nome para identificar sua rotina, ex: "Treino de Peito"
+                    {t("goals_routine_name_hint")}
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-sm font-medium text-muted-foreground">Selecione o tipo:</p>
+                  <p className="text-sm font-medium text-muted-foreground">{t("goals_select_type")}</p>
                   <div className="grid grid-cols-1 gap-2">
                     {[
-                      { code: 1, label: "Exercícios", emoji: "🏋️", desc: "Treinos e séries de musculação" },
-                      { code: 2, label: "Dietas", emoji: "🥗", desc: "Planos alimentares e refeições" },
-                      { code: 3, label: "Hábitos", emoji: "✅", desc: "Rotinas diárias e objetivos" },
+                      { code: 1, label: t("goals_rt_exercises"), emoji: "🏋️", desc: t("goals_rt_exercises_desc") },
+                      { code: 2, label: t("goals_rt_diets"), emoji: "🥗", desc: t("goals_rt_diets_desc") },
+                      { code: 3, label: t("goals_rt_habits"), emoji: "✅", desc: t("goals_rt_habits_desc") },
                     ].map(({ code, label, emoji, desc }) => (
                       <button
                         key={code}
@@ -3185,10 +3248,10 @@ export default function Goals() {
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium">
                       {selectedRoutineType === 1
-                        ? "Exercícios"
+                        ? t("goals_rt_exercises")
                         : selectedRoutineType === 2
-                          ? "Dietas"
-                          : "Hábitos"}
+                          ? t("goals_rt_diets")
+                          : t("goals_rt_habits")}
                     </p>
                     {!isAddingFromWorkout && (
                       <button
@@ -3201,7 +3264,7 @@ export default function Goals() {
                         }}
                         className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                       >
-                        Voltar
+                        {t("goals_back")}
                       </button>
                     )}
                   </div>
@@ -3212,7 +3275,7 @@ export default function Goals() {
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
                         type="text"
-                        placeholder="Buscar hábito..."
+                        placeholder={t("goals_search_habit")}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="pl-10 h-9"
@@ -3227,7 +3290,7 @@ export default function Goals() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
                           type="text"
-                          placeholder="Buscar dieta..."
+                          placeholder={t("goals_search_diet")}
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           className="pl-10 h-9"
@@ -3242,7 +3305,7 @@ export default function Goals() {
                           >
                             <Filter className={`h-3.5 w-3.5 ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
                             <p className={`text-xs font-medium ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
-                              Categoria {selectedDietCategories.size > 0 ? `(${selectedDietCategories.size})` : ""}
+                              {t("goals_category")} {selectedDietCategories.size > 0 ? `(${selectedDietCategories.size})` : ""}
                             </p>
                             <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
                           </button>
@@ -3251,14 +3314,14 @@ export default function Goals() {
                               onClick={() => setSelectedDietCategories(new Set())}
                               className="text-xs text-brand hover:underline"
                             >
-                              Limpar
+                              {t("goals_clear")}
                             </button>
                           )}
                         </div>
                         {showMuscleFilterPanel && (
                           <div className="flex flex-wrap gap-2">
                             {uniqueDietCategories.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">Carregando categorias...</p>
+                              <p className="text-xs text-muted-foreground">{t("goals_categories_loading")}</p>
                             ) : (
                               uniqueDietCategories.map((cat) => (
                                 <button
@@ -3287,7 +3350,7 @@ export default function Goals() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
                           type="text"
-                          placeholder="Buscar exercício..."
+                          placeholder={t("goals_search_exercise")}
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           className="pl-10 h-9"
@@ -3296,11 +3359,11 @@ export default function Goals() {
 
                       {/* Workout Type Filter */}
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground font-medium">Tipo:</span>
+                        <span className="text-xs text-muted-foreground font-medium">{t("goals_type_label")}</span>
                         {[
-                          { value: null, label: "Todos" },
-                          { value: 1, label: "Academia" },
-                          { value: 2, label: "Em casa" },
+                          { value: null, label: t("goals_all") },
+                          { value: 1, label: t("goals_gym") },
+                          { value: 2, label: t("goals_home") },
                         ].map((opt) => (
                           <button
                             key={String(opt.value)}
@@ -3327,7 +3390,7 @@ export default function Goals() {
                             >
                               <Filter className={`h-3.5 w-3.5 ${selectedMuscleGroups.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
                               <p className={`text-xs font-medium ${selectedMuscleGroups.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
-                                Grupo muscular {selectedMuscleGroups.size > 0 ? `(${selectedMuscleGroups.size})` : ""}
+                                {t("goals_muscle_group")} {selectedMuscleGroups.size > 0 ? `(${selectedMuscleGroups.size})` : ""}
                               </p>
                               <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
                             </button>
@@ -3336,7 +3399,7 @@ export default function Goals() {
                                 onClick={() => setSelectedMuscleGroups(new Set())}
                                 className="text-xs text-brand hover:underline"
                               >
-                                Limpar
+                                {t("goals_clear")}
                               </button>
                             )}
                           </div>
@@ -3425,7 +3488,7 @@ export default function Goals() {
                                   </span>
                                   {isAlreadySelected && !isNewSelection && (
                                     <p className="text-xs text-green-600 dark:text-green-400 font-medium">
-                                      ✓ Já adicionado
+                                      {t("goals_already_added")}
                                     </p>
                                   )}
                                 </div>
@@ -3464,7 +3527,7 @@ export default function Goals() {
                           }}
                         >
                           <Plus className="h-3.5 w-3.5" />
-                          Não encontrei meu exercício
+                          {t("goals_not_found_exercise")}
                         </Button>
                       </div>
                     )}
@@ -3518,7 +3581,7 @@ export default function Goals() {
                                 )}
                                 {isAlreadyInRoutine && !isNewSelection && (
                                   <span className="text-xs text-green-600 dark:text-green-400 font-medium block mt-1">
-                                    ✓ Já adicionado
+                                    {t("goals_already_added")}
                                   </span>
                                 )}
                                 {(diet.calories ?? 0) > 0 && (
@@ -3556,7 +3619,7 @@ export default function Goals() {
                                 <span className="text-sm font-medium truncate">{habit.name}</span>
                                 {isAlreadyInRoutine && !isNewSelection && (
                                   <span className="text-xs text-green-600 dark:text-green-400 font-medium flex-shrink-0">
-                                    ✓ Já adicionado
+                                    {t("goals_already_added")}
                                   </span>
                                 )}
                               </div>
@@ -3615,8 +3678,8 @@ export default function Goals() {
       {/* Workout Modal */}
       <Drawer shouldScaleBackground={false} open={workoutModalOpen} onOpenChange={(open) => { if (!open) { setWorkoutModalSearchQuery(""); setWorkoutModalMuscleFilter(null); if (workoutStartTime !== null) { setWorkoutModalOpen(false); setTimeout(() => setWorkoutMinimized(true), 300); } else { setWorkoutModalOpen(false); setWorkoutDuration(0); setWorkoutStartTime(null); } } }}>
         <DrawerContent className="max-h-[100dvh] h-[100dvh] mt-0 rounded-none overflow-hidden flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
-          <DrawerHeader className="shrink-0 pb-2">
-            <DrawerTitle>Registrar Treino</DrawerTitle>
+          <DrawerHeader className="shrink-0 pb-2" style={{ paddingTop: "calc(env(safe-area-inset-top) + 1rem)" }}>
+            <DrawerTitle>{t("goals_register_workout")}</DrawerTitle>
             {/* Search Field */}
             <div className="relative mt-2">
               <svg
@@ -3634,7 +3697,7 @@ export default function Goals() {
               </svg>
               <input
                 type="text"
-                placeholder="Buscar exercício..."
+                placeholder={t("goals_search_exercise")}
                 value={workoutModalSearchQuery}
                 onChange={(e) => setWorkoutModalSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 h-9 text-sm bg-muted/50 border border-border/60 rounded-full focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/30 transition-all placeholder:text-muted-foreground/60"
@@ -3677,7 +3740,7 @@ export default function Goals() {
                       : "bg-muted/60 text-muted-foreground hover:bg-muted"
                       }`}
                   >
-                    Todos
+                    {t("goals_all")}
                   </button>
                   {muscleGroups.map((mg) => (
                     <button
@@ -3701,7 +3764,7 @@ export default function Goals() {
             <div className="shrink-0 border-b border-border/40 px-4 py-4">
               <div className="flex items-center gap-2 mb-3">
                 <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                <span className="text-base font-semibold">Treinamento</span>
+                <span className="text-base font-semibold">{t("goals_training")}</span>
               </div>
 
               {/* Stats Row */}
@@ -3716,13 +3779,13 @@ export default function Goals() {
                   return (
                     <>
                       <div className="flex flex-col">
-                        <p className="text-xs text-muted-foreground mb-0.5">Duração</p>
+                        <p className="text-xs text-muted-foreground mb-0.5">{t("goals_duration")}</p>
                         <p className="text-base font-bold text-brand">
                           {formatDuration(workoutDuration)}
                         </p>
                       </div>
                       <div className="flex flex-col">
-                        <p className="text-xs text-muted-foreground mb-0.5">{allWorkoutsCardio ? "Distância" : "Volume"}</p>
+                        <p className="text-xs text-muted-foreground mb-0.5">{allWorkoutsCardio ? t("goals_distance") : t("goals_volume")}</p>
                         <p className="text-base font-bold text-foreground">
                           {allWorkoutsCardio
                             ? `${Math.round(activeWorkouts.reduce((total, workout) => {
@@ -3737,7 +3800,7 @@ export default function Goals() {
                         </p>
                       </div>
                       <div className="flex flex-col">
-                        <p className="text-xs text-muted-foreground mb-0.5">Séries</p>
+                        <p className="text-xs text-muted-foreground mb-0.5">{t("goals_series")}</p>
                         <p className="text-base font-bold text-foreground">
                           {activeWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).filter((s) => s.completed).length, 0)}
                         </p>
@@ -3861,7 +3924,7 @@ export default function Goals() {
                         {/* Rest Time Selector */}
                         <div className="flex items-center gap-2 mb-2">
                           <Clock className="h-4 w-4 text-brand flex-shrink-0" />
-                          <span className="text-xs font-medium text-brand">Descanso:</span>
+                          <span className="text-xs font-medium text-brand">{t("goals_rest")}</span>
                           <select
                             value={workoutExerciseRestTimes[workout.workout_id] || ""}
                             onChange={(e) =>
@@ -3870,7 +3933,7 @@ export default function Goals() {
                             className="text-xs font-medium text-foreground bg-background border border-brand/40 rounded px-2 py-1 focus:border-brand focus:outline-none cursor-pointer hover:border-brand/60 transition-colors"
                             style={{ fontSize: '16px' }}
                           >
-                            <option value="">Desativado</option>
+                            <option value="">{t("goals_disabled")}</option>
                             {REST_TIME_OPTIONS.map((time) => (
                               <option key={time} value={time}>
                                 {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
@@ -3893,23 +3956,179 @@ export default function Goals() {
                               {/* Meta de hoje */}
                               <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-brand/10 border border-brand/30">
                                 <TrendingUp className="h-3 w-3 text-brand flex-shrink-0" />
-                                <span className="text-[11px] text-brand/70 leading-none">Meta hoje</span>
+                                <span className="text-[11px] text-brand/70 leading-none">{t("goals_today_goal")}</span>
                                 <span className="text-[11px] font-bold text-brand leading-none">{suggested} kg</span>
                               </div>
                             </div>
                           );
                         })()}
 
-                        {/* Table Header */}
+                        {/* Table Header / Cardio UI */}
                         {(() => {
                           const isCardio = (workout.muscle_group || "").toLowerCase() === "cardio";
+
+                          if (isCardio) {
+                            // Cardio: use only first serie for km/tempo
+                            const s = series[0] || { kg: 0, reps: 0, completed: false };
+                            const previousRecord = workoutHistoriesMap[workout.workout_id]?.[0];
+                            const prevKm = previousRecord ? Math.round((previousRecord.kilos || 0) * 10) / 10 : null;
+                            const prevTempoSecs = previousRecord ? (Number(previousRecord.volume) || 0) : null;
+                            const formatSecs = (totalSecs: number) => {
+                              const h = Math.floor(totalSecs / 3600);
+                              const m = Math.floor((totalSecs % 3600) / 60);
+                              const s2 = totalSecs % 60;
+                              if (h > 0) return `${h}h ${String(m).padStart(2,"0")}min`;
+                              if (s2 > 0) return `${m}min ${String(s2).padStart(2,"0")}s`;
+                              return `${m}min`;
+                            };
+
+                            return (
+                              <div className="space-y-3">
+                                {/* Previous session reference */}
+                                {(prevKm !== null || prevTempoSecs !== null) && (
+                                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 border border-border/30">
+                                    <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                                    <span className="text-xs text-muted-foreground">Última vez:</span>
+                                    {prevKm !== null && prevKm > 0 && (
+                                      <span className="text-xs font-semibold text-foreground">{prevKm} km</span>
+                                    )}
+                                    {prevKm !== null && prevKm > 0 && prevTempoSecs !== null && prevTempoSecs > 0 && <span className="text-xs text-muted-foreground">·</span>}
+                                    {prevTempoSecs !== null && prevTempoSecs > 0 && (
+                                      <span className="text-xs font-semibold text-foreground">{formatSecs(prevTempoSecs)}</span>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Cardio inputs: Distância + Tempo */}
+                                <div className="flex flex-col gap-4">
+                                  {/* Distância */}
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                                      <MapPin className="h-3 w-3" />
+                                      Distância
+                                    </label>
+                                    <div className="relative">
+                                      <input
+                                        type="number"
+                                        step="0.1"
+                                        min="0"
+                                        value={s.kg === 0 ? "" : s.kg}
+                                        onChange={(e) =>
+                                          handleUpdateSerie(workout.workout_id, 0, "kg", e.target.value)
+                                        }
+                                        placeholder="0,00"
+                                        className="w-full h-14 pl-3 pr-10 border-2 border-border/60 rounded-xl text-2xl font-bold bg-background text-foreground focus:border-brand focus:outline-none transition-colors"
+                                        style={{ fontSize: '24px' }}
+                                      />
+                                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">km</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Tempo — picker HH MM SS */}
+                                  {(() => {
+                                    const totalSecs = s.reps || 0;
+                                    const hh = Math.floor(totalSecs / 3600);
+                                    const mm = Math.floor((totalSecs % 3600) / 60);
+                                    const ss = totalSecs % 60;
+
+                                    const updateTime = (newH: number, newM: number, newS: number) => {
+                                      const clamped = Math.max(0, newH) * 3600 + Math.max(0, Math.min(59, newM)) * 60 + Math.max(0, Math.min(59, newS));
+                                      handleUpdateSerie(workout.workout_id, 0, "reps", clamped);
+                                    };
+
+                                    const TimeUnit = ({
+                                      label, value, onInc, onDec,
+                                    }: { label: string; value: number; onInc: () => void; onDec: () => void }) => (
+                                      <div className="flex flex-col items-center gap-0.5 flex-1">
+                                        <button
+                                          type="button"
+                                          onPointerDown={onInc}
+                                          className="w-full h-9 flex items-center justify-center rounded-lg bg-muted/40 active:bg-brand/20 active:scale-95 transition-all touch-none select-none"
+                                          aria-label={`Aumentar ${label}`}
+                                        >
+                                          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                                        </button>
+                                        <div className="w-full h-12 flex items-center justify-center rounded-xl border-2 border-border/60 bg-background">
+                                          <span className="text-2xl font-bold tabular-nums leading-none">{String(value).padStart(2, "0")}</span>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onPointerDown={onDec}
+                                          className="w-full h-9 flex items-center justify-center rounded-lg bg-muted/40 active:bg-brand/20 active:scale-95 transition-all touch-none select-none"
+                                          aria-label={`Diminuir ${label}`}
+                                        >
+                                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                        </button>
+                                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mt-0.5">{label}</span>
+                                      </div>
+                                    );
+
+                                    return (
+                                      <div className="flex flex-col gap-1.5">
+                                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                                          <Timer className="h-3 w-3" />
+                                          Tempo
+                                        </label>
+                                        <div className="flex items-start gap-2">
+                                          <TimeUnit
+                                            label="hora"
+                                            value={hh}
+                                            onInc={() => updateTime(hh + 1, mm, ss)}
+                                            onDec={() => updateTime(Math.max(0, hh - 1), mm, ss)}
+                                          />
+                                          <div className="text-2xl font-bold text-muted-foreground self-center pb-6">:</div>
+                                          <TimeUnit
+                                            label="min"
+                                            value={mm}
+                                            onInc={() => updateTime(hh, mm === 59 ? 0 : mm + 1, ss)}
+                                            onDec={() => updateTime(hh, mm === 0 ? 59 : mm - 1, ss)}
+                                          />
+                                          <div className="text-2xl font-bold text-muted-foreground self-center pb-6">:</div>
+                                          <TimeUnit
+                                            label="seg"
+                                            value={ss}
+                                            onInc={() => updateTime(hh, mm, ss === 59 ? 0 : ss + 1)}
+                                            onDec={() => updateTime(hh, mm, ss === 0 ? 59 : ss - 1)}
+                                          />
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+
+                                </div>
+
+                                {/* Confirm button */}
+                                <button
+                                  onClick={() => handleToggleSerieCompleted(workout.workout_id, 0)}
+                                  className={`w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
+                                    s.completed
+                                      ? "bg-brand text-white"
+                                      : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
+                                  }`}
+                                >
+                                  {s.completed ? (
+                                    <>
+                                      <CheckCircle2 className="h-4 w-4" />
+                                      Concluído!
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Circle className="h-4 w-4" />
+                                      Marcar como concluído
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          }
+
                           return (
                             <>
                               <div className="grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 mb-1 py-1 text-xs font-semibold text-muted-foreground border-b border-border/20">
-                                <div>SÉRIE</div>
-                                <div>ANTERIOR</div>
-                                <div className="text-center">{isCardio ? "KM" : "KG"}</div>
-                                <div className="text-center">{isCardio ? "TEMPO" : "REPS"}</div>
+                                <div>{t("goals_col_series")}</div>
+                                <div>{t("goals_col_previous")}</div>
+                                <div className="text-center">KG</div>
+                                <div className="text-center">REPS</div>
                                 <div className="text-center">✓</div>
                               </div>
 
@@ -3931,16 +4150,14 @@ export default function Goals() {
                                       {/* Previous Record */}
                                       <div className="text-xs text-muted-foreground">
                                         {previousRecord
-                                          ? isCardio
-                                            ? `${Math.round((previousRecord.kilos || 0) * 10) / 10}km · ${previousRecord.volume || 0}`
-                                            : `${Math.round((previousRecord.kilos || 0) * 10) / 10}kg × ${previousRecord.volume || 0}`
+                                          ? `${Math.round((previousRecord.kilos || 0) * 10) / 10}kg × ${previousRecord.volume || 0}`
                                           : "—"}
                                       </div>
 
-                                      {/* KM or KG Input */}
+                                      {/* KG Input */}
                                       <input
                                         type="number"
-                                        step={isCardio ? "0.1" : "0.5"}
+                                        step="0.5"
                                         min="0"
                                         value={s.kg === 0 ? "" : s.kg}
                                         onChange={(e) =>
@@ -3956,11 +4173,11 @@ export default function Goals() {
                                         style={{ fontSize: '16px' }}
                                       />
 
-                                      {/* REPS or TEMPO Input */}
+                                      {/* REPS Input */}
                                       <input
-                                        type={isCardio ? "text" : "number"}
-                                        min={isCardio ? undefined : "0"}
-                                        value={isCardio ? (s.reps === 0 ? "" : String(s.reps)) : (s.reps === 0 ? "" : s.reps)}
+                                        type="number"
+                                        min="0"
+                                        value={s.reps === 0 ? "" : s.reps}
                                         onChange={(e) =>
                                           handleUpdateSerie(
                                             workout.workout_id,
@@ -3969,7 +4186,7 @@ export default function Goals() {
                                             e.target.value,
                                           )
                                         }
-                                        placeholder={isCardio ? "00:00" : "0"}
+                                        placeholder="0"
                                         className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
                                         style={{ fontSize: '16px' }}
                                       />
@@ -4008,14 +4225,16 @@ export default function Goals() {
                           );
                         })()}
 
-                        {/* Add Series Button */}
+                        {/* Add Series Button — hidden for cardio */}
+                        {(workout.muscle_group || "").toLowerCase() !== "cardio" && (
                         <button
                           onClick={() => handleAddSerie(workout.workout_id)}
                           className="w-full mt-2 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded flex items-center justify-center gap-2"
                         >
                           <Plus className="h-3 w-3" />
-                          Adicionar Série
+                          {t("goals_add_series")}
                         </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -4023,18 +4242,18 @@ export default function Goals() {
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
-              <p className="text-sm text-muted-foreground">Nenhum exercício adicionado</p>
+              <p className="text-sm text-muted-foreground">{t("goals_no_exercises_added")}</p>
             </div>
           )}
 
           {/* Bottom Actions - Sticky */}
-          <div className="mt-2 border-t border-border/40 pt-2">
+          <div className="mt-2 border-t border-border/40 pt-2 px-4" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.5rem)" }}>
             <button
               onClick={() => handleAddExerciseFromWorkout()}
               className="w-full py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors border border-dashed border-border/40 rounded hover:border-border/60"
             >
               <Plus className="h-3 w-3 inline mr-1" />
-              Adicionar Exercício
+              {t("goals_add_exercise_btn")}
             </button>
           </div>
         </DrawerContent>
@@ -4046,7 +4265,7 @@ export default function Goals() {
           <div className="flex items-center gap-3 bg-brand text-white rounded-2xl px-5 py-3 shadow-2xl shadow-brand/40 border border-white/20">
             <span className="text-2xl">🏆</span>
             <div>
-              <p className="text-xs font-semibold opacity-80 uppercase tracking-wide">Novo Recorde!</p>
+              <p className="text-xs font-semibold opacity-80 uppercase tracking-wide">{t("goals_new_record")}</p>
               <p className="text-sm font-bold leading-tight">
                 {prCelebration.exerciseName} — {prCelebration.kg} kg
                 {prCelebration.reps > 0 ? ` × ${prCelebration.reps} reps` : ""}
@@ -4070,7 +4289,7 @@ export default function Goals() {
           />
           {/* Content */}
           <div className="relative z-10 w-full max-w-xs mx-4 bg-background rounded-2xl border shadow-xl p-6">
-            <h2 className="text-lg font-semibold text-center mb-1">Tempo de Descanso</h2>
+            <h2 className="text-lg font-semibold text-center mb-1">{t("goals_rest_time")}</h2>
 
             <div className="flex flex-col items-center justify-center gap-6 py-4">
               <div className="relative flex items-center justify-center w-48 h-48">
@@ -4116,7 +4335,7 @@ export default function Goals() {
                   variant="outline"
                   className="flex-1 rounded-full"
                 >
-                  Pular
+                  {t("goals_skip")}
                 </Button>
                 <Button
                   onClick={() => {
@@ -4125,7 +4344,7 @@ export default function Goals() {
                   variant="outline"
                   className="flex-1 rounded-full"
                 >
-                  Minimizar
+                  {t("goals_minimize")}
                 </Button>
                 <Button
                   onClick={() => {
@@ -4140,7 +4359,7 @@ export default function Goals() {
                   }}
                   className="flex-1 rounded-full"
                 >
-                  {restTimerRemaining === 0 ? "Próxima" : (globalRestTimerActive ? "Pausar" : "Retomar")}
+                  {restTimerRemaining === 0 ? t("goals_next") : (globalRestTimerActive ? t("goals_pause") : t("goals_resume"))}
                 </Button>
               </div>
             </div>
@@ -4167,13 +4386,13 @@ export default function Goals() {
       <Drawer open={finishWorkoutConfirmOpen} onOpenChange={setFinishWorkoutConfirmOpen}>
         <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>Confirmar Encerramento do Treino</DrawerTitle>
+            <DrawerTitle>{t("goals_confirm_end_workout")}</DrawerTitle>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-4">
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Tem certeza que deseja encerrar o treino? Todos os dados registrados serão salvos.
+                {t("goals_confirm_end_workout_desc")}
               </p>
               <div className="flex gap-2">
                 <Button
@@ -4181,13 +4400,13 @@ export default function Goals() {
                   className="flex-1 rounded-full"
                   onClick={() => setFinishWorkoutConfirmOpen(false)}
                 >
-                  Cancelar
+                  {t("goals_cancel")}
                 </Button>
                 <Button
                   className="flex-1 rounded-full bg-destructive hover:bg-destructive/90"
                   onClick={handleConfirmFinishWorkout}
                 >
-                  Encerrar Treino
+                  {t("goals_end_workout")}
                 </Button>
               </div>
             </div>
@@ -4200,6 +4419,16 @@ export default function Goals() {
         const mins = Math.floor(workoutSummaryData.duration / 60);
         const secs = workoutSummaryData.duration % 60;
         const durationStr = mins > 0 ? `${mins}m ${secs > 0 ? `${secs}s` : ""}`.trim() : `${secs}s`;
+        const cardioSecs = workoutSummaryData.totalCardioTimeSecs;
+        const cardioH = Math.floor(cardioSecs / 3600);
+        const cardioM = Math.floor((cardioSecs % 3600) / 60);
+        const cardioS = cardioSecs % 60;
+        const cardioTimeStr = cardioSecs > 0
+          ? cardioH > 0
+            ? `${cardioH}h ${String(cardioM).padStart(2, "0")}min${cardioS > 0 ? ` ${String(cardioS).padStart(2, "0")}s` : ""}`
+            : cardioS > 0 ? `${cardioM}min ${String(cardioS).padStart(2, "0")}s` : `${cardioM}min`
+          : null;
+        const displayDurationStr = workoutSummaryData.isAllCardio && cardioTimeStr ? cardioTimeStr : durationStr;
         const routineStr = workoutSummaryData.routineName
           ? `Treino de ${workoutSummaryData.routineName}`
           : "Treino concluído";
@@ -4381,7 +4610,7 @@ export default function Goals() {
                 const prVolumeStr = workoutSummaryData.isAllCardio
                   ? (workoutSummaryData.totalKm > 0 ? `📍 Distância: ${workoutSummaryData.totalKm} km` : "")
                   : (workoutSummaryData.totalVolume > 0 ? `📦 Volume: ${workoutSummaryData.totalVolume} kg` : "");
-                const prStats = [`⏱️ Duração: ${durationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`]
+                const prStats = [`⏱️ Duração: ${displayDurationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`]
                   .filter(Boolean)
                   .join("  ·  ");
                 return `🔥 Novo recorde pessoal!\n\n${prLines}\n\n${prStats}\n\n#Linka #PR #RecordePessoal #Fitness`;
@@ -4392,7 +4621,7 @@ export default function Goals() {
               const volumeStr = workoutSummaryData.totalVolume > 0
                 ? `\n📦 Volume: ${workoutSummaryData.totalVolume} kg`
                 : "";
-              return `💪 ${routineStr}!\n⏱️ ${durationStr}${volumeStr}\n✅ ${workoutSummaryData.totalSeries} séries${exerciseList}\n\n#Linka #Fitness #Treino`;
+              return `💪 ${routineStr}!\n⏱️ ${displayDurationStr}${volumeStr}\n✅ ${workoutSummaryData.totalSeries} séries${exerciseList}\n\n#Linka #Fitness #Treino`;
             })();
 
             let photoUrls: string[] = [];
@@ -4443,6 +4672,20 @@ export default function Goals() {
 
             await createPostDb(photoUrls.length > 0 ? photoUrls : null, description, workoutLinkedUserGoalId);
 
+            // Increment goal progress if a goal is linked to this workout routine
+            if (workoutLinkedUserGoalId) {
+              try {
+                const updatedGoal = await incrementGoalProgressDb(workoutLinkedUserGoalId);
+                if (updatedGoal) {
+                  setUserGoals((prev) =>
+                    prev.map((ug) => (ug.id === workoutLinkedUserGoalId ? { ...ug, perc: updatedGoal.perc, days_completed: updatedGoal.days_completed } : ug))
+                  );
+                }
+              } catch (err) {
+                console.error("Error incrementing goal progress:", err);
+              }
+            }
+
             toast({ title: "Postado no feed! 🎉", description: "Seu treino foi compartilhado." });
             closeSummary();
             navigate("/");
@@ -4463,7 +4706,7 @@ export default function Goals() {
             const prVolumeStr = workoutSummaryData.isAllCardio
               ? (workoutSummaryData.totalKm > 0 ? `📍 Distância: ${workoutSummaryData.totalKm} km` : "")
               : (workoutSummaryData.totalVolume > 0 ? `📦 Volume: ${workoutSummaryData.totalVolume} kg` : "");
-            const prStats = [`⏱️ Duração: ${durationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`]
+            const prStats = [`⏱️ Duração: ${displayDurationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`]
               .filter(Boolean)
               .join("  ·  ");
             const description = `🔥 Novo recorde pessoal!\n\n${prLines}\n\n${prStats}\n\n#Linka #PR #RecordePessoal #Fitness`;
@@ -4511,7 +4754,7 @@ export default function Goals() {
                 <button onClick={closeSummary} className="p-2 rounded-full hover:bg-muted transition-colors" aria-label="Fechar">
                   <X className="h-5 w-5" />
                 </button>
-                <h1 className="text-base font-bold">Resumo do Treino</h1>
+                <h1 className="text-base font-bold">{t("goals_workout_summary")}</h1>
                 <div className="w-9" />
               </div>
 
@@ -4601,12 +4844,12 @@ export default function Goals() {
               <div className="mx-4 grid grid-cols-3 gap-2 mb-4">
                 <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3 md:py-2">
                   <Timer className="h-4 w-4 text-brand" />
-                  <p className="text-[11px] text-muted-foreground">Duração</p>
-                  <p className="text-sm font-bold">{durationStr}</p>
+                  <p className="text-[11px] text-muted-foreground">{t("goals_duration")}</p>
+                  <p className="text-sm font-bold">{displayDurationStr}</p>
                 </div>
                 <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3 md:py-2">
                   <TrendingUp className="h-4 w-4 text-brand" />
-                  <p className="text-[11px] text-muted-foreground">{workoutSummaryData.isAllCardio ? "Distância" : "Volume"}</p>
+                  <p className="text-[11px] text-muted-foreground">{workoutSummaryData.isAllCardio ? t("goals_distance") : t("goals_volume")}</p>
                   <p className="text-sm font-bold">
                     {workoutSummaryData.isAllCardio
                       ? (workoutSummaryData.totalKm > 0 ? `${workoutSummaryData.totalKm} km` : "—")
@@ -4615,7 +4858,7 @@ export default function Goals() {
                 </div>
                 <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3 md:py-2">
                   <Flame className="h-4 w-4 text-brand" />
-                  <p className="text-[11px] text-muted-foreground">Séries</p>
+                  <p className="text-[11px] text-muted-foreground">{t("goals_series")}</p>
                   <p className="text-sm font-bold">{workoutSummaryData.totalSeries}</p>
                 </div>
               </div>
@@ -4625,7 +4868,7 @@ export default function Goals() {
                 <div className="mx-4 mb-4 rounded-xl bg-card border border-border/50 p-4 md:p-3">
                   <div className="flex items-center gap-2 mb-2">
                     <Dumbbell className="h-4 w-4 text-brand" />
-                    <p className="text-sm font-semibold">Exercícios realizados</p>
+                    <p className="text-sm font-semibold">{t("goals_exercises_done")}</p>
                   </div>
                   <div className="space-y-1">
                     {workoutSummaryData.exerciseNames.map((name, i) => (
@@ -4644,7 +4887,7 @@ export default function Goals() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-lg">🏆</span>
-                      <p className="text-sm font-semibold text-brand">Novos Recordes!</p>
+                      <p className="text-sm font-semibold text-brand">{t("goals_new_records")}</p>
                     </div>
                     <button
                       onClick={handleSharePR}
@@ -4672,20 +4915,20 @@ export default function Goals() {
               <div className="mx-4 pb-10 space-y-3 mt-2">
                 {/* Editable post description */}
                 <div className="rounded-xl border border-border/50 bg-card p-3 space-y-1.5">
-                  <p className="text-xs font-medium text-muted-foreground">Descrição da postagem</p>
+                  <p className="text-xs font-medium text-muted-foreground">{t("goals_post_description")}</p>
                   <textarea
                     value={workoutPostDescription}
                     onChange={(e) => setWorkoutPostDescription(e.target.value)}
                     rows={2}
                     className="w-full bg-transparent text-sm resize-none outline-none text-foreground placeholder:text-muted-foreground min-h-[50px]"
-                    placeholder="Escreva algo sobre seu treino..."
+                    placeholder={t("goals_post_placeholder")}
                   />
                 </div>
 
                 <Button className="w-full rounded-full gap-2 h-10 text-sm" disabled={isSharingWorkout} onClick={handleShare}>
                   {isSharingWorkout
-                    ? "Compartilhando..."
-                    : <><Share2 className="h-5 w-5" /> Compartilhar no Feed</>
+                    ? t("goals_sharing")
+                    : <><Share2 className="h-5 w-5" /> {t("goals_share_feed")}</>
                   }
                 </Button>
 
@@ -4696,16 +4939,16 @@ export default function Goals() {
                     className="w-full rounded-full gap-2 h-12 text-base"
                     onClick={handleOpenDuelShare}
                   >
-                    <Swords className="h-5 w-5" /> Compartilhar no Duelo
+                    <Swords className="h-5 w-5" /> {t("goals_share_duel")}
                   </Button>
                 ) : (
                   <div className="rounded-2xl border border-border/60 bg-card p-4 md:p-3 space-y-3">
                     <div className="flex items-center gap-2">
                       <Swords className="h-4 w-4 text-brand" />
-                      <p className="text-sm font-semibold">Escolha o grupo</p>
+                      <p className="text-sm font-semibold">{t("goals_choose_group")}</p>
                     </div>
                     {duelGroups.length === 0 ? (
-                      <p className="text-xs text-muted-foreground text-center py-2">Você não tem grupos de duelo. Crie um na aba Comunidade.</p>
+                      <p className="text-xs text-muted-foreground text-center py-2">{t("goals_no_duel_groups")}</p>
                     ) : (
                       <div className="space-y-2 max-h-40 overflow-y-auto">
                         {duelGroups.map((g) => (
@@ -4730,7 +4973,7 @@ export default function Goals() {
                         className="flex-1 rounded-full h-9 md:h-8 text-xs"
                         onClick={() => { setIsDuelShareModalOpen(false); setSelectedDuelGroupId(null); }}
                       >
-                        Cancelar
+                        {t("goals_cancel")}
                       </Button>
                       <Button
                         size="sm"
@@ -4738,7 +4981,7 @@ export default function Goals() {
                         disabled={!selectedDuelGroupId || isSharingDuel}
                         onClick={handleShareDuel}
                       >
-                        {isSharingDuel ? "Enviando..." : <><Swords className="h-3.5 w-3.5" /> Confirmar</>}
+                        {isSharingDuel ? t("goals_sending") : <><Swords className="h-3.5 w-3.5" /> {t("goals_confirm")}</>}
                       </Button>
                     </div>
                   </div>
@@ -4750,7 +4993,7 @@ export default function Goals() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Zap className="h-4 w-4 text-emerald-500" />
-                        <span className="text-sm font-semibold">Nutrição Pós-Treino</span>
+                        <span className="text-sm font-semibold">{t("goals_post_workout_nutrition")}</span>
                       </div>
                       <button
                         onClick={() => setNutritionExpanded((v) => !v)}
@@ -4762,19 +5005,19 @@ export default function Goals() {
                     {nutritionExpanded && (
                       <>
                         <p className="text-xs text-muted-foreground">
-                          Para maximizar a recuperação, consuma dentro de 30–60 min:
+                          {t("goals_nutrition_tip")}
                         </p>
                         <div className="grid grid-cols-2 gap-2">
                           <div className="rounded-lg bg-blue-500/10 p-2.5 md:p-2">
-                            <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">Proteína</p>
+                            <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">{t("goals_nutrition_protein")}</p>
                             <p className="text-[10px] text-muted-foreground mt-0.5">20–40g · whey, ovo, frango</p>
                           </div>
                           <div className="rounded-lg bg-amber-500/10 p-2.5 md:p-2">
-                            <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">Carboidrato</p>
+                            <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">{t("goals_macro_carb")}</p>
                             <p className="text-[10px] text-muted-foreground mt-0.5">30–60g · arroz, banana, batata</p>
                           </div>
                           <div className="rounded-lg bg-blue-400/10 p-2.5 md:p-2">
-                            <p className="text-xs font-semibold text-blue-500 dark:text-blue-300">Hidratação</p>
+                            <p className="text-xs font-semibold text-blue-500 dark:text-blue-300">{t("goals_hydration")}</p>
                             <p className="text-[10px] text-muted-foreground mt-0.5">500ml+ de água</p>
                           </div>
                           <div className="rounded-lg bg-purple-500/10 p-2.5 md:p-2">
@@ -4788,7 +5031,7 @@ export default function Goals() {
                 )}
 
                 <Button variant="ghost" className="w-full rounded-full h-12 md:h-10 text-base md:text-sm text-muted-foreground" onClick={closeSummary}>
-                  Fechar
+                  {t("goals_cancel")}
                 </Button>
               </div>
             </div>
@@ -4987,14 +5230,14 @@ export default function Goals() {
         <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
-              Histórico de {selectedWorkoutForHistory?.name || "Exercício"}
+              {t("goals_history_of").replace("{name}", selectedWorkoutForHistory?.name || t("goals_exercise_default"))}
             </DrawerTitle>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto px-4 pb-6">
             {isLoadingHistory ? (
               <div className="text-center py-6 text-sm text-muted-foreground">
-                Carregando histórico...
+                {t("goals_history_loading")}
               </div>
             ) : workoutHistory.length > 0 ? (
               (() => {
@@ -5033,17 +5276,17 @@ export default function Goals() {
                     <div className="grid grid-cols-3 gap-2 mb-5">
                       <div className="flex flex-col items-center gap-0.5 rounded-xl bg-brand/10 border border-brand/20 p-3">
                         <span className="text-lg">🏆</span>
-                        <p className="text-xs text-muted-foreground">Recorde</p>
+                        <p className="text-xs text-muted-foreground">{t("goals_record_label")}</p>
                         <p className="text-sm font-bold">{prKg ? `${prKg} kg` : "—"}</p>
                       </div>
                       <div className="flex flex-col items-center gap-0.5 rounded-xl bg-muted/40 border border-border/40 p-3">
                         <span className="text-lg">💡</span>
-                        <p className="text-xs text-muted-foreground">1RM est.</p>
+                        <p className="text-xs text-muted-foreground">{t("goals_1rm_est")}</p>
                         <p className="text-sm font-bold">{estimated1RM ? `${estimated1RM} kg` : "—"}</p>
                       </div>
                       <div className="flex flex-col items-center gap-0.5 rounded-xl bg-muted/40 border border-border/40 p-3">
                         <span className="text-lg">📅</span>
-                        <p className="text-xs text-muted-foreground">Sessões</p>
+                        <p className="text-xs text-muted-foreground">{t("goals_sessions_label")}</p>
                         <p className="text-sm font-bold">{totalSessions}</p>
                       </div>
                     </div>
@@ -5155,6 +5398,9 @@ export default function Goals() {
                                   prs,
                                   isAllCardio: (selectedWorkoutForHistory?.muscle_group || "").toLowerCase() === "cardio",
                                   totalKm: (selectedWorkoutForHistory?.muscle_group || "").toLowerCase() === "cardio" ? totalVolume : 0,
+                                  totalCardioTimeSecs: (selectedWorkoutForHistory?.muscle_group || "").toLowerCase() === "cardio"
+                                    ? dayRecords.reduce((sum, r) => sum + (Number(r.volume) || 0), 0)
+                                    : 0,
                                 });
                                 setWorkoutHistoryModalOpen(false);
                                 setWorkoutSummaryOpen(true);

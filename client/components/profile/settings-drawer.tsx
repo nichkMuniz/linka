@@ -82,7 +82,7 @@ export function SettingsDrawer({
   const { theme, setTheme, resolvedTheme } = useTheme();
   const isDark = (resolvedTheme ?? theme) === "dark";
   const { layoutMode, toggleLayoutMode } = useLayoutMode();
-  const { currentLanguage, setCurrentLanguage } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
 
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -139,7 +139,7 @@ export function SettingsDrawer({
 
   const handleSaveProfile = async () => {
     if (!editNickname.trim()) {
-      toast({ title: "Nome obrigatório", description: "O nome não pode ser vazio.", variant: "destructive" });
+      toast({ title: t("settings_toast_name_required"), description: t("settings_toast_name_required_desc"), variant: "destructive" });
       return;
     }
     setIsSaving(true);
@@ -164,11 +164,11 @@ export function SettingsDrawer({
       });
       if (updated) {
         onProfileUpdated(updated);
-        toast({ title: "Perfil atualizado!", description: "Suas alterações foram salvas." });
+        toast({ title: t("settings_toast_profile_updated"), description: t("settings_toast_profile_updated_desc") });
         setIsEditOpen(false);
       }
     } catch (err: any) {
-      toast({ title: "Erro ao atualizar perfil", description: err?.message || "Tente novamente.", variant: "destructive" });
+      toast({ title: t("settings_toast_profile_error"), description: err?.message || t("retry"), variant: "destructive" });
     } finally {
       setIsSaving(false);
     }
@@ -258,10 +258,10 @@ export function SettingsDrawer({
         saveCommercialPlansDb(userId, servicePlans),
       ]);
       setCommercialProfile(updated);
-      toast({ title: "Sucesso!", description: "Perfil comercial atualizado." });
+      toast({ title: t("settings_toast_commercial_success"), description: t("settings_toast_commercial_success_desc") });
       setIsCommercialOpen(false);
     } catch (err: any) {
-      toast({ title: "Erro ao salvar", description: err?.message || "Tente novamente.", variant: "destructive" });
+      toast({ title: t("settings_toast_commercial_error"), description: err?.message || t("retry"), variant: "destructive" });
     } finally {
       setIsSavingCommercial(false);
     }
@@ -330,9 +330,9 @@ export function SettingsDrawer({
           objectives: editObjectives.length > 0 ? editObjectives : null,
         }).then((updated) => { if (updated) onProfileUpdated(updated); }),
       ]);
-      toast({ title: "Dados salvos!", description: "Suas informações pessoais foram atualizadas." });
+      toast({ title: t("settings_toast_personal_saved"), description: t("settings_toast_personal_saved_desc") });
     } catch (err: any) {
-      toast({ title: "Erro", description: err?.message || "Falha ao salvar dados.", variant: "destructive" });
+      toast({ title: t("error"), description: err?.message || t("settings_toast_personal_error"), variant: "destructive" });
     } finally {
       setIsSavingPersonalData(false);
     }
@@ -344,9 +344,9 @@ export function SettingsDrawer({
       await resetSupabaseAuth();
       setIsOpen(false);
       navigate("/");
-      toast({ title: "Desconectado com sucesso!" });
+      toast({ title: t("settings_toast_logout_success") });
     } catch (err: any) {
-      toast({ title: "Erro ao desconectar", description: err?.message || "Tente novamente.", variant: "destructive" });
+      toast({ title: t("settings_toast_logout_error"), description: err?.message || t("retry"), variant: "destructive" });
     }
   };
 
@@ -370,18 +370,18 @@ export function SettingsDrawer({
 
         <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>Configurações</DrawerTitle>
+            <DrawerTitle>{t("settings_title")}</DrawerTitle>
           </DrawerHeader>
 
           <div className="flex flex-col flex-1 gap-2 overflow-y-auto px-4 pb-4">
 
             {/* ── Perfil ── */}
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-1 pb-0.5">Perfil</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-1 pb-0.5">{t("settings_section_profile")}</p>
 
             {/* My Profile (unified) */}
             <Drawer open={isEditOpen} onOpenChange={setIsEditOpen}>
               <Button onClick={() => openEditProfile("public")} variant="outline" className="gap-2 justify-between">
-                <span>Meu Perfil</span>
+                <span>{t("settings_my_profile")}</span>
                 <User className="h-4 w-4" />
               </Button>
               <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
@@ -425,7 +425,7 @@ export function SettingsDrawer({
                           <div className="flex flex-col gap-2">
                             <label>
                               <Button type="button" variant="outline" size="sm" asChild>
-                                <span><Upload className="h-4 w-4 mr-2" />Alterar foto</span>
+                                <span><Upload className="h-4 w-4 mr-2" />{t("settings_change_photo")}</span>
                               </Button>
                               <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
                             </label>
@@ -438,7 +438,7 @@ export function SettingsDrawer({
                                 onClick={handleRemovePhoto}
                               >
                                 <X className="h-4 w-4" />
-                                Remover foto
+                                {t("settings_remove_photo")}
                               </Button>
                             )}
                           </div>
@@ -446,65 +446,66 @@ export function SettingsDrawer({
                       </div>
                       {/* Name */}
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Nome</label>
-                        <Input value={editNickname} onChange={(e) => setEditNickname(e.target.value)} placeholder="Seu nome" />
+                        <label className="text-sm font-medium">{t("settings_name_label")}</label>
+                        <Input value={editNickname} onChange={(e) => setEditNickname(e.target.value)} placeholder={t("settings_name_placeholder")} />
                       </div>
                       {/* Bio */}
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Bio</label>
-                        <Textarea value={editBio} onChange={(e) => setEditBio(e.target.value)} placeholder="Sua bio" className="min-h-24" />
+                        <label className="text-sm font-medium">{t("profile_bio")}</label>
+                        <Textarea value={editBio} onChange={(e) => setEditBio(e.target.value)} placeholder={t("settings_bio_placeholder")} className="min-h-24" />
                       </div>
                       {/* Handle */}
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">@ Usuário</label>
+                        <label className="text-sm font-medium">{t("settings_handle_label")}</label>
                         <div className="flex items-center gap-1">
                           <span className="text-muted-foreground text-sm">@</span>
                           <Input value={editHandle} onChange={(e) => setEditHandle(e.target.value.replace(/[^a-zA-Z0-9_.]/g, ""))} placeholder="seu_handle" />
                         </div>
-                        <p className="text-xs text-muted-foreground">Apenas letras, números, _ e .</p>
+                        <p className="text-xs text-muted-foreground">{t("settings_handle_hint")}</p>
                       </div>
                       <Button onClick={handleSaveProfile} disabled={isSaving} className="w-full rounded-full">
-                        {isSaving ? "Salvando..." : "Salvar Alterações"}
+                        {isSaving ? t("saving") : t("settings_save_changes")}
                       </Button>
                     </div>
                   ) : (
                     <div className="space-y-4">
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Sexo</label>
+                        <label className="text-sm font-medium">{t("settings_gender_label")}</label>
                         <Select value={personalDataForm.gender} onValueChange={(v) => setPersonalDataForm((prev) => ({ ...prev, gender: v }))}>
-                          <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                          <SelectTrigger><SelectValue placeholder={t("settings_gender_select")} /></SelectTrigger>
                           <SelectContent position="popper" className="z-[200]">
-                            <SelectItem value="male">Masculino</SelectItem>
-                            <SelectItem value="female">Feminino</SelectItem>
-                            <SelectItem value="other">Outro</SelectItem>
-                            <SelectItem value="prefer_not_to_say">Prefiro não informar</SelectItem>
+                            <SelectItem value="male">{t("settings_gender_male")}</SelectItem>
+                            <SelectItem value="female">{t("settings_gender_female")}</SelectItem>
+                            <SelectItem value="other">{t("settings_gender_other")}</SelectItem>
+                            <SelectItem value="prefer_not_to_say">{t("settings_gender_prefer_not")}</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Altura (cm)</label>
+                        <label className="text-sm font-medium">{t("settings_height_label")}</label>
                         <Input type="number" min={100} max={250} step={1} value={personalDataForm.height} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 175" />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Peso (kg)</label>
+                        <label className="text-sm font-medium">{t("settings_weight_label")}</label>
                         <Input type="number" min={30} max={300} step="0.1" value={personalDataForm.weight} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))} placeholder="Ex: 70.5" />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Idade</label>
+                        <label className="text-sm font-medium">{t("settings_age_label")}</label>
                         <Input type="number" min={10} max={120} step={1} value={personalDataForm.age} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 28" />
                       </div>
                       {/* Objectives */}
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Objetivos</label>
+                        <label className="text-sm font-medium">{t("settings_objectives_label")}</label>
                         <div className="grid grid-cols-2 gap-2">
-                          {[
-                            { id: "fitness", label: "🏋️ Fitness & Musculação" },
-                            { id: "cardio", label: "🏃 Cardio & Corrida" },
-                            { id: "diets", label: "🥗 Dietas & Nutrição" },
-                            { id: "habits", label: "🎯 Hábitos & Mindfulness" },
-                            { id: "yoga", label: "🧘 Yoga & Flexibilidade" },
-                            { id: "sports", label: "⚽ Esportes" },
-                          ].map((obj) => {
+                          {([
+                            { id: "fitness", key: "obj_fitness" },
+                            { id: "cardio", key: "obj_cardio" },
+                            { id: "diets", key: "obj_diets" },
+                            { id: "habits", key: "obj_habits" },
+                            { id: "yoga", key: "obj_yoga" },
+                            { id: "sports", key: "obj_sports" },
+                          ] as { id: string; key: import("../../lib/i18n").TranslationKey }[]).map((obj) => {
+                            const label = t(obj.key);
                             const selected = editObjectives.includes(obj.id);
                             return (
                               <button
@@ -513,14 +514,14 @@ export function SettingsDrawer({
                                 onClick={() => setEditObjectives((prev) => selected ? prev.filter((o) => o !== obj.id) : [...prev, obj.id])}
                                 className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-muted border-border hover:bg-muted/80"}`}
                               >
-                                {obj.label}
+                                {label}
                               </button>
                             );
                           })}
                         </div>
                       </div>
                       <Button onClick={handleSavePersonalData} disabled={isSavingPersonalData} className="w-full rounded-full">
-                        {isSavingPersonalData ? "Salvando..." : "Salvar"}
+                        {isSavingPersonalData ? t("saving") : t("save")}
                       </Button>
                     </div>
                   )}
@@ -531,19 +532,19 @@ export function SettingsDrawer({
             {/* Account & Security */}
             <Drawer open={isAccountOpen} onOpenChange={setIsAccountOpen}>
               <Button onClick={() => { setEditEmail(userEmail); setIsAccountOpen(true); }} variant="outline" className="gap-2 justify-between">
-                <span>Conta e Segurança</span>
+                <span>{t("settings_account_security")}</span>
                 <Settings className="h-4 w-4" />
               </Button>
               <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0 flex items-center gap-2">
                   {subDrawerBack(setIsAccountOpen)}
-                  <DrawerTitle>Conta e Segurança</DrawerTitle>
+                  <DrawerTitle>{t("settings_account_security")}</DrawerTitle>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-4">
                     {/* Email */}
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Email</label>
+                      <label className="text-sm font-medium">{t("settings_email_label")}</label>
                       <Input
                         type="email"
                         value={editEmail}
@@ -558,9 +559,9 @@ export function SettingsDrawer({
                           try {
                             const { error } = await supabase.auth.updateUser({ email: trimmed });
                             if (error) throw error;
-                            toast({ title: "Confirmação enviada", description: "Verifique seu novo email para confirmar a alteração." });
+                            toast({ title: t("settings_email_confirm_sent"), description: t("settings_email_confirm_desc") });
                           } catch {
-                            toast({ title: "Erro", description: "Não foi possível alterar o email.", variant: "destructive" });
+                            toast({ title: t("error"), description: t("settings_email_error"), variant: "destructive" });
                           } finally {
                             setIsChangingEmail(false);
                           }
@@ -569,13 +570,13 @@ export function SettingsDrawer({
                         variant="outline"
                         className="w-full rounded-full"
                       >
-                        {isChangingEmail ? "Enviando..." : "Alterar Email"}
+                        {isChangingEmail ? t("sending") : t("settings_change_email")}
                       </Button>
-                      <p className="text-xs text-muted-foreground">Um link de confirmação será enviado para o novo email</p>
+                      <p className="text-xs text-muted-foreground">{t("settings_change_email_hint")}</p>
                     </div>
                     {/* Password Reset */}
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Redefinir Senha</label>
+                      <label className="text-sm font-medium">{t("settings_reset_password")}</label>
                       <Button
                         onClick={async () => {
                           setIsResettingPassword(true);
@@ -583,9 +584,9 @@ export function SettingsDrawer({
                             await supabase.auth.resetPasswordForEmail(userEmail, {
                               redirectTo: `${window.location.origin}/reset-password`,
                             });
-                            toast({ title: "Email enviado", description: "Verifique seu email para redefinir a senha" });
+                            toast({ title: t("settings_reset_email_sent"), description: t("settings_reset_email_desc") });
                           } catch {
-                            toast({ title: "Erro", description: "Falha ao enviar email de redefinição", variant: "destructive" });
+                            toast({ title: t("error"), description: t("settings_reset_email_error"), variant: "destructive" });
                           } finally {
                             setIsResettingPassword(false);
                           }
@@ -594,22 +595,22 @@ export function SettingsDrawer({
                         variant="outline"
                         className="w-full rounded-full"
                       >
-                        {isResettingPassword ? "Enviando..." : "Redefinir Senha"}
+                        {isResettingPassword ? t("sending") : t("settings_reset_password")}
                       </Button>
-                      <p className="text-xs text-muted-foreground">Você receberá um link para redefinir sua senha</p>
+                      <p className="text-xs text-muted-foreground">{t("settings_reset_password_hint")}</p>
                     </div>
                     {/* Danger Zone */}
                     <div className="border-t pt-4 space-y-3">
-                      <h3 className="text-sm font-semibold text-destructive">Zona de Perigo</h3>
+                      <h3 className="text-sm font-semibold text-destructive">{t("settings_danger_zone")}</h3>
                       <Button
                         onClick={() => { setIsAccountOpen(false); onRequestDeleteAccount(); }}
                         variant="destructive"
                         className="w-full rounded-full gap-2"
                       >
                         <Trash2 className="h-4 w-4" />
-                        Encerrar Conta
+                        {t("settings_close_account")}
                       </Button>
-                      <p className="text-xs text-muted-foreground">Esta ação é permanente e não pode ser desfeita</p>
+                      <p className="text-xs text-muted-foreground">{t("settings_close_account_hint")}</p>
                     </div>
                   </div>
                 </div>
@@ -618,14 +619,14 @@ export function SettingsDrawer({
 
             {/* ── Negócio ── */}
             {(commercialProfile) && (
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">Negócio</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">{t("settings_section_business")}</p>
             )}
 
             {/* Commercial Profile Dashboard */}
             {commercialProfile && (
               <>
                 <Button onClick={() => setIsCommercialDashboardOpen(true)} variant="outline" className="gap-2 justify-between">
-                  <span>Gerenciar Perfil Comercial</span>
+                  <span>{t("settings_manage_commercial")}</span>
                   <BarChart3 className="h-4 w-4" />
                 </Button>
                 <Drawer open={isCommercialDashboardOpen} onOpenChange={setIsCommercialDashboardOpen}>
@@ -634,30 +635,30 @@ export function SettingsDrawer({
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           {subDrawerBack(setIsCommercialDashboardOpen)}
-                          <DrawerTitle>🏪 {commercialProfile.business_name || "Perfil Comercial"}</DrawerTitle>
+                          <DrawerTitle>🏪 {commercialProfile.business_name || t("settings_commercial_profile_fallback")}</DrawerTitle>
                         </div>
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => { setIsCommercialDashboardOpen(false); setIsCommercialOpen(true); }}
                             className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                            aria-label="Editar perfil comercial"
+                            aria-label={t("settings_commercial_edit_label")}
                           >
                             <Edit2 className="h-4 w-4" />
                           </button>
                           <button
                             onClick={async () => {
-                              if (!confirm("Tem certeza que deseja excluir seu perfil comercial?")) return;
+                              if (!confirm(t("settings_commercial_delete_confirm"))) return;
                               try {
                                 await deleteCommercialProfileDb(userId);
                                 setCommercialProfile(null);
                                 setIsCommercialDashboardOpen(false);
-                                toast({ title: "Perfil comercial excluído" });
+                                toast({ title: t("settings_commercial_deleted") });
                               } catch (err: any) {
-                                toast({ title: "Erro ao excluir", description: err?.message, variant: "destructive" });
+                                toast({ title: t("settings_commercial_delete_error"), description: err?.message, variant: "destructive" });
                               }
                             }}
                             className="p-1.5 rounded-full hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
-                            aria-label="Excluir perfil comercial"
+                            aria-label={t("settings_commercial_delete_label")}
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -668,67 +669,67 @@ export function SettingsDrawer({
                       {commercialProfile.business_segment && (
                         <div className="flex items-center gap-2">
                           <span className="text-xs px-2.5 py-1 rounded-full bg-brand/20 text-brand font-medium">
-                            {commercialProfile.business_segment === "academia" && "Academia / Fitness"}
-                            {commercialProfile.business_segment === "personal_trainer" && "Personal Trainer"}
-                            {commercialProfile.business_segment === "nutricionista" && "Nutricionista"}
-                            {commercialProfile.business_segment === "psicologo" && "Psicólogo"}
-                            {commercialProfile.business_segment === "fisioterapeuta" && "Fisioterapeuta"}
-                            {commercialProfile.business_segment === "coach" && "Coach"}
-                            {commercialProfile.business_segment === "outros" && "Outros"}
+                            {commercialProfile.business_segment === "academia" && t("seg_academia")}
+                            {commercialProfile.business_segment === "personal_trainer" && t("seg_personal_trainer")}
+                            {commercialProfile.business_segment === "nutricionista" && t("seg_nutricionista")}
+                            {commercialProfile.business_segment === "psicologo" && t("seg_psicologo")}
+                            {commercialProfile.business_segment === "fisioterapeuta" && t("seg_fisioterapeuta")}
+                            {commercialProfile.business_segment === "coach" && t("seg_coach")}
+                            {commercialProfile.business_segment === "outros" && t("seg_outros")}
                           </span>
                         </div>
                       )}
                       {commercialProfile.business_logo_url && (
                         <div className="flex justify-center">
-                          <img src={commercialProfile.business_logo_url} alt="Logo do negócio" className="h-20 w-50 rounded-xl object-cover border border-border" />
+                          <img src={commercialProfile.business_logo_url} alt={t("settings_commercial_logo")} className="h-20 w-50 rounded-xl object-cover border border-border" />
                         </div>
                       )}
                       <div className="grid grid-cols-3 gap-3">
                         <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
                           <p className="text-2xl font-bold">{stats.followersCount}</p>
-                          <p className="text-xs text-muted-foreground text-center">Seguidores</p>
+                          <p className="text-xs text-muted-foreground text-center">{t("profile_followers")}</p>
                         </div>
                         <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
                           <p className="text-2xl font-bold">{stats.postsCount}</p>
-                          <p className="text-xs text-muted-foreground text-center">Posts</p>
+                          <p className="text-xs text-muted-foreground text-center">{t("profile_posts")}</p>
                         </div>
                         <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
                           <p className="text-2xl font-bold">{stats.followingCount}</p>
-                          <p className="text-xs text-muted-foreground text-center">Seguindo</p>
+                          <p className="text-xs text-muted-foreground text-center">{t("profile_following")}</p>
                         </div>
                       </div>
                       <div>
-                        <p className="text-sm font-semibold mb-2">Engajamento</p>
+                        <p className="text-sm font-semibold mb-2">{t("settings_commercial_engagement")}</p>
                         <div className="space-y-2">
                           <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                            <span className="text-sm text-muted-foreground">Nível da conta</span>
-                            <span className="text-sm font-medium">Nível {stats.level}</span>
+                            <span className="text-sm text-muted-foreground">{t("settings_commercial_account_level")}</span>
+                            <span className="text-sm font-medium">{t("ranking_level")} {stats.level}</span>
                           </div>
                           <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                            <span className="text-sm text-muted-foreground">Pontos totais</span>
+                            <span className="text-sm text-muted-foreground">{t("settings_commercial_total_points")}</span>
                             <span className="text-sm font-medium">{stats.points} pts</span>
                           </div>
                         </div>
                       </div>
                       {(commercialProfile.business_phone || commercialProfile.business_email || commercialProfile.business_website) && (
                         <div>
-                          <p className="text-sm font-semibold mb-2">Informações de Contato</p>
+                          <p className="text-sm font-semibold mb-2">{t("settings_commercial_contact")}</p>
                           <div className="space-y-2">
                             {commercialProfile.business_phone && (
                               <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                                <span className="text-sm text-muted-foreground">Telefone</span>
+                                <span className="text-sm text-muted-foreground">{t("settings_commercial_phone_label")}</span>
                                 <span className="text-sm font-medium">{commercialProfile.business_phone}</span>
                               </div>
                             )}
                             {commercialProfile.business_email && (
                               <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                                <span className="text-sm text-muted-foreground">E-mail</span>
+                                <span className="text-sm text-muted-foreground">{t("settings_commercial_email_label")}</span>
                                 <span className="text-sm font-medium">{commercialProfile.business_email}</span>
                               </div>
                             )}
                             {commercialProfile.business_website && (
                               <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                                <span className="text-sm text-muted-foreground">Website</span>
+                                <span className="text-sm text-muted-foreground">{t("settings_commercial_website_label")}</span>
                                 <a href={commercialProfile.business_website} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-brand hover:underline">
                                   {commercialProfile.business_website.replace(/^https?:\/\//, "")}
                                 </a>
@@ -739,7 +740,7 @@ export function SettingsDrawer({
                       )}
                       {commercialProfile.business_description && (
                         <div>
-                          <p className="text-sm font-semibold mb-2">Descrição do Negócio</p>
+                          <p className="text-sm font-semibold mb-2">{t("settings_commercial_business_desc")}</p>
                           <p className="text-sm text-muted-foreground leading-relaxed">{commercialProfile.business_description}</p>
                         </div>
                       )}
@@ -751,7 +752,7 @@ export function SettingsDrawer({
             <Drawer open={isCommercialOpen} onOpenChange={setIsCommercialOpen}>
               {!commercialProfile && (
                 <Button onClick={openCommercialProfile} variant="outline" className="gap-2 justify-between">
-                  <span>Perfil Comercial</span>
+                  <span>{t("settings_commercial_profile")}</span>
                   <span className="text-lg">🏪</span>
                 </Button>
               )}
@@ -759,58 +760,58 @@ export function SettingsDrawer({
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsCommercialOpen)}
-                    <DrawerTitle>Configurar Perfil Comercial</DrawerTitle>
+                    <DrawerTitle>{t("settings_commercial_title")}</DrawerTitle>
                   </div>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Segmento *</label>
+                      <label className="text-sm font-medium">{t("settings_commercial_segment")}</label>
                       <Select value={commercialFormData.business_segment} onValueChange={(v) => setCommercialFormData({ ...commercialFormData, business_segment: v })}>
-                        <SelectTrigger><SelectValue placeholder="Selecione um segmento" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={t("settings_commercial_segment_placeholder")} /></SelectTrigger>
                         <SelectContent position="popper" className="z-[200]">
-                          <SelectItem value="academia">Academia / Fitness</SelectItem>
-                          <SelectItem value="personal_trainer">Personal Trainer</SelectItem>
-                          <SelectItem value="nutricionista">Nutricionista</SelectItem>
-                          <SelectItem value="psicologo">Psicólogo</SelectItem>
-                          <SelectItem value="fisioterapeuta">Fisioterapeuta</SelectItem>
-                          <SelectItem value="coach">Coach</SelectItem>
-                          <SelectItem value="outros">Outros</SelectItem>
+                          <SelectItem value="academia">{t("seg_academia")}</SelectItem>
+                          <SelectItem value="personal_trainer">{t("seg_personal_trainer")}</SelectItem>
+                          <SelectItem value="nutricionista">{t("seg_nutricionista")}</SelectItem>
+                          <SelectItem value="psicologo">{t("seg_psicologo")}</SelectItem>
+                          <SelectItem value="fisioterapeuta">{t("seg_fisioterapeuta")}</SelectItem>
+                          <SelectItem value="coach">{t("seg_coach")}</SelectItem>
+                          <SelectItem value="outros">{t("seg_outros")}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Nome da vitrine / Negócio *</label>
+                      <label className="text-sm font-medium">{t("settings_commercial_name")}</label>
                       <Input value={commercialFormData.business_name} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_name: e.target.value })} placeholder="Ex: Academia Força Total" />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Descrição</label>
-                      <Textarea value={commercialFormData.business_description} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_description: e.target.value })} placeholder="Descreva seu negócio..." className="min-h-24" />
+                      <label className="text-sm font-medium">{t("settings_commercial_desc")}</label>
+                      <Textarea value={commercialFormData.business_description} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_description: e.target.value })} placeholder={t("settings_commercial_desc_placeholder")} className="min-h-24" />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Telefone</label>
+                      <label className="text-sm font-medium">{t("settings_commercial_phone")}</label>
                       <Input type="tel" value={commercialFormData.business_phone} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_phone: formatPhone(e.target.value) })} placeholder="(11) 99999-9999" maxLength={15} />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Email</label>
+                      <label className="text-sm font-medium">{t("settings_commercial_email")}</label>
                       <Input type="email" value={commercialFormData.business_email} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_email: e.target.value })} placeholder="contato@negocio.com" />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Site / Portfolio</label>
+                      <label className="text-sm font-medium">{t("settings_commercial_website")}</label>
                       <Input type="url" value={commercialFormData.business_website} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_website: e.target.value })} placeholder="https://seu-site.com" />
                     </div>
                     {/* Logo */}
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Logo do Negócio</label>
+                      <label className="text-sm font-medium">{t("settings_commercial_logo")}</label>
                       <div className="flex items-center gap-3">
                         {commercialLogoPreview ? (
                           <img src={commercialLogoPreview} alt="Logo" className="h-20 w-20 rounded-lg object-cover border border-border" />
                         ) : (
-                          <div className="h-16 w-16 rounded-lg border border-dashed border-border flex items-center justify-center bg-muted text-muted-foreground text-xs text-center">Sem logo</div>
+                          <div className="h-16 w-16 rounded-lg border border-dashed border-border flex items-center justify-center bg-muted text-muted-foreground text-xs text-center">{t("settings_commercial_logo_none")}</div>
                         )}
                         <label className="cursor-pointer">
                           <span className="inline-flex items-center gap-1 text-sm text-brand font-medium hover:underline">
-                            {commercialLogoPreview ? "Alterar logo" : "Adicionar logo"}
+                            {commercialLogoPreview ? t("settings_commercial_logo_change") : t("settings_commercial_logo_add")}
                           </span>
                           <input type="file" accept="image/*" className="hidden" onChange={(e) => {
                             const file = e.target.files?.[0];
@@ -824,7 +825,7 @@ export function SettingsDrawer({
                         </label>
                         {commercialLogoPreview && (
                           <button type="button" className="text-xs text-destructive hover:underline" onClick={() => { setCommercialLogoFile(null); setCommercialLogoPreview(null); }}>
-                            Remover
+                            {t("remove")}
                           </button>
                         )}
                       </div>
@@ -832,7 +833,7 @@ export function SettingsDrawer({
                     {/* Service Plans */}
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">Planos e Preços</label>
+                        <label className="text-sm font-medium">{t("settings_commercial_plans")}</label>
                         <span className="text-xs text-muted-foreground">{servicePlans.length}/5</span>
                       </div>
                       {servicePlans.length > 0 && (
@@ -844,7 +845,7 @@ export function SettingsDrawer({
                                 {plan.price != null && <p className="text-xs text-brand font-semibold">R$ {plan.price.toFixed(2).replace(".", ",")}</p>}
                                 {plan.description && <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{plan.description}</p>}
                               </div>
-                              <button type="button" onClick={() => setServicePlans((prev) => prev.filter((_, i) => i !== idx))} className="p-1 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 mt-0.5" aria-label="Remover plano">
+                              <button type="button" onClick={() => setServicePlans((prev) => prev.filter((_, i) => i !== idx))} className="p-1 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 mt-0.5" aria-label={t("settings_plan_remove_label")}>
                                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                               </button>
                             </div>
@@ -854,10 +855,10 @@ export function SettingsDrawer({
                       {servicePlans.length < 5 && (
                         isAddingPlan ? (
                           <div className="space-y-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
-                            <p className="text-xs font-medium text-brand">Novo plano</p>
-                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder="Nome do plano *" value={newPlanName} onChange={(e) => setNewPlanName(e.target.value)} maxLength={60} />
-                            <input type="number" min="0" step="0.01" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder="Preço (R$) — opcional" value={newPlanPrice} onChange={(e) => setNewPlanPrice(e.target.value)} />
-                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder="Descrição breve — opcional" value={newPlanDescription} onChange={(e) => setNewPlanDescription(e.target.value)} maxLength={100} />
+                            <p className="text-xs font-medium text-brand">{t("settings_commercial_new_plan")}</p>
+                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_name")} value={newPlanName} onChange={(e) => setNewPlanName(e.target.value)} maxLength={60} />
+                            <input type="number" min="0" step="0.01" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_price")} value={newPlanPrice} onChange={(e) => setNewPlanPrice(e.target.value)} />
+                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_desc")} value={newPlanDescription} onChange={(e) => setNewPlanDescription(e.target.value)} maxLength={100} />
                             <div className="flex gap-2">
                               <button type="button" disabled={!newPlanName.trim()} onClick={() => {
                                 if (!newPlanName.trim()) return;
@@ -865,22 +866,22 @@ export function SettingsDrawer({
                                 setNewPlanName(""); setNewPlanPrice(""); setNewPlanDescription(""); setIsAddingPlan(false);
                               }} className="flex-1 flex items-center justify-center gap-1.5 rounded-md bg-brand text-white text-sm font-medium py-2 hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                Confirmar plano
+                                {t("settings_commercial_plan_confirm")}
                               </button>
-                              <button type="button" onClick={() => { setIsAddingPlan(false); setNewPlanName(""); setNewPlanPrice(""); setNewPlanDescription(""); }} className="px-3 rounded-md border border-border text-sm text-muted-foreground hover:text-foreground transition-colors">Cancelar</button>
+                              <button type="button" onClick={() => { setIsAddingPlan(false); setNewPlanName(""); setNewPlanPrice(""); setNewPlanDescription(""); }} className="px-3 rounded-md border border-border text-sm text-muted-foreground hover:text-foreground transition-colors">{t("cancel")}</button>
                             </div>
                           </div>
                         ) : (
                           <button type="button" onClick={() => setIsAddingPlan(true)} className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2.5 text-sm text-muted-foreground hover:text-foreground hover:border-brand/50 transition-colors">
                             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                            Adicionar Plano
+                            {t("settings_commercial_add_plan")}
                           </button>
                         )
                       )}
-                      {servicePlans.length >= 5 && <p className="text-xs text-muted-foreground text-center">Limite de 5 planos atingido</p>}
+                      {servicePlans.length >= 5 && <p className="text-xs text-muted-foreground text-center">{t("settings_commercial_plan_limit")}</p>}
                     </div>
                     <Button onClick={handleSaveCommercial} disabled={isSavingCommercial || !commercialFormData.business_name} className="w-full rounded-full">
-                      {isSavingCommercial ? "Salvando..." : "Salvar Perfil Comercial"}
+                      {isSavingCommercial ? t("saving") : t("settings_commercial_save")}
                     </Button>
                   </div>
                 </div>
@@ -888,25 +889,25 @@ export function SettingsDrawer({
             </Drawer>
 
             {/* ── Preferências ── */}
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">Preferências</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">{t("settings_section_preferences")}</p>
 
             {/* Language */}
             <Drawer open={isLanguageOpen} onOpenChange={setIsLanguageOpen}>
               <Button onClick={() => setIsLanguageOpen(true)} variant="outline" className="gap-2 justify-between">
-                <span>Idioma</span>
+                <span>{t("settings_language")}</span>
                 <Globe className="h-4 w-4" />
               </Button>
               <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsLanguageOpen)}
-                    <DrawerTitle>Selecione o Idioma</DrawerTitle>
+                    <DrawerTitle>{t("settings_language_select")}</DrawerTitle>
                   </div>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-2">
                     {(["pt", "en"] as const).map((lang) => (
-                      <button key={lang} onClick={() => { setCurrentLanguage(lang); setIsLanguageOpen(false); }} className={`w-full p-3 rounded-lg border text-left transition-colors ${currentLanguage === lang ? "border-brand bg-brand/10" : "border-border hover:border-brand/50"}`}>
+                      <button key={lang} onClick={() => { setLanguage(lang); setIsLanguageOpen(false); }} className={`w-full p-3 rounded-lg border text-left transition-colors ${language === lang ? "border-brand bg-brand/10" : "border-border hover:border-brand/50"}`}>
                         <div className="font-medium">{lang === "pt" ? "Português (Brasil)" : "English"}</div>
                         <div className="text-xs text-muted-foreground">{lang === "pt" ? "pt-BR" : "en-US"}</div>
                       </button>
@@ -919,28 +920,28 @@ export function SettingsDrawer({
             {/* Notifications */}
             <Drawer open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
               <Button onClick={() => setIsNotificationsOpen(true)} variant="outline" className="gap-2 justify-between">
-                <span>Notificações</span>
+                <span>{t("settings_notifications")}</span>
                 <Bell className="h-4 w-4" />
               </Button>
               <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsNotificationsOpen)}
-                    <DrawerTitle>Configurar Notificações</DrawerTitle>
+                    <DrawerTitle>{t("settings_notif_configure")}</DrawerTitle>
                   </div>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-3">
                     {([
-                      { key: "workoutReminders", label: "Lembretes de Treino", desc: "Notificações sobre seus treinos" },
-                      { key: "achievementAlerts", label: "Alertas de Conquistas", desc: "Notificações sobre suas metas atingidas" },
-                      { key: "friendActivity", label: "Atividade de Amigos", desc: "Atividades de pessoas que você segue" },
-                      { key: "messages", label: "Mensagens", desc: "Notificações de mensagens diretas" },
-                    ] as { key: keyof typeof notifications; label: string; desc: string }[]).map(({ key, label, desc }) => (
+                      { key: "workoutReminders", labelKey: "settings_notif_workout", descKey: "settings_notif_workout_desc" },
+                      { key: "achievementAlerts", labelKey: "settings_notif_achievements", descKey: "settings_notif_achievements_desc" },
+                      { key: "friendActivity", labelKey: "settings_notif_friends", descKey: "settings_notif_friends_desc" },
+                      { key: "messages", labelKey: "settings_notif_messages", descKey: "settings_notif_messages_desc" },
+                    ] as { key: keyof typeof notifications; labelKey: import("../../lib/i18n").TranslationKey; descKey: import("../../lib/i18n").TranslationKey }[]).map(({ key, labelKey, descKey }) => (
                       <div key={key} className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
                         <div>
-                          <div className="text-sm font-medium">{label}</div>
-                          <div className="text-xs text-muted-foreground">{desc}</div>
+                          <div className="text-sm font-medium">{t(labelKey)}</div>
+                          <div className="text-xs text-muted-foreground">{t(descKey)}</div>
                         </div>
                         <button onClick={() => setNotifications({ ...notifications, [key]: !notifications[key] })} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications[key] ? "bg-brand" : "bg-muted"}`}>
                           <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications[key] ? "translate-x-6" : "translate-x-1"}`} />
@@ -950,8 +951,8 @@ export function SettingsDrawer({
                     <div className="border-t pt-4 mt-4">
                       <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
                         <div>
-                          <div className="text-sm font-medium">Sons</div>
-                          <div className="text-xs text-muted-foreground">Ativar som das notificações</div>
+                          <div className="text-sm font-medium">{t("settings_notif_sounds")}</div>
+                          <div className="text-xs text-muted-foreground">{t("settings_notif_sounds_desc")}</div>
                         </div>
                         <button onClick={() => setNotifications({ ...notifications, sound: !notifications.sound })} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.sound ? "bg-brand" : "bg-muted"}`}>
                           <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.sound ? "translate-x-6" : "translate-x-1"}`} />
@@ -966,25 +967,25 @@ export function SettingsDrawer({
             {/* Time Management */}
             <Drawer open={isTimeManagementOpen} onOpenChange={setIsTimeManagementOpen}>
               <Button onClick={() => setIsTimeManagementOpen(true)} variant="outline" className="gap-2 justify-between">
-                <span>Gerenciamento de Tempo</span>
+                <span>{t("settings_time_management")}</span>
                 <BarChart3 className="h-4 w-4" />
               </Button>
               <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsTimeManagementOpen)}
-                    <DrawerTitle>Gerenciamento de Tempo</DrawerTitle>
+                    <DrawerTitle>{t("settings_time_management")}</DrawerTitle>
                   </div>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Limite Diário de Uso</label>
+                      <label className="text-sm font-medium">{t("settings_time_limit_label")}</label>
                       <div className="flex gap-2">
-                        <Input type="number" min="0" value={dailyUsageLimit} onChange={(e) => setDailyUsageLimit(parseInt(e.target.value) || 0)} placeholder="Minutos por dia (0 = sem limite)" className="flex-1" />
+                        <Input type="number" min="0" value={dailyUsageLimit} onChange={(e) => setDailyUsageLimit(parseInt(e.target.value) || 0)} placeholder={t("settings_time_limit_placeholder")} className="flex-1" />
                         <span className="text-sm text-muted-foreground py-2">min</span>
                       </div>
-                      <p className="text-xs text-muted-foreground">{dailyUsageLimit === 0 ? "Sem limite estabelecido" : `Você poderá usar ${dailyUsageLimit} minutos por dia`}</p>
+                      <p className="text-xs text-muted-foreground">{dailyUsageLimit === 0 ? t("settings_time_no_limit") : t("settings_time_limit_active").replace("{n}", String(dailyUsageLimit))}</p>
                     </div>
                     <Button onClick={() => {
                       if (dailyUsageLimit > 0) {
@@ -994,10 +995,10 @@ export function SettingsDrawer({
                         localStorage.removeItem("ritmofit_daily_limit_minutes");
                         localStorage.removeItem("ritmofit_daily_limit_date");
                       }
-                      toast({ title: "Limite salvo", description: dailyUsageLimit > 0 ? `Limite de ${dailyUsageLimit} min/dia ativado` : "Limite removido" });
+                      toast({ title: t("settings_time_saved"), description: dailyUsageLimit > 0 ? t("settings_time_limit_set").replace("{n}", String(dailyUsageLimit)) : t("settings_time_limit_removed") });
                       setIsTimeManagementOpen(false);
                     }} className="w-full rounded-full">
-                      Salvar Limite
+                      {t("settings_time_save")}
                     </Button>
                   </div>
                 </div>
@@ -1007,25 +1008,25 @@ export function SettingsDrawer({
             {/* Personalization */}
             <Drawer open={isPersonalizationOpen} onOpenChange={setIsPersonalizationOpen}>
               <Button onClick={() => setIsPersonalizationOpen(true)} variant="outline" className="gap-2 justify-between">
-                <span>Personalização</span>
+                <span>{t("settings_personalization")}</span>
                 <span>🎨</span>
               </Button>
               <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsPersonalizationOpen)}
-                    <DrawerTitle>Personalização</DrawerTitle>
+                    <DrawerTitle>{t("settings_personalization")}</DrawerTitle>
                   </div>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-2">
                     <Button onClick={() => { toggleLayoutMode(); window.location.reload(); }} variant="outline" className="w-full rounded-full gap-2">
                       <span>📐</span>
-                      {layoutMode === "novo" ? "Layout Antigo" : "Novo Layout"}
+                      {layoutMode === "novo" ? t("settings_layout_old") : t("settings_layout_new")}
                     </Button>
                     <Button onClick={() => setTheme(isDark ? "light" : "dark")} variant="outline" className="w-full rounded-full gap-2">
                       {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                      {isDark ? "Modo Claro" : "Modo Noturno"}
+                      {isDark ? t("settings_theme_light2") : t("settings_theme_night")}
                     </Button>
                   </div>
                 </div>
@@ -1033,19 +1034,19 @@ export function SettingsDrawer({
             </Drawer>
 
             {/* ── Outros ── */}
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">Outros</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">{t("settings_section_other")}</p>
 
             {/* Flow History */}
             <Drawer open={isFlowHistoryOpen} onOpenChange={setIsFlowHistoryOpen}>
               <Button onClick={openFlowHistory} variant="outline" className="gap-2 justify-between">
-                <span>Arquivo de Flows</span>
+                <span>{t("settings_flow_archive")}</span>
                 <span>🕐</span>
               </Button>
               <DrawerContent className="max-h-[85dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsFlowHistoryOpen)}
-                    <DrawerTitle>Arquivo de Flows</DrawerTitle>
+                    <DrawerTitle>{t("settings_flow_archive")}</DrawerTitle>
                   </div>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -1054,8 +1055,8 @@ export function SettingsDrawer({
                   ) : expiredFlows.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
                       <span className="text-4xl">📂</span>
-                      <p className="text-sm text-muted-foreground">Nenhum flow arquivado ainda</p>
-                      <p className="text-xs text-muted-foreground">Os flows expirados (mais de 24h) aparecem aqui</p>
+                      <p className="text-sm text-muted-foreground">{t("settings_flow_empty")}</p>
+                      <p className="text-xs text-muted-foreground">{t("settings_flow_empty_desc")}</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-3 gap-1">
@@ -1084,7 +1085,7 @@ export function SettingsDrawer({
             {/* Logout */}
             <Button onClick={handleLogout} variant="destructive" className="gap-2">
               <LogOut className="h-4 w-4" />
-              Desconectar
+              {t("settings_logout")}
             </Button>
           </div>
         </DrawerContent>

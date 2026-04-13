@@ -24,6 +24,7 @@ import {
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { useLanguage } from "@/lib/language-context";
 
 // Module-level flag: survives StrictMode remount cycles, resets when postId changes
 let _commentsAutoOpenConsumed = false;
@@ -45,6 +46,7 @@ export function PostCommentsDialog({
   defaultOpen?: boolean;
 }) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [open, setOpen] = React.useState(false);
 
   // Open automatically once when defaultOpen=true (e.g. navigated from notification)
@@ -84,8 +86,8 @@ export function PostCommentsDialog({
       .catch((err) => {
         console.error("Error loading comments:", err);
         toast({
-          title: "Erro ao carregar comentários",
-          description: "Tente novamente.",
+          title: t("comments_load_error"),
+          description: t("retry"),
         });
       })
       .finally(() => setLoading(false));
@@ -94,16 +96,16 @@ export function PostCommentsDialog({
   const handleSubmit = React.useCallback(async () => {
     if (!draft.trim()) {
       toast({
-        title: "Comentário vazio",
-        description: "Digite uma mensagem antes de enviar.",
+        title: t("comments_empty_input"),
+        description: t("comments_empty_input_desc"),
       });
       return;
     }
 
     if (!user) {
       toast({
-        title: "Faça login",
-        description: "Você precisa estar logado para comentar.",
+        title: t("comments_login_required"),
+        description: t("comments_login_desc"),
       });
       return;
     }
@@ -119,14 +121,14 @@ export function PostCommentsDialog({
       setComments(updated);
 
       toast({
-        title: "Comentário enviado!",
-        description: "Sua mensagem foi publicada.",
+        title: t("comments_sent"),
+        description: t("comments_sent_desc"),
       });
     } catch (err: any) {
       console.error("Error submitting comment:", err);
       toast({
-        title: "Erro ao enviar comentário",
-        description: err?.message || "Tente novamente.",
+        title: t("comments_send_error"),
+        description: err?.message || t("retry"),
       });
     } finally {
       setSubmitting(false);
@@ -134,20 +136,20 @@ export function PostCommentsDialog({
   }, [draft, postId, user]);
 
   const handleDelete = React.useCallback(async (commentId: string) => {
-    if (!confirm("Tem certeza que deseja deletar este comentário?")) return;
+    if (!confirm(t("comments_delete_confirm"))) return;
 
     try {
       setDeletingId(commentId);
       await deletePostCommentDb(commentId);
       setComments((prev) => prev.filter((c) => c.id !== commentId));
       toast({
-        title: "Comentário deletado",
+        title: t("comments_deleted"),
       });
     } catch (err: any) {
       console.error("Error deleting comment:", err);
       toast({
-        title: "Erro ao deletar comentário",
-        description: err?.message || "Tente novamente.",
+        title: t("comments_delete_error"),
+        description: err?.message || t("retry"),
       });
     } finally {
       setDeletingId(null);
@@ -163,7 +165,7 @@ export function PostCommentsDialog({
         "inline-flex shrink-0 items-center justify-center transition-colors",
         isPostOwner && hasUnreadComments && "text-blue-500",
       )}
-      aria-label="Ver comentários"
+      aria-label={t("comments_view_label")}
     >
       <MessageCircle
         className={cn(
@@ -179,8 +181,8 @@ export function PostCommentsDialog({
   const drawerContent = (
     <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
       <DrawerHeader className="shrink-0">
-        <DrawerTitle>Comentários</DrawerTitle>
-        <DrawerDescription className="sr-only">Lista de comentários do post</DrawerDescription>
+        <DrawerTitle>{t("comments_title")}</DrawerTitle>
+        <DrawerDescription className="sr-only">{t("comments_list_desc")}</DrawerDescription>
       </DrawerHeader>
 
       <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
@@ -188,7 +190,7 @@ export function PostCommentsDialog({
         <div className="flex-1 space-y-3 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
           {loading ? (
             <div className="text-sm text-muted-foreground">
-              Carregando comentários...
+              {t("comments_loading")}
             </div>
           ) : comments.length ? (
             comments.map((comment) => (
@@ -230,7 +232,7 @@ export function PostCommentsDialog({
                       onClick={() => handleDelete(comment.id)}
                       disabled={deletingId === comment.id}
                       className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-                      aria-label="Deletar comentário"
+                      aria-label={t("comments_delete_label")}
                     >
                       <Trash2 className="h-4 w-4" />
                     </motion.button>
@@ -240,7 +242,7 @@ export function PostCommentsDialog({
             ))
           ) : (
             <div className="py-6 text-center text-sm text-muted-foreground">
-              Nenhum comentário ainda.
+              {t("comments_empty")}
             </div>
           )}
         </div>
@@ -250,7 +252,7 @@ export function PostCommentsDialog({
           <div className="space-y-2 shrink-0">
             <div className="relative">
               <Textarea
-                placeholder="Adicione um comentário..."
+                placeholder={t("comments_placeholder")}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
@@ -274,12 +276,12 @@ export function PostCommentsDialog({
               disabled={!draft.trim() || submitting}
               className="w-full rounded-lg"
             >
-              {submitting ? "Enviando..." : "Comentar"}
+              {submitting ? t("comments_submitting") : t("comments_submit")}
             </Button>
           </div>
         ) : (
           <div className="rounded-lg border border-border/50 bg-muted/20 p-3 text-center text-sm text-muted-foreground shrink-0">
-            Faça login para comentar.
+            {t("comments_login_view")}
           </div>
         )}
       </div>
@@ -299,7 +301,7 @@ export function PostCommentsDialog({
             "inline-flex shrink-0 items-center justify-center transition-colors",
             isPostOwner && hasUnreadComments && "text-blue-500",
           )}
-          aria-label="Ver comentários"
+          aria-label={t("comments_view_label")}
         >
           <MessageCircle
             className={cn(

@@ -48,9 +48,11 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { useLanguage } from "@/lib/language-context";
 
 export default function Shots({ footerHeight = 0, isDesktop = false }: { footerHeight?: number; isDesktop?: boolean }) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
   const openCommentsFromNotifRef = React.useRef(false);
@@ -125,8 +127,8 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
       } catch (err: any) {
         console.error("Erro ao carregar shots:", err?.message || err);
         toast({
-          title: "Erro ao carregar shots",
-          description: err?.message || "Tente novamente.",
+          title: t("shots_load_error"),
+          description: err?.message || t("retry"),
         });
         setShotsError(true);
       } finally {
@@ -204,8 +206,8 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     async (shot: ShotWithUser, type: PostIncentiveType) => {
       if (!user) {
         toast({
-          title: "Faça login",
-          description: "Você precisa estar logado para usar incentivos.",
+          title: t("shots_login_required"),
+          description: t("shots_login_desc"),
         });
         return;
       }
@@ -276,8 +278,8 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
       } catch (err: any) {
         console.error("Error loading comments:", err);
         toast({
-          title: "Erro ao carregar comentários",
-          description: err?.message || "Tente novamente.",
+          title: t("comments_load_error"),
+          description: err?.message || t("retry"),
           variant: "destructive",
         });
       } finally {
@@ -308,8 +310,8 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     } catch (err: any) {
       console.error("Error adding comment:", err);
       toast({
-        title: "Erro ao enviar comentário",
-        description: err?.message || "Tente novamente.",
+        title: t("comments_send_error"),
+        description: err?.message || t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -336,12 +338,12 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
             : s
         )
       );
-      toast({ title: "Comentário deletado com sucesso." });
+      toast({ title: t("shots_comment_deleted") });
     } catch (err: any) {
       console.error("Error deleting comment:", err);
       toast({
-        title: "Erro ao deletar comentário",
-        description: err?.message || "Tente novamente.",
+        title: t("shots_comment_delete_error"),
+        description: err?.message || t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -359,12 +361,12 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
       const ok = await deleteShotDb(deletingShot.id);
       if (ok) {
         setShots((prev) => prev.filter((r) => r.id !== deletingShot.id));
-        toast({ title: "Clip deletado com sucesso." });
+        toast({ title: t("shots_delete_success") });
       } else {
-        toast({ title: "Erro ao deletar clip", variant: "destructive" });
+        toast({ title: t("shots_delete_error"), variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "Erro ao deletar clip", description: err?.message, variant: "destructive" });
+      toast({ title: t("shots_delete_error"), description: err?.message, variant: "destructive" });
     } finally {
       setIsDeletingShot(false);
       setDeleteShotDialogOpen(false);
@@ -376,7 +378,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     return (
       <div className="flex flex-col items-center justify-center h-full w-full bg-black gap-4">
         <LoadingSpinner className="h-12 w-12" />
-        <p className="text-sm text-muted-foreground">Carregando shots...</p>
+        <p className="text-sm text-muted-foreground">{t("shots_loading")}</p>
       </div>
     );
   }
@@ -385,7 +387,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     return (
       <div className="flex items-center justify-center h-full w-full bg-black">
         <p className="text-sm text-muted-foreground">
-          Erro ao carregar shots. Tente novamente.
+          {t("shots_error")}
         </p>
       </div>
     );
@@ -395,7 +397,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     return (
       <div className="flex items-center justify-center h-full w-full bg-black">
         <p className="text-sm text-muted-foreground">
-          Nenhum clip disponível ainda.
+          {t("shots_empty")}
         </p>
       </div>
     );
@@ -457,7 +459,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  Vídeo indisponível
+                  {t("shots_video_unavailable")}
                 </div>
               )}
 
@@ -473,18 +475,18 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     Object.values(videoRefsMap.current).forEach((v) => { v.muted = newMuted; });
                   }}
                   className="flex items-center gap-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
-                  aria-label={isMuted ? "Ativar som" : "Silenciar"}
+                  aria-label={isMuted ? t("shots_unmute_label") : t("shots_mute_label")}
                 >
                   {isMuted ? (
-                    <><VolumeX className="h-4 w-4" /><span>Mudo</span></>
+                    <><VolumeX className="h-4 w-4" /><span>{t("shots_muted")}</span></>
                   ) : (
-                    <><Volume2 className="h-4 w-4" /><span>Som</span></>
+                    <><Volume2 className="h-4 w-4" /><span>{t("shots_sound")}</span></>
                   )}
                 </button>
                 {user?.id === shot.user_id && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button aria-label="Opções do clipe" className="flex items-center justify-center h-8 w-8 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors">
+                      <button aria-label={t("shots_options_label")} className="flex items-center justify-center h-8 w-8 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors">
                         <MoreVertical className="h-4 w-4" />
                       </button>
                     </DropdownMenuTrigger>
@@ -494,7 +496,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                         setEditShotOpen(true);
                       }}>
                         <Edit2 className="h-4 w-4 mr-2" />
-                        Editar descrição
+                        {t("shots_edit_desc")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
@@ -504,7 +506,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                         }}
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
-                        Excluir clip
+                        {t("shots_delete_clip")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -610,7 +612,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
           `}</style>
           <div className="flex flex-col items-center gap-4">
             <p className="text-white text-lg font-semibold drop-shadow-lg">
-              Deslize para ver mais shots
+              {t("shots_swipe_hint")}
             </p>
             <div className="text-4xl swipe-finger">☝️</div>
           </div>
@@ -621,7 +623,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
             }}
             className="absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-2 bg-white/20 hover:bg-white/30 text-white rounded-full text-sm font-medium transition-colors pointer-events-auto"
           >
-            Entendi
+            {t("shots_swipe_ok")}
           </button>
         </div>
       )}
@@ -643,20 +645,20 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />
-              Excluir clip
+              {t("shots_delete_title")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir este clip? Esta ação não pode ser desfeita. O vídeo, curtidas e comentários serão removidos permanentemente.
+              {t("shots_delete_desc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingShot}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeletingShot}>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDeleteShot}
               disabled={isDeletingShot}
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             >
-              {isDeletingShot ? "Excluindo..." : "Excluir"}
+              {isDeletingShot ? t("shots_delete_deleting") : t("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -666,19 +668,19 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
       <AlertDialog open={deleteCommentDialogOpen} onOpenChange={setDeleteCommentDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir comentário</AlertDialogTitle>
+            <AlertDialogTitle>{t("shots_comment_delete_title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir este comentário? Esta ação não pode ser desfeita.
+              {t("shots_comment_delete_desc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeletingComment}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeletingComment}>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDeleteComment}
               disabled={isDeletingComment}
               className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             >
-              {isDeletingComment ? "Excluindo..." : "Excluir"}
+              {isDeletingComment ? t("shots_comment_deleting") : t("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -691,14 +693,14 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
       >
         <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader>
-            <DrawerTitle>Comentários</DrawerTitle>
-            <DrawerDescription className="sr-only">Comentários deste shot</DrawerDescription>
+            <DrawerTitle>{t("comments_title")}</DrawerTitle>
+            <DrawerDescription className="sr-only">{t("shots_comments_desc")}</DrawerDescription>
           </DrawerHeader>
 
           <div className="flex-1 overflow-y-auto space-y-4 px-4 py-4">
             {isLoadingComments ? (
               <p className="text-sm text-muted-foreground text-center">
-                Carregando comentários...
+                {t("comments_loading")}
               </p>
             ) : comments && comments.length > 0 ? (
               comments.map((comment) => (
@@ -739,7 +741,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
               ))
             ) : (
               <p className="text-sm text-muted-foreground text-center">
-                Sem comentários ainda. Seja o primeiro a comentar!
+                {t("shots_comments_empty")}
               </p>
             )}
           </div>
@@ -748,7 +750,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
           {selectedShot && (
             <div className="flex gap-2 border-t border-border/60 px-4 py-4 items-center">
               <Input
-                placeholder="Adicione um comentário..."
+                placeholder={t("comments_placeholder")}
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
                 onKeyDown={(e) => {
