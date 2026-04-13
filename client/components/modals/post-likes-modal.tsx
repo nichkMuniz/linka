@@ -76,7 +76,7 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col">
+      <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0 border-b border-border/60">
           <div className="space-y-3">
             <DrawerTitle className="flex items-center gap-2">

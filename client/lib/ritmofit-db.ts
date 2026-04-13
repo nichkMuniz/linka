@@ -96,6 +96,17 @@ async function ensureProfile(): Promise<DbProfile | null> {
   const user = await getViewer();
   if (!user || !supabase) return null;
 
+  // Return from profile cache if still valid
+  const cachedProfile = _profileCache.get(user.id);
+  if (cachedProfile && Date.now() < cachedProfile.expiry && cachedProfile.data) {
+    return {
+      id: cachedProfile.data.id,
+      nickname: cachedProfile.data.nickname,
+      handle: cachedProfile.data.handle ?? `@${cachedProfile.data.nickname}`,
+      avatarUrl: cachedProfile.data.photo ?? undefined,
+    };
+  }
+
   const email = String(user.email ?? "");
   const emailPrefix = email.includes("@") ? email.split("@")[0] : email;
 
@@ -241,23 +252,29 @@ export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
     return { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
   }
   return cached(`postLikes:${postId}`, CACHE_TTL_SHORT, async () => {
-  // Fetch counts per type in parallel — 6 lightweight HEAD requests instead of fetching all rows
-  const [r1, r2, r3, r4, r5, r6] = await Promise.all([
-    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 1),
-    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 2),
-    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 3),
-    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 4),
-    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 5),
-    supabase.from("likes").select("id", { count: "exact", head: true }).eq("post_id", postId).eq("type", 6),
-  ]);
+  // Single query — fetch all likes for this post and count by type in JS
+  const { data, error } = await supabase
+    .from("likes")
+    .select("type")
+    .eq("post_id", postId);
+
+  if (error || !data) {
+    return { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
+  }
+
+  const counts = [0, 0, 0, 0, 0, 0];
+  for (const row of data) {
+    const t = Number(row.type);
+    if (t >= 1 && t <= 6) counts[t - 1]++;
+  }
 
   return {
-    apoio: r1.count ?? 0,
-    continua: r2.count ?? 0,
-    ganhador: r3.count ?? 0,
-    consegueMais: r4.count ?? 0,
-    limiteMaior: r5.count ?? 0,
-    maisAlgum: r6.count ?? 0,
+    apoio: counts[0],
+    continua: counts[1],
+    ganhador: counts[2],
+    consegueMais: counts[3],
+    limiteMaior: counts[4],
+    maisAlgum: counts[5],
   };
 
   });
@@ -1108,6 +1125,9 @@ export async function updateUserProfileDb(
 
   if (!data) return null;
 
+  invalidateQueryCache("userStats");
+  invalidateQueryCache("allUsers");
+
   return {
     id: String(data.id ?? ""),
     nickname: String(data.nickname ?? ""),
@@ -1120,7 +1140,6 @@ export async function updateUserProfileDb(
     weight: data.weight != null ? String(data.weight) : null,
     age: data.age != null ? String(data.age) : null,
   };
-  invalidateQueryCache("userStats"); invalidateQueryCache("allUsers");
 }
 
 export async function updateUserPersonalDataDb(
@@ -1145,7 +1164,10 @@ export async function updateUserPersonalDataDb(
     console.error("Error updating personal data:", errorMsg);
     throw new Error(`Erro ao salvar dados pessoais: ${errorMsg}`);
   }
-  invalidateQueryCache("userStats"); invalidateQueryCache("allUsers");
+
+  invalidateProfileCache(userId);
+  invalidateQueryCache("userStats");
+  invalidateQueryCache("allUsers");
 }
 
 export type PostWithUser = {
@@ -3906,6 +3928,7 @@ export type Conversation = {
   userNickname: string;
   userPhoto: string | null;
   userGender?: string | null;
+  userBio?: string | null;
   lastMessage: string;
   lastMessageTime: string;
   unreadCount: number;
@@ -3999,12 +4022,12 @@ export async function getConversationsDb(): Promise<Conversation[]> {
 
     // Batch-fetch all conversation partner profiles in a single query
     const otherUserIds = Array.from(conversationMap.keys()).filter(Boolean);
-    const profileMap = new Map<string, { nickname: string; photo: string | null; gender: string | null }>();
+    const profileMap = new Map<string, { nickname: string; photo: string | null; gender: string | null; bio: string | null }>();
 
     if (otherUserIds.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender")
+        .select("user_id, nickname, photo, gender, bio")
         .in("user_id", otherUserIds);
 
       (profiles ?? []).forEach((p: any) => {
@@ -4012,6 +4035,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
           nickname: String(p.nickname ?? "Usuário"),
           photo: p.photo ? String(p.photo) : null,
           gender: p.gender ? String(p.gender) : null,
+          bio: p.bio ? String(p.bio) : null,
         });
       });
     }
@@ -4020,7 +4044,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     const conversations: Conversation[] = [];
 
     for (const [userId, msgs] of conversationMap.entries()) {
-      const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null, gender: null };
+      const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null, gender: null, bio: null };
       const unreadCount = msgs.filter(
         (msg) => msg.following_id === viewer.id && msg.read === 0,
       ).length;
@@ -4030,6 +4054,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
         userNickname: profile.nickname,
         userPhoto: profile.photo,
         userGender: profile.gender,
+        userBio: profile.bio,
         lastMessage: msgs[0]?.text || "",
         lastMessageTime: msgs[0]?.created_at || new Date().toISOString(),
         unreadCount,

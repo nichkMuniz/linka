@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { Upload, X, Camera, Image } from "lucide-react";
+import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 
 interface FlowCreationDialogProps {
   open: boolean;
@@ -28,6 +29,7 @@ export function FlowCreationDialog({
   const [description, setDescription] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [useCamera, setUseCamera] = React.useState(false);
+  const [pendingCropSrc, setPendingCropSrc] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -79,12 +81,14 @@ export function FlowCreationDialog({
     context.drawImage(videoRef.current, 0, 0);
     const dataUrl = canvasRef.current.toDataURL("image/jpeg");
 
-    setMediaPreview(dataUrl);
+    // Open cropper instead of setting directly
+    setPendingCropSrc(dataUrl);
     stopCamera();
   }, [stopCamera]);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    event.target.value = "";
     if (!file) return;
 
     // Validate file type
@@ -115,10 +119,16 @@ export function FlowCreationDialog({
       return;
     }
 
-    // Create preview
     const reader = new FileReader();
     reader.onload = (e) => {
-      setMediaPreview(e.target?.result as string);
+      const result = e.target?.result as string;
+      if (file.type.startsWith("image/")) {
+        // Open cropper for images
+        setPendingCropSrc(result);
+      } else {
+        // Videos go straight to preview
+        setMediaPreview(result);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -164,6 +174,7 @@ export function FlowCreationDialog({
       setMediaPreview(null);
       setDescription("");
       setUseCamera(false);
+      setPendingCropSrc(null);
       stopCamera();
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -176,8 +187,9 @@ export function FlowCreationDialog({
   };
 
   return (
+    <>
     <Drawer open={open} onOpenChange={handleOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col">
+      <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="text-center">
           <DrawerTitle>Criar novo flow</DrawerTitle>
           <DrawerDescription>
@@ -309,5 +321,22 @@ export function FlowCreationDialog({
         </div>
       </DrawerContent>
     </Drawer>
+
+    <ImageCropperDrawer
+      imageSrc={pendingCropSrc}
+      aspectRatio={9 / 16}
+      onConfirm={(dataUrl) => {
+        setMediaPreview(dataUrl);
+        setPendingCropSrc(null);
+      }}
+      onCancel={() => {
+        setPendingCropSrc(null);
+        // If user cancels and there's no preview yet, re-open camera options
+        if (!mediaPreview) {
+          setUseCamera(false);
+        }
+      }}
+    />
+    </>
   );
 }

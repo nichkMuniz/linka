@@ -22,9 +22,10 @@ import {
   addNetworkStatusListener,
   getNetworkStatus,
 } from "@/lib/network-status";
-import { Fingerprint, Upload, X, Search, Check, ArrowLeft, Eye, EyeOff } from "lucide-react";
+import { Fingerprint, Upload, X, Search, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { getAllUsersDb, type SearchUser, followUserDb, createOrUpdateCommercialProfileDb } from "@/lib/ritmofit-db";
+import { getAllUsersDb, type SearchUser, followUserDb, createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan } from "@/lib/ritmofit-db";
+import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -106,6 +107,10 @@ export default function Login() {
   const [signupStep, setSignupStep] = React.useState(1);
   const [photoFile, setPhotoFile] = React.useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = React.useState<string>("");
+  const [pendingLoginPhotoCropSrc, setPendingLoginPhotoCropSrc] = React.useState<string | null>(null);
+  const pendingLoginPhotoFileRef = React.useRef<File | null>(null);
+  const [pendingLoginLogoCropSrc, setPendingLoginLogoCropSrc] = React.useState<string | null>(null);
+  const pendingLoginLogoFileRef = React.useRef<File | null>(null);
   const [bio, setBio] = React.useState("");
   const [hasCommercialProfile, setHasCommercialProfile] = React.useState(false);
   const [selectedSegments, setSelectedSegments] = React.useState<Set<string>>(new Set());
@@ -132,6 +137,9 @@ export default function Login() {
   const [showPassword, setShowPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [commercialWizardStep, setCommercialWizardStep] = React.useState(1);
+  const [businessLogoFile, setBusinessLogoFile] = React.useState<File | null>(null);
+  const [businessLogoPreview, setBusinessLogoPreview] = React.useState<string>("");
+  const [servicePlans, setServicePlans] = React.useState<ServicePlan[]>([{ name: "", price: null, description: "" }]);
   const [isCompletingSignup, setIsCompletingSignup] = React.useState(false);
 
   const canSubmit =
@@ -303,12 +311,22 @@ export default function Login() {
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = "";
     if (file) {
-      setPhotoFile(file);
+      pendingLoginPhotoFileRef.current = file;
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
-      };
+      reader.onloadend = () => setPendingLoginPhotoCropSrc(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleBusinessLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = "";
+    if (file) {
+      pendingLoginLogoFileRef.current = file;
+      const reader = new FileReader();
+      reader.onloadend = () => setPendingLoginLogoCropSrc(reader.result as string);
       reader.readAsDataURL(file);
     }
   };
@@ -346,6 +364,10 @@ export default function Login() {
       });
       return;
     }
+    setCommercialWizardStep(4);
+  };
+
+  const handleCommercialPlansComplete = () => {
     setSignupStep(2.8);
   };
 
@@ -452,6 +474,20 @@ export default function Login() {
         // Save commercial profile if user selected it
         if (hasCommercialProfile && (commercialData.business_name.trim() || commercialData.business_segment)) {
           try {
+            // Upload business logo if provided
+            let businessLogoUrl: string | undefined;
+            if (businessLogoFile) {
+              const extension = businessLogoFile.name.split(".").pop() || "jpg";
+              const filePath = `${authUser.id}/business-logo-${Date.now()}.${extension}`;
+              const { error: logoUploadError } = await supabase.storage
+                .from("posts")
+                .upload(filePath, businessLogoFile, { contentType: businessLogoFile.type });
+              if (!logoUploadError) {
+                const { data: { publicUrl } } = supabase.storage.from("posts").getPublicUrl(filePath);
+                businessLogoUrl = publicUrl;
+              }
+            }
+
             await createOrUpdateCommercialProfileDb(authUser.id, {
               business_segment: commercialData.business_segment,
               business_name: commercialData.business_name,
@@ -459,8 +495,14 @@ export default function Login() {
               business_phone: commercialData.business_phone,
               business_email: commercialData.business_email,
               business_website: commercialData.business_website,
+              ...(businessLogoUrl ? { business_logo_url: businessLogoUrl } : {}),
               is_active: true,
             });
+
+            // Save service plans if any were added
+            if (servicePlans.length > 0) {
+              await saveCommercialPlansDb(authUser.id, servicePlans);
+            }
           } catch (commercialErr) {
             console.error("Error saving commercial profile:", commercialErr);
             // Non-fatal: continue signup flow
@@ -799,7 +841,7 @@ export default function Login() {
               <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
                 Verificando sessão...
               </div>
-            ) : user ? (
+            ) : user && !isCompletingSignup ? (
               <div className="grid gap-3">
                 <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
                   <div className="text-sm font-semibold">
@@ -1294,12 +1336,13 @@ export default function Login() {
                           {commercialWizardStep === 1 && "Informações principais do seu negócio"}
                           {commercialWizardStep === 2 && "Como seus clientes podem te contatar?"}
                           {commercialWizardStep === 3 && "Presença online (opcional)"}
+                          {commercialWizardStep === 4 && "Seus planos e serviços (opcional)"}
                         </p>
                       </div>
 
                       {/* Wizard progress dots */}
                       <div className="flex items-center justify-center gap-2">
-                        {[1, 2, 3].map((s) => (
+                        {[1, 2, 3, 4].map((s) => (
                           <div
                             key={s}
                             className={`h-2 rounded-full transition-all duration-300 ${s === commercialWizardStep
@@ -1344,6 +1387,37 @@ export default function Login() {
                               }
                               placeholder="Ex: Academia Força Total"
                             />
+                          </div>
+
+                          <div className="grid gap-2">
+                            <Label>
+                              Logo do negócio{" "}
+                              <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+                            </Label>
+                            <div className="flex items-center gap-3">
+                              {businessLogoPreview ? (
+                                <div className="relative w-16 h-16 shrink-0">
+                                  <img src={businessLogoPreview} alt="Logo preview" className="w-16 h-16 rounded-lg object-cover border-2 border-border/60" />
+                                  <button
+                                    type="button"
+                                    onClick={() => { setBusinessLogoFile(null); setBusinessLogoPreview(""); }}
+                                    className="absolute -top-1 -right-1 z-10 bg-black/70 text-white p-0.5 rounded-full border border-white/30"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="w-16 h-16 rounded-lg bg-muted border-2 border-dashed border-border/60 flex items-center justify-center shrink-0">
+                                  <Upload className="h-5 w-5 text-muted-foreground" />
+                                </div>
+                              )}
+                              <label className="relative flex-1">
+                                <Button type="button" variant="outline" className="rounded-full w-full" asChild>
+                                  <span>{businessLogoFile ? "Mudar logo" : "Adicionar logo"}</span>
+                                </Button>
+                                <input type="file" accept="image/*" onChange={handleBusinessLogoChange} className="hidden" />
+                              </label>
+                            </div>
                           </div>
 
                           <div className="grid gap-2">
@@ -1504,9 +1578,128 @@ export default function Login() {
                               disabled={!!(commercialData.business_website && !isValidUrl(commercialData.business_website))}
                               onClick={handleCommercialDataComplete}
                             >
+                              Próximo
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Sub-step 4: Service Plans */}
+                      {commercialWizardStep === 4 && (
+                        <div className="grid gap-3">
+
+                          {/* Lista de planos */}
+                          <div className="space-y-3">
+                            {servicePlans.map((plan, idx) => (
+                              <div key={idx} className="rounded-lg border border-border/60 bg-card p-3 grid gap-3">
+                                {/* Header do card com número e botão remover */}
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                    Plano {idx + 1}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    aria-label="Remover plano"
+                                    onClick={() => setServicePlans(servicePlans.filter((_, i) => i !== idx))}
+                                    className="text-muted-foreground hover:text-destructive transition-colors p-1 rounded-md hover:bg-destructive/10"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+
+                                {/* Nome */}
+                                <div className="grid gap-1.5">
+                                  <Label className="text-xs">Nome do plano *</Label>
+                                  <Input
+                                    value={plan.name}
+                                    onChange={(e) => {
+                                      const updated = [...servicePlans];
+                                      updated[idx] = { ...updated[idx], name: e.target.value };
+                                      setServicePlans(updated);
+                                    }}
+                                    placeholder="Ex: Mensal, Trimestral, Aula avulsa…"
+                                  />
+                                </div>
+
+                                {/* Preço */}
+                                <div className="grid gap-1.5">
+                                  <Label className="text-xs">
+                                    Preço{" "}
+                                    <span className="text-muted-foreground font-normal">(deixe vazio para "sob consulta")</span>
+                                  </Label>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm select-none">R$</span>
+                                    <Input
+                                      type="number"
+                                      inputMode="decimal"
+                                      min={0}
+                                      value={plan.price ?? ""}
+                                      onChange={(e) => {
+                                        const updated = [...servicePlans];
+                                        updated[idx] = { ...updated[idx], price: e.target.value === "" ? null : parseFloat(e.target.value) };
+                                        setServicePlans(updated);
+                                      }}
+                                      placeholder="0,00"
+                                      className="pl-9"
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Descrição */}
+                                <div className="grid gap-1.5">
+                                  <Label className="text-xs">
+                                    O que está incluído{" "}
+                                    <span className="text-muted-foreground font-normal">(opcional)</span>
+                                  </Label>
+                                  <Input
+                                    value={plan.description ?? ""}
+                                    onChange={(e) => {
+                                      const updated = [...servicePlans];
+                                      updated[idx] = { ...updated[idx], description: e.target.value };
+                                      setServicePlans(updated);
+                                    }}
+                                    placeholder="Ex: 4 aulas/semana + avaliação física"
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-full w-full"
+                            onClick={() => setServicePlans([...servicePlans, { name: "", price: null, description: "" }])}
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Adicionar plano
+                          </Button>
+
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-full flex-1"
+                              onClick={() => setCommercialWizardStep(3)}
+                            >
+                              Voltar
+                            </Button>
+                            <Button
+                              type="button"
+                              className="rounded-full flex-1"
+                              onClick={handleCommercialPlansComplete}
+                            >
                               Concluir
                             </Button>
                           </div>
+
+                          <button
+                            type="button"
+                            className="text-xs text-muted-foreground hover:text-foreground text-center transition-colors"
+                            onClick={handleCommercialPlansComplete}
+                          >
+                            Adicionar planos depois →
+                          </button>
                         </div>
                       )}
                     </div>
@@ -1532,7 +1725,7 @@ export default function Login() {
                               key={opt.value}
                               type="button"
                               onClick={() => setGender(gender === opt.value ? "" : opt.value)}
-                              className={`rounded-lg border-2 py-2 px-3 text-sm font-medium transition-all ${gender === opt.value
+                              className={`rounded-lg border-2 py-2 px-1 text-xs font-medium transition-all ${gender === opt.value
                                 ? "border-brand bg-brand/10 text-brand"
                                 : "border-border/60 hover:border-border"
                                 }`}
@@ -1666,6 +1859,32 @@ export default function Login() {
           </CardContent>
         </Card>
       </div>
+
+      <ImageCropperDrawer
+        imageSrc={pendingLoginPhotoCropSrc}
+        aspectRatio={1}
+        onConfirm={(dataUrl, blob) => {
+          const file = pendingLoginPhotoFileRef.current;
+          if (!file) return;
+          setPhotoFile(new File([blob], file.name, { type: "image/jpeg" }));
+          setPhotoPreview(dataUrl);
+          setPendingLoginPhotoCropSrc(null);
+        }}
+        onCancel={() => setPendingLoginPhotoCropSrc(null)}
+      />
+
+      <ImageCropperDrawer
+        imageSrc={pendingLoginLogoCropSrc}
+        aspectRatio={1}
+        onConfirm={(dataUrl, blob) => {
+          const file = pendingLoginLogoFileRef.current;
+          if (!file) return;
+          setBusinessLogoFile(new File([blob], file.name, { type: "image/jpeg" }));
+          setBusinessLogoPreview(dataUrl);
+          setPendingLoginLogoCropSrc(null);
+        }}
+        onCancel={() => setPendingLoginLogoCropSrc(null)}
+      />
     </div>
   );
 }

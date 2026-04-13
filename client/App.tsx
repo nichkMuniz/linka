@@ -22,7 +22,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { FloatingActionMenu } from "@/components/layout/floating-action-menu";
 
-import { useAuth } from "@/hooks/useAuth";
+import { useAuthContext as useAuth, AuthProvider } from "@/lib/auth-context";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useTheme } from "next-themes";
 
@@ -133,6 +133,7 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <AuthProvider>
       <LanguageProvider>
         <WorkoutProvider>
           <ThemeProvider>
@@ -176,6 +177,7 @@ const App = () => {
           </ThemeProvider>
         </WorkoutProvider>
       </LanguageProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 };

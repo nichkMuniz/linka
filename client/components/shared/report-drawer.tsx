@@ -73,7 +73,7 @@ export function ReportDrawer({ open, onOpenChange, type, target }: ReportDrawerP
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent>
+      <DrawerContent onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader>
           <DrawerTitle>
             {type === "user" ? "Denunciar usuário" : "Denunciar post"}

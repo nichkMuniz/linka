@@ -69,8 +69,11 @@ export async function getUserSafe(): Promise<User | null> {
   if (!supabase) return null;
 
   try {
-    const { data } = await supabase.auth.getUser();
-    return data.user ?? null;
+    // getSession() reads from localStorage — no network round-trip.
+    // getUser() validates with the server on every call; reserve it for
+    // security-sensitive paths (e.g. after a suspected token compromise).
+    const { data: sessionData } = await supabase.auth.getSession();
+    return sessionData.session?.user ?? null;
   } catch (err) {
     // Handle AbortError (request was cancelled/aborted)
     if (err instanceof DOMException && err.name === "AbortError") {

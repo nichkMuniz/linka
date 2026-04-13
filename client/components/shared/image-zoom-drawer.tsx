@@ -19,7 +19,7 @@ interface ImageZoomDrawerProps {
 export function ImageZoomDrawer({ item, onClose }: ImageZoomDrawerProps) {
   return (
     <Drawer open={!!item} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DrawerContent className="h-[100dvh] mt-0 rounded-none flex flex-col modal-enter !z-[150]" overlayClassName="!z-[140]">
+      <DrawerContent className="h-[100dvh] mt-0 rounded-none flex flex-col modal-enter !z-[150]" overlayClassName="!z-[140]" onOpenAutoFocus={(e) => e.preventDefault()}>
         {item && (
           <>
             <button

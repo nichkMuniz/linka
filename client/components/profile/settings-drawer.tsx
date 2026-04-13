@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import {
   updateUserProfileDb,
   createOrUpdateCommercialProfileDb,
@@ -91,7 +92,8 @@ export function SettingsDrawer({
 
   // --- Account & Security ---
   const [isAccountOpen, setIsAccountOpen] = React.useState(false);
-  const [isDangerZoneOpen, setIsDangerZoneOpen] = React.useState(false);
+  const [editEmail, setEditEmail] = React.useState("");
+  const [isChangingEmail, setIsChangingEmail] = React.useState(false);
   const [editNickname, setEditNickname] = React.useState("");
   const [editBio, setEditBio] = React.useState("");
   const [editHandle, setEditHandle] = React.useState("");
@@ -99,6 +101,10 @@ export function SettingsDrawer({
   const [editPhotoFile, setEditPhotoFile] = React.useState<File | null>(null);
   const [editPhotoPreview, setEditPhotoPreview] = React.useState<string | null>(null);
   const [removePhoto, setRemovePhoto] = React.useState(false);
+  const [pendingPhotoCropSrc, setPendingPhotoCropSrc] = React.useState<string | null>(null);
+  const pendingPhotoFileRef = React.useRef<File | null>(null);
+  const [pendingLogoCropSrc, setPendingLogoCropSrc] = React.useState<string | null>(null);
+  const pendingLogoFileRef = React.useRef<File | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
 
@@ -116,11 +122,12 @@ export function SettingsDrawer({
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-    setEditPhotoFile(file);
+    pendingPhotoFileRef.current = file;
     setRemovePhoto(false);
     const reader = new FileReader();
-    reader.onload = (ev) => setEditPhotoPreview(ev.target?.result as string);
+    reader.onload = (ev) => setPendingPhotoCropSrc(ev.target?.result as string);
     reader.readAsDataURL(file);
   };
 
@@ -313,7 +320,16 @@ export function SettingsDrawer({
   const handleSavePersonalData = async () => {
     setIsSavingPersonalData(true);
     try {
-      await updateUserPersonalDataDb(userId, personalDataForm);
+      await Promise.all([
+        updateUserPersonalDataDb(userId, personalDataForm),
+        updateUserProfileDb(userId, {
+          nickname: profile.nickname,
+          bio: profile.bio ?? undefined,
+          photo: profile.photo ?? null,
+          handle: profile.handle ?? undefined,
+          objectives: editObjectives.length > 0 ? editObjectives : null,
+        }).then((updated) => { if (updated) onProfileUpdated(updated); }),
+      ]);
       toast({ title: "Dados salvos!", description: "Suas informações pessoais foram atualizadas." });
     } catch (err: any) {
       toast({ title: "Erro", description: err?.message || "Falha ao salvar dados.", variant: "destructive" });
@@ -352,7 +368,7 @@ export function SettingsDrawer({
           <Settings className="h-4 w-4" />
         </Button>
 
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Configurações</DrawerTitle>
           </DrawerHeader>
@@ -368,7 +384,7 @@ export function SettingsDrawer({
                 <span>Meu Perfil</span>
                 <User className="h-4 w-4" />
               </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0 flex items-center gap-2">
                   {subDrawerBack(setIsEditOpen)}
                   <DrawerTitle>Meu Perfil</DrawerTitle>
@@ -447,32 +463,6 @@ export function SettingsDrawer({
                         </div>
                         <p className="text-xs text-muted-foreground">Apenas letras, números, _ e .</p>
                       </div>
-                      {/* Objectives */}
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Objetivos</label>
-                        <div className="grid grid-cols-2 gap-2">
-                          {[
-                            { id: "fitness", label: "🏋️ Fitness & Musculação" },
-                            { id: "cardio", label: "🏃 Cardio & Corrida" },
-                            { id: "diets", label: "🥗 Dietas & Nutrição" },
-                            { id: "habits", label: "🎯 Hábitos & Mindfulness" },
-                            { id: "yoga", label: "🧘 Yoga & Flexibilidade" },
-                            { id: "sports", label: "⚽ Esportes" },
-                          ].map((obj) => {
-                            const selected = editObjectives.includes(obj.id);
-                            return (
-                              <button
-                                key={obj.id}
-                                type="button"
-                                onClick={() => setEditObjectives((prev) => selected ? prev.filter((o) => o !== obj.id) : [...prev, obj.id])}
-                                className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-muted border-border hover:bg-muted/80"}`}
-                              >
-                                {obj.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
                       <Button onClick={handleSaveProfile} disabled={isSaving} className="w-full rounded-full">
                         {isSaving ? "Salvando..." : "Salvar Alterações"}
                       </Button>
@@ -503,6 +493,32 @@ export function SettingsDrawer({
                         <label className="text-sm font-medium">Idade</label>
                         <Input type="number" min={10} max={120} step={1} value={personalDataForm.age} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 28" />
                       </div>
+                      {/* Objectives */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Objetivos</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { id: "fitness", label: "🏋️ Fitness & Musculação" },
+                            { id: "cardio", label: "🏃 Cardio & Corrida" },
+                            { id: "diets", label: "🥗 Dietas & Nutrição" },
+                            { id: "habits", label: "🎯 Hábitos & Mindfulness" },
+                            { id: "yoga", label: "🧘 Yoga & Flexibilidade" },
+                            { id: "sports", label: "⚽ Esportes" },
+                          ].map((obj) => {
+                            const selected = editObjectives.includes(obj.id);
+                            return (
+                              <button
+                                key={obj.id}
+                                type="button"
+                                onClick={() => setEditObjectives((prev) => selected ? prev.filter((o) => o !== obj.id) : [...prev, obj.id])}
+                                className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-muted border-border hover:bg-muted/80"}`}
+                              >
+                                {obj.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                       <Button onClick={handleSavePersonalData} disabled={isSavingPersonalData} className="w-full rounded-full">
                         {isSavingPersonalData ? "Salvando..." : "Salvar"}
                       </Button>
@@ -514,22 +530,48 @@ export function SettingsDrawer({
 
             {/* Account & Security */}
             <Drawer open={isAccountOpen} onOpenChange={setIsAccountOpen}>
-              <Button onClick={() => setIsAccountOpen(true)} variant="outline" className="gap-2 justify-between">
+              <Button onClick={() => { setEditEmail(userEmail); setIsAccountOpen(true); }} variant="outline" className="gap-2 justify-between">
                 <span>Conta e Segurança</span>
                 <Settings className="h-4 w-4" />
               </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0 flex items-center gap-2">
                   {subDrawerBack(setIsAccountOpen)}
                   <DrawerTitle>Conta e Segurança</DrawerTitle>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-4">
-                    {/* Email (read-only) */}
+                    {/* Email */}
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Email</label>
-                      <Input type="email" value={userEmail} disabled className="opacity-70" />
-                      <p className="text-xs text-muted-foreground">Email não pode ser alterado aqui</p>
+                      <Input
+                        type="email"
+                        value={editEmail}
+                        onChange={(e) => setEditEmail(e.target.value)}
+                        placeholder="seu@email.com"
+                      />
+                      <Button
+                        onClick={async () => {
+                          const trimmed = editEmail.trim();
+                          if (!trimmed || trimmed === userEmail) return;
+                          setIsChangingEmail(true);
+                          try {
+                            const { error } = await supabase.auth.updateUser({ email: trimmed });
+                            if (error) throw error;
+                            toast({ title: "Confirmação enviada", description: "Verifique seu novo email para confirmar a alteração." });
+                          } catch {
+                            toast({ title: "Erro", description: "Não foi possível alterar o email.", variant: "destructive" });
+                          } finally {
+                            setIsChangingEmail(false);
+                          }
+                        }}
+                        disabled={isChangingEmail || !editEmail.trim() || editEmail.trim() === userEmail}
+                        variant="outline"
+                        className="w-full rounded-full"
+                      >
+                        {isChangingEmail ? "Enviando..." : "Alterar Email"}
+                      </Button>
+                      <p className="text-xs text-muted-foreground">Um link de confirmação será enviado para o novo email</p>
                     </div>
                     {/* Password Reset */}
                     <div className="space-y-2">
@@ -557,26 +599,17 @@ export function SettingsDrawer({
                       <p className="text-xs text-muted-foreground">Você receberá um link para redefinir sua senha</p>
                     </div>
                     {/* Danger Zone */}
-                    <div className="border-t pt-4">
-                      <Collapsible open={isDangerZoneOpen} onOpenChange={setIsDangerZoneOpen}>
-                        <CollapsibleTrigger asChild>
-                          <button className="flex items-center justify-between w-full text-left">
-                            <h3 className="text-sm font-semibold text-destructive">Zona de Perigo</h3>
-                            <ChevronDown className={`h-4 w-4 transition-transform text-destructive ${isDangerZoneOpen ? "rotate-180" : ""}`} />
-                          </button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="pt-3 space-y-2">
-                          <Button
-                            onClick={() => { setIsAccountOpen(false); onRequestDeleteAccount(); }}
-                            variant="destructive"
-                            className="w-full rounded-full gap-2"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Encerrar Conta
-                          </Button>
-                          <p className="text-xs text-muted-foreground">Esta ação é permanente e não pode ser desfeita</p>
-                        </CollapsibleContent>
-                      </Collapsible>
+                    <div className="border-t pt-4 space-y-3">
+                      <h3 className="text-sm font-semibold text-destructive">Zona de Perigo</h3>
+                      <Button
+                        onClick={() => { setIsAccountOpen(false); onRequestDeleteAccount(); }}
+                        variant="destructive"
+                        className="w-full rounded-full gap-2"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Encerrar Conta
+                      </Button>
+                      <p className="text-xs text-muted-foreground">Esta ação é permanente e não pode ser desfeita</p>
                     </div>
                   </div>
                 </div>
@@ -596,7 +629,7 @@ export function SettingsDrawer({
                   <BarChart3 className="h-4 w-4" />
                 </Button>
                 <Drawer open={isCommercialDashboardOpen} onOpenChange={setIsCommercialDashboardOpen}>
-                  <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+                  <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                     <DrawerHeader className="shrink-0">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
@@ -722,7 +755,7 @@ export function SettingsDrawer({
                   <span className="text-lg">🏪</span>
                 </Button>
               )}
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsCommercialOpen)}
@@ -781,9 +814,12 @@ export function SettingsDrawer({
                           </span>
                           <input type="file" accept="image/*" className="hidden" onChange={(e) => {
                             const file = e.target.files?.[0];
+                            e.target.value = "";
                             if (!file) return;
-                            setCommercialLogoFile(file);
-                            setCommercialLogoPreview(URL.createObjectURL(file));
+                            pendingLogoFileRef.current = file;
+                            const reader = new FileReader();
+                            reader.onload = (ev) => setPendingLogoCropSrc(ev.target?.result as string);
+                            reader.readAsDataURL(file);
                           }} />
                         </label>
                         {commercialLogoPreview && (
@@ -860,7 +896,7 @@ export function SettingsDrawer({
                 <span>Idioma</span>
                 <Globe className="h-4 w-4" />
               </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsLanguageOpen)}
@@ -886,7 +922,7 @@ export function SettingsDrawer({
                 <span>Notificações</span>
                 <Bell className="h-4 w-4" />
               </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsNotificationsOpen)}
@@ -933,7 +969,7 @@ export function SettingsDrawer({
                 <span>Gerenciamento de Tempo</span>
                 <BarChart3 className="h-4 w-4" />
               </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsTimeManagementOpen)}
@@ -974,7 +1010,7 @@ export function SettingsDrawer({
                 <span>Personalização</span>
                 <span>🎨</span>
               </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsPersonalizationOpen)}
@@ -1005,7 +1041,7 @@ export function SettingsDrawer({
                 <span>Arquivo de Flows</span>
                 <span>🕐</span>
               </Button>
-              <DrawerContent className="max-h-[85dvh] flex flex-col modal-enter">
+              <DrawerContent className="max-h-[85dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsFlowHistoryOpen)}
@@ -1053,6 +1089,34 @@ export function SettingsDrawer({
           </div>
         </DrawerContent>
       </Drawer>
+
+      {/* Cropper — profile photo */}
+      <ImageCropperDrawer
+        imageSrc={pendingPhotoCropSrc}
+        aspectRatio={1}
+        onConfirm={(dataUrl, blob) => {
+          const original = pendingPhotoFileRef.current;
+          const croppedFile = new File([blob], original?.name ?? "photo.jpg", { type: "image/jpeg" });
+          setEditPhotoFile(croppedFile);
+          setEditPhotoPreview(dataUrl);
+          setPendingPhotoCropSrc(null);
+        }}
+        onCancel={() => setPendingPhotoCropSrc(null)}
+      />
+
+      {/* Cropper — commercial logo */}
+      <ImageCropperDrawer
+        imageSrc={pendingLogoCropSrc}
+        aspectRatio={1}
+        onConfirm={(dataUrl, blob) => {
+          const original = pendingLogoFileRef.current;
+          const croppedFile = new File([blob], original?.name ?? "logo.jpg", { type: "image/jpeg" });
+          setCommercialLogoFile(croppedFile);
+          setCommercialLogoPreview(dataUrl);
+          setPendingLogoCropSrc(null);
+        }}
+        onCancel={() => setPendingLogoCropSrc(null)}
+      />
     </>
   );
 }

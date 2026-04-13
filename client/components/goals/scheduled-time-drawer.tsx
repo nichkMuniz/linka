@@ -43,7 +43,7 @@ export function ScheduledTimeDrawer({
 
   return (
     <Drawer open={open} onOpenChange={(v) => { if (!v) onOpenChange(false); }}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle className="flex items-center gap-2">
             <Bell className="h-4 w-4 text-brand" />

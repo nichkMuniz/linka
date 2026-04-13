@@ -79,13 +79,14 @@ Fluxo multi-etapas com 5 passos:
 | Bio | Textarea | Descrição pessoal, opcional |
 | Perfil comercial | Toggle | Ativa campos de negócio |
 
-**Se perfil comercial ativado → abre wizard comercial (Step 2.5) com 3 sub-etapas:**
+**Se perfil comercial ativado → abre wizard comercial (Step 2.5) com 4 sub-etapas:**
 
 **Sub-etapa 1 — Essenciais:**
 | Campo | Tipo | Obrigatório |
 |---|---|---|
 | Segmento do negócio | Select | ✓ |
 | Nome do negócio | Input | ✓ |
+| Logo do negócio | File upload (imagem) | — |
 | Descrição | Textarea | — |
 
 **Sub-etapa 2 — Contato:**
@@ -99,7 +100,16 @@ Fluxo multi-etapas com 5 passos:
 |---|---|
 | Site / Portfolio | Input URL |
 
-Exibe resumo do perfil comercial antes de concluir. Botão "Pular por agora" disponível nas sub-etapas opcionais.
+Exibe resumo do perfil comercial antes de concluir.
+
+**Sub-etapa 4 — Planos e Serviços:**
+| Campo | Tipo |
+|---|---|
+| Nome do plano | Input |
+| Preço (R$) | Input number (null = "sob consulta") |
+| Descrição do plano | Input |
+
+Permite adicionar múltiplos planos via botão "Adicionar plano". Cada plano pode ser removido individualmente. Botão "Adicionar planos depois →" permite pular. Os planos são salvos na tabela `commercial_plans` via `saveCommercialPlansDb`. A logo é enviada para o Supabase Storage e a URL salva em `business_logo_url`.
 
 **Botões:** Voltar | Próximo / Concluir
 

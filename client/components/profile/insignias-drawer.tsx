@@ -71,7 +71,7 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[85dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30 pb-6">
+      <DrawerContent className="max-h-[85dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30 pb-6" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0 border-b border-border/60">
           <DrawerTitle className="flex items-center gap-2">
             <span className="text-2xl">🏆</span>

@@ -539,17 +539,19 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                 )}
               </div>
 
-              {/* Description - Bottom Left */}
-              <div className="absolute bottom-20 left-4 right-20 z-10">
-                {shot.description && (
-                  <p className="text-sm text-white drop-shadow-md leading-relaxed">
-                    {shot.description}
-                  </p>
-                )}
-              </div>
+              {/* Bottom Area: Description + Incentive Buttons aligned together */}
+              <div className="absolute bottom-6 left-0 right-0 z-10 flex items-end px-4 gap-3">
+                {/* Description - Bottom Left */}
+                <div className="flex-1 min-w-0">
+                  {shot.description && (
+                    <p className="text-sm text-white drop-shadow-md leading-relaxed">
+                      {shot.description}
+                    </p>
+                  )}
+                </div>
 
-              {/* Incentive Buttons + Comments - Right Side */}
-              <div className="absolute right-6 bottom-20 flex flex-col gap-3 z-20">
+                {/* Incentive Buttons + Comments - Right Side */}
+                <div className="flex-shrink-0 flex flex-col gap-3 z-20">
                 {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
                   const likeKeyMap: Record<number, keyof typeof shot.likes> = {
                     1: "apoio", 2: "continua", 3: "ganhador",
@@ -587,6 +589,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     )}
                   </div>
                 </button>
+                </div>
               </div>
 
             </div>
@@ -686,7 +689,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         open={commentsOpen && selectedShot !== null}
         onOpenChange={setCommentsOpen}
       >
-        <DrawerContent className="max-h-[80dvh] flex flex-col">
+        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader>
             <DrawerTitle>Comentários</DrawerTitle>
             <DrawerDescription className="sr-only">Comentários deste shot</DrawerDescription>

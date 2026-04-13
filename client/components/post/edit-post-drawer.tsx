@@ -59,7 +59,7 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
 
   return (
     <Drawer open={open} onOpenChange={(v) => { if (!v) onOpenChange(false); }}>
-      <DrawerContent className="max-h-[85dvh] flex flex-col">
+      <DrawerContent className="max-h-[85dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader>
           <DrawerTitle>Editar post</DrawerTitle>
         </DrawerHeader>

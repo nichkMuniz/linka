@@ -21,7 +21,8 @@ import {
   type UserGoal,
   incrementGoalProgressDb,
 } from "@/lib/ritmofit-db";
-import { ImagePlus, Loader2, ChevronLeft, ChevronRight, X, Video, Sparkles, Target, Upload, Clapperboard } from "lucide-react";
+import { ImagePlus, Loader2, ChevronLeft, ChevronRight, X, Video, Sparkles, Target, Upload, Clapperboard, Crop } from "lucide-react";
+import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 
 // Module-level draft store — persists across navigation within the same SPA session
 // (survives React unmount/remount; cleared on page reload or explicit reset)
@@ -49,6 +50,13 @@ export default function NewPost() {
   const [isLoadingGoals, setIsLoadingGoals] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState(() => sessionStorage.getItem("newpost_tab") || "images");
+
+  // Crop state — when set, shows the cropper before adding the image
+  const [pendingCropSrc, setPendingCropSrc] = React.useState<string | null>(null);
+  const pendingFileRef = React.useRef<File | null>(null);
+  const pendingFileQueueRef = React.useRef<File[]>([]);
+  // Crop state for editing an already-added image
+  const [editCropIndex, setEditCropIndex] = React.useState<number | null>(null);
   const redirectTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cancel any pending redirect on unmount
@@ -94,9 +102,44 @@ export default function NewPost() {
       .finally(() => setIsLoadingGoals(false));
   }, [user, authLoading]);
 
+  // Opens cropper for the next file in queue
+  const processNextInQueue = () => {
+    const queue = pendingFileQueueRef.current;
+    if (queue.length === 0) {
+      pendingFileRef.current = null;
+      setPendingCropSrc(null);
+      return;
+    }
+    const file = queue[0];
+    pendingFileRef.current = file;
+    const reader = new FileReader();
+    reader.onloadend = () => setPendingCropSrc(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleCropConfirm = (dataUrl: string, blob: Blob) => {
+    const file = pendingFileRef.current;
+    if (!file) return;
+    // Create a new File from the cropped blob
+    const croppedFile = new File([blob], file.name, { type: "image/jpeg" });
+    setSelectedFiles((prev) => [...prev, croppedFile]);
+    setPreviewUrls((prev) => [...prev, dataUrl]);
+    // Remove processed file from queue and go to next
+    pendingFileQueueRef.current = pendingFileQueueRef.current.slice(1);
+    processNextInQueue();
+  };
+
+  const handleCropCancel = () => {
+    // Skip this image, go to next
+    pendingFileQueueRef.current = pendingFileQueueRef.current.slice(1);
+    processNextInQueue();
+  };
+
   // Handle image file selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
+    // Reset input so same file can be picked again
+    e.target.value = "";
     if (files.length === 0) return;
 
     const validFiles: File[] = [];
@@ -123,28 +166,12 @@ export default function NewPost() {
 
     if (validFiles.length === 0) return;
 
-    // Read all files in parallel and preserve order via index
-    const readFile = (file: File): Promise<string> =>
-      new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = () => reject(new Error(`Falha ao ler ${file.name}`));
-        reader.readAsDataURL(file);
-      });
-
-    Promise.all(validFiles.map(readFile))
-      .then((previews) => {
-        setSelectedFiles((prev) => [...prev, ...validFiles]);
-        setPreviewUrls((prev) => [...prev, ...previews]);
-      })
-      .catch((err) => {
-        console.error("Error reading image files:", err);
-        toast({
-          title: "Erro ao carregar imagem",
-          description: err?.message || "Não foi possível ler o arquivo. Tente novamente.",
-          variant: "destructive",
-        });
-      });
+    // Queue all files for cropping one by one
+    pendingFileQueueRef.current = [...pendingFileQueueRef.current, ...validFiles];
+    // If not already processing, start
+    if (!pendingCropSrc) {
+      processNextInQueue();
+    }
   };
 
   // Handle video file selection
@@ -462,6 +489,14 @@ export default function NewPost() {
                         alt={`Preview ${currentPreviewIndex + 1}`}
                         className="w-full max-h-[32rem] object-contain rounded-lg border border-border/60 bg-black/5"
                       />
+                      {/* Edit/crop button */}
+                      <button
+                        onClick={() => setEditCropIndex(currentPreviewIndex)}
+                        className="absolute top-2 left-2 flex items-center gap-1 bg-black/60 hover:bg-black/80 text-white text-xs font-medium px-2.5 py-1.5 rounded-full transition-colors"
+                      >
+                        <Crop className="h-3.5 w-3.5" />
+                        Editar
+                      </button>
 
                       {/* Navigation Buttons */}
                       {previewUrls.length > 1 && (
@@ -779,6 +814,29 @@ export default function NewPost() {
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* Cropper for new images (queue) */}
+      <ImageCropperDrawer
+        imageSrc={pendingCropSrc}
+        aspectRatio={1}
+        onConfirm={handleCropConfirm}
+        onCancel={handleCropCancel}
+      />
+
+      {/* Cropper for re-editing an existing image */}
+      <ImageCropperDrawer
+        imageSrc={editCropIndex !== null ? previewUrls[editCropIndex] : null}
+        aspectRatio={1}
+        onConfirm={(dataUrl, blob) => {
+          if (editCropIndex === null) return;
+          const original = selectedFiles[editCropIndex];
+          const croppedFile = new File([blob], original?.name ?? "photo.jpg", { type: "image/jpeg" });
+          setSelectedFiles((prev) => prev.map((f, i) => i === editCropIndex ? croppedFile : f));
+          setPreviewUrls((prev) => prev.map((u, i) => i === editCropIndex ? dataUrl : u));
+          setEditCropIndex(null);
+        }}
+        onCancel={() => setEditCropIndex(null)}
+      />
     </div>
   );
 }

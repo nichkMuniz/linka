@@ -72,7 +72,7 @@ export function AddMembersDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
+      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Adicionar Membros</DrawerTitle>
           <DrawerDescription className="sr-only">Convide pessoas para o grupo</DrawerDescription>

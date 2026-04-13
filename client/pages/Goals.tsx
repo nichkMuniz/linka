@@ -151,6 +151,7 @@ import { EditGoalDrawer } from "@/components/goals/edit-goal-drawer";
 import { MoodDialog } from "@/components/goals/mood-dialog";
 import { RenameRoutineDialog } from "@/components/goals/rename-routine-dialog";
 import { ImageZoomDrawer } from "@/components/shared/image-zoom-drawer";
+import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { CreateWorkoutDrawer } from "@/components/goals/create-workout-drawer";
 import { CreateGoalDrawer } from "@/components/goals/create-goal-drawer";
 import { LinkGoalDrawer } from "@/components/goals/link-goal-drawer";
@@ -296,6 +297,9 @@ export default function Goals() {
   const [workoutCoverFiles, setWorkoutCoverFiles] = React.useState<File[]>([]);
   const [workoutCoverPreviews, setWorkoutCoverPreviews] = React.useState<string[]>([]);
   const [coverCarouselIndex, setCoverCarouselIndex] = React.useState(0);
+  const [pendingCoverCropSrc, setPendingCoverCropSrc] = React.useState<string | null>(null);
+  const pendingCoverFileRef = React.useRef<File | null>(null);
+  const pendingCoverQueueRef = React.useRef<File[]>([]);
   const [canvasPreviewUrl, setCanvasPreviewUrl] = React.useState<string | null>(null);
   const [prCanvasPreviewUrl, setPrCanvasPreviewUrl] = React.useState<string | null>(null);
   const workoutCanvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -2246,7 +2250,7 @@ export default function Goals() {
                   onClick={() => setCreateGoalDrawerOpen(true)}
                 >
                   <Plus className="h-4 w-4" />
-                  Não encontrei minha meta
+                  Crie sua própria meta
                 </Button>
               </div>
             </>
@@ -3117,7 +3121,7 @@ export default function Goals() {
 
       {/* Add Routine Drawer Modal */}
       <Drawer open={addRoutineModalOpen} onOpenChange={(open) => { setAddRoutineModalOpen(open); if (!open) setIsAddingFromWorkout(false); }}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Adicionar Rotina</DrawerTitle>
           </DrawerHeader>
@@ -3303,8 +3307,8 @@ export default function Goals() {
                             type="button"
                             onClick={() => setSelectedWorkoutType(opt.value)}
                             className={`text-xs px-3 py-1 rounded-full border transition-all ${selectedWorkoutType === opt.value
-                                ? "border-brand bg-brand/15 text-brand font-medium"
-                                : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
+                              ? "border-brand bg-brand/15 text-brand font-medium"
+                              : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
                               }`}
                           >
                             {opt.label}
@@ -3668,11 +3672,10 @@ export default function Goals() {
                 <div className="flex gap-2 mt-2 overflow-x-auto scrollbar-none pb-0.5">
                   <button
                     onClick={() => setWorkoutModalMuscleFilter(null)}
-                    className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                      workoutModalMuscleFilter === null
-                        ? "bg-brand text-white"
-                        : "bg-muted/60 text-muted-foreground hover:bg-muted"
-                    }`}
+                    className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${workoutModalMuscleFilter === null
+                      ? "bg-brand text-white"
+                      : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                      }`}
                   >
                     Todos
                   </button>
@@ -3680,11 +3683,10 @@ export default function Goals() {
                     <button
                       key={mg}
                       onClick={() => setWorkoutModalMuscleFilter(workoutModalMuscleFilter === mg ? null : mg)}
-                      className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                        workoutModalMuscleFilter === mg
-                          ? "bg-brand text-white"
-                          : "bg-muted/60 text-muted-foreground hover:bg-muted"
-                      }`}
+                      className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${workoutModalMuscleFilter === mg
+                        ? "bg-brand text-white"
+                        : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                        }`}
                     >
                       {mg}
                     </button>
@@ -4163,7 +4165,7 @@ export default function Goals() {
 
       {/* Finish Workout Confirmation Drawer */}
       <Drawer open={finishWorkoutConfirmOpen} onOpenChange={setFinishWorkoutConfirmOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Confirmar Encerramento do Treino</DrawerTitle>
           </DrawerHeader>
@@ -4329,34 +4331,34 @@ export default function Goals() {
           }
         };
 
+        const processNextCoverInQueue = () => {
+          const queue = pendingCoverQueueRef.current;
+          if (queue.length === 0) {
+            pendingCoverFileRef.current = null;
+            setPendingCoverCropSrc(null);
+            return;
+          }
+          const file = queue[0];
+          pendingCoverFileRef.current = file;
+          const reader = new FileReader();
+          reader.onloadend = () => setPendingCoverCropSrc(reader.result as string);
+          reader.readAsDataURL(file);
+        };
+
         const handlePickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
           const files = Array.from(e.target.files || []);
+          e.target.value = "";
           if (!files.length) return;
           const valid = files.filter((f) => f.type.startsWith("image/") && f.size <= 10 * 1024 * 1024);
           if (valid.length < files.length) {
             toast({ title: "Alguns arquivos foram ignorados (tipo inválido ou >10MB)", variant: "destructive" });
           }
           if (!valid.length) return;
-          const newFiles = [...workoutCoverFiles, ...valid].slice(0, 10);
-          setWorkoutCoverFiles(newFiles);
-          // +1 to account for canvas slide at index 0
-          setCoverCarouselIndex(1 + newFiles.length - 1);
-          const previews: string[] = [...workoutCoverPreviews];
-          let loaded = 0;
-          newFiles.forEach((file, i) => {
-            if (i < workoutCoverPreviews.length) {
-              loaded++;
-              if (loaded === newFiles.length) setWorkoutCoverPreviews([...previews]);
-            } else {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                previews[i] = reader.result as string;
-                loaded++;
-                if (loaded === newFiles.length) setWorkoutCoverPreviews([...previews]);
-              };
-              reader.readAsDataURL(file);
-            }
-          });
+          // Queue for cropping
+          pendingCoverQueueRef.current = [...pendingCoverQueueRef.current, ...valid];
+          if (!pendingCoverCropSrc) {
+            processNextCoverInQueue();
+          }
         };
 
         const handleRemoveCoverPhoto = (index: number) => {
@@ -4805,7 +4807,7 @@ export default function Goals() {
       />
       {/* LEGACY INLINE DRAWER REMOVED — kept below as dead block for reference, delete after QA */}
       {false && <Drawer open={false} onOpenChange={() => { }}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30">
+        <DrawerContent className="max-h-[80dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0 border-b border-border/60">
             <DrawerTitle className="flex items-center gap-2">
               <span className="text-2xl">🏆</span>
@@ -4982,7 +4984,7 @@ export default function Goals() {
 
       {/* Workout History Drawer */}
       <Drawer open={workoutHistoryModalOpen} onOpenChange={setWorkoutHistoryModalOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               Histórico de {selectedWorkoutForHistory?.name || "Exercício"}
@@ -5236,7 +5238,7 @@ export default function Goals() {
 
       {/* Routine Selection Modal for Goal Cards */}
       <Drawer open={goalRoutineModalOpen} onOpenChange={setGoalRoutineModalOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               {goalRoutineModalMode === "view"
@@ -5758,6 +5760,53 @@ export default function Goals() {
       />
       <ImageZoomDrawer item={imageZoom} onClose={() => setImageZoom(null)} />
 
+      {/* Cropper para fotos de capa do treino */}
+      <ImageCropperDrawer
+        imageSrc={pendingCoverCropSrc}
+        aspectRatio={1}
+        onConfirm={(dataUrl, blob) => {
+          const file = pendingCoverFileRef.current;
+          if (!file) return;
+          const croppedFile = new File([blob], file.name, { type: "image/jpeg" });
+          setWorkoutCoverFiles((prev) => {
+            const next = [...prev, croppedFile].slice(0, 10);
+            return next;
+          });
+          setWorkoutCoverPreviews((prev) => {
+            const next = [...prev, dataUrl].slice(0, 10);
+            setCoverCarouselIndex(1 + next.length - 1);
+            return next;
+          });
+          pendingCoverQueueRef.current = pendingCoverQueueRef.current.slice(1);
+          // process next after state settles
+          setTimeout(() => {
+            if (pendingCoverQueueRef.current.length > 0) {
+              const nextFile = pendingCoverQueueRef.current[0];
+              pendingCoverFileRef.current = nextFile;
+              const reader = new FileReader();
+              reader.onloadend = () => setPendingCoverCropSrc(reader.result as string);
+              reader.readAsDataURL(nextFile);
+            } else {
+              setPendingCoverCropSrc(null);
+            }
+          }, 50);
+        }}
+        onCancel={() => {
+          pendingCoverQueueRef.current = pendingCoverQueueRef.current.slice(1);
+          setTimeout(() => {
+            if (pendingCoverQueueRef.current.length > 0) {
+              const nextFile = pendingCoverQueueRef.current[0];
+              pendingCoverFileRef.current = nextFile;
+              const reader = new FileReader();
+              reader.onloadend = () => setPendingCoverCropSrc(reader.result as string);
+              reader.readAsDataURL(nextFile);
+            } else {
+              setPendingCoverCropSrc(null);
+            }
+          }, 50);
+        }}
+      />
+
       <ScheduledTimeDrawer
         open={scheduledTimeDrawerOpen}
         onOpenChange={setScheduledTimeDrawerOpen}
@@ -5786,7 +5835,7 @@ export default function Goals() {
 
       {/* Goal Completion Celebration Modal */}
       <Dialog open={!!goalCompletedModal} onOpenChange={(open) => { if (!open) { setGoalCompletedModal(null); setGoalCompletionCanvasUrl(null); } }}>
-        <DialogContent className="max-w-sm mx-auto text-center">
+        <DialogContent className="max-w-sm mx-auto text-center" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="text-center text-xl">
               🏆 Meta Concluída!

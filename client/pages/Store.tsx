@@ -81,6 +81,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 
 // ─── Promotion Skeleton ──────────────────────────────────────────────────────
 
@@ -372,6 +373,8 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
   const [expiresAt, setExpiresAt] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [pendingStoreCropSrc, setPendingStoreCropSrc] = React.useState<string | null>(null);
+  const pendingStoreFileRef = React.useRef<File | null>(null);
 
   function reset() {
     setLinkInput("");
@@ -393,6 +396,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast({ title: "Selecione uma imagem válida.", variant: "destructive" });
@@ -402,10 +406,9 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
       toast({ title: "Imagem deve ter no máximo 10MB.", variant: "destructive" });
       return;
     }
-    setUploadFile(file);
-    // Show local preview immediately
+    pendingStoreFileRef.current = file;
     const reader = new FileReader();
-    reader.onload = (ev) => setPhotoUrl(ev.target?.result as string);
+    reader.onload = (ev) => setPendingStoreCropSrc(ev.target?.result as string);
     reader.readAsDataURL(file);
   }
 
@@ -512,8 +515,9 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
   }
 
   return (
+    <>
     <Drawer open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
-      <DrawerContent>
+      <DrawerContent onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2">
             <Tag className="h-5 w-5 text-brand" />
@@ -752,6 +756,21 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
+
+    <ImageCropperDrawer
+      imageSrc={pendingStoreCropSrc}
+      aspectRatio={1}
+      onConfirm={(dataUrl, blob) => {
+        const file = pendingStoreFileRef.current;
+        if (!file) return;
+        const croppedFile = new File([blob], file.name, { type: "image/jpeg" });
+        setUploadFile(croppedFile);
+        setPhotoUrl(dataUrl);
+        setPendingStoreCropSrc(null);
+      }}
+      onCancel={() => setPendingStoreCropSrc(null)}
+    />
+    </>
   );
 }
 
@@ -822,7 +841,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
 
   return (
     <Drawer open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DrawerContent>
+      <DrawerContent onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2">
             <Pencil className="h-5 w-5 text-brand" />
@@ -1603,6 +1622,7 @@ export default function Store() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
     </div>
   );
 }

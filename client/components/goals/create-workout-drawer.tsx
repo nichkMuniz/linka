@@ -59,7 +59,7 @@ export function CreateWorkoutDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Criar Exercício Personalizado</DrawerTitle>
         </DrawerHeader>

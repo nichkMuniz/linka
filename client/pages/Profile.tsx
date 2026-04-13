@@ -1162,7 +1162,7 @@ export default function Profile() {
 
           {/* Plans Modal */}
           <Dialog open={isPlansModalOpen} onOpenChange={setIsPlansModalOpen}>
-            <DialogContent className="max-w-sm rounded-2xl">
+            <DialogContent className="max-w-sm rounded-2xl" onOpenAutoFocus={(e) => e.preventDefault()}>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <ListChecks className="h-5 w-5 text-brand" />
@@ -1373,7 +1373,7 @@ export default function Profile() {
               }
             }}
           >
-            <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+            <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
               <DrawerHeader className="shrink-0">
                 <DrawerTitle>Nova Rotina</DrawerTitle>
               </DrawerHeader>
@@ -1934,7 +1934,7 @@ export default function Profile() {
                           <Tag className="h-5 w-5" />
                         </button>
 
-                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+                        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                           <DrawerHeader className="shrink-0">
                             <DrawerTitle>
                               {linkedGoal ? "Meta Vinculada" : "Vincular Meta"}
@@ -2296,7 +2296,7 @@ export default function Profile() {
 
       {/* Post Viewer Drawer */}
       <Drawer open={isPostViewerOpen} onOpenChange={setIsPostViewerOpen}>
-        <DrawerContent className="max-h-[95dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[95dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           {/* Header compacto com autor inline */}
           <DrawerHeader className="shrink-0 pb-2">
             <div className="flex items-center justify-between">
@@ -2546,7 +2546,7 @@ export default function Profile() {
 
       {/* Delete Routine Confirmation Dialog */}
       <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>Deletar Rotina</DialogTitle>
             <DialogDescription>
@@ -2645,7 +2645,7 @@ export default function Profile() {
         open={confirmDialog.open}
         onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
       >
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter">
+        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader>
             <DrawerTitle>{confirmDialog.title}</DrawerTitle>
             <p className="text-sm text-muted-foreground mt-1">{confirmDialog.description}</p>

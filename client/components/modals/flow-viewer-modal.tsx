@@ -344,7 +344,7 @@ export function FlowViewerModal({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-screen h-screen max-w-none p-0 border-0 bg-black md:bg-black/95 rounded-none overflow-hidden [&>button]:hidden flex items-center justify-center">
+        <DialogContent className="w-screen h-screen max-w-none p-0 border-0 bg-black md:bg-black/95 rounded-none overflow-hidden [& onOpenAutoFocus={(e) => e.preventDefault()}>button]:hidden flex items-center justify-center">
           <DialogTitle className="sr-only">Flow viewer</DialogTitle>
           <DialogDescription className="sr-only">Visualizando flow</DialogDescription>
 
@@ -634,7 +634,7 @@ export function FlowViewerModal({
 
       {/* Comments Drawer */}
       <Drawer open={commentsDrawerOpen} onOpenChange={(o) => { setCommentsDrawerOpen(o); if (!o) { setIsPaused(false); isPausedRef.current = false; } }}>
-        <DrawerContent className="max-h-[85vh]">
+        <DrawerContent className="max-h-[85vh]" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader>
             <DrawerTitle className="flex items-center gap-2 pt-2">
               Comentários ({comments.length})
@@ -686,7 +686,7 @@ export function FlowViewerModal({
 
       {/* Viewers Drawer */}
       <Drawer open={viewersModalOpen} onOpenChange={setViewersModalOpen}>
-        <DrawerContent className="max-h-[85vh]">
+        <DrawerContent className="max-h-[85vh]" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader>
             <DrawerTitle className="flex items-center gap-2 pt-2">
               <Eye className="h-5 w-5" />

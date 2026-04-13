@@ -50,7 +50,7 @@ export function MoodDialog({
 
   return (
     <Dialog open={open} onOpenChange={(open) => { if (!open) onOpenChange(false); }}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-sm" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="text-center text-lg">Como você está se sentindo? 😊</DialogTitle>
         </DialogHeader>

@@ -191,8 +191,8 @@ Aberto pelo botão "Configurações". O menu é organizado em seções com separ
 
 | Configuração | Tipo | Descrição |
 |---|---|---|
-| Meu Perfil | Botão → Drawer aninhado com abas | Drawer unificado com duas abas: **Público** (foto, nome, bio, handle, objetivos) e **Pessoal** (sexo, altura, peso, idade) |
-| Conta e Segurança | Botão → Drawer aninhado | Email (somente leitura), redefinir senha e zona de perigo (encerrar conta) |
+| Meu Perfil | Botão → Drawer aninhado com abas | Drawer unificado com duas abas: **Público** (foto, nome, bio, handle) e **Pessoal** (sexo, altura, peso, idade, objetivos) |
+| Conta e Segurança | Botão → Drawer aninhado | Email (editável com confirmação via link), redefinir senha e zona de perigo (encerrar conta) |
 
 ### Seção: Negócio *(exibida apenas se o usuário tem perfil comercial)*
 

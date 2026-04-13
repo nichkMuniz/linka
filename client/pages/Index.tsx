@@ -1212,7 +1212,7 @@ export default function Index() {
 
       {/* Goal Progress Modal */}
       <Drawer open={goalModalOpen} onOpenChange={setGoalModalOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col">
+        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Progresso da Meta</DrawerTitle>
           </DrawerHeader>

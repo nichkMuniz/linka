@@ -177,7 +177,7 @@ export function PostCommentsDialog({
   );
 
   const drawerContent = (
-    <DrawerContent className="max-h-[80dvh] flex flex-col">
+    <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
       <DrawerHeader className="shrink-0">
         <DrawerTitle>Comentários</DrawerTitle>
         <DrawerDescription className="sr-only">Lista de comentários do post</DrawerDescription>

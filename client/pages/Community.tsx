@@ -118,6 +118,7 @@ export default function Community() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const messageInputRef = React.useRef<HTMLTextAreaElement>(null);
   const [isNewConversationDrawerOpen, setIsNewConversationDrawerOpen] = React.useState(false);
 
   // Group creation state
@@ -627,6 +628,7 @@ export default function Community() {
       });
     } finally {
       setIsSending(false);
+      messageInputRef.current?.focus();
     }
   }, [messageText, selectedConversation]);
 
@@ -723,7 +725,7 @@ export default function Community() {
     return ReactDOM.createPortal(
       <div className={`fixed top-0 left-0 md:left-[244px] right-0 md:right-0 ${bottomClass} bg-background flex flex-col z-[100]`}>
         {/* Header */}
-        <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3">
+        <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3" style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}>
           <button
             onClick={handleBackToConversations}
             className="text-muted-foreground hover:text-foreground flex-shrink-0"
@@ -759,6 +761,9 @@ export default function Community() {
               className="w-20 h-20 ring-2 ring-border"
             />
             <p className="font-semibold text-base">{selectedConversation.userNickname}</p>
+            {selectedConversation.userBio && (
+              <p className="text-sm text-muted-foreground text-center max-w-xs px-4">{selectedConversation.userBio}</p>
+            )}
             <button
               onClick={() => navigate(`/usuario/${selectedConversation.userId}`)}
               className="px-5 py-2 rounded-xl bg-muted hover:bg-muted/70 text-sm font-medium transition-colors"
@@ -852,6 +857,7 @@ export default function Community() {
         {/* Input */}
         <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2">
           <Input
+            ref={messageInputRef}
             placeholder={t("community_type_message")}
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
@@ -2002,7 +2008,7 @@ export default function Community() {
           }
         }}
       >
-        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             {/* Progress indicator */}
             <div className="flex items-center gap-2 mb-2">
@@ -2382,7 +2388,7 @@ export default function Community() {
         open={isAddCheckInModalOpen}
         onOpenChange={setIsAddCheckInModalOpen}
       >
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Adicionar Check-in</DrawerTitle>
             <DrawerDescription className="sr-only">Registre seu check-in de treino</DrawerDescription>
@@ -2670,7 +2676,7 @@ export default function Community() {
 
       {/* Check-in Detail Modal */}
       <Drawer open={isCheckInDetailOpen} onOpenChange={setIsCheckInDetailOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0 flex items-center justify-between">
             <DrawerTitle>Detalhes do Check-in</DrawerTitle>
             <DrawerDescription className="sr-only">Veja detalhes e comentários do check-in</DrawerDescription>
@@ -2876,7 +2882,7 @@ export default function Community() {
 
       {/* Group Details Modal */}
       <Drawer open={isGroupDetailsOpen} onOpenChange={(open) => { setIsGroupDetailsOpen(open); if (!open) setIsEditingGroupInfo(false); }}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0 flex flex-row items-center justify-between pr-4">
             <div>
               <DrawerTitle>Detalhes do Grupo</DrawerTitle>
@@ -3129,7 +3135,7 @@ export default function Community() {
         setIsParticipantsModalOpen(open);
         if (!open) setParticipantDetailsId(null);
       }}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
+        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Participantes ({groupParticipants.length})</DrawerTitle>
             <DrawerDescription className="sr-only">Lista de participantes do grupo</DrawerDescription>
@@ -3248,7 +3254,7 @@ export default function Community() {
 
       {/* Participant Details Modal */}
       <Drawer open={!!participantDetailsId} onOpenChange={(open) => !open && setParticipantDetailsId(null)}>
-        <DrawerContent className="h-[95dvh] flex flex-col z-[110]">
+        <DrawerContent className="h-[95dvh] flex flex-col z-[110]" onOpenAutoFocus={(e) => e.preventDefault()}>
           {(() => {
             if (!participantDetailsId) return null;
             const pInfo = groupParticipants.find(p => p.userId === participantDetailsId);

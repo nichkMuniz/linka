@@ -120,7 +120,7 @@ export function ExecuteAtDrawer({
 
   return (
     <Drawer open={open} onOpenChange={(v) => { if (!v) onOpenChange(false); }}>
-      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter">
+      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Horário para realizar</DrawerTitle>
         </DrawerHeader>

@@ -32,7 +32,7 @@ export function ClassificationsDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
+      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Classificações</DrawerTitle>
           <DrawerDescription className="sr-only">Ranking de membros do grupo</DrawerDescription>

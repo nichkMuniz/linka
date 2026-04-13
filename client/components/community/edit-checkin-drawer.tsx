@@ -53,7 +53,7 @@ export function EditCheckInDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
+      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Editar Check-in</DrawerTitle>
           <DrawerDescription className="sr-only">Edite as informações do seu check-in</DrawerDescription>

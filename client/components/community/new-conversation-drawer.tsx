@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Search } from "lucide-react";
+import { Search, UserSearch } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import {
   Drawer,
   DrawerContent,
@@ -7,6 +8,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { type SearchUser, type Conversation } from "@/lib/ritmofit-db";
 
@@ -24,6 +26,7 @@ export function NewConversationDrawer({
   onSelectFollower,
 }: NewConversationDrawerProps) {
   const [search, setSearch] = React.useState("");
+  const navigate = useNavigate();
 
   React.useEffect(() => {
     if (!open) setSearch("");
@@ -35,7 +38,7 @@ export function NewConversationDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]">
+      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Nova mensagem</DrawerTitle>
         </DrawerHeader>
@@ -52,7 +55,26 @@ export function NewConversationDrawer({
         </div>
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           {followers.length === 0 ? (
-            <p className="text-center text-muted-foreground text-sm py-8">Você ainda não segue ninguém.</p>
+            <div className="flex flex-col items-center gap-4 py-10 px-2">
+              <div className="bg-muted/40 rounded-full p-4">
+                <UserSearch className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <div className="text-center">
+                <p className="font-medium text-sm">Você ainda não segue ninguém</p>
+                <p className="text-muted-foreground text-sm mt-1">Siga pessoas para poder enviar mensagens.</p>
+              </div>
+              <Button
+                variant="default"
+                className="rounded-full"
+                onClick={() => {
+                  onOpenChange(false);
+                  navigate("/buscar");
+                }}
+              >
+                <Search className="h-4 w-4 mr-2" />
+                Encontrar pessoas
+              </Button>
+            </div>
           ) : (
             filtered.map((follower) => (
               <button
