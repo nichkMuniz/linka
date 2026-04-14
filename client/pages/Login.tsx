@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import {
   addNetworkStatusListener,
+  checkSupabaseReachability,
   getNetworkStatus,
 } from "@/lib/network-status";
 import { Fingerprint, Upload, X, Search, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
@@ -147,8 +148,7 @@ export default function Login() {
     email.trim().length > 0 &&
     password.trim().length >= 6 &&
     hasSupabaseConfig &&
-    networkStatus.isOnline &&
-    networkStatus.isSupabaseReachable;
+    networkStatus.isOnline;
 
   React.useEffect(() => {
     const unsubscribe = addNetworkStatusListener((status) => {
@@ -235,10 +235,26 @@ export default function Login() {
 
     try {
       if (mode === "login") {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: trimmedEmail,
-          password: trimmedPassword,
-        });
+        // On iOS, the network may not be fully ready on app launch. If unreachable,
+        // wait up to 3s for the connection to stabilize before attempting login.
+        if (!networkStatus.isSupabaseReachable) {
+          await checkSupabaseReachability();
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+
+        const attemptLogin = () =>
+          supabase!.auth.signInWithPassword({
+            email: trimmedEmail,
+            password: trimmedPassword,
+          });
+
+        let { error } = await attemptLogin();
+
+        // Auto-retry once on network/fetch errors (common on iOS cold start)
+        if (error && (error.message.toLowerCase().includes("fetch") || error.message.toLowerCase().includes("network") || error.message.toLowerCase().includes("failed"))) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          ({ error } = await attemptLogin());
+        }
 
         if (error) {
           if (isEmailNotConfirmed(error.message)) {
@@ -401,11 +417,26 @@ export default function Login() {
       if (height) signUpMeta.height = parseFloat(height);
       if (weight) signUpMeta.weight = parseFloat(weight);
 
-      const { error: signUpError } = await supabase.auth.signUp({
-        email: trimmedEmail,
-        password: trimmedPassword,
-        options: { data: signUpMeta },
-      });
+      // On iOS, network may not be stable on app launch — wait if unreachable
+      if (!networkStatus.isSupabaseReachable) {
+        await checkSupabaseReachability();
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+
+      const attemptSignUp = () =>
+        supabase!.auth.signUp({
+          email: trimmedEmail,
+          password: trimmedPassword,
+          options: { data: signUpMeta },
+        });
+
+      let { error: signUpError } = await attemptSignUp();
+
+      // Auto-retry once on network errors (common on iOS cold start)
+      if (signUpError && (signUpError.message.toLowerCase().includes("fetch") || signUpError.message.toLowerCase().includes("network") || signUpError.message.toLowerCase().includes("failed"))) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        ({ error: signUpError } = await attemptSignUp());
+      }
 
       if (signUpError) {
         const signUpErrMsg = signUpError.message?.toLowerCase() || "";
@@ -423,7 +454,7 @@ export default function Login() {
       }
 
       // Sign in after signup
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { error: signInError } = await supabase!.auth.signInWithPassword({
         email: trimmedEmail,
         password: trimmedPassword,
       });

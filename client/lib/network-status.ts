@@ -92,18 +92,34 @@ export async function checkSupabaseReachability(): Promise<boolean> {
   }
 }
 
-// Initial check
+// Initial check with retry — iOS WKWebView network stack may not be ready immediately on app launch
+async function initialCheckWithRetry(attempts = 3, delayMs = 2000) {
+  for (let i = 0; i < attempts; i++) {
+    const reachable = await checkSupabaseReachability().catch(() => false);
+    if (reachable) return;
+    if (i < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
 if (navigator.onLine) {
-  checkSupabaseReachability().catch((err) => {
+  initialCheckWithRetry().catch((err) => {
     console.warn("[Network] Initial Supabase reachability check failed:", err);
   });
 }
 
-// Periodic recheck (every 30 seconds)
+// Periodic recheck (every 10 seconds when unreachable, 60 seconds otherwise)
 setInterval(() => {
   if (navigator.onLine && !networkStatus.isSupabaseReachable) {
     checkSupabaseReachability().catch((err) => {
       console.warn("[Network] Periodic Supabase reachability check failed:", err);
     });
   }
-}, 30000);
+}, 10000);
+
+setInterval(() => {
+  if (navigator.onLine && networkStatus.isSupabaseReachable) {
+    checkSupabaseReachability().catch(() => {});
+  }
+}, 60000);
