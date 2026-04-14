@@ -521,12 +521,11 @@ export default function Messages() {
                 handleSendMessage();
               }
             }}
-            disabled={isSending}
             className="rounded-full"
           />
           <Button
             onClick={handleSendMessage}
-            disabled={!messageText.trim() || isSending}
+            disabled={!messageText.trim()}
             size="sm"
             className="rounded-full flex-shrink-0"
           >

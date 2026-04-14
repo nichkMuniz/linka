@@ -5,15 +5,9 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
+import { cn } from "@/lib/utils";
 
 interface ReportTarget {
   id: string;
@@ -96,16 +90,26 @@ export function ReportDrawer({ open, onOpenChange, type, target }: ReportDrawerP
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Motivo da denúncia</label>
-              <Select value={reason} onValueChange={setReason}>
-                <SelectTrigger className="rounded-lg">
-                  <SelectValue placeholder="Selecione um motivo" />
-                </SelectTrigger>
-                <SelectContent side="top" align="center">
-                  {REPORT_REASONS.map((r) => (
-                    <SelectItem key={r} value={r}>{r}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <select
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                className={cn(
+                  "flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-sm",
+                  "ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                  "disabled:cursor-not-allowed disabled:opacity-50",
+                  "appearance-none cursor-pointer",
+                  !reason && "text-muted-foreground"
+                )}
+              >
+                <option value="" disabled hidden>
+                  Selecione um motivo
+                </option>
+                {REPORT_REASONS.map((r) => (
+                  <option key={r} value={r} className="text-foreground bg-background">
+                    {r}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="flex gap-2 pt-4">

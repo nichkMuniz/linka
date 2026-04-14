@@ -7234,7 +7234,7 @@ export async function createDuelGroupDb(
     // Add the creator as accepted participant, invited members as pending
     const rows = [
       { group_id: groupData.id, user_id: createdBy, status: "accepted" },
-      ...members.map((userId) => ({ group_id: groupData.id, user_id: userId, status: "pending" })),
+      ...members.map((userId) => ({ group_id: groupData.id, user_id: userId, status: "invited" })),
     ];
     const { error: participantsError } = await supabase
       .from("duel_group_participants")
@@ -7905,7 +7905,8 @@ export async function deleteGroupCheckInDb(checkInId: string): Promise<void> {
 // Add members to a duel group
 export async function addMembersToGroupDb(
   groupId: string,
-  memberIds: string[]
+  memberIds: string[],
+  status: "pending" | "invited" = "pending"
 ): Promise<void> {
   if (!supabase) throw new Error("Supabase not configured");
 
@@ -7934,7 +7935,7 @@ export async function addMembersToGroupDb(
         newMembers.map((userId) => ({
           group_id: groupId,
           user_id: userId,
-          status: "pending",
+          status: status,
         }))
       );
 
@@ -8028,7 +8029,7 @@ export async function getPendingInvitesDb(): Promise<Array<{ groupId: string; gr
       .from("duel_group_participants")
       .select("group_id, status")
       .eq("user_id", viewer.id)
-      .eq("status", "pending");
+      .eq("status", "invited");
 
     if (error) {
       console.error("getPendingInvitesDb error (status column may not exist in DB):", error);
@@ -8108,7 +8109,7 @@ export async function declineGroupInviteDb(groupId: string): Promise<void> {
     .delete()
     .eq("group_id", groupId)
     .eq("user_id", viewer.id)
-    .eq("status", "pending");
+    .eq("status", "invited");
 
   if (error) throw error;
 

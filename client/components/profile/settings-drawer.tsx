@@ -415,33 +415,31 @@ export function SettingsDrawer({
                       <div className="space-y-2">
                         <label className="text-sm font-medium">Foto do Perfil</label>
                         <div className="flex items-center gap-4">
-                          <div className="h-16 w-16 rounded-full overflow-hidden bg-muted shrink-0">
-                            {editPhotoPreview ? (
-                              <img src={editPhotoPreview} alt="preview" className="h-full w-full object-cover" />
-                            ) : (
-                              <div className="h-full w-full bg-muted" />
-                            )}
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <label>
-                              <Button type="button" variant="outline" size="sm" asChild>
-                                <span><Upload className="h-4 w-4 mr-2" />{t("settings_change_photo")}</span>
-                              </Button>
-                              <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
-                            </label>
+                          <div className="relative h-16 w-16 shrink-0">
+                            <div className="h-16 w-16 rounded-full overflow-hidden bg-muted">
+                              {editPhotoPreview ? (
+                                <img src={editPhotoPreview} alt="preview" className="h-full w-full object-cover" />
+                              ) : (
+                                <div className="h-full w-full bg-muted" />
+                              )}
+                            </div>
                             {editPhotoPreview && (
-                              <Button
+                              <button
                                 type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="text-destructive hover:text-destructive gap-1.5 px-2"
                                 onClick={handleRemovePhoto}
+                                className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-destructive flex items-center justify-center shadow-md ring-2 ring-background"
+                                aria-label={t("settings_remove_photo")}
                               >
-                                <X className="h-4 w-4" />
-                                {t("settings_remove_photo")}
-                              </Button>
+                                <X className="h-3 w-3 text-white" />
+                              </button>
                             )}
                           </div>
+                          <label>
+                            <Button type="button" variant="outline" size="sm" asChild>
+                              <span><Upload className="h-4 w-4 mr-2" />{t("settings_change_photo")}</span>
+                            </Button>
+                            <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                          </label>
                         </div>
                       </div>
                       {/* Name */}
@@ -457,9 +455,14 @@ export function SettingsDrawer({
                       {/* Handle */}
                       <div className="space-y-2">
                         <label className="text-sm font-medium">{t("settings_handle_label")}</label>
-                        <div className="flex items-center gap-1">
-                          <span className="text-muted-foreground text-sm">@</span>
-                          <Input value={editHandle} onChange={(e) => setEditHandle(e.target.value.replace(/[^a-zA-Z0-9_.]/g, ""))} placeholder="seu_handle" />
+                        <div className="flex items-center rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0 overflow-hidden">
+                          <span className="px-3 py-2 text-sm text-muted-foreground bg-muted border-r border-input select-none">@</span>
+                          <Input
+                            value={editHandle}
+                            onChange={(e) => setEditHandle(e.target.value.replace(/[^a-zA-Z0-9_.]/g, ""))}
+                            placeholder="seu_usuario"
+                            className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none"
+                          />
                         </div>
                         <p className="text-xs text-muted-foreground">{t("settings_handle_hint")}</p>
                       </div>
@@ -551,28 +554,32 @@ export function SettingsDrawer({
                         onChange={(e) => setEditEmail(e.target.value)}
                         placeholder="seu@email.com"
                       />
-                      <Button
-                        onClick={async () => {
-                          const trimmed = editEmail.trim();
-                          if (!trimmed || trimmed === userEmail) return;
-                          setIsChangingEmail(true);
-                          try {
-                            const { error } = await supabase.auth.updateUser({ email: trimmed });
-                            if (error) throw error;
-                            toast({ title: t("settings_email_confirm_sent"), description: t("settings_email_confirm_desc") });
-                          } catch {
-                            toast({ title: t("error"), description: t("settings_email_error"), variant: "destructive" });
-                          } finally {
-                            setIsChangingEmail(false);
-                          }
-                        }}
-                        disabled={isChangingEmail || !editEmail.trim() || editEmail.trim() === userEmail}
-                        variant="outline"
-                        className="w-full rounded-full"
-                      >
-                        {isChangingEmail ? t("sending") : t("settings_change_email")}
-                      </Button>
-                      <p className="text-xs text-muted-foreground">{t("settings_change_email_hint")}</p>
+                      {editEmail.trim() && editEmail.trim() !== userEmail && (
+                        <>
+                          <Button
+                            onClick={async () => {
+                              const trimmed = editEmail.trim();
+                              if (!trimmed || trimmed === userEmail) return;
+                              setIsChangingEmail(true);
+                              try {
+                                const { error } = await supabase.auth.updateUser({ email: trimmed });
+                                if (error) throw error;
+                                toast({ title: t("settings_email_confirm_sent"), description: t("settings_email_confirm_desc") });
+                              } catch {
+                                toast({ title: t("error"), description: t("settings_email_error"), variant: "destructive" });
+                              } finally {
+                                setIsChangingEmail(false);
+                              }
+                            }}
+                            disabled={isChangingEmail}
+                            variant="outline"
+                            className="w-full rounded-full"
+                          >
+                            {isChangingEmail ? t("sending") : t("settings_change_email")}
+                          </Button>
+                          <p className="text-xs text-muted-foreground">{t("settings_change_email_hint")}</p>
+                        </>
+                      )}
                     </div>
                     {/* Password Reset */}
                     <div className="space-y-2">
@@ -856,9 +863,9 @@ export function SettingsDrawer({
                         isAddingPlan ? (
                           <div className="space-y-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
                             <p className="text-xs font-medium text-brand">{t("settings_commercial_new_plan")}</p>
-                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_name")} value={newPlanName} onChange={(e) => setNewPlanName(e.target.value)} maxLength={60} />
-                            <input type="number" min="0" step="0.01" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_price")} value={newPlanPrice} onChange={(e) => setNewPlanPrice(e.target.value)} />
-                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_desc")} value={newPlanDescription} onChange={(e) => setNewPlanDescription(e.target.value)} maxLength={100} />
+                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_name")} value={newPlanName} onChange={(e) => setNewPlanName(e.target.value)} maxLength={60} />
+                            <input type="number" min="0" step="0.01" className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_price")} value={newPlanPrice} onChange={(e) => setNewPlanPrice(e.target.value)} />
+                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_desc")} value={newPlanDescription} onChange={(e) => setNewPlanDescription(e.target.value)} maxLength={100} />
                             <div className="flex gap-2">
                               <button type="button" disabled={!newPlanName.trim()} onClick={() => {
                                 if (!newPlanName.trim()) return;

@@ -61,7 +61,7 @@ export function AddMembersDrawer({
       return;
     }
     try {
-      await addMembersToGroupDb(groupId, Array.from(selected));
+      await addMembersToGroupDb(groupId, Array.from(selected), "invited");
       toast({ title: "Membros adicionados!", description: `${selected.size} membro(s) adicionado(s) ao grupo.` });
       onOpenChange(false);
       onMembersAdded();

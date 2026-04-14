@@ -867,12 +867,11 @@ export default function Community() {
                 handleSendMessage();
               }
             }}
-            disabled={isSending}
             className="rounded-full"
           />
           <Button
             onClick={handleSendMessage}
-            disabled={!messageText.trim() || isSending}
+            disabled={!messageText.trim()}
             size="sm"
             className="rounded-full flex-shrink-0"
           >
@@ -1142,10 +1141,10 @@ export default function Community() {
       )}
 
       {/* Duels Tab - Full Screen Group View */}
-      {selectedGroupForView && (
-        <div className="fixed inset-0 md:inset-y-0 md:left-[244px] md:right-0 bg-background flex flex-col z-[51] md:max-w-[680px] md:mx-auto">
+      {selectedGroupForView && ReactDOM.createPortal(
+        <div className="fixed top-0 left-0 right-0 bottom-0 md:left-[244px] md:right-0 bg-background flex flex-col z-[100] md:max-w-[680px] md:mx-auto">
           {/* Header with Back Button */}
-          <div className="flex-shrink-0 px-4 pt-3 pb-0 flex items-center justify-start border-b border-border/40">
+          <div className="flex-shrink-0 px-4 pb-0 flex items-center justify-start border-b border-border/40" style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}>
             <button
               onClick={() => {
                 setSelectedGroupForView(null);
@@ -1470,7 +1469,7 @@ export default function Community() {
           </div>
 
           {/* Centered Add Check-in Button at Bottom */}
-          <div className="fixed bottom-20 right-4 z-[53] md:bottom-20 md:left-[244px] md:right-0 md:max-w-[680px] md:mx-auto md:flex md:justify-end md:pr-4 md:pointer-events-none [&>*]:pointer-events-auto">
+          <div className="fixed bottom-6 right-4 z-[101] md:bottom-6 md:left-[244px] md:right-0 md:max-w-[680px] md:mx-auto md:flex md:justify-end md:pr-4 md:pointer-events-none [&>*]:pointer-events-auto">
             <button
               onClick={() => {
                 if (!user?.id) return;
@@ -1560,7 +1559,8 @@ export default function Community() {
               </div>
             </div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Duels Tab */}
@@ -1572,7 +1572,7 @@ export default function Community() {
           </div>
 
           {/* Duels Grid */}
-          <div className="flex-1 overflow-y-auto px-3 pb-24 pt-4 space-y-6">
+          <div className="flex-1 overflow-y-auto px-3 pb-4 pt-4 space-y-6">
             {/* User Created Groups Section */}
             {userCreatedGroups.length > 0 && (
               <div>
@@ -1732,20 +1732,20 @@ export default function Community() {
             </div>
           </div>
 
-          {/* Centered Create Group Button at Bottom */}
-          <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 z-[51] px-4">
-            <Button
+          {/* Floating Create Group Button */}
+          <div className="fixed bottom-20 right-4 z-[53] md:bottom-20 md:left-[244px] md:right-0 md:max-w-[680px] md:mx-auto md:flex md:justify-end md:pr-4 md:pointer-events-none [&>*]:pointer-events-auto">
+            <button
               onClick={() => {
                 setGroupStep(1);
                 setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "" });
                 setSelectedInvitees(new Set());
                 setIsCreateGroupModalOpen(true);
               }}
-              className="gap-2 rounded-full px-6 h-12"
+              className="h-14 w-14 rounded-full bg-brand text-white flex items-center justify-center hover:bg-brand/90 transition-colors shadow-lg"
+              title={t("duels_create")}
             >
-              <Plus className="h-4 w-4" />
-              {t("duels_create")}
-            </Button>
+              <Plus className="h-6 w-6" />
+            </button>
           </div>
         </>
       )}
@@ -1801,9 +1801,7 @@ export default function Community() {
                                 {rankUser.userNickname}
                                 {isCurrentUser && <span className="ml-1 text-xs text-brand">({t("ranking_you")})</span>}
                               </p>
-                              <p className="text-xs text-muted-foreground">
-                                {t("ranking_level")} {rankUser.level}
-                              </p>
+
                             </div>
                           </div>
 

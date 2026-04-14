@@ -542,7 +542,14 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
               </div>
 
               {/* Bottom Area: Description + Incentive Buttons aligned together */}
-              <div className="absolute bottom-6 left-0 right-0 z-10 flex items-end px-4 gap-3">
+              <div
+                className="absolute left-0 right-0 z-10 flex items-end px-4 gap-3"
+                style={{
+                  bottom: isDesktop
+                    ? "1.5rem"
+                    : "calc(68px + env(safe-area-inset-bottom) + 0.75rem)",
+                }}
+              >
                 {/* Description - Bottom Left */}
                 <div className="flex-1 min-w-0">
                   {shot.description && (

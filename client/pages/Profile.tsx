@@ -175,6 +175,8 @@ export default function Profile() {
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
+  const [shareDrawerUrl, setShareDrawerUrl] = React.useState<string | undefined>(undefined);
+  const [shareDrawerImageUrl, setShareDrawerImageUrl] = React.useState<string | undefined>(undefined);
   const [posts, setPosts] = React.useState<PostWithUser[]>([]);
   const [shots, setShots] = React.useState<ShotWithUser[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
@@ -1041,8 +1043,19 @@ export default function Profile() {
                 <p className="text-sm text-muted-foreground -mt-2">@{profile.handle}</p>
               )}
 
+            </div>
+          </div>
+
+            {/* Bio and Commercial Profile */}
+            <div className="space-y-2">
+              {profile.bio && (
+                <p className="text-sm text-muted-foreground text-center">
+                  {profile.bio}
+                </p>
+              )}
+
               {/* Stats inline minimalista */}
-              <div className="flex items-center gap-1.5 text-sm">
+              <div className="flex items-center justify-center gap-1.5 text-sm pt-2">
                 <span className="font-semibold">{stats.postsCount}</span>
                 <span className="text-muted-foreground">posts</span>
                 <span className="text-muted-foreground/40">·</span>
@@ -1056,17 +1069,6 @@ export default function Profile() {
                   <span className="text-muted-foreground">seguindo</span>
                 </button>
               </div>
-
-            </div>
-          </div>
-
-            {/* Bio and Commercial Profile */}
-            <div className="space-y-2">
-              {profile.bio && (
-                <p className="text-sm text-muted-foreground text-center">
-                  {profile.bio}
-                </p>
-              )}
 
               {/* Commercial Profile Info */}
               {commercialProfile && (
@@ -1182,7 +1184,10 @@ export default function Profile() {
                 className="rounded-full gap-2"
                 onClick={() => {
                   const text = `Confira o perfil de @${profile?.nickname} no Linka! 💪`;
+                  const profileUrl = `${window.location.origin}/usuario/${profileUserId}`;
                   setShareDrawerText(text);
+                  setShareDrawerUrl(profileUrl);
+                  setShareDrawerImageUrl(profile?.photo ?? undefined);
                   setShareDrawerOpen(true);
                 }}
               >
@@ -1201,7 +1206,10 @@ export default function Profile() {
                 onClick={() => {
                   const tier = stats.points >= 1000 ? "Elite" : stats.points >= 500 ? "Ouro" : stats.points >= 200 ? "Prata" : "Bronze";
                   const text = `Estou no Linka no nível ${stats.level} (${tier}) com ${stats.points} pontos! 🏋️ Junte-se a mim: @${profile.nickname}`;
+                  const profileUrl = `${window.location.origin}/usuario/${profileUserId}`;
                   setShareDrawerText(text);
+                  setShareDrawerUrl(profileUrl);
+                  setShareDrawerImageUrl(profile.photo ?? undefined);
                   setShareDrawerOpen(true);
                 }}
               >
@@ -2505,6 +2513,8 @@ export default function Profile() {
         open={shareDrawerOpen}
         onOpenChange={setShareDrawerOpen}
         text={shareDrawerText}
+        url={shareDrawerUrl}
+        imageUrl={shareDrawerImageUrl}
         title="Compartilhar perfil"
       />
 

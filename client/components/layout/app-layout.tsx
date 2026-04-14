@@ -468,7 +468,12 @@ export function AppLayout() {
         </main>
 
         {layoutMode === "default" && (
-          <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/60 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65">
+          <nav className={cn(
+            "fixed bottom-0 left-0 right-0 z-50 border-t border-border/60",
+            location.pathname === "/shots"
+              ? "bg-background"
+              : "bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65"
+          )}>
             <div className="grid w-full grid-cols-5 px-1" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
               {mainNavItems.map((item) => {
                 const active = isActivePath(location.pathname, item.to);
@@ -516,16 +521,22 @@ export function AppLayout() {
 
         return (
           <div className="fixed bottom-24 right-4 z-[150] flex items-center gap-2">
-            {!hasAnyValues && (
-              <button
-                onClick={() => resetWorkoutState()}
-                className="flex items-center justify-center bg-destructive text-white rounded-full shadow-lg w-10 h-10 transition-all active:scale-95"
-                title="Cancelar treino"
-                aria-label="Cancelar treino"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            )}
+            <button
+              onClick={() => {
+                if (hasAnyValues) {
+                  if (window.confirm("Encerrar treino? Os dados registrados serão descartados.")) {
+                    resetWorkoutState();
+                  }
+                } else {
+                  resetWorkoutState();
+                }
+              }}
+              className="flex items-center justify-center bg-destructive text-white rounded-full shadow-lg w-10 h-10 transition-all active:scale-95"
+              title="Encerrar treino"
+              aria-label="Encerrar treino"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
             <button
               onClick={() => {
                 setPendingReopen(true);

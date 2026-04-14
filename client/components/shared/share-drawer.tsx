@@ -5,16 +5,17 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
-import { Copy, Link, MessageCircle } from "lucide-react";
+import { Copy, Link, ExternalLink, ImageIcon } from "lucide-react";
 
 interface ShareDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   text: string;
-  /** URL a ser compartilhada. Se não fornecida, usa apenas o texto. */
+  /** URL a ser compartilhada. Se não fornecida, usa a URL atual. */
   url?: string;
+  /** URL de imagem para exibir no preview card */
+  imageUrl?: string;
   /** Imagem em Blob para compartilhar no Instagram (via Web Share API Level 2) */
   imageBlob?: Blob | null;
   /** Título do drawer */
@@ -26,11 +27,12 @@ export function ShareDrawer({
   onOpenChange,
   text,
   url,
+  imageUrl,
   imageBlob,
   title = "Compartilhar",
 }: ShareDrawerProps) {
-  const fullText = url ? `${text}\n\n${url}` : text;
   const shareUrl = url || window.location.href;
+  const fullText = `${text}\n\n${shareUrl}`;
 
   const handleNativeShare = async () => {
     if (!navigator.share) return false;
@@ -53,7 +55,7 @@ export function ShareDrawer({
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(fullText).then(() => {
-      toast({ title: "Copiado!", description: "Texto copiado para a área de transferência." });
+      toast({ title: "Copiado!", description: "Texto e link copiados para a área de transferência." });
       onOpenChange(false);
     }).catch(() => {
       toast({ title: "Erro", description: "Não foi possível copiar.", variant: "destructive" });
@@ -73,12 +75,8 @@ export function ShareDrawer({
   };
 
   const shareInstagram = async () => {
-    // Instagram não tem deep link para compartilhar texto/URL diretamente via web.
-    // A melhor experiência é usar o Web Share API nativo (que inclui Instagram no share sheet do celular)
-    // ou baixar a imagem para que o usuário poste manualmente.
     const shared = await handleNativeShare();
     if (!shared) {
-      // Fallback: copiar e orientar o usuário
       navigator.clipboard.writeText(fullText).catch(() => { });
       toast({
         title: "Texto copiado!",
@@ -91,14 +89,12 @@ export function ShareDrawer({
   };
 
   const shareTelegram = () => {
-    const encoded = encodeURIComponent(fullText);
     window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
     onOpenChange(false);
   };
 
   const shareTwitterX = () => {
-    const encoded = encodeURIComponent(fullText);
-    window.open(`https://twitter.com/intent/tweet?text=${encoded}`, "_blank", "noopener,noreferrer");
+    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fullText)}`, "_blank", "noopener,noreferrer");
     onOpenChange(false);
   };
 
@@ -111,21 +107,52 @@ export function ShareDrawer({
     }
   };
 
+  // Derive a short display URL (no protocol)
+  const displayUrl = shareUrl.replace(/^https?:\/\//, "");
+
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80vh]">
+      <DrawerContent className="max-h-[90vh]">
         <DrawerHeader className="pb-2">
           <DrawerTitle>{title}</DrawerTitle>
         </DrawerHeader>
 
-        <div className="px-4 pb-2">
-          <p className="text-sm text-muted-foreground bg-muted rounded-xl px-3 py-2 line-clamp-3 select-all">
-            {fullText}
-          </p>
+        {/* Preview card */}
+        <div className="px-4 pb-3">
+          <div className="rounded-xl border border-border/60 overflow-hidden bg-card shadow-sm">
+            {/* Image preview */}
+            {imageUrl ? (
+              <div className="w-full aspect-video bg-muted relative overflow-hidden">
+                <img
+                  src={imageUrl}
+                  alt="Preview"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="w-full h-24 bg-muted flex items-center justify-center">
+                <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
+              </div>
+            )}
+
+            {/* Text + link */}
+            <div className="p-3 space-y-2">
+              <p className="text-sm text-foreground line-clamp-2 leading-snug">
+                {text}
+              </p>
+              <div className="flex items-center gap-1.5 text-xs text-primary">
+                <ExternalLink className="h-3 w-3 shrink-0" />
+                <span className="truncate font-medium">{displayUrl}</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* App buttons */}
-        <div className="flex gap-4 px-4 py-4 overflow-x-auto">
+        {/* App share buttons */}
+        <div className="flex gap-4 px-4 py-3 overflow-x-auto">
           {/* WhatsApp */}
           <button
             onClick={shareWhatsApp}

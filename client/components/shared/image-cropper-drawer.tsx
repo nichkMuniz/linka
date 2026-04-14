@@ -88,22 +88,25 @@ export function ImageCropperDrawer({
     const img = imgRef.current;
     if (!canvas || !img || !imageLoaded || containerSize.width === 0) return;
 
-    const { width: cw, height: ch } = containerSize;
-    // Crop frame size inside container
+    const dpr = window.devicePixelRatio || 1;
+    const { width: cw } = containerSize;
+    // Crop frame size inside container (CSS pixels)
     const frameW = cw;
     const frameH = cw / aspectRatio;
 
-    canvas.width = frameW;
-    canvas.height = frameH;
+    // Set internal buffer at physical pixel resolution for crisp rendering on retina
+    canvas.width = Math.round(frameW * dpr);
+    canvas.height = Math.round(frameH * dpr);
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, frameW, frameH);
 
     const { scale, offsetX, offsetY } = transform;
 
-    // Base size: fit image into frame
+    // Base size: fit image into frame (in CSS pixels)
     const imgAspect = img.naturalWidth / img.naturalHeight;
     const frameAspect = frameW / frameH;
 
@@ -200,6 +203,7 @@ export function ImageCropperDrawer({
   const touchRef = React.useRef<React.Touch[]>([]);
 
   const onTouchStart = (e: React.TouchEvent) => {
+    e.stopPropagation();
     touchRef.current = Array.from(e.touches);
     if (e.touches.length === 1) {
       gestureRef.current = {
@@ -210,15 +214,18 @@ export function ImageCropperDrawer({
         lastScale: transform.scale,
       };
     } else if (e.touches.length === 2) {
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      gestureRef.current = { type: "pinch", lastX: 0, lastY: 0, lastDist: dist, lastScale: transform.scale };
+      gestureRef.current = { type: "pinch", lastX: midX, lastY: midY, lastDist: dist, lastScale: transform.scale };
     }
   };
 
   const onTouchMove = (e: React.TouchEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (e.touches.length === 1 && gestureRef.current.type === "drag") {
       const dx = e.touches[0].clientX - gestureRef.current.lastX;
       const dy = e.touches[0].clientY - gestureRef.current.lastY;
@@ -229,20 +236,28 @@ export function ImageCropperDrawer({
         return { ...prev, ...clamped };
       });
     } else if (e.touches.length === 2 && gestureRef.current.type === "pinch") {
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.sqrt(dx * dx + dy * dy);
       const scaleDelta = dist / gestureRef.current.lastDist;
+      // Also track midpoint translation during pinch
+      const panDx = midX - gestureRef.current.lastX;
+      const panDy = midY - gestureRef.current.lastY;
       gestureRef.current.lastDist = dist;
+      gestureRef.current.lastX = midX;
+      gestureRef.current.lastY = midY;
       setTransform((prev) => {
         const newScale = clamp(prev.scale * scaleDelta, MIN_SCALE, MAX_SCALE);
-        const clamped = clampOffset(newScale, prev.offsetX, prev.offsetY);
+        const clamped = clampOffset(newScale, prev.offsetX + panDx, prev.offsetY + panDy);
         return { scale: newScale, ...clamped };
       });
     }
   };
 
   const onTouchEnd = (e: React.TouchEvent) => {
+    e.stopPropagation();
     if (e.touches.length < 2) {
       if (e.touches.length === 1) {
         gestureRef.current = {
@@ -274,26 +289,20 @@ export function ImageCropperDrawer({
     if (!canvas) return;
     setIsProcessing(true);
     try {
-      // Export at higher resolution for quality
-      const EXPORT_SIZE = 1080;
-      const exportCanvas = document.createElement("canvas");
-      exportCanvas.width = EXPORT_SIZE;
-      exportCanvas.height = Math.round(EXPORT_SIZE / aspectRatio);
-
-      const exportCtx = exportCanvas.getContext("2d");
-      if (!exportCtx || !imgRef.current) return;
-
+      // Export: use the image's own natural resolution as the source of truth.
+      // We derive how many natural pixels fall inside the visible crop frame,
+      // then draw exactly those pixels into the export canvas — no upscaling ever.
       const img = imgRef.current;
+      if (!img) return;
+
       const { width: cw } = containerSize;
       const frameW = cw;
       const frameH = cw / aspectRatio;
 
-      const scaleFactorW = exportCanvas.width / frameW;
-      const scaleFactorH = exportCanvas.height / frameH;
-
       const imgAspect = img.naturalWidth / img.naturalHeight;
       const frameAspect = frameW / frameH;
 
+      // Base rendered size of the full image (in CSS pixels) at scale=1
       let baseW: number, baseH: number;
       if (imgAspect > frameAspect) {
         baseH = frameH;
@@ -304,12 +313,37 @@ export function ImageCropperDrawer({
       }
 
       const { scale, offsetX, offsetY } = transform;
-      const drawW = baseW * scale * scaleFactorW;
-      const drawH = baseH * scale * scaleFactorH;
-      const drawX = ((frameW - baseW * scale) / 2 + offsetX) * scaleFactorW;
-      const drawY = ((frameH - baseH * scale) / 2 + offsetY) * scaleFactorH;
 
-      exportCtx.drawImage(img, drawX, drawY, drawW, drawH);
+      // Ratio: how many CSS pixels correspond to one natural pixel
+      const cssPerNaturalX = (baseW * scale) / img.naturalWidth;
+      const cssPerNaturalY = (baseH * scale) / img.naturalHeight;
+
+      // Top-left corner of the crop frame in natural image coordinates
+      const cropOriginX = ((baseW * scale - frameW) / 2 - offsetX) / cssPerNaturalX;
+      const cropOriginY = ((baseH * scale - frameH) / 2 - offsetY) / cssPerNaturalY;
+
+      // How many natural pixels fit inside the crop frame
+      const cropNatW = frameW / cssPerNaturalX;
+      const cropNatH = frameH / cssPerNaturalY;
+
+      // Export canvas size: up to 2160px but never larger than the natural crop region
+      const MAX_EXPORT = 2160;
+      const exportW = Math.round(Math.min(cropNatW, MAX_EXPORT));
+      const exportH = Math.round(Math.min(cropNatH, MAX_EXPORT / aspectRatio));
+
+      const exportCanvas = document.createElement("canvas");
+      exportCanvas.width = exportW;
+      exportCanvas.height = exportH;
+
+      const exportCtx = exportCanvas.getContext("2d");
+      if (!exportCtx) return;
+
+      // Draw the natural-pixel crop region into the export canvas
+      exportCtx.drawImage(
+        img,
+        cropOriginX, cropOriginY, cropNatW, cropNatH,  // source: natural px region
+        0, 0, exportW, exportH,                         // dest: export canvas
+      );
 
       const dataUrl = exportCanvas.toDataURL("image/jpeg", 0.92);
       exportCanvas.toBlob(
@@ -327,14 +361,17 @@ export function ImageCropperDrawer({
   const frameH = containerSize.width > 0 ? containerSize.width / aspectRatio : 300;
 
   return (
-    <Drawer open={!!imageSrc} onOpenChange={(open) => { if (!open) onCancel(); }}>
+    <Drawer open={!!imageSrc} onOpenChange={(open) => { if (!open) onCancel(); }} dismissible={false} shouldScaleBg={false}>
       <DrawerContent
         className="h-[100dvh] mt-0 rounded-none flex flex-col bg-black !z-[200]"
         overlayClassName="!z-[190] bg-black/90"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+        <div
+          className="flex items-center justify-between px-4 py-3 border-b border-white/10"
+          style={{ paddingTop: `calc(env(safe-area-inset-top, 0px) + 0.75rem)` }}
+        >
           <button
             onClick={onCancel}
             className="flex items-center gap-1.5 text-white/80 hover:text-white text-sm transition-colors"
@@ -393,7 +430,10 @@ export function ImageCropperDrawer({
         </div>
 
         {/* Controls */}
-        <div className="px-5 py-4 space-y-4 border-t border-white/10">
+        <div
+          className="px-5 pt-4 space-y-4 border-t border-white/10"
+          style={{ paddingBottom: `calc(env(safe-area-inset-bottom, 0px) + 1rem)` }}
+        >
           {/* Zoom slider */}
           <div className="flex items-center gap-3">
             <button

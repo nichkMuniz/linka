@@ -93,6 +93,8 @@ export default function Index() {
   const [activeViewerStories, setActiveViewerStories] = React.useState<StoryWithUser[]>([]);
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
+  const [shareDrawerUrl, setShareDrawerUrl] = React.useState<string | undefined>(undefined);
+  const [shareDrawerImageUrl, setShareDrawerImageUrl] = React.useState<string | undefined>(undefined);
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "post" | null>(
     null,
@@ -580,7 +582,11 @@ export default function Index() {
 
   const handleSharePost = React.useCallback((post: PostWithStats) => {
     const text = `Confira o post de @${post.userNickname} no Linka! 💪${post.description ? `\n"${post.description}"` : ""}`;
+    const postUrl = `${window.location.origin}/post/${post.id}`;
+    const firstImage = (post.photos && post.photos.length > 0 ? post.photos[0] : null) || post.photo || undefined;
     setShareDrawerText(text);
+    setShareDrawerUrl(postUrl);
+    setShareDrawerImageUrl(firstImage ?? undefined);
     setShareDrawerOpen(true);
   }, []);
 
@@ -1491,6 +1497,8 @@ export default function Index() {
         open={shareDrawerOpen}
         onOpenChange={setShareDrawerOpen}
         text={shareDrawerText}
+        url={shareDrawerUrl}
+        imageUrl={shareDrawerImageUrl}
         title="Compartilhar post"
       />
 
