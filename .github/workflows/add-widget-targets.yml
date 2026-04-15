@@ -26,11 +26,9 @@ jobs:
         run: gem install xcodeproj --no-document
 
       - name: Run add_widget_targets.rb
-        working-directory: ritmofit
         run: ruby ios/add_widget_targets.rb
 
       - name: Commit changes
-        working-directory: ritmofit
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
