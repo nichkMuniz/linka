@@ -14,7 +14,7 @@
 require 'xcodeproj'
 require 'fileutils'
 
-PROJECT_PATH   = File.expand_path('../App/App.xcodeproj', __dir__)
+PROJECT_PATH   = File.expand_path('App/App.xcodeproj', __dir__)
 APP_BUNDLE_ID  = 'com.linka.meuapp'
 SWIFT_VERSION  = '5.0'
 DEPLOY_TARGET  = '16.1'   # ActivityKit minimum
@@ -39,7 +39,7 @@ end
 # ──────────────────────────────────────────────────────────────────────────────
 WIDGET_TARGET_NAME = 'LinkaWorkoutWidget'
 WIDGET_BUNDLE_ID   = "#{APP_BUNDLE_ID}.LinkaWorkoutWidget"
-WIDGET_FOLDER      = File.expand_path('../App/LinkaWorkoutWidget', __dir__)
+WIDGET_FOLDER      = File.expand_path('App/LinkaWorkoutWidget', __dir__)
 
 unless project.targets.map(&:name).include?(WIDGET_TARGET_NAME)
   puts "Adding target: #{WIDGET_TARGET_NAME}"
@@ -105,7 +105,7 @@ end
 # Unlike the widget, the plugin files are compiled INTO the main App target,
 # not as a separate target. This matches how Capacitor plugins work.
 # ──────────────────────────────────────────────────────────────────────────────
-PLUGIN_FOLDER = File.expand_path('../App/LinkaWorkoutPlugin', __dir__)
+PLUGIN_FOLDER = File.expand_path('App/LinkaWorkoutPlugin', __dir__)
 PLUGIN_GROUP_NAME = 'LinkaWorkoutPlugin'
 
 app_target   = project.targets.find { |t| t.name == 'App' }
