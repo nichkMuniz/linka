@@ -1,9 +1,5 @@
 name: Add Widget Extension targets to Xcode project
 
-# Run this workflow ONCE manually from GitHub Actions UI.
-# It executes the Ruby script on a macOS runner (which has Xcode),
-# commits the updated project.pbxproj back to the branch you choose.
-
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +7,9 @@ on:
         description: 'Branch to commit the result to'
         required: true
         default: 'main'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   add-targets:
@@ -21,6 +20,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
+
+      - name: Show repo root (debug)
+        run: |
+          echo "PWD: $(pwd)"
+          ls -la
+          echo "---"
+          ls ios/ || echo "no ios/ folder"
+          echo "---"
+          ls ios/App/ || echo "no ios/App/ folder"
 
       - name: Install xcodeproj gem
         run: gem install xcodeproj --no-document
@@ -33,9 +41,8 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stage only the files we know the script touches
           git add ios/App/App.xcodeproj/project.pbxproj
-          git add ios/App/LinkaWorkoutWidget/Info.plist || true
+          git add ios/App/LinkaWorkoutWidget/Info.plist 2>/dev/null || true
 
           if git diff --cached --quiet; then
             echo "Nothing changed — targets were already present."
