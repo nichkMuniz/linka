@@ -41,7 +41,9 @@ WIDGET_TARGET_NAME = 'LinkaWorkoutWidget'
 WIDGET_BUNDLE_ID   = "#{APP_BUNDLE_ID}.LinkaWorkoutWidget"
 WIDGET_FOLDER      = File.expand_path('App/LinkaWorkoutWidget', __dir__)
 
-unless project.targets.map(&:name).include?(WIDGET_TARGET_NAME)
+widget_target = project.targets.find { |t| t.name == WIDGET_TARGET_NAME }
+
+if widget_target.nil?
   puts "Adding target: #{WIDGET_TARGET_NAME}"
 
   widget_target = project.new_target(
@@ -61,15 +63,6 @@ unless project.targets.map(&:name).include?(WIDGET_TARGET_NAME)
     file_ref = widget_group.new_file(filename)
     widget_target.source_build_phase.add_file_reference(file_ref)
   end
-
-  # Build settings – Debug
-  widget_target.build_configuration_list.set_setting('PRODUCT_BUNDLE_IDENTIFIER',  WIDGET_BUNDLE_ID)
-  widget_target.build_configuration_list.set_setting('SWIFT_VERSION',               SWIFT_VERSION)
-  widget_target.build_configuration_list.set_setting('IPHONEOS_DEPLOYMENT_TARGET',  DEPLOY_TARGET)
-  widget_target.build_configuration_list.set_setting('TARGETED_DEVICE_FAMILY',      '1,2')
-  widget_target.build_configuration_list.set_setting('CODE_SIGN_STYLE',             'Automatic')
-  widget_target.build_configuration_list.set_setting('INFOPLIST_FILE',              "#{WIDGET_TARGET_NAME}/Info.plist")
-  widget_target.build_configuration_list.set_setting('SKIP_INSTALL',               'YES')
 
   # Embed the extension inside the main App target
   app_target = project.targets.find { |t| t.name == 'App' }
@@ -96,8 +89,20 @@ unless project.targets.map(&:name).include?(WIDGET_TARGET_NAME)
 
   puts "  → #{WIDGET_TARGET_NAME} added (#{swift_files.count} Swift files)"
 else
-  puts "  → #{WIDGET_TARGET_NAME} already exists, skipping."
+  puts "  → #{WIDGET_TARGET_NAME} already exists, updating build settings..."
 end
+
+# Always apply/update build settings (runs on both new and existing targets)
+widget_target.build_configuration_list.set_setting('PRODUCT_NAME',                WIDGET_TARGET_NAME)
+widget_target.build_configuration_list.set_setting('PRODUCT_BUNDLE_IDENTIFIER',   WIDGET_BUNDLE_ID)
+widget_target.build_configuration_list.set_setting('SWIFT_VERSION',               SWIFT_VERSION)
+widget_target.build_configuration_list.set_setting('IPHONEOS_DEPLOYMENT_TARGET',  DEPLOY_TARGET)
+widget_target.build_configuration_list.set_setting('TARGETED_DEVICE_FAMILY',      '1,2')
+widget_target.build_configuration_list.set_setting('CODE_SIGN_STYLE',             'Automatic')
+widget_target.build_configuration_list.set_setting('DEVELOPMENT_TEAM',            'VR767CPN6R')
+widget_target.build_configuration_list.set_setting('INFOPLIST_FILE',              "LinkaWorkoutWidget/Info.plist")
+widget_target.build_configuration_list.set_setting('SKIP_INSTALL',                'YES')
+puts "  → Build settings applied."
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 2. LinkaWorkoutPlugin  (Capacitor native plugin — compiled into the App target)
