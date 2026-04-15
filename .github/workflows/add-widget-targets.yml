@@ -14,12 +14,15 @@ env:
 jobs:
   add-targets:
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Show repo root (debug)
         run: |
