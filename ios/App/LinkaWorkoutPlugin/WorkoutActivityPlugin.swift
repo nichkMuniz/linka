@@ -16,7 +16,7 @@ public class WorkoutActivityPlugin: CAPPlugin {
     // MARK: - Start
 
     @objc func start(_ call: CAPPluginCall) {
-        guard #available(iOS 16.1, *) else {
+        guard #available(iOS 16.2, *) else {
             call.resolve(["supported": false])
             return
         }
@@ -33,12 +33,12 @@ public class WorkoutActivityPlugin: CAPPlugin {
             elapsedSeconds: elapsedSecs,
             isPaused:       false
         )
+        let content = ActivityContent(state: state, staleDate: nil)
 
         do {
             let activity = try Activity<LinkaWorkoutAttributes>.request(
                 attributes: attributes,
-                contentState: state,
-                pushType: nil
+                content: content
             )
             currentActivity = activity
             call.resolve(["id": activity.id, "supported": true])
@@ -50,15 +50,15 @@ public class WorkoutActivityPlugin: CAPPlugin {
     // MARK: - Update
 
     @objc func update(_ call: CAPPluginCall) {
-        guard #available(iOS 16.1, *), let activity = currentActivity else {
+        guard #available(iOS 16.2, *), let activity = currentActivity else {
             call.resolve(["updated": false])
             return
         }
 
-        let exerciseName  = call.getString("exerciseName")  ?? activity.contentState.exerciseName
-        let seriesLabel   = call.getString("seriesLabel")   ?? activity.contentState.seriesLabel
-        let elapsedSecs   = call.getInt("elapsedSeconds")   ?? activity.contentState.elapsedSeconds
-        let isPaused      = call.getBool("isPaused")        ?? activity.contentState.isPaused
+        let exerciseName  = call.getString("exerciseName")  ?? activity.content.state.exerciseName
+        let seriesLabel   = call.getString("seriesLabel")   ?? activity.content.state.seriesLabel
+        let elapsedSecs   = call.getInt("elapsedSeconds")   ?? activity.content.state.elapsedSeconds
+        let isPaused      = call.getBool("isPaused")        ?? activity.content.state.isPaused
 
         let newState = LinkaWorkoutAttributes.ContentState(
             exerciseName:   exerciseName,
@@ -66,9 +66,10 @@ public class WorkoutActivityPlugin: CAPPlugin {
             elapsedSeconds: elapsedSecs,
             isPaused:       isPaused
         )
+        let content = ActivityContent(state: newState, staleDate: nil)
 
         Task {
-            await activity.update(using: newState)
+            await activity.update(content)
             call.resolve(["updated": true])
         }
     }
@@ -76,13 +77,15 @@ public class WorkoutActivityPlugin: CAPPlugin {
     // MARK: - Stop
 
     @objc func stop(_ call: CAPPluginCall) {
-        guard #available(iOS 16.1, *), let activity = currentActivity else {
+        guard #available(iOS 16.2, *), let activity = currentActivity else {
             call.resolve(["stopped": false])
             return
         }
 
         Task {
-            await activity.end(dismissalPolicy: .immediate)
+            let finalState = activity.content.state
+            let content = ActivityContent(state: finalState, staleDate: nil)
+            await activity.end(content, dismissalPolicy: .immediate)
             currentActivity = nil
             call.resolve(["stopped": true])
         }

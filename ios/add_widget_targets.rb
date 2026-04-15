@@ -116,20 +116,21 @@ PLUGIN_GROUP_NAME = 'LinkaWorkoutPlugin'
 app_target   = project.targets.find { |t| t.name == 'App' }
 plugin_group = project.main_group.children.find { |g| g.respond_to?(:path) && g.path == PLUGIN_GROUP_NAME }
 
-if plugin_group.nil?
-  puts "Adding plugin sources group: #{PLUGIN_GROUP_NAME}"
+plugin_group = find_or_create_group(project, PLUGIN_GROUP_NAME, PLUGIN_FOLDER)
 
-  plugin_group = find_or_create_group(project, PLUGIN_GROUP_NAME, PLUGIN_FOLDER)
+# Always ensure all files in the folder are referenced in the project and compiled
+existing_refs = plugin_group.children.map { |f| f.respond_to?(:path) ? f.path : nil }.compact
+added = 0
 
-  Dir.glob("#{PLUGIN_FOLDER}/*.{swift,m,h}").map { |f| File.basename(f) }.each do |filename|
-    file_ref = plugin_group.new_file(filename)
-    app_target.source_build_phase.add_file_reference(file_ref)
-  end
-
-  puts "  → Plugin sources added to App target"
-else
-  puts "  → #{PLUGIN_GROUP_NAME} group already exists, skipping."
+Dir.glob("#{PLUGIN_FOLDER}/*.{swift,m,h}").map { |f| File.basename(f) }.each do |filename|
+  next if existing_refs.include?(filename)
+  file_ref = plugin_group.new_file(filename)
+  app_target.source_build_phase.add_file_reference(file_ref)
+  added += 1
+  puts "  → Added #{filename} to App target"
 end
+
+puts added > 0 ? "  → #{added} new plugin file(s) added." : "  → #{PLUGIN_GROUP_NAME}: all files already present."
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 3. Create a minimal Info.plist for the Widget Extension if it doesn't exist
