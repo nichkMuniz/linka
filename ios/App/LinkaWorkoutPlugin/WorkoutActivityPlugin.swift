@@ -11,7 +11,14 @@ import ActivityKit
 @objc(WorkoutActivityPlugin)
 public class WorkoutActivityPlugin: CAPPlugin {
 
-    private var currentActivity: Activity<LinkaWorkoutAttributes>?
+    /// Stored as Any? so the class compiles on iOS 15 (Activity requires iOS 16.2+).
+    private var _currentActivity: Any?
+
+    @available(iOS 16.2, *)
+    private var currentActivity: Activity<LinkaWorkoutAttributes>? {
+        get { _currentActivity as? Activity<LinkaWorkoutAttributes> }
+        set { _currentActivity = newValue }
+    }
 
     // MARK: - Start
 
