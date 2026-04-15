@@ -39,6 +39,56 @@ jobs:
       - name: Run add_widget_targets.rb
         run: ruby ios/add_widget_targets.rb
 
+      - name: Ensure PRODUCT_NAME is set for LinkaWorkoutWidget
+        run: |
+          PBXPROJ="ios/App/App.xcodeproj/project.pbxproj"
+          # If any build config block has PRODUCT_BUNDLE_IDENTIFIER = com.linka.meuapp.LinkaWorkoutWidget
+          # but is missing PRODUCT_NAME, inject it right after that line.
+          python3 - <<'EOF'
+          import re, sys
+
+          path = "ios/App/App.xcodeproj/project.pbxproj"
+          text = open(path).read()
+
+          # Find every XCBuildConfiguration block that belongs to the widget
+          # (identified by PRODUCT_BUNDLE_IDENTIFIER containing LinkaWorkoutWidget)
+          # and ensure PRODUCT_NAME = LinkaWorkoutWidget; is present.
+
+          def fix_block(m):
+              block = m.group(0)
+              if 'com.linka.meuapp.LinkaWorkoutWidget' not in block:
+                  return block
+              if 'PRODUCT_NAME' in block:
+                  # Already set — make sure it's not empty
+                  block = re.sub(
+                      r'PRODUCT_NAME\s*=\s*"?[^;"]*"?\s*;',
+                      'PRODUCT_NAME = LinkaWorkoutWidget;',
+                      block
+                  )
+              else:
+                  # Inject after PRODUCT_BUNDLE_IDENTIFIER line
+                  block = re.sub(
+                      r'(PRODUCT_BUNDLE_IDENTIFIER\s*=\s*[^;]+;)',
+                      r'\1\n\t\t\t\tPRODUCT_NAME = LinkaWorkoutWidget;',
+                      block
+                  )
+              return block
+
+          # Match each build configuration dict block
+          fixed = re.sub(
+              r'\{[^{}]*isa\s*=\s*XCBuildConfiguration[^{}]*\}',
+              fix_block,
+              text,
+              flags=re.DOTALL
+          )
+
+          if fixed != text:
+              open(path, 'w').write(fixed)
+              print("✅ PRODUCT_NAME patched in project.pbxproj")
+          else:
+              print("ℹ️  No changes needed for PRODUCT_NAME")
+          EOF
+
       - name: Commit changes
         run: |
           git config user.name  "github-actions[bot]"
