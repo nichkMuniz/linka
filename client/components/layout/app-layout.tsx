@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import * as React from "react";
+import { LocalNotifications } from "@capacitor/local-notifications";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { PageTransition } from "@/components/layout/page-transition";
@@ -162,6 +163,50 @@ export function AppLayout() {
 
     const unsubscribe = subscribeToUnreadNotificationsDb(setUnreadNotificationsCount);
 
+    // Native local notification when a new social notification arrives
+    const notifChannel = user ? supabase
+      ?.channel("app-layout-notif-push")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          // Don't fire if user is already on the notifications page
+          if (window.location.pathname === "/notificacoes") return;
+          const row = payload.new as { type?: number; [key: string]: unknown } | undefined;
+          if (!row) return;
+          const titleMap: Record<number, string> = {
+            1: "Novo seguidor 👤",
+            2: "Novo incentivo 🔥",
+            3: "Novo comentário 💬",
+            4: "Convite para duelo ⚔️",
+            5: "Pedido de entrada no duelo 👊",
+            6: "Reação no seu comentário ❤️",
+            7: "Reação no seu check-in 🏆",
+          };
+          const bodyMap: Record<number, string> = {
+            1: "Alguém começou a te seguir.",
+            2: "Alguém reagiu à sua postagem.",
+            3: "Alguém comentou na sua postagem.",
+            4: "Você recebeu um convite para duelo.",
+            5: "Alguém quer entrar no seu grupo.",
+            6: "Alguém reagiu ao seu comentário.",
+            7: "Alguém reagiu ao seu check-in.",
+          };
+          const type = row.type as number ?? 0;
+          LocalNotifications.schedule({
+            notifications: [{
+              id: Date.now() % 2_000_000,
+              title: titleMap[type] ?? "Nova notificação 🔔",
+              body: bodyMap[type] ?? "Você tem uma nova notificação no LinKa.",
+              extra: { url: "/notificacoes" },
+              smallIcon: "ic_stat_icon_config_sample",
+              iconColor: "#f97316",
+            }],
+          }).catch(() => {/* permission not granted — silent */});
+        },
+      )
+      .subscribe() : null;
+
     // Realtime subscription for new messages — filtered to current user + debounced
     let msgDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     const messagesChannel = user ? supabase
@@ -182,6 +227,7 @@ export function AppLayout() {
       .subscribe() : null;
 
     return () => {
+      notifChannel?.unsubscribe();
       messagesChannel?.unsubscribe();
       if (unsubscribe) unsubscribe();
     };

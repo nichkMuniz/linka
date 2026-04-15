@@ -166,6 +166,7 @@ import { LinkGoalDrawer } from "@/components/goals/link-goal-drawer";
 import { ExecuteAtDrawer } from "@/components/goals/execute-at-drawer";
 import { ScheduledTimeDrawer } from "@/components/goals/scheduled-time-drawer";
 import { useRoutineNotifications, requestNotificationPermission, formatScheduledTime } from "@/hooks/use-routine-notifications";
+import { startWorkoutLiveActivity, updateWorkoutLiveActivity, stopWorkoutLiveActivity } from "@/hooks/use-live-activity";
 import {
   updateRoutineScheduledTimeDb,
   type RoutineType,
@@ -1023,6 +1024,46 @@ export default function Goals() {
       .then(setRoutineCompletedTodayStatus)
       .catch(() => setRoutineCompletedTodayStatus(false));
   }, [user]);
+
+  // Live Activity: start when workout begins, update every second, stop on close
+  React.useEffect(() => {
+    if (!workoutModalOpen || workoutStartTime === null) return;
+
+    const firstExercise = userWorkouts[currentWorkoutIndex ?? 0];
+    const exerciseName = firstExercise?.workoutName ?? selectedRoutineName ?? "Treino";
+    const completedSeries = firstExercise
+      ? (workoutSeries[firstExercise.workout_id] ?? []).filter((s) => s.completed).length
+      : 0;
+    const totalSeries = firstExercise
+      ? (workoutSeries[firstExercise.workout_id] ?? []).length
+      : 0;
+    const seriesLabel = `Série ${completedSeries}/${totalSeries}`;
+
+    startWorkoutLiveActivity({
+      routineName: selectedRoutineName ?? "Treino",
+      exerciseName,
+      seriesLabel,
+      elapsedSeconds: workoutDuration,
+    });
+
+    const interval = setInterval(() => {
+      const ex = userWorkouts[currentWorkoutIndex ?? 0];
+      const exName = ex?.workoutName ?? selectedRoutineName ?? "Treino";
+      const done = ex ? (workoutSeries[ex.workout_id] ?? []).filter((s) => s.completed).length : 0;
+      const total = ex ? (workoutSeries[ex.workout_id] ?? []).length : 0;
+      updateWorkoutLiveActivity({
+        exerciseName: exName,
+        seriesLabel: `Série ${done}/${total}`,
+        elapsedSeconds: workoutDuration,
+        isPaused: false,
+      });
+    }, 5000);
+
+    return () => {
+      clearInterval(interval);
+      stopWorkoutLiveActivity();
+    };
+  }, [workoutModalOpen, workoutStartTime]);
 
   // Initialize workoutSeries with one series for each exercise when modal opens
   React.useEffect(() => {
@@ -3656,6 +3697,7 @@ export default function Goals() {
           : "Treino concluído";
 
         const closeSummary = () => {
+          stopWorkoutLiveActivity();
           setWorkoutSummaryOpen(false);
           setWorkoutSummaryData(null);
           setSelectedRoutineName(null);

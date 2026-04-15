@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import AppTrackingTransparency
+import UserNotifications
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -8,8 +9,25 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Register as UNUserNotificationCenter delegate for local + remote notifications
+        UNUserNotificationCenter.current().delegate = self
         return true
+    }
+
+    // Called by iOS after APNs registration succeeds — forwards the token to Capacitor
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        NotificationCenter.default.post(
+            name: Notification.Name(CAPNotifications.DidRegisterForRemoteNotificationsWithDeviceToken.name()),
+            object: deviceToken
+        )
+    }
+
+    // Called by iOS if APNs registration fails
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NotificationCenter.default.post(
+            name: Notification.Name(CAPNotifications.DidFailToRegisterForRemoteNotificationsWithError.name()),
+            object: error
+        )
     }
 
     func applicationWillResignActive(_ application: UIApplication) {
@@ -68,6 +86,35 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Feel free to add additional processing here, but if you want the App API to support
         // tracking app url opens, make sure to keep this call
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
+    }
+
+}
+
+// MARK: - UNUserNotificationCenterDelegate
+// Required so that local notifications display banners/sounds while the app
+// is in the foreground (the default iOS behavior is to suppress them silently).
+extension AppDelegate: UNUserNotificationCenterDelegate {
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // Show banner + play sound even when the app is in the foreground
+        completionHandler([.banner, .sound, .badge])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        // Forward tap events to Capacitor so the JS listener fires correctly
+        NotificationCenter.default.post(
+            name: Notification.Name(rawValue: "CAPNotificationDelegateDidReceiveResponse"),
+            object: response
+        )
+        completionHandler()
     }
 
 }

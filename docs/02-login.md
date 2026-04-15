@@ -8,7 +8,7 @@
 
 ## Objetivo
 
-Tela de entrada do aplicativo. Permite ao usuário fazer login com email e senha, criar uma nova conta em fluxo multi-etapas, recuperar senha esquecida e configurar autenticação biométrica (WebAuthn).
+Tela de entrada do aplicativo. Permite ao usuário fazer login com email e senha, criar uma nova conta em fluxo multi-etapas, recuperar senha esquecida e configurar autenticação biométrica nativa (Face ID / Touch ID via Keychain).
 
 ---
 
@@ -38,7 +38,7 @@ Tela de entrada do aplicativo. Permite ao usuário fazer login com email e senha
 ### Botões
 - **Entrar** — desabilitado se campos inválidos, sem conexão ou Supabase inacessível
 - **Esqueci minha senha** — abre formulário de recuperação
-- **Entrar com biometria** — visível se WebAuthn disponível e biometria cadastrada
+- **Entrar com biometria** — visível se Face ID/Touch ID disponível (`NativeBiometric.isAvailable`) e biometria cadastrada
 
 ### Recuperação de Senha
 - Campo de email
@@ -46,10 +46,16 @@ Tela de entrada do aplicativo. Permite ao usuário fazer login com email e senha
 - Feedback via toast (sucesso ou erro)
 - Link para voltar ao login
 
-### Autenticação Biométrica (WebAuthn)
-- Detecta automaticamente se o dispositivo suporta autenticação de plataforma
-- Se o usuário já registrou biometria, exibe opção "Entrar com biometria"
-- Após login bem-sucedido, oferece cadastrar biometria (showBiometricSetup)
+### Autenticação Biométrica (Face ID / Touch ID)
+
+**Plugin:** `capacitor-native-biometric` — chama `LocalAuthentication` framework do iOS diretamente (não usa WebAuthn).
+
+- Disponibilidade: `NativeBiometric.isAvailable({ useFallback: false })` — funciona corretamente dentro do WKWebView do Capacitor
+- **Registro:** `NativeBiometric.verifyIdentity()` → `NativeBiometric.setCredentials({ username, password, server: "linka.app" })` — armazena as credenciais no Keychain do iOS
+- **Login:** `NativeBiometric.getCredentials({ server: "linka.app" })` — dispara o Face ID e retorna email+senha do Keychain → `supabase.auth.signInWithPassword()`
+- Se a senha foi alterada, o login falha, as credenciais do Keychain são apagadas e o usuário precisa re-registrar
+- Estado local: `biometric_registered` e `biometric_email` em `localStorage` apenas para controle de UI
+- Após login bem-sucedido com email+senha, oferece cadastrar biometria (`showBiometricSetup`)
 
 ---
 

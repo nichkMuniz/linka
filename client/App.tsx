@@ -25,6 +25,7 @@ import { FloatingActionMenu } from "@/components/layout/floating-action-menu";
 import { useAuthContext as useAuth, AuthProvider } from "@/lib/auth-context";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useTheme } from "next-themes";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 
 // Lazy-load heavy pages to split the initial bundle
 const Index = React.lazy(() => import("@/pages/Index"));
@@ -64,6 +65,9 @@ function AuthLoadingScreen() {
 function RequireAuth() {
   const location = useLocation();
   const { user, loading } = useAuth();
+
+  // Register for remote push notifications when user is authenticated
+  usePushNotifications(user?.id ?? null);
 
   if (loading) return <AuthLoadingScreen />;
 

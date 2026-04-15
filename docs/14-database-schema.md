@@ -765,6 +765,25 @@ Registra visualizações de Flows por usuários.
 
 ---
 
+## push_tokens
+
+Armazena os tokens APNs (iOS) de cada dispositivo registrado pelo usuário para recebimento de push remoto.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
+| `user_id` | uuid | FK → `auth.users` | — | Usuário dono do token |
+| `token` | text | ✓ | — | Token APNs do dispositivo |
+| `platform` | text | ✓ | `'ios'` | Plataforma (`ios` / `android`) |
+| `created_at` | timestamptz | — | `now()` | Data de criação |
+| `updated_at` | timestamptz | — | `now()` | Última atualização |
+
+**Constraint:** `unique(user_id, token)` — evita duplicatas por upsert.
+**RLS:** usuário só acessa seus próprios tokens.
+**Limpeza automática:** a Edge Function `send-push-notification` remove tokens `BadDeviceToken` / `Unregistered` automaticamente.
+
+---
+
 ## user_workouts
 
 Treinos salvos / atribuídos a um usuário.

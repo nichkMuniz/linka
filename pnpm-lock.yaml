@@ -17,9 +17,18 @@ importers:
       '@capacitor/ios':
         specifier: ^8.3.0
         version: 8.3.0(@capacitor/core@8.3.0)
+      '@capacitor/local-notifications':
+        specifier: ^8.0.2
+        version: 8.0.2(@capacitor/core@8.3.0)
+      '@capacitor/push-notifications':
+        specifier: ^8.0.3
+        version: 8.0.3(@capacitor/core@8.3.0)
       '@supabase/supabase-js':
         specifier: ^2.91.0
         version: 2.91.0
+      capacitor-native-biometric:
+        specifier: 4.2.2
+        version: 4.2.2
       dotenv:
         specifier: ^17.2.1
         version: 17.2.3
@@ -790,6 +799,9 @@ packages:
     engines: {node: '>=22.0.0'}
     hasBin: true
 
+  '@capacitor/core@3.9.0':
+    resolution: {integrity: sha512-j1lL0+/7stY8YhIq1Lm6xixvUqIn89vtyH5ZpJNNmcZ0kwz6K9eLkcG6fvq1UWMDgSVZg9JrRGSFhb4LLoYOsw==}
+
   '@capacitor/core@8.3.0':
     resolution: {integrity: sha512-S4ajn4G/fS3VJj8salxqH/3LO5PPWv1VxGKQ27OCajnDcLJjEg9VXwgMPnlypgkIOqCJ2fmQLtk8GT+BlI9/rw==}
 
@@ -797,6 +809,16 @@ packages:
     resolution: {integrity: sha512-5Rtwv8SITKlYTt8lAZG+khnVIdzPtqbocH3eP+JkEmX1vpSMwx4TOKtT8OBz8gpQ+pUJDRp7DBYOv3U6l/obCw==}
     peerDependencies:
       '@capacitor/core': ^8.3.0
+
+  '@capacitor/local-notifications@8.0.2':
+    resolution: {integrity: sha512-X7KE/I4ZutMTGVHNUyTjIugYcQEcHJRLks+TsPnOriuS+lo0geSTuaRln6zAZlJSSXSoVMSSzHexdSbIjR/8iw==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
+
+  '@capacitor/push-notifications@8.0.3':
+    resolution: {integrity: sha512-jmBBoJvOzmzem8YoO9dQJBPFiM1bksTNAoV7yksCBN10BybAOtmBF19vFPt/jr2KGAirnPZz0ne2X0OH/rRGtg==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -2641,6 +2663,9 @@ packages:
 
   caniuse-lite@1.0.30001765:
     resolution: {integrity: sha512-LWcNtSyZrakjECqmpP4qdg0MMGdN368D7X8XvvAqOcqMv0RxnlqVKZl2V6/mBR68oYMxOZPLw/gO7DuisMHUvQ==}
+
+  capacitor-native-biometric@4.2.2:
+    resolution: {integrity: sha512-stg0h48UxgkNuNcCAgCXLp2DUspRQs79bCBPntpCBhsDxk2bhDRUu+J/QpFtDQHG4M4DioSUcYaAsVw2N6N7wA==}
 
   chai@5.3.3:
     resolution: {integrity: sha512-4zNhdJD/iOjSH0A05ea+Ke6MU5mmpQcbQsSOkgdaUMJ9zTlDTD/GYlwohmIE2u0gaxHYiVHEn1Fw9mZ/ktJWgw==}
@@ -6356,11 +6381,23 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@capacitor/core@3.9.0':
+    dependencies:
+      tslib: 2.8.1
+
   '@capacitor/core@8.3.0':
     dependencies:
       tslib: 2.8.1
 
   '@capacitor/ios@8.3.0(@capacitor/core@8.3.0)':
+    dependencies:
+      '@capacitor/core': 8.3.0
+
+  '@capacitor/local-notifications@8.0.2(@capacitor/core@8.3.0)':
+    dependencies:
+      '@capacitor/core': 8.3.0
+
+  '@capacitor/push-notifications@8.0.3(@capacitor/core@8.3.0)':
     dependencies:
       '@capacitor/core': 8.3.0
 
@@ -8263,6 +8300,10 @@ snapshots:
       three: 0.176.0
 
   caniuse-lite@1.0.30001765: {}
+
+  capacitor-native-biometric@4.2.2:
+    dependencies:
+      '@capacitor/core': 3.9.0
 
   chai@5.3.3:
     dependencies:

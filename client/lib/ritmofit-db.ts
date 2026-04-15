@@ -9587,3 +9587,37 @@ export async function adminBanUserDb(userId: string): Promise<void> {
     .eq("id", userId);
   if (error) throw new Error(error.message);
 }
+
+// ─── Push Token Management ─────────────────────────────────────────────────────
+
+/**
+ * Upserts the device push token for the current user.
+ * Called after the app receives a registration token from @capacitor/push-notifications.
+ */
+export async function savePushTokenDb(token: string, platform: "ios" | "android" = "ios"): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+  const { error } = await supabase
+    .from("push_tokens")
+    .upsert(
+      { user_id: viewer.id, token, platform, updated_at: new Date().toISOString() },
+      { onConflict: "user_id,token" }
+    );
+  if (error) console.error("Error saving push token:", error.message);
+}
+
+/**
+ * Removes the device push token for the current user (e.g. on logout).
+ */
+export async function deletePushTokenDb(token: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  const viewer = await getViewer();
+  if (!viewer) return;
+  await supabase
+    .from("push_tokens")
+    .delete()
+    .eq("user_id", viewer.id)
+    .eq("token", token);
+}
+
