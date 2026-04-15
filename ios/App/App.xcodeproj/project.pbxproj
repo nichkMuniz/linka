@@ -22,6 +22,7 @@
 		80FD2E031CD97720BF13911F /* WorkoutActivityPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = E89032B13327762406A7F53D /* WorkoutActivityPlugin.m */; };
 		810CF74917E855A10BCD031B /* LinkaWorkoutLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CD9792D0F6FE560E6EB0D8B /* LinkaWorkoutLiveActivity.swift */; };
 		EAB9F7E0D604C5246E93F487 /* LinkaWorkoutWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EBDB0470645AD724F4409ED /* LinkaWorkoutWidgetBundle.swift */; };
+		F691A4342D1DB28DC44AF61D /* LinkaWorkoutAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3268456C8CEF8F01EFEC1AB /* LinkaWorkoutAttributes.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -54,6 +55,7 @@
 		6CD9792D0F6FE560E6EB0D8B /* LinkaWorkoutLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LinkaWorkoutLiveActivity.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		9E6610F2646F61D9183E61CA /* WorkoutActivityPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutActivityPlugin.swift; sourceTree = "<group>"; };
+		C3268456C8CEF8F01EFEC1AB /* LinkaWorkoutAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LinkaWorkoutAttributes.swift; sourceTree = "<group>"; };
 		E89032B13327762406A7F53D /* WorkoutActivityPlugin.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkoutActivityPlugin.m; sourceTree = "<group>"; };
 		FC017C5ADE96A2A00BB21E6F /* LinkaWorkoutWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LinkaWorkoutWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -146,6 +148,7 @@
 			children = (
 				9E6610F2646F61D9183E61CA /* WorkoutActivityPlugin.swift */,
 				E89032B13327762406A7F53D /* WorkoutActivityPlugin.m */,
+				C3268456C8CEF8F01EFEC1AB /* LinkaWorkoutAttributes.swift */,
 			);
 			name = LinkaWorkoutPlugin;
 			path = LinkaWorkoutPlugin;
@@ -262,6 +265,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				3A7F0AE66BC4B2096A8F3437 /* WorkoutActivityPlugin.swift in Sources */,
 				80FD2E031CD97720BF13911F /* WorkoutActivityPlugin.m in Sources */,
+				F691A4342D1DB28DC44AF61D /* LinkaWorkoutAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
