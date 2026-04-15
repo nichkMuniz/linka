@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
+		3A7F0AE66BC4B2096A8F3437 /* WorkoutActivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6610F2646F61D9183E61CA /* WorkoutActivityPlugin.swift */; };
+		3B500DF001BB6794AB9EAE7B /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 49D29E560A53A844B757F12A /* Foundation.framework */; };
+		4373CAF1706DD06FD0555685 /* LinkaWorkoutAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 106D55E13DA8603AACE56CF2 /* LinkaWorkoutAttributes.swift */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
@@ -15,10 +18,31 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		721FBB6B0ECC75258E20B1EA /* LinkaWorkoutWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FC017C5ADE96A2A00BB21E6F /* LinkaWorkoutWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		80FD2E031CD97720BF13911F /* WorkoutActivityPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = E89032B13327762406A7F53D /* WorkoutActivityPlugin.m */; };
+		810CF74917E855A10BCD031B /* LinkaWorkoutLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CD9792D0F6FE560E6EB0D8B /* LinkaWorkoutLiveActivity.swift */; };
+		EAB9F7E0D604C5246E93F487 /* LinkaWorkoutWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EBDB0470645AD724F4409ED /* LinkaWorkoutWidgetBundle.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		99E50418DB839C4594F690E1 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				721FBB6B0ECC75258E20B1EA /* LinkaWorkoutWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		106D55E13DA8603AACE56CF2 /* LinkaWorkoutAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LinkaWorkoutAttributes.swift; sourceTree = "<group>"; };
+		2EBDB0470645AD724F4409ED /* LinkaWorkoutWidgetBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LinkaWorkoutWidgetBundle.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
+		49D29E560A53A844B757F12A /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -27,7 +51,11 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		6CD9792D0F6FE560E6EB0D8B /* LinkaWorkoutLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LinkaWorkoutLiveActivity.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		9E6610F2646F61D9183E61CA /* WorkoutActivityPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WorkoutActivityPlugin.swift; sourceTree = "<group>"; };
+		E89032B13327762406A7F53D /* WorkoutActivityPlugin.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkoutActivityPlugin.m; sourceTree = "<group>"; };
+		FC017C5ADE96A2A00BB21E6F /* LinkaWorkoutWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LinkaWorkoutWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -39,15 +67,42 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		56002B7C750D77FCF2B51E06 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3B500DF001BB6794AB9EAE7B /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		36D7C2F904541D765E8679EE /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				49D29E560A53A844B757F12A /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		4A945D85D45B0CE3695B5697 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				36D7C2F904541D765E8679EE /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				4A945D85D45B0CE3695B5697 /* Frameworks */,
+				96C95C45E92D7ED95D02820F /* LinkaWorkoutWidget */,
+				C3311BB8672E009067804706 /* LinkaWorkoutPlugin */,
 			);
 			sourceTree = "<group>";
 		};
@@ -55,6 +110,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				FC017C5ADE96A2A00BB21E6F /* LinkaWorkoutWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -74,6 +130,27 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		96C95C45E92D7ED95D02820F /* LinkaWorkoutWidget */ = {
+			isa = PBXGroup;
+			children = (
+				106D55E13DA8603AACE56CF2 /* LinkaWorkoutAttributes.swift */,
+				6CD9792D0F6FE560E6EB0D8B /* LinkaWorkoutLiveActivity.swift */,
+				2EBDB0470645AD724F4409ED /* LinkaWorkoutWidgetBundle.swift */,
+			);
+			name = LinkaWorkoutWidget;
+			path = LinkaWorkoutWidget;
+			sourceTree = "<group>";
+		};
+		C3311BB8672E009067804706 /* LinkaWorkoutPlugin */ = {
+			isa = PBXGroup;
+			children = (
+				9E6610F2646F61D9183E61CA /* WorkoutActivityPlugin.swift */,
+				E89032B13327762406A7F53D /* WorkoutActivityPlugin.m */,
+			);
+			name = LinkaWorkoutPlugin;
+			path = LinkaWorkoutPlugin;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -84,10 +161,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				99E50418DB839C4594F690E1 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				08058DC80DCDE53A381E3F9A /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -96,6 +175,23 @@
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
+		};
+		8C505C641468C3002E41F2FC /* LinkaWorkoutWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B607480E6A0B0157754241A4 /* Build configuration list for PBXNativeTarget "LinkaWorkoutWidget" */;
+			buildPhases = (
+				8E2A5AAFCAA7DAE9D192CD91 /* Sources */,
+				56002B7C750D77FCF2B51E06 /* Frameworks */,
+				AB2353981653042A89043DA2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = LinkaWorkoutWidget;
+			productName = LinkaWorkoutWidget;
+			productReference = FC017C5ADE96A2A00BB21E6F /* LinkaWorkoutWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -130,6 +226,7 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				8C505C641468C3002E41F2FC /* LinkaWorkoutWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -148,6 +245,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AB2353981653042A89043DA2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -156,10 +260,29 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				3A7F0AE66BC4B2096A8F3437 /* WorkoutActivityPlugin.swift in Sources */,
+				80FD2E031CD97720BF13911F /* WorkoutActivityPlugin.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8E2A5AAFCAA7DAE9D192CD91 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4373CAF1706DD06FD0555685 /* LinkaWorkoutAttributes.swift in Sources */,
+				810CF74917E855A10BCD031B /* LinkaWorkoutLiveActivity.swift in Sources */,
+				EAB9F7E0D604C5246E93F487 /* LinkaWorkoutWidgetBundle.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		08058DC80DCDE53A381E3F9A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8C505C641468C3002E41F2FC /* LinkaWorkoutWidget */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -336,6 +459,37 @@
 			};
 			name = Release;
 		};
+		924B2C4E215ECFCBAC987479 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = LinkaWorkoutWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.linka.meuapp.LinkaWorkoutWidget;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B235F5F8D4675A369E6BB8C2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = LinkaWorkoutWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.linka.meuapp.LinkaWorkoutWidget;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -353,6 +507,15 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B607480E6A0B0157754241A4 /* Build configuration list for PBXNativeTarget "LinkaWorkoutWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B235F5F8D4675A369E6BB8C2 /* Release */,
+				924B2C4E215ECFCBAC987479 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
