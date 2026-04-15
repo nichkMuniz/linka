@@ -41,6 +41,10 @@ const ShotsLayout = React.lazy(() => import("@/components/layout/shots-layout").
 // Kept eager — tiny files needed on first paint or error boundaries
 import Login from "@/pages/Login";
 import NotFound from "@/pages/NotFound";
+import Admin from "@/pages/Admin";
+import { AgeGate } from "@/components/shared/AgeGate";
+
+const ADMIN_USER_ID = "c954d5ab-9d72-4785-bc21-bf469a5e8052";
 
 const queryClient = new QueryClient();
 
@@ -78,6 +82,17 @@ function RequireAuth() {
       <Outlet />
     </React.Suspense>
   );
+}
+
+function RequireAdmin() {
+  const location = useLocation();
+  const { user, loading } = useAuth();
+
+  if (loading) return <AuthLoadingScreen />;
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (user.id !== ADMIN_USER_ID) return <Navigate to="/" replace />;
+
+  return <Outlet />;
 }
 
 function GlobalFABContainer() {
@@ -137,6 +152,7 @@ const App = () => {
       <LanguageProvider>
         <WorkoutProvider>
           <ThemeProvider>
+            <AgeGate>
             <TooltipProvider>
               <Toaster />
               <Sonner />
@@ -171,9 +187,14 @@ const App = () => {
                       <Route path="*" element={<NotFound />} />
                     </Route>
                   </Route>
+
+                  <Route element={<RequireAdmin />}>
+                    <Route path="/admin" element={<Admin />} />
+                  </Route>
                 </Routes>
               </BrowserRouter>
             </TooltipProvider>
+            </AgeGate>
           </ThemeProvider>
         </WorkoutProvider>
       </LanguageProvider>

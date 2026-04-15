@@ -1,5 +1,16 @@
 import { getUserSafe, hasSupabaseConfig, supabase, registerViewerCacheInvalidator } from "@/lib/supabase";
 
+// ─── Auth helpers ─────────────────────────────────────────────────────────────
+
+export async function checkEmailExistsDb(email: string): Promise<boolean> {
+  if (!supabase) return false;
+  const { data, error } = await supabase.rpc("check_email_exists", {
+    p_email: email.trim().toLowerCase(),
+  });
+  if (error) return false;
+  return data === true;
+}
+
 // ─── Input validation helpers ────────────────────────────────────────────────
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -9487,4 +9498,92 @@ export async function togglePromotionLikeDb(promotionId: string): Promise<"liked
     invalidateQueryCache("promotions");
     return "liked";
   }
+}
+
+// ─── Admin ────────────────────────────────────────────────────────────────────
+
+export const ADMIN_USER_ID = "c954d5ab-9d72-4785-bc21-bf469a5e8052";
+
+export type AdminComplaint = {
+  tipo: "post" | "shot" | "flow" | "usuario";
+  id: string;
+  denunciante_id: string;
+  conteudo_id: string;
+  autor_id: string | null;
+  reason: string | null;
+  created_at: string;
+};
+
+export type AdminStats = {
+  totalUsers: number;
+  postsHoje: number;
+  shotsHoje: number;
+  complaintsTotal: number;
+};
+
+export async function getAdminComplaintsDb(): Promise<AdminComplaint[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("admin_complaints_view")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as AdminComplaint[];
+}
+
+export async function getAdminStatsDb(): Promise<AdminStats> {
+  if (!supabase) return { totalUsers: 0, postsHoje: 0, shotsHoje: 0, complaintsTotal: 0 };
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const [usersRes, postsRes, shotsRes, complaintsRes] = await Promise.all([
+    supabase.from("profiles").select("id", { count: "exact", head: true }),
+    supabase.from("posts").select("id", { count: "exact", head: true }).gte("created_at", `${today}T00:00:00`),
+    supabase.from("shots").select("id", { count: "exact", head: true }).gte("created_at", `${today}T00:00:00`),
+    supabase.from("admin_complaints_view").select("id", { count: "exact", head: true }),
+  ]);
+
+  return {
+    totalUsers: usersRes.count ?? 0,
+    postsHoje: postsRes.count ?? 0,
+    shotsHoje: shotsRes.count ?? 0,
+    complaintsTotal: complaintsRes.count ?? 0,
+  };
+}
+
+export async function adminDismissComplaintDb(
+  tipo: AdminComplaint["tipo"],
+  id: string,
+): Promise<void> {
+  if (!supabase) return;
+  const tableMap = {
+    post: "post_complaint",
+    shot: "shots_complaint",
+    flow: "flow_complaint",
+    usuario: "user_complaint",
+  } as const;
+  const { error } = await supabase.from(tableMap[tipo]).delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function adminDeleteContentDb(
+  tipo: AdminComplaint["tipo"],
+  conteudo_id: string,
+): Promise<void> {
+  if (!supabase) return;
+  if (tipo === "usuario") return; // ban handled separately
+
+  const tableMap = { post: "posts", shot: "shots", flow: "flow" } as const;
+  const table = tableMap[tipo as keyof typeof tableMap];
+  const { error } = await supabase.from(table).delete().eq("id", conteudo_id);
+  if (error) throw new Error(error.message);
+}
+
+export async function adminBanUserDb(userId: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from("profiles")
+    .update({ is_banned: true })
+    .eq("id", userId);
+  if (error) throw new Error(error.message);
 }

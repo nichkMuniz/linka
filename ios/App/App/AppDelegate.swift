@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import AppTrackingTransparency
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -27,6 +28,29 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        requestTrackingAuthorization()
+    }
+
+    private func requestTrackingAuthorization() {
+        if #available(iOS 14, *) {
+            // Pequeno delay para garantir que a UI esteja pronta antes de exibir o alerta
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                ATTrackingManager.requestTrackingAuthorization { status in
+                    switch status {
+                    case .authorized:
+                        print("ATT: rastreamento autorizado")
+                    case .denied:
+                        print("ATT: rastreamento negado")
+                    case .notDetermined:
+                        print("ATT: não determinado")
+                    case .restricted:
+                        print("ATT: rastreamento restrito")
+                    @unknown default:
+                        print("ATT: status desconhecido")
+                    }
+                }
+            }
+        }
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

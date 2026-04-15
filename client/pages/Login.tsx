@@ -23,9 +23,9 @@ import {
   checkSupabaseReachability,
   getNetworkStatus,
 } from "@/lib/network-status";
-import { Fingerprint, Upload, X, Search, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import { Fingerprint, Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { getAllUsersDb, type SearchUser, followUserDb, createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan } from "@/lib/ritmofit-db";
+import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb } from "@/lib/ritmofit-db";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 
 function isValidEmail(email: string) {
@@ -115,9 +115,17 @@ export default function Login() {
   const [bio, setBio] = React.useState("");
   const [hasCommercialProfile, setHasCommercialProfile] = React.useState(false);
   const [selectedSegments, setSelectedSegments] = React.useState<Set<string>>(new Set());
+  const [signupEmailExists, setSignupEmailExists] = React.useState<boolean | null>(null);
+  const [checkingSignupEmail, setCheckingSignupEmail] = React.useState(false);
   const [showForgotPassword, setShowForgotPassword] = React.useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = React.useState("");
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
+  const [showNewPassword, setShowNewPassword] = React.useState(false);
+  const [newPassword, setNewPassword] = React.useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = React.useState("");
+  const [showNewPwd, setShowNewPwd] = React.useState(false);
+  const [showNewPwdConfirm, setShowNewPwdConfirm] = React.useState(false);
+  const [isSavingNewPassword, setIsSavingNewPassword] = React.useState(false);
   const [commercialData, setCommercialData] = React.useState({
     business_segment: "",
     business_name: "",
@@ -126,10 +134,6 @@ export default function Login() {
     business_email: "",
     business_website: "",
   });
-  const [availableUsers, setAvailableUsers] = React.useState<SearchUser[]>([]);
-  const [searchQuery, setSearchQuery] = React.useState("");
-  const [loadingUsers, setLoadingUsers] = React.useState(false);
-  const [step4SearchResults, setStep4SearchResults] = React.useState<SearchUser[]>([]);
   const [username, setUsername] = React.useState("");
   const [gender, setGender] = React.useState("");
   const [age, setAge] = React.useState("");
@@ -174,41 +178,44 @@ export default function Login() {
     checkBiometric();
   }, []);
 
-  // Load available users for step 4
+  // Check if signup email already exists — debounced 600ms
   React.useEffect(() => {
-    if (!(tab === "signup" && signupStep === 4)) return;
-    let cancelled = false;
-    const loadUsers = async () => {
-      setLoadingUsers(true);
-      try {
-        const users = await getAllUsersDb();
-        const currentUser = supabase ? (await supabase.auth.getUser()).data.user : null;
-        const filtered = currentUser ? users.filter((u) => u.id !== currentUser.id) : users;
-        if (!cancelled) {
-          setAvailableUsers(filtered);
-          setStep4SearchResults(filtered);
-        }
-      } catch {
-        if (!cancelled) {
-          setAvailableUsers([]);
-          setStep4SearchResults([]);
-        }
-      } finally {
-        if (!cancelled) setLoadingUsers(false);
+    if (tab !== "signup" || signupStep !== 1) return;
+    if (!isValidEmail(email)) {
+      setSignupEmailExists(null);
+      return;
+    }
+    setCheckingSignupEmail(true);
+    const timer = setTimeout(async () => {
+      const exists = await checkEmailExistsDb(email);
+      setSignupEmailExists(exists);
+      setCheckingSignupEmail(false);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [email, tab, signupStep]);
+
+  // Detect password recovery session via Supabase auth event
+  React.useEffect(() => {
+    if (!supabase) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setShowNewPassword(true);
+        window.history.replaceState(null, "", window.location.pathname);
       }
-    };
-    loadUsers();
-    return () => { cancelled = true; };
-  }, [tab, signupStep]);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
 
   React.useEffect(() => {
     if (authLoading) return;
     if (!user) return;
     if (isCompletingSignup) return;
+    if (showNewPassword) return;
 
     // Always go to feed after login
     navigate("/", { replace: true });
-  }, [authLoading, user, navigate, isCompletingSignup]);
+  }, [authLoading, user, navigate, isCompletingSignup, showNewPassword]);
 
   const submit = async (mode: "login" | "signup") => {
     if (!hasSupabaseConfig || !supabase) {
@@ -266,9 +273,18 @@ export default function Login() {
             return;
           }
 
+          const isInvalidCredentials =
+            error.message.toLowerCase().includes("invalid login credentials") ||
+            error.message.toLowerCase().includes("invalid credentials") ||
+            error.message.toLowerCase().includes("email not found") ||
+            error.message.toLowerCase().includes("wrong password");
+
           toast({
             title: "Não foi possível entrar",
-            description: error.message,
+            description: isInvalidCredentials
+              ? "Email ou senha incorretos. Verifique os dados e tente novamente."
+              : error.message,
+            variant: "destructive",
           });
           return;
         }
@@ -284,6 +300,16 @@ export default function Login() {
 
       // Handle signup step 1: email and password validation
       if (signupStep === 1) {
+        if (!isValidEmail(email)) {
+          toast({
+            title: "Email inválido",
+            description: "Informe um endereço de email válido (ex: nome@dominio.com).",
+            variant: "destructive",
+          });
+          setBusy(false);
+          return;
+        }
+
         if (!isStrongPassword(password)) {
           toast({
             title: "Senha fraca",
@@ -388,14 +414,6 @@ export default function Login() {
   };
 
   const handleSignupStep3 = async () => {
-    if (selectedSegments.size === 0) {
-      toast({
-        title: "Selecione pelo menos um segmento",
-        description: "Escolha os tópicos que mais te interessam.",
-      });
-      return;
-    }
-
     if (!hasSupabaseConfig || !supabase) return;
 
     setIsCompletingSignup(true);
@@ -483,6 +501,7 @@ export default function Login() {
 
         // Build profile update payload
         const profilePayload: Record<string, any> = {};
+        if (authUser.email) profilePayload.email = authUser.email;
         if (photoUrl) profilePayload.photo = photoUrl;
         if (displayName.trim()) profilePayload.nickname = displayName.trim();
         if (bio.trim()) profilePayload.bio = bio.trim();
@@ -579,8 +598,18 @@ export default function Login() {
 
     setIsResettingPassword(true);
     try {
+      const emailExists = await checkEmailExistsDb(forgotPasswordEmail.trim());
+      if (!emailExists) {
+        toast({
+          title: "Email não encontrado",
+          description: "Não encontramos nenhuma conta com esse email. Verifique e tente novamente.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail.trim(), {
-        redirectTo: `${window.location.origin}/`,
+        redirectTo: `${window.location.origin}/login`,
       });
 
       if (error) {
@@ -607,6 +636,55 @@ export default function Login() {
       });
     } finally {
       setIsResettingPassword(false);
+    }
+  };
+
+  const handleSaveNewPassword = async () => {
+    if (!supabase) return;
+    if (!isStrongPassword(newPassword)) {
+      toast({
+        title: "Senha fraca",
+        description: "Sua senha deve ter ao menos 8 caracteres, 1 letra maiúscula e 1 caractere especial.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (newPassword !== newPasswordConfirm) {
+      toast({
+        title: "Senhas não conferem",
+        description: "As senhas informadas são diferentes.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setIsSavingNewPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        toast({
+          title: "Erro ao redefinir senha",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+      await supabase.auth.signOut();
+      toast({
+        title: "Senha redefinida!",
+        description: "Faça login com sua nova senha.",
+      });
+      setShowNewPassword(false);
+      setNewPassword("");
+      setNewPasswordConfirm("");
+      setTab("login");
+    } catch {
+      toast({
+        title: "Erro de conexão",
+        description: "Não foi possível redefinir a senha. Tente novamente.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingNewPassword(false);
     }
   };
 
@@ -671,15 +749,16 @@ export default function Login() {
     return new TextDecoder().decode(decrypted);
   };
 
-  // rp.id must be a real domain; in Capacitor apps the hostname is 'localhost'
-  // which iOS rejects for WebAuthn. We omit rp.id so the browser uses the current
-  // effective domain automatically (Capacitor handles this correctly).
-  const getRpConfig = () => {
+  // rp.id must be stable across register and authenticate calls.
+  // In Capacitor/WKWebView the hostname is 'localhost', which WebAuthn rejects as rp.id.
+  // We omit rp.id entirely in that case so the platform uses its own effective domain,
+  // which is consistent as long as we never set it during registration either.
+  const getRpConfig = (): { name: string; id?: string } => {
     const hostname = window.location.hostname;
-    // Only set rp.id when running in a real browser with a proper domain
-    if (hostname && hostname !== "localhost" && hostname !== "") {
+    if (hostname && hostname !== "localhost" && !hostname.startsWith("192.") && hostname !== "") {
       return { name: "LinKa", id: hostname };
     }
+    // Capacitor / local dev: omit id so iOS uses the WKWebView effective domain consistently
     return { name: "LinKa" };
   };
 
@@ -730,15 +809,19 @@ export default function Login() {
         return;
       }
 
-      // Use credential id bytes as key material for encrypting the password
-      const credentialIdBytes = new Uint8Array(credential.id);
+      // rawId is the ArrayBuffer form of the credential ID (correct for WebAuthn)
+      const pkCredential = credential as PublicKeyCredential;
+      const credentialIdBytes = new Uint8Array(pkCredential.rawId);
       const credentialIdB64 = btoa(String.fromCharCode(...credentialIdBytes));
       const encryptedPwd = await encryptPassword(password, credentialIdBytes);
 
-      localStorage.setItem("biometric_registered", "true");
-      localStorage.setItem("biometric_email", email);
-      localStorage.setItem("biometric_credential_id", credentialIdB64);
-      localStorage.setItem("biometric_encrypted_pwd", encryptedPwd);
+      // Store in both localStorage and sessionStorage for iOS WKWebView resilience
+      const bioData = { registered: "true", email, credentialId: credentialIdB64, encryptedPwd };
+      localStorage.setItem("biometric_registered", bioData.registered);
+      localStorage.setItem("biometric_email", bioData.email);
+      localStorage.setItem("biometric_credential_id", bioData.credentialId);
+      localStorage.setItem("biometric_encrypted_pwd", bioData.encryptedPwd);
+      sessionStorage.setItem("biometric_backup", JSON.stringify(bioData));
 
       toast({
         title: "Biometria registrada",
@@ -778,9 +861,29 @@ export default function Login() {
     setBusy(true);
 
     try {
-      const storedCredentialId = localStorage.getItem("biometric_credential_id");
-      const storedEmail = localStorage.getItem("biometric_email");
-      const storedEncryptedPwd = localStorage.getItem("biometric_encrypted_pwd");
+      let storedCredentialId = localStorage.getItem("biometric_credential_id");
+      let storedEmail = localStorage.getItem("biometric_email");
+      let storedEncryptedPwd = localStorage.getItem("biometric_encrypted_pwd");
+
+      // iOS WKWebView may clear localStorage — recover from sessionStorage backup
+      if (!storedCredentialId || !storedEmail || !storedEncryptedPwd) {
+        try {
+          const backup = sessionStorage.getItem("biometric_backup");
+          if (backup) {
+            const parsed = JSON.parse(backup);
+            storedCredentialId = parsed.credentialId ?? null;
+            storedEmail = parsed.email ?? null;
+            storedEncryptedPwd = parsed.encryptedPwd ?? null;
+            // Restore localStorage from backup
+            if (storedCredentialId && storedEmail && storedEncryptedPwd) {
+              localStorage.setItem("biometric_registered", "true");
+              localStorage.setItem("biometric_email", storedEmail);
+              localStorage.setItem("biometric_credential_id", storedCredentialId);
+              localStorage.setItem("biometric_encrypted_pwd", storedEncryptedPwd);
+            }
+          }
+        } catch {}
+      }
 
       if (!storedCredentialId || !storedEmail || !storedEncryptedPwd) {
         toast({
@@ -836,6 +939,7 @@ export default function Login() {
         localStorage.removeItem("biometric_email");
         localStorage.removeItem("biometric_credential_id");
         localStorage.removeItem("biometric_encrypted_pwd");
+        sessionStorage.removeItem("biometric_backup");
         setHasBiometricRegistered(false);
         toast({
           title: "Falha no login biométrico",
@@ -891,7 +995,7 @@ export default function Login() {
         <BrandHeader />
 
         <Card className="border-border/60 relative">
-          {!showForgotPassword && (
+          {!showForgotPassword && !showNewPassword && (
             <CardHeader className="space-y-2">
               <CardTitle className="text-base">Acessar conta</CardTitle>
               <CardDescription>
@@ -905,7 +1009,84 @@ export default function Login() {
           )}
 
           <CardContent className="space-y-4">
-            {!networkStatus.isOnline ? (
+            {showNewPassword ? (
+              <div className="grid gap-4">
+                <div className="grid gap-1">
+                  <p className="text-sm font-semibold">Redefinir senha</p>
+                  <p className="text-xs text-muted-foreground">Crie uma nova senha para sua conta.</p>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="new_password">Nova senha</Label>
+                  <div className="relative">
+                    <Input
+                      id="new_password"
+                      type={showNewPwd ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Crie uma senha forte"
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPwd((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showNewPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {newPassword.length > 0 && (
+                    <ul className="grid gap-1 mt-1">
+                      {[
+                        { ok: newPassword.length >= 8, label: "Mínimo de 8 caracteres" },
+                        { ok: /[A-Z]/.test(newPassword), label: "Pelo menos 1 letra maiúscula" },
+                        { ok: /[^a-zA-Z0-9]/.test(newPassword), label: "Pelo menos 1 caractere especial (!@#$...)" },
+                      ].map(({ ok, label }) => (
+                        <li key={label} className={`flex items-center gap-1.5 text-xs ${ok ? "text-green-600" : "text-muted-foreground"}`}>
+                          {ok ? <Check className="h-3 w-3 shrink-0" /> : <span className="h-3 w-3 shrink-0 rounded-full border border-current inline-block" />}
+                          {label}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="new_password_confirm">Confirmar nova senha</Label>
+                  <div className="relative">
+                    <Input
+                      id="new_password_confirm"
+                      type={showNewPwdConfirm ? "text" : "password"}
+                      value={newPasswordConfirm}
+                      onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                      placeholder="Repita a nova senha"
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPwdConfirm((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showNewPwdConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {newPasswordConfirm.length > 0 && newPassword !== newPasswordConfirm && (
+                    <p className="text-xs text-red-600">❌ As senhas não conferem</p>
+                  )}
+                  {newPasswordConfirm.length > 0 && newPassword === newPasswordConfirm && isStrongPassword(newPassword) && (
+                    <p className="text-xs text-green-600">✓ Senhas conferem</p>
+                  )}
+                </div>
+
+                <Button
+                  className="rounded-full"
+                  disabled={!isStrongPassword(newPassword) || newPassword !== newPasswordConfirm || isSavingNewPassword}
+                  onClick={handleSaveNewPassword}
+                >
+                  {isSavingNewPassword ? "Salvando..." : "Salvar nova senha"}
+                </Button>
+              </div>
+            ) : !networkStatus.isOnline ? (
               <div className="rounded-2xl border border-red-200/30 bg-red-50/20 p-4 text-sm text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-200">
                 Você parece estar offline. Verifique sua conexão com a internet.
               </div>
@@ -914,6 +1095,8 @@ export default function Login() {
                 Não foi possível alcançar o Supabase. Pode ser um problema de CORS ou conectividade. Tente novamente em alguns momentos.
               </div>
             ) : null}
+
+            {!showNewPassword && <>
 
             {!hasSupabaseConfig ? (
               <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
@@ -1012,14 +1195,18 @@ export default function Login() {
                     onChange={(e) => setForgotPasswordEmail(e.target.value)}
                     placeholder="voce@exemplo.com"
                     autoComplete="email"
+                    className={forgotPasswordEmail.length > 0 && !isValidEmail(forgotPasswordEmail) ? "border-red-500" : ""}
                   />
+                  {forgotPasswordEmail.length > 0 && !isValidEmail(forgotPasswordEmail) && (
+                    <p className="text-xs text-red-600">❌ Informe um email válido (ex: nome@dominio.com)</p>
+                  )}
                 </div>
 
                 <Button
                   type="button"
                   className="rounded-full w-full"
                   onClick={handleResetPassword}
-                  disabled={isResettingPassword || !forgotPasswordEmail.trim()}
+                  disabled={isResettingPassword || !isValidEmail(forgotPasswordEmail)}
                 >
                   {isResettingPassword ? "Enviando..." : "Enviar Email"}
                 </Button>
@@ -1096,7 +1283,11 @@ export default function Login() {
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="voce@exemplo.com"
                         autoComplete="email"
+                        className={email.length > 0 && !isValidEmail(email) ? "border-red-500" : ""}
                       />
+                      {email.length > 0 && !isValidEmail(email) && (
+                        <p className="text-xs text-red-600">❌ Informe um email válido (ex: nome@dominio.com)</p>
+                      )}
                     </div>
 
                     <div className="grid gap-2">
@@ -1200,10 +1391,29 @@ export default function Login() {
                           id="signup_email"
                           type="text"
                           value={email}
-                          onChange={(e) => setEmail(e.target.value)}
+                          onChange={(e) => { setEmail(e.target.value); setSignupEmailExists(null); }}
                           placeholder="voce@exemplo.com"
                           autoComplete="email"
+                          className={
+                            (email.length > 0 && !isValidEmail(email)) || signupEmailExists === true
+                              ? "border-red-500"
+                              : signupEmailExists === false
+                              ? "border-green-500"
+                              : ""
+                          }
                         />
+                        {email.length > 0 && !isValidEmail(email) && (
+                          <p className="text-xs text-red-600">❌ Informe um email válido (ex: nome@dominio.com)</p>
+                        )}
+                        {isValidEmail(email) && checkingSignupEmail && (
+                          <p className="text-xs text-muted-foreground">Verificando email...</p>
+                        )}
+                        {isValidEmail(email) && !checkingSignupEmail && signupEmailExists === true && (
+                          <p className="text-xs text-red-600">❌ Este email já está cadastrado. Faça login ou recupere sua senha.</p>
+                        )}
+                        {isValidEmail(email) && !checkingSignupEmail && signupEmailExists === false && (
+                          <p className="text-xs text-green-600">✓ Email disponível</p>
+                        )}
                       </div>
 
                       <div className="grid gap-2">
@@ -1275,7 +1485,7 @@ export default function Login() {
                       <Button
                         type="submit"
                         className="mt-2 rounded-full"
-                        disabled={!email.trim() || !isStrongPassword(password) || password !== confirmPassword || busy}
+                        disabled={!isValidEmail(email) || signupEmailExists !== false || checkingSignupEmail || !isStrongPassword(password) || password !== confirmPassword || busy}
                       >
                         {busy ? "Validando..." : "Próximo"}
                       </Button>
@@ -1824,67 +2034,94 @@ export default function Login() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="grid gap-2">
-                          <Label htmlFor="signup_age">Idade</Label>
-                          <Input
-                            id="signup_age"
-                            type="number"
-                            inputMode="numeric"
-                            min={1}
-                            max={120}
-                            step={1}
-                            value={age}
-                            onChange={(e) => setAge(e.target.value.replace(/[^0-9]/g, ""))}
-                            placeholder="Ex: 25"
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="signup_height">Altura (cm)</Label>
-                          <Input
-                            id="signup_height"
-                            type="number"
-                            inputMode="numeric"
-                            min={50}
-                            max={300}
-                            step={1}
-                            value={height}
-                            onChange={(e) => setHeight(e.target.value.replace(/[^0-9]/g, ""))}
-                            placeholder="Ex: 175"
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="signup_weight">Peso (kg)</Label>
-                          <Input
-                            id="signup_weight"
-                            type="number"
-                            inputMode="decimal"
-                            min={10}
-                            max={500}
-                            value={weight}
-                            onChange={(e) => setWeight(e.target.value)}
-                            placeholder="Ex: 70"
-                          />
-                        </div>
-                      </div>
+                      {(() => {
+                        const ageNum = age === "" ? null : parseInt(age, 10);
+                        const heightNum = height === "" ? null : parseInt(height, 10);
+                        const weightNum = weight === "" ? null : parseFloat(weight);
+                        const ageError = ageNum !== null && (ageNum < 1 || ageNum > 100);
+                        const heightError = heightNum !== null && (heightNum < 100 || heightNum > 300);
+                        const weightError = weightNum !== null && (weightNum < 20 || weightNum > 200);
+                        const hasErrors = ageError || heightError || weightError;
 
-                      <div className="flex gap-2 mt-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="rounded-full flex-1"
-                          onClick={() => setSignupStep(hasCommercialProfile ? 2.5 : 2)}
-                        >
-                          Voltar
-                        </Button>
-                        <Button
-                          type="button"
-                          className="rounded-full flex-1"
-                          onClick={() => setSignupStep(3)}
-                        >
-                          Próximo
-                        </Button>
-                      </div>
+                        return (
+                          <>
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="grid gap-1">
+                                <Label htmlFor="signup_age">Idade</Label>
+                                <Input
+                                  id="signup_age"
+                                  type="number"
+                                  inputMode="numeric"
+                                  min={1}
+                                  max={100}
+                                  step={1}
+                                  value={age}
+                                  onChange={(e) => setAge(e.target.value.replace(/[^0-9]/g, ""))}
+                                  placeholder="Ex: 25"
+                                  className={ageError ? "border-red-500" : ""}
+                                />
+                                {ageError && (
+                                  <p className="text-xs text-red-600">1 a 100 anos</p>
+                                )}
+                              </div>
+                              <div className="grid gap-1">
+                                <Label htmlFor="signup_height">Altura (cm)</Label>
+                                <Input
+                                  id="signup_height"
+                                  type="number"
+                                  inputMode="numeric"
+                                  min={100}
+                                  max={300}
+                                  step={1}
+                                  value={height}
+                                  onChange={(e) => setHeight(e.target.value.replace(/[^0-9]/g, ""))}
+                                  placeholder="Ex: 175"
+                                  className={heightError ? "border-red-500" : ""}
+                                />
+                                {heightError && (
+                                  <p className="text-xs text-red-600">100 a 300 cm</p>
+                                )}
+                              </div>
+                              <div className="grid gap-1">
+                                <Label htmlFor="signup_weight">Peso (kg)</Label>
+                                <Input
+                                  id="signup_weight"
+                                  type="number"
+                                  inputMode="decimal"
+                                  min={20}
+                                  max={200}
+                                  value={weight}
+                                  onChange={(e) => setWeight(e.target.value)}
+                                  placeholder="Ex: 70"
+                                  className={weightError ? "border-red-500" : ""}
+                                />
+                                {weightError && (
+                                  <p className="text-xs text-red-600">20 a 200 kg</p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex gap-2 mt-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="rounded-full flex-1"
+                                onClick={() => setSignupStep(hasCommercialProfile ? 2.5 : 2)}
+                              >
+                                Voltar
+                              </Button>
+                              <Button
+                                type="button"
+                                className="rounded-full flex-1"
+                                disabled={hasErrors}
+                                onClick={() => setSignupStep(3)}
+                              >
+                                Próximo
+                              </Button>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
 
@@ -1934,7 +2171,7 @@ export default function Login() {
                           type="button"
                           className="rounded-full flex-1"
                           onClick={handleSignupStep3}
-                          disabled={selectedSegments.size === 0 || busy}
+                          disabled={busy}
                         >
                           {busy ? "Criando..." : "Próximo"}
                         </Button>
@@ -1944,6 +2181,8 @@ export default function Login() {
                 </TabsContent>
               </Tabs>
             )}
+
+            </>}
           </CardContent>
         </Card>
       </div>
