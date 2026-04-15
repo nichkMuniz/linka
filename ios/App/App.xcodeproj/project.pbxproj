@@ -464,9 +464,11 @@
 			buildSettings = {
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = VR767CPN6R;
 				INFOPLIST_FILE = LinkaWorkoutWidget/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.linka.meuapp.LinkaWorkoutWidget;
+				PRODUCT_NAME = LinkaWorkoutWidget;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
@@ -479,9 +481,11 @@
 			buildSettings = {
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = VR767CPN6R;
 				INFOPLIST_FILE = LinkaWorkoutWidget/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.linka.meuapp.LinkaWorkoutWidget;
+				PRODUCT_NAME = LinkaWorkoutWidget;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
