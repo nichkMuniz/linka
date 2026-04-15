@@ -329,6 +329,21 @@ Usuário quer adicionar dieta ou hábito
 - Pode ser fechado individualmente pelo usuário
 - `showPostWorkoutNutrition` state: boolean, resetado ao fechar o resumo
 
+### GPS — Corrida Externa
+
+Card exclusivo exibido no modal de treino quando o exercício ativo é **Corrida Externa** (`workout_id = '451eea08-8a29-4c8c-b7b3-5ce93bcca08f'`).
+
+- Botão "Iniciar GPS" / "Parar GPS" para controlar o rastreamento
+- Enquanto ativo: exibe distância (km), pace (min/km) e tempo decorrido em tempo real
+- A distância é calculada via `navigator.geolocation.watchPosition` com fórmula Haversine
+- Ruídos de GPS menores que 5 m são ignorados automaticamente
+- **Auto-preenche o campo de distância** à medida que a corrida avança
+- Estado parado automaticamente ao fechar o modal de treino
+- Permissão iOS: `NSLocationWhenInUseUsageDescription` (declarada no `Info.plist`)
+
+Estados GPS: `gpsActive`, `gpsDistance`, `gpsPace`, `gpsElapsedSecs`
+Refs: `gpsWatchIdRef`, `gpsLastPosRef`, `gpsStartTimeRef`, `gpsElapsedIntervalRef`
+
 ### Progresso da Meta
 - Barra de progresso de 0 a 100%
 - Percentual calculado com base em check-ins

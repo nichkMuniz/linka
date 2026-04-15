@@ -277,6 +277,8 @@ export default function Goals() {
     isAllCardio: boolean;
     totalKm: number;
     totalCardioTimeSecs: number;
+    gpsRoute?: Array<{ lat: number; lng: number }>;
+    gpsPace?: number | null;
   } | null>(null);
 
   const [isDuelShareModalOpen, setIsDuelShareModalOpen] = React.useState(false);
@@ -316,6 +318,110 @@ export default function Goals() {
   const [prCanvasPreviewUrl, setPrCanvasPreviewUrl] = React.useState<string | null>(null);
   const workoutCanvasRef = React.useRef<HTMLCanvasElement>(null);
   const prCanvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  // GPS tracking state (Corrida Externa)
+  const CORRIDA_EXTERNA_ID = "451eea08-8a29-4c8c-b7b3-5ce93bcca08f";
+  const [gpsActive, setGpsActive] = React.useState(false);
+  const [gpsDistance, setGpsDistance] = React.useState(0); // km
+  const [gpsPace, setGpsPace] = React.useState<number | null>(null); // secs per km
+  const [gpsElapsedSecs, setGpsElapsedSecs] = React.useState(0);
+  const [gpsRoute, setGpsRoute] = React.useState<Array<{ lat: number; lng: number }>>([]);
+  const gpsRouteRef = React.useRef<Array<{ lat: number; lng: number }>>([]);
+  const gpsWatchIdRef = React.useRef<number | null>(null);
+  const gpsLastPosRef = React.useRef<GeolocationPosition | null>(null);
+  const gpsStartTimeRef = React.useRef<number | null>(null);
+  const gpsElapsedIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const gpsHaversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
+  const startGpsTracking = (workoutId: string) => {
+    if (!navigator.geolocation) {
+      toast({ title: "GPS não disponível", description: "Seu dispositivo não suporta geolocalização.", variant: "destructive" });
+      return;
+    }
+    setGpsActive(true);
+    setGpsDistance(0);
+    setGpsPace(null);
+    setGpsElapsedSecs(0);
+    setGpsRoute([]);
+    gpsRouteRef.current = [];
+    gpsLastPosRef.current = null;
+    gpsStartTimeRef.current = Date.now();
+
+    if (gpsElapsedIntervalRef.current) clearInterval(gpsElapsedIntervalRef.current);
+    gpsElapsedIntervalRef.current = setInterval(() => {
+      setGpsElapsedSecs((prev) => prev + 1);
+    }, 1000);
+
+    let accumulatedKm = 0;
+    gpsWatchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const point = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        const prev = gpsLastPosRef.current;
+        if (!prev) {
+          // First point — always record
+          gpsRouteRef.current = [point];
+          setGpsRoute([point]);
+        } else {
+          const delta = gpsHaversineKm(
+            prev.coords.latitude, prev.coords.longitude,
+            pos.coords.latitude, pos.coords.longitude
+          );
+          // Ignore GPS noise (< 5m jumps)
+          if (delta > 0.005) {
+            accumulatedKm += delta;
+            setGpsDistance(Math.round(accumulatedKm * 100) / 100);
+            // Pace: secs per km
+            const elapsedMins = (Date.now() - (gpsStartTimeRef.current ?? Date.now())) / 60000;
+            if (accumulatedKm > 0) {
+              setGpsPace(Math.round((elapsedMins / accumulatedKm) * 60));
+            }
+            // Accumulate route
+            const updated = [...gpsRouteRef.current, point];
+            gpsRouteRef.current = updated;
+            setGpsRoute(updated);
+            // Auto-fill distance field
+            handleUpdateSerie(workoutId, 0, "kg", String(Math.round(accumulatedKm * 100) / 100));
+          }
+        }
+        gpsLastPosRef.current = pos;
+      },
+      (err) => {
+        toast({ title: "Erro de GPS", description: err.message, variant: "destructive" });
+        stopGpsTracking();
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+    );
+  };
+
+  const stopGpsTracking = () => {
+    if (gpsWatchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+      gpsWatchIdRef.current = null;
+    }
+    if (gpsElapsedIntervalRef.current) {
+      clearInterval(gpsElapsedIntervalRef.current);
+      gpsElapsedIntervalRef.current = null;
+    }
+    setGpsActive(false);
+  };
+
+  // Stop GPS when workout modal closes
+  React.useEffect(() => {
+    if (!workoutModalOpen) stopGpsTracking();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workoutModalOpen]);
 
   // Edit goal modal state
   const [editGoalModalOpen, setEditGoalModalOpen] = React.useState(false);
@@ -1888,6 +1994,8 @@ export default function Goals() {
         isAllCardio: allCardio && exerciseNames.length > 0,
         totalKm: Math.round(totalKm * 10) / 10,
         totalCardioTimeSecs,
+        gpsRoute: gpsRouteRef.current.length >= 2 ? [...gpsRouteRef.current] : undefined,
+        gpsPace: gpsPace,
       });
       setFinishWorkoutConfirmOpen(false);
       setWorkoutModalOpen(false);
@@ -3050,6 +3158,54 @@ export default function Goals() {
 
                             return (
                               <div className="space-y-3">
+                                {/* GPS Tracker — Corrida Externa only */}
+                                {workout.workout_id === CORRIDA_EXTERNA_ID && (
+                                  <div className={`rounded-xl border-2 p-3 transition-colors ${gpsActive ? "border-brand/60 bg-brand/5" : "border-border/40 bg-muted/20"}`}>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center gap-2">
+                                        <MapPin className={`h-4 w-4 ${gpsActive ? "text-brand animate-pulse" : "text-muted-foreground"}`} />
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">GPS</span>
+                                        {gpsActive && <span className="text-[10px] font-medium text-brand bg-brand/10 px-1.5 py-0.5 rounded-full">Rastreando</span>}
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => gpsActive ? stopGpsTracking() : startGpsTracking(workout.workout_id)}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${gpsActive ? "bg-red-500/10 text-red-500 hover:bg-red-500/20" : "bg-brand/10 text-brand hover:bg-brand/20"}`}
+                                      >
+                                        {gpsActive ? "Parar GPS" : "Iniciar GPS"}
+                                      </button>
+                                    </div>
+                                    {(gpsActive || gpsDistance > 0) && (
+                                      <div className="flex items-center gap-4 mt-1">
+                                        <div className="flex flex-col items-center">
+                                          <span className="text-xl font-bold tabular-nums text-foreground">{gpsDistance.toFixed(2)}</span>
+                                          <span className="text-[10px] text-muted-foreground font-medium">km</span>
+                                        </div>
+                                        {gpsPace !== null && (
+                                          <>
+                                            <div className="w-px h-8 bg-border/40" />
+                                            <div className="flex flex-col items-center">
+                                              <span className="text-xl font-bold tabular-nums text-foreground">
+                                                {`${Math.floor(gpsPace / 60)}:${String(gpsPace % 60).padStart(2, "0")}`}
+                                              </span>
+                                              <span className="text-[10px] text-muted-foreground font-medium">min/km</span>
+                                            </div>
+                                          </>
+                                        )}
+                                        <div className="w-px h-8 bg-border/40" />
+                                        <div className="flex flex-col items-center">
+                                          <span className="text-xl font-bold tabular-nums text-foreground">
+                                            {`${Math.floor(gpsElapsedSecs / 60)}:${String(gpsElapsedSecs % 60).padStart(2, "0")}`}
+                                          </span>
+                                          <span className="text-[10px] text-muted-foreground font-medium">tempo</span>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {!gpsActive && gpsDistance === 0 && (
+                                      <p className="text-[11px] text-muted-foreground">Inicie o GPS para rastrear sua distância automaticamente.</p>
+                                    )}
+                                  </div>
+                                )}
                                 {/* Previous session reference */}
                                 {(prevKm !== null || prevTempoSecs !== null) && (
                                   <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 border border-border/30">
@@ -3990,6 +4146,102 @@ export default function Goals() {
                   <p className="text-sm font-bold">{workoutSummaryData.totalSeries}</p>
                 </div>
               </div>
+
+              {/* GPS Route Map — Corrida Externa */}
+              {workoutSummaryData.gpsRoute && workoutSummaryData.gpsRoute.length >= 2 && (() => {
+                const route = workoutSummaryData.gpsRoute!;
+                const lats = route.map((p) => p.lat);
+                const lngs = route.map((p) => p.lng);
+                const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+                const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+                const W = 320, H = 200, PAD = 20;
+                // Mercator-approximate projection
+                const toX = (lng: number) => PAD + ((lng - minLng) / (maxLng - minLng || 1)) * (W - PAD * 2);
+                const toY = (lat: number) => PAD + ((maxLat - lat) / (maxLat - minLat || 1)) * (H - PAD * 2);
+                const points = route.map((p) => `${toX(p.lng)},${toY(p.lat)}`).join(" ");
+                const start = route[0], end = route[route.length - 1];
+                const pace = workoutSummaryData.gpsPace;
+                const paceStr = pace ? `${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, "0")} min/km` : null;
+                const cardioTimeSecs = workoutSummaryData.totalCardioTimeSecs;
+                const h = Math.floor(cardioTimeSecs / 3600);
+                const m = Math.floor((cardioTimeSecs % 3600) / 60);
+                const s = cardioTimeSecs % 60;
+                const timeStr = cardioTimeSecs > 0
+                  ? h > 0 ? `${h}h ${String(m).padStart(2,"0")}min` : s > 0 ? `${m}min ${String(s).padStart(2,"0")}s` : `${m}min`
+                  : null;
+                return (
+                  <div className="mx-4 mb-4 rounded-2xl overflow-hidden border border-brand/30 bg-[#0d1117]">
+                    {/* Map SVG */}
+                    <div className="relative w-full" style={{ height: 200 }}>
+                      <svg
+                        viewBox={`0 0 ${W} ${H}`}
+                        width="100%"
+                        height="100%"
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="absolute inset-0"
+                      >
+                        {/* Grid lines */}
+                        {[0.25, 0.5, 0.75].map((t) => (
+                          <React.Fragment key={t}>
+                            <line x1={PAD} y1={PAD + t * (H - PAD * 2)} x2={W - PAD} y2={PAD + t * (H - PAD * 2)} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
+                            <line x1={PAD + t * (W - PAD * 2)} y1={PAD} x2={PAD + t * (W - PAD * 2)} y2={H - PAD} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
+                          </React.Fragment>
+                        ))}
+                        {/* Route shadow */}
+                        <polyline
+                          points={points}
+                          fill="none"
+                          stroke="rgba(251,146,60,0.25)"
+                          strokeWidth="6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        {/* Route line */}
+                        <polyline
+                          points={points}
+                          fill="none"
+                          stroke="#f97316"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        {/* Start dot */}
+                        <circle cx={toX(start.lng)} cy={toY(start.lat)} r="5" fill="#22c55e" stroke="#fff" strokeWidth="1.5" />
+                        {/* End dot */}
+                        <circle cx={toX(end.lng)} cy={toY(end.lat)} r="5" fill="#ef4444" stroke="#fff" strokeWidth="1.5" />
+                      </svg>
+                      {/* Label overlay */}
+                      <div className="absolute bottom-2 left-3 flex gap-3 text-[10px] font-semibold">
+                        <span className="flex items-center gap-1 text-green-400"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" />Início</span>
+                        <span className="flex items-center gap-1 text-red-400"><span className="w-2 h-2 rounded-full bg-red-400 inline-block" />Fim</span>
+                      </div>
+                    </div>
+                    {/* Stats bar */}
+                    <div className="flex items-center divide-x divide-white/10 bg-[#161b22] border-t border-white/10">
+                      <div className="flex-1 flex flex-col items-center py-2.5 px-2">
+                        <span className="text-base font-bold text-orange-400">{workoutSummaryData.totalKm > 0 ? `${workoutSummaryData.totalKm} km` : "—"}</span>
+                        <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Distância</span>
+                      </div>
+                      {timeStr && (
+                        <div className="flex-1 flex flex-col items-center py-2.5 px-2">
+                          <span className="text-base font-bold text-white">{timeStr}</span>
+                          <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Tempo</span>
+                        </div>
+                      )}
+                      {paceStr && (
+                        <div className="flex-1 flex flex-col items-center py-2.5 px-2">
+                          <span className="text-base font-bold text-white">{paceStr}</span>
+                          <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Ritmo</span>
+                        </div>
+                      )}
+                      <div className="flex-1 flex flex-col items-center py-2.5 px-2">
+                        <span className="text-base font-bold text-white">{route.length}</span>
+                        <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Pontos GPS</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Exercises */}
               {workoutSummaryData.exerciseNames.length > 0 && (
