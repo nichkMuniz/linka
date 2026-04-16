@@ -43,7 +43,7 @@ function cleanHandle(raw: string) {
     .replace(/@/g, "")
     .replace(/\s+/g, "")
     .replace(/[^a-z0-9._-]/g, "");
-  return `@${slug || "voce"}`;
+  return slug || "voce";
 }
 
 export async function getViewer() {
@@ -113,7 +113,7 @@ async function ensureProfile(): Promise<DbProfile | null> {
     return {
       id: cachedProfile.data.id,
       nickname: cachedProfile.data.nickname,
-      handle: cachedProfile.data.handle ?? `@${cachedProfile.data.nickname}`,
+      handle: cachedProfile.data.handle ?? cleanHandle(cachedProfile.data.nickname ?? ""),
       avatarUrl: cachedProfile.data.photo ?? undefined,
     };
   }
@@ -316,6 +316,7 @@ export async function getPostLikeUsersDb(postId: string): Promise<Array<{
   userId: string;
   userNickname: string;
   userPhoto: string | null;
+  userGender: string | null;
   type: number;
 }>> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -336,7 +337,7 @@ export async function getPostLikeUsersDb(postId: string): Promise<Array<{
     // Fetch user profiles
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, nickname, photo")
+      .select("user_id, nickname, photo, gender")
       .in("user_id", userIds);
 
     const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
@@ -349,6 +350,7 @@ export async function getPostLikeUsersDb(postId: string): Promise<Array<{
           userId: like.user_id,
           userNickname: profile?.nickname ?? "Usuário",
           userPhoto: profile?.photo ?? null,
+          userGender: profile?.gender ?? null,
           type: like.type,
         };
       });
@@ -2056,6 +2058,7 @@ export async function createUserWorkoutsDb(
     throw new Error(`Erro ao salvar exercícios: ${errorMsg}`);
   }
 
+  invalidateQueryCache("userWorkouts:"); invalidateQueryCache("userRoutines:");
   return (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
     workout_id: String(row.workout_id ?? ""),
@@ -2214,6 +2217,7 @@ export async function createUserDietsDb(
     throw new Error(`Erro ao salvar dietas: ${errorMsg}`);
   }
 
+  invalidateQueryCache("userDiets:"); invalidateQueryCache("userRoutines:");
   return (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
     diet_id: String(row.diet_id ?? ""),
@@ -2230,6 +2234,7 @@ export type UserDietWithDetails = {
   dietName?: string;
   dietPhoto?: string | null;
   dietDescription?: string;
+  dietCategory?: string | null;
   dietCalories?: number | null;
   dietProtein?: number | null;
   dietCarbs?: number | null;
@@ -2249,7 +2254,7 @@ export async function getUserDietsDb(
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, diet_id, user_id, name, is_completed, completed_at, scheduled_time, diets(name, photo, description, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality)",
+      "id, diet_id, user_id, name, is_completed, completed_at, scheduled_time, diets(name, photo, description, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -2285,7 +2290,7 @@ export async function getUserDietsDb(
         if (dietIds.length > 0) {
           const { data: dietsData } = await supabase
             .from("diets")
-            .select("id, name, photo, description, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
+            .select("id, name, photo, description, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
             .in("id", dietIds);
 
           if (dietsData) {
@@ -2305,6 +2310,7 @@ export async function getUserDietsDb(
             dietName: dietDetails?.name || "Dieta desconhecida",
             dietPhoto: dietDetails?.photo || null,
             dietDescription: dietDetails?.description || undefined,
+            dietCategory: dietDetails?.category || null,
             dietCalories: dietDetails?.calories != null ? Number(dietDetails.calories) : null,
             dietProtein: dietDetails?.protein_g != null ? Number(dietDetails.protein_g) : null,
             dietCarbs: dietDetails?.carbs_g != null ? Number(dietDetails.carbs_g) : null,
@@ -2330,7 +2336,7 @@ export async function getUserDietsDb(
     console.warn(`[getUserDietsDb] Trying minimal fallback without is_completed/completed_at: ${errorMsg}`);
     const { data: minData, error: minError } = await supabase
       .from("user_diets")
-      .select("id, diet_id, user_id, name, diets(name, photo, description)")
+      .select("id, diet_id, user_id, name, diets(name, photo, description, category)")
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
@@ -2343,6 +2349,7 @@ export async function getUserDietsDb(
         dietName: (row.diets as any)?.name || "Dieta desconhecida",
         dietPhoto: (row.diets as any)?.photo || null,
         dietDescription: (row.diets as any)?.description || undefined,
+        dietCategory: (row.diets as any)?.category || null,
         dietCalories: (row.diets as any)?.calories != null ? Number((row.diets as any).calories) : null,
         dietProtein: (row.diets as any)?.protein_g != null ? Number((row.diets as any).protein_g) : null,
         dietCarbs: (row.diets as any)?.carbs_g != null ? Number((row.diets as any).carbs_g) : null,
@@ -2366,6 +2373,7 @@ export async function getUserDietsDb(
     dietName: (row.diets as any)?.name || "Dieta desconhecida",
     dietPhoto: (row.diets as any)?.photo || null,
     dietDescription: (row.diets as any)?.description || undefined,
+    dietCategory: (row.diets as any)?.category || null,
     dietCalories: (row.diets as any)?.calories != null ? Number((row.diets as any).calories) : null,
     dietProtein: (row.diets as any)?.protein_g != null ? Number((row.diets as any).protein_g) : null,
     dietCarbs: (row.diets as any)?.carbs_g != null ? Number((row.diets as any).carbs_g) : null,
@@ -2416,6 +2424,7 @@ export async function createUserHabitsDb(
     throw new Error(`Erro ao salvar hábitos: ${errorMsg}`);
   }
 
+  invalidateQueryCache("userHabits:"); invalidateQueryCache("userRoutines:");
   return (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
     habit_id: String(row.habit_id ?? ""),
@@ -4059,13 +4068,12 @@ export async function sendMessageDb(
       return null;
     }
 
+    invalidateQueryCache("conversations"); invalidateQueryCache("unreadMsgCount");
     return data;
   } catch (err: any) {
     console.error("Error sending message:", err);
     return null;
   }
-
-  invalidateQueryCache("conversations"); invalidateQueryCache("unreadMsgCount");
 }
 
 export async function getConversationsDb(): Promise<Conversation[]> {
@@ -4226,13 +4234,12 @@ export async function markMessagesAsReadDb(
       return false;
     }
 
+    invalidateQueryCache("unreadMsgCount"); invalidateQueryCache("conversations");
     return true;
   } catch (err: any) {
     console.error("Error marking messages as read:", err);
     return false;
   }
-
-  invalidateQueryCache("unreadMsgCount"); invalidateQueryCache("conversations");
 }
 
 export async function setMessageEmojiDb(
@@ -7521,7 +7528,8 @@ export async function getEnrichedDuelGroupsDb(
     // Build lookup maps from the single participants query
     const countMap: Record<string, number> = {};
     const memberMap: Record<string, boolean> = {};
-    const pendingMap: Record<string, boolean> = {};
+    const pendingMap: Record<string, boolean> = {}; // join requests sent by the user (status = "pending")
+    const invitedMap: Record<string, boolean> = {}; // invites received by the user (status = "invited")
 
     for (const p of allParticipants) {
       if (!p.group_id) continue;
@@ -7531,6 +7539,8 @@ export async function getEnrichedDuelGroupsDb(
         if (p.user_id === userId) memberMap[p.group_id] = true;
       } else if (p.status === "pending" && p.user_id === userId) {
         pendingMap[p.group_id] = true;
+      } else if (p.status === "invited" && p.user_id === userId) {
+        invitedMap[p.group_id] = true;
       }
     }
 
@@ -7630,10 +7640,10 @@ export async function getEnrichedDuelGroupsDb(
       };
     });
 
-    // Build pendingInvites from the maps (groups where user has a pending invite)
-    const pendingGroupIds = Object.keys(pendingMap);
+    // Build pendingInvites from invitedMap (groups where the user received an invite, NOT where they requested to join)
+    const invitedGroupIds = Object.keys(invitedMap);
     const pendingInvites = availGroups
-      .filter((g: any) => pendingGroupIds.includes(String(g.id)))
+      .filter((g: any) => invitedGroupIds.includes(String(g.id)))
       .map((g: any) => ({
         groupId: String(g.id),
         groupName: String(g.name),
@@ -8580,6 +8590,7 @@ export type CheckInComment = {
   userId: string;
   userNickname: string;
   userPhoto: string | null;
+  userGender: string | null;
   text: string;
   createdAt: string;
 };
@@ -8601,12 +8612,12 @@ export async function getCheckInCommentsDb(checkInId: string): Promise<CheckInCo
     const userIds = [...new Set(data.map((c: any) => c.user_id))];
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, nickname, photo")
+      .select("user_id, nickname, photo, gender")
       .in("user_id", userIds);
 
-    const profileMap: Record<string, { nickname: string; photo: string | null }> = {};
+    const profileMap: Record<string, { nickname: string; photo: string | null; gender: string | null }> = {};
     for (const p of profiles ?? []) {
-      profileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null };
+      profileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null, gender: p.gender || null };
     }
 
     return data.map((c: any) => ({
@@ -8615,6 +8626,7 @@ export async function getCheckInCommentsDb(checkInId: string): Promise<CheckInCo
       userId: c.user_id,
       userNickname: profileMap[c.user_id]?.nickname || "Usuário",
       userPhoto: profileMap[c.user_id]?.photo || null,
+      userGender: profileMap[c.user_id]?.gender || null,
       text: c.text,
       createdAt: c.created_at,
     }));

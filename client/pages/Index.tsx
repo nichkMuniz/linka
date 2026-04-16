@@ -117,13 +117,14 @@ export default function Index() {
   const [discoverPosts, setDiscoverPosts] = React.useState<PostWithStats[]>([]);
   const [discoverLoading, setDiscoverLoading] = React.useState(false);
   const [discoverLoaded, setDiscoverLoaded] = React.useState(false);
-  const [tabBarHidden, setTabBarHidden] = React.useState(false);
+const [tabBarHidden, setTabBarHidden] = React.useState(false);
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [selectedPostForLikes, setSelectedPostForLikes] = React.useState<PostWithStats | null>(null);
   const [postLikes, setPostLikes] = React.useState<Array<{
     userId: string;
     userNickname: string;
     userPhoto: string | null;
+    userGender: string | null;
     type: number;
   }>>([]);
   const [editPostOpen, setEditPostOpen] = React.useState(false);
@@ -273,7 +274,9 @@ export default function Index() {
 
         // Extract extension from blob MIME type
         const mimeType = blob.type || "image/jpeg";
-        const extension = mimeType.split("/")[1] || "jpg";
+        const rawExtension = mimeType.split("/")[1] || "jpg";
+        // Normalize iPhone/QuickTime format to mp4 for broad compatibility
+        const extension = rawExtension === "quicktime" ? "mov" : rawExtension;
         const fileName = `${Date.now()}-story.${extension}`;
         const filePath = `${user.id}/stories/${fileName}`;
 
@@ -375,6 +378,11 @@ export default function Index() {
     });
 
     const currentIndex = sortedStories.findIndex((s) => s.id === current.id);
+    // Guard: if story not found in list (e.g. activeViewerStories out of sync), close safely
+    if (currentIndex === -1) {
+      setStoryViewerOpen(false);
+      return;
+    }
     if (currentIndex < sortedStories.length - 1) {
       setSelectedStory(sortedStories[currentIndex + 1]);
     } else {
@@ -409,9 +417,9 @@ export default function Index() {
     });
 
     const currentIndex = sortedStories.findIndex((s) => s.id === current.id);
-    if (currentIndex > 0) {
-      setSelectedStory(sortedStories[currentIndex - 1]);
-    }
+    // Guard: if story not found in list, do nothing
+    if (currentIndex <= 0) return;
+    setSelectedStory(sortedStories[currentIndex - 1]);
   }, []);
 
   const handleAddStoryClick = React.useCallback(() => {
@@ -1212,7 +1220,17 @@ export default function Index() {
         onOpenChange={setStoryViewerOpen}
         onNextStory={handleSkipStory}
         onPrevStory={handlePrevStory}
-        onSelectStory={setSelectedStory}
+        onSelectStory={(s) => {
+          setSelectedStory(s);
+          // Rebuild activeViewerStories around the selected story so the modal
+          // stays in sync – otherwise the timer/navigation logic sees currentIndex=-1
+          // and can jump to the wrong story (or crash with a black screen).
+          const isOwner = s.user_id === user?.id;
+          const storiesList = isOwner
+            ? stories.filter((st) => st.user_id === user?.id)
+            : stories.filter((st) => st.user_id !== user?.id);
+          setActiveViewerStories(storiesList.length > 0 ? storiesList : [s]);
+        }}
         onDeleted={() => {
           setStoryViewerOpen(false);
           getActiveStoriesDb().then(setStories).catch(console.error);

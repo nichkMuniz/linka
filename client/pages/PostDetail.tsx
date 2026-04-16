@@ -41,7 +41,7 @@ export default function PostDetail() {
   const [postGoal, setPostGoal] = React.useState<UserGoal | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
-  const [postLikes, setPostLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; type: number }>>([]);
+  const [postLikes, setPostLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; userGender: string | null; type: number }>>([]);
 
   // Edit post state
   const [editDialogOpen, setEditDialogOpen] = React.useState(false);

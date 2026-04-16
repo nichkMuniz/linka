@@ -33,7 +33,7 @@ Hub social do aplicativo. Reúne mensagens diretas, duelos em grupo (desafios co
 
 **Header:**
 - Título "Mensagens"
-- Botão `PenSquare` → abre drawer "Nova mensagem" com lista de seguidores e campo de busca; ao selecionar um seguidor, abre a conversa diretamente (`setViewMode("conversation")`)
+- Botão `PenSquare` → abre drawer "Nova mensagem" com campo de busca dinâmica; busca qualquer usuário da plataforma via `searchUsersDb` (sem restrição de seguir); ao selecionar, abre a conversa diretamente (`setViewMode("conversation")`)
 
 **Busca:**
 - Input de pesquisa para filtrar conversas por nome

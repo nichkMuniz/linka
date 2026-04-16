@@ -157,7 +157,7 @@ import { RoutinesTab } from "@/components/goals/routines-tab";
 import { EditGoalDrawer } from "@/components/goals/edit-goal-drawer";
 import { MoodDialog } from "@/components/goals/mood-dialog";
 import { RenameRoutineDialog } from "@/components/goals/rename-routine-dialog";
-import { ImageZoomDrawer } from "@/components/shared/image-zoom-drawer";
+import { ImageZoomDrawer, type ImageZoomItem } from "@/components/shared/image-zoom-drawer";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { ShareDrawer } from "@/components/shared/share-drawer";
 import { CreateWorkoutDrawer } from "@/components/goals/create-workout-drawer";
@@ -518,7 +518,7 @@ export default function Goals() {
 
 
   // Image zoom modal
-  const [imageZoom, setImageZoom] = React.useState<{ src: string | null; name: string; description?: string } | null>(null);
+  const [imageZoom, setImageZoom] = React.useState<ImageZoomItem | null>(null);
 
   // Link goal from routines tab
   const [linkGoalForRoutineOpen, setLinkGoalForRoutineOpen] = React.useState(false);
@@ -2176,7 +2176,10 @@ export default function Goals() {
         return;
       }
 
-      const datesToSave = executeAtOverrides && executeAtOverrides.length > 0 ? executeAtOverrides : [null];
+      // Use only the first date as execute_at reference — recurring days are handled via notifications,
+      // not by creating multiple DB entries (which would duplicate the routine).
+      const executeAtValue =
+        executeAtOverrides && executeAtOverrides.length > 0 ? (executeAtOverrides[0] ?? null) : null;
 
       if (selectedRoutineType === 1) {
         // Save workouts — only new ones
@@ -2186,21 +2189,17 @@ export default function Goals() {
           });
         }
       } else if (selectedRoutineType === 2) {
-        // Save diets — one entry per selected date
-        for (const executeAt of datesToSave) {
-          await createUserDietsDb(user.id, itemIds, {
-            name: routineName.trim() || undefined,
-            execute_at: executeAt ?? null,
-          });
-        }
+        // Save diets — one entry only; recurrence is managed via scheduled_time notifications
+        await createUserDietsDb(user.id, itemIds, {
+          name: routineName.trim() || undefined,
+          execute_at: executeAtValue,
+        });
       } else if (selectedRoutineType === 3) {
-        // Save habits — one entry per selected date
-        for (const executeAt of datesToSave) {
-          await createUserHabitsDb(user.id, itemIds, {
-            name: routineName.trim() || undefined,
-            execute_at: executeAt ?? null,
-          });
-        }
+        // Save habits — one entry only; recurrence is managed via scheduled_time notifications
+        await createUserHabitsDb(user.id, itemIds, {
+          name: routineName.trim() || undefined,
+          execute_at: executeAtValue,
+        });
       }
 
       const typeLabel =
@@ -2771,7 +2770,7 @@ export default function Goals() {
                             <div className="flex items-center gap-3">
                               <div
                                 className="flex-shrink-0 rounded overflow-hidden cursor-pointer"
-                                onClick={(e) => { e.stopPropagation(); setImageZoom({ src: (diet as any).photo || (diet as any).image || null, name: diet.name, description: diet.description || undefined }); }}
+                                onClick={(e) => { e.stopPropagation(); setImageZoom({ src: (diet as any).photo || (diet as any).image || null, name: diet.name, description: diet.description || undefined, category: diet.category }); }}
                               >
                                 <DietImage
                                   photo={diet.photo}
@@ -3262,8 +3261,8 @@ export default function Goals() {
                                   </div>
                                 )}
 
-                                {/* Cardio inputs: Distância + Tempo */}
-                                <div className="flex flex-col gap-4">
+                                {/* Cardio inputs: Distância + Tempo — hidden for Corrida Externa (GPS handles it) */}
+                                {workout.workout_id !== CORRIDA_EXTERNA_ID && <div className="flex flex-col gap-4">
                                   {/* Distância */}
                                   <div className="flex flex-col gap-1.5">
                                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
@@ -3358,7 +3357,7 @@ export default function Goals() {
                                     );
                                   })()}
 
-                                </div>
+                                </div>}
 
                                 {/* Confirm button */}
                                 <button
@@ -3804,7 +3803,6 @@ export default function Goals() {
             await addGroupCheckInDb(
               selectedDuelGroupId,
               user.id,
-              userName,
               photoUrl || uploadedUrls[0] || "",
               description,
               workoutSummaryData.routineName || "Treino",
@@ -3812,7 +3810,6 @@ export default function Goals() {
               workoutSummaryData.totalVolume,
               primaryMuscle,
               workoutSummaryData.exercises,
-              userPhotoUrl,
               uploadedUrls,
             );
 
@@ -4762,6 +4759,24 @@ export default function Goals() {
                     typeGroups[r.type].push(r);
                   });
                   const allIds = routineGroup.map((r) => r.id);
+                  // Count actual sub-items (workouts/diets/habits) across all type groups
+                  const totalSubItems = Object.entries(typeGroups).reduce((sum, [typeCodeStr, items]) => {
+                    const tc = Number(typeCodeStr);
+                    const rName = items[0]?.name ?? null;
+                    const subItems = tc === 1
+                      ? userWorkouts.filter((w) => rName ? w.name === rName : !w.name)
+                      : tc === 2
+                        ? userDiets.filter((d) => rName ? d.name === rName : !d.name)
+                        : userHabits.filter((h) => rName ? h.name === rName : !h.name);
+                    const seen = new Set<string>();
+                    const deduped = subItems.filter((item: any) => {
+                      const k = tc === 1 ? item.workout_id : tc === 2 ? item.diet_id : item.habit_id;
+                      if (seen.has(k)) return false;
+                      seen.add(k);
+                      return true;
+                    });
+                    return sum + deduped.length;
+                  }, 0);
                   return (
                     <div key={routineName} className="rounded-xl border border-border/60 overflow-hidden">
                       <div className="flex items-center px-4 py-3 gap-3">
@@ -4778,7 +4793,7 @@ export default function Goals() {
                           <div>
                             <p className="text-sm font-semibold">{routineName}</p>
                             <p className="text-xs text-muted-foreground">
-                              {Object.keys(typeGroups).length} tipo(s) · {routineGroup.length} item(s)
+                              {Object.keys(typeGroups).length} tipo(s) · {totalSubItems} item(s)
                             </p>
                           </div>
                           <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform shrink-0 ${isOpen ? "rotate-180" : ""}`} />

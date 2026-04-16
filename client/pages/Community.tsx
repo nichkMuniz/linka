@@ -56,12 +56,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Pencil, Camera, Image, Mic, Smile } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Pencil, Camera, Image, Mic, Smile, Crop } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
 import { AddMembersDrawer } from "@/components/community/add-members-drawer";
 import { EditCheckInDrawer } from "@/components/community/edit-checkin-drawer";
+import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { PostCarousel } from "@/components/post/post-carousel";
 import {
   Drawer,
@@ -174,6 +175,9 @@ export default function Community() {
   const [checkInPhotoFiles, setCheckInPhotoFiles] = React.useState<File[]>([]);
   const [checkInPhotoPreviewUrls, setCheckInPhotoPreviewUrls] = React.useState<string[]>([]);
   const [activePhotoPreviewIndex, setActivePhotoPreviewIndex] = React.useState(0);
+  // pendingCropSrc: data URL waiting to be cropped; pendingCropIndex: index to replace (-1 = append new)
+  const [pendingCropSrc, setPendingCropSrc] = React.useState<string | null>(null);
+  const [pendingCropIndex, setPendingCropIndex] = React.useState<number>(-1);
 
   React.useEffect(() => {
     if (checkInPhotoFiles.length === 0) {
@@ -818,6 +822,15 @@ export default function Community() {
             if (prev.some((m) => m.id === newMsg.id)) return prev;
             return [...prev, newMsg];
           });
+
+          // Update last message preview in conversations list
+          setConversations((prev) =>
+            prev.map((conv) =>
+              conv.userId === selectedConversation.userId
+                ? { ...conv, lastMessage: msg.text ?? "", lastMessageTime: msg.created_at ?? new Date().toISOString() }
+                : conv,
+            ),
+          );
 
           // Mark as read if from the other user
           if (msg.user_id === selectedConversation.userId) {
@@ -1734,7 +1747,7 @@ export default function Community() {
           </div>
 
           {/* Centered Add Check-in Button at Bottom */}
-          <div className="fixed bottom-6 right-4 z-[101] md:bottom-6 md:left-[244px] md:right-0 md:max-w-[680px] md:mx-auto md:flex md:justify-end md:pr-4 md:pointer-events-none [&>*]:pointer-events-auto">
+          <div className="fixed bottom-[88px] right-4 z-[101] md:bottom-[88px] md:left-[244px] md:right-0 md:max-w-[680px] md:mx-auto md:flex md:justify-end md:pr-4 md:pointer-events-none [&>*]:pointer-events-auto">
             <button
               onClick={() => {
                 if (!user?.id) return;
@@ -2673,6 +2686,20 @@ export default function Community() {
                           className="w-full h-full object-contain"
                         />
 
+                        {/* Edit (crop) current photo */}
+                        <button
+                          onClick={() => {
+                            const src = checkInPhotoPreviewUrls[activePhotoPreviewIndex];
+                            if (src) {
+                              setPendingCropIndex(activePhotoPreviewIndex);
+                              setPendingCropSrc(src);
+                            }
+                          }}
+                          className="absolute top-2 left-2 bg-black/60 hover:bg-black/80 text-white p-1.5 rounded-full shadow-lg transition-colors"
+                        >
+                          <Crop className="h-4 w-4" />
+                        </button>
+
                         {/* Remove Current Photo */}
                         <button
                           onClick={() => {
@@ -2717,10 +2744,16 @@ export default function Community() {
                           <input
                             type="file"
                             accept="image/*"
-                            multiple
                             onChange={(e) => {
-                              const files = Array.from(e.target.files || []);
-                              setCheckInPhotoFiles(prev => [...prev, ...files]);
+                              const file = e.target.files?.[0];
+                              e.target.value = "";
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = (ev) => {
+                                setPendingCropIndex(-1);
+                                setPendingCropSrc(ev.target?.result as string);
+                              };
+                              reader.readAsDataURL(file);
                             }}
                             className="hidden"
                           />
@@ -2733,15 +2766,20 @@ export default function Community() {
                         <Plus className="h-8 w-8 text-brand" />
                       </div>
                       <p className="text-sm font-medium">Adicionar Fotos</p>
-                      <p className="text-xs text-muted-foreground mt-1">Selecione uma ou mais imagens</p>
+                      <p className="text-xs text-muted-foreground mt-1">Selecione uma imagem por vez</p>
                       <input
                         type="file"
                         accept="image/*"
-                        multiple
                         onChange={(e) => {
-                          const files = Array.from(e.target.files || []);
-                          setCheckInPhotoFiles(files);
-                          setActivePhotoPreviewIndex(0);
+                          const file = e.target.files?.[0];
+                          e.target.value = "";
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            setPendingCropIndex(-1);
+                            setPendingCropSrc(ev.target?.result as string);
+                          };
+                          reader.readAsDataURL(file);
                         }}
                         className="hidden"
                       />
@@ -2926,6 +2964,34 @@ export default function Community() {
         </DrawerContent>
       </Drawer>
 
+      {/* Image Cropper for Check-in photos */}
+      <ImageCropperDrawer
+        imageSrc={pendingCropSrc}
+        aspectRatio={1}
+        onConfirm={(_dataUrl, blob) => {
+          const file = new File([blob], `checkin-${Date.now()}.jpg`, { type: "image/jpeg" });
+          if (pendingCropIndex === -1) {
+            setCheckInPhotoFiles(prev => {
+              const next = [...prev, file];
+              setActivePhotoPreviewIndex(next.length - 1);
+              return next;
+            });
+          } else {
+            setCheckInPhotoFiles(prev => {
+              const next = [...prev];
+              next[pendingCropIndex] = file;
+              return next;
+            });
+          }
+          setPendingCropSrc(null);
+          setPendingCropIndex(-1);
+        }}
+        onCancel={() => {
+          setPendingCropSrc(null);
+          setPendingCropIndex(-1);
+        }}
+      />
+
       {/* Nova Conversa Drawer */}
       <NewConversationDrawer
         open={isNewConversationDrawerOpen}
@@ -3077,6 +3143,7 @@ export default function Community() {
                         <div key={comment.id} className="flex gap-2">
                           <UserAvatar
                             photo={comment.userPhoto}
+                            gender={comment.userGender}
                             nickname={comment.userNickname}
                             className="w-7 h-7 flex-shrink-0"
                           />

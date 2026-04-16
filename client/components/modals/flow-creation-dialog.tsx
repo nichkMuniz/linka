@@ -99,11 +99,14 @@ export function FlowCreationDialog({
       "image/webp",
       "video/mp4",
       "video/webm",
+      "video/quicktime", // iPhone .mov files
+      "video/mov",
+      "video/x-m4v",
     ];
-    if (!validTypes.includes(file.type)) {
+    if (!validTypes.includes(file.type) && !file.type.startsWith("video/")) {
       toast({
         title: "Tipo de arquivo inválido",
-        description: "Use imagens (JPG, PNG, GIF, WebP) ou vídeos (MP4, WebM)",
+        description: "Use imagens (JPG, PNG, GIF, WebP) ou vídeos (MP4, MOV, WebM)",
         variant: "destructive",
       });
       return;

@@ -94,6 +94,7 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
         userBadges={userBadges}
         allBadges={allBadges}
         totalCheckIns={totalCheckIns}
+        profileUserId={userId}
       />
     </>
   );

@@ -244,7 +244,7 @@ export function PostCommentsDialog({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <div className="text-xs font-medium">
-                        {comment.userName}{comment.userHandle ? <span className="font-normal text-muted-foreground"> | {comment.userHandle}</span> : null}
+                        {comment.userName}{comment.userHandle ? <span className="font-normal text-muted-foreground"> | @{comment.userHandle.replace(/^@/, "")}</span> : null}
                       </div>
                     </div>
                     {editingId === comment.id ? (
@@ -396,7 +396,7 @@ export function PostCommentsDialog({
             )}
           />
         </button>
-        <Drawer open={open} onOpenChange={setOpen} noBodyStyles>
+        <Drawer open={open} onOpenChange={setOpen} noBodyStyles shouldScaleBackground={false}>
           {drawerContent}
         </Drawer>
       </>
@@ -404,7 +404,7 @@ export function PostCommentsDialog({
   }
 
   return (
-    <Drawer open={open} onOpenChange={setOpen} noBodyStyles>
+    <Drawer open={open} onOpenChange={setOpen} noBodyStyles shouldScaleBackground={false}>
       <DrawerTrigger asChild>
         {triggerButton}
       </DrawerTrigger>

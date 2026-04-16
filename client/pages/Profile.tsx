@@ -1058,7 +1058,7 @@ export default function Profile() {
 
               {/* Handle */}
               {profile.handle && (
-                <p className="text-sm text-muted-foreground -mt-2">@{profile.handle}</p>
+                <p className="text-sm text-muted-foreground -mt-2">@{profile.handle.replace(/^@/, "")}</p>
               )}
 
             </div>
@@ -1303,7 +1303,7 @@ export default function Profile() {
                   className="group relative aspect-square overflow-hidden rounded-lg bg-black border border-border/60 hover:border-border/80 transition-all"
                 >
                   <button
-                    onClick={() => navigate(`/shots`)}
+                    onClick={() => navigate(`/shots`, { state: { shotId: shot.id } })}
                     className="w-full h-full cursor-pointer"
                   >
                     <video

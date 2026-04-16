@@ -111,7 +111,7 @@ export function SettingsDrawer({
   const openEditProfile = (tab: "public" | "personal" = "public") => {
     setEditNickname(profile.nickname);
     setEditBio(profile.bio ?? "");
-    setEditHandle(profile.handle ?? "");
+    setEditHandle((profile.handle ?? "").replace(/^@/, ""));
     setEditObjectives(profile.objectives ?? []);
     setEditPhotoPreview(profile.photo ?? null);
     setEditPhotoFile(null);

@@ -1053,7 +1053,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage }: Profe
         >
           <p className="font-semibold text-sm leading-tight">{pro.business_name || pro.nickname}</p>
           {pro.handle && (
-            <p className="text-xs text-muted-foreground">@{pro.handle}</p>
+            <p className="text-xs text-muted-foreground">@{pro.handle.replace(/^@/, "")}</p>
           )}
         </button>
 

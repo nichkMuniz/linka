@@ -76,7 +76,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   const [showSwipeHint, setShowSwipeHint] = React.useState(
     () => localStorage.getItem("shots_swipe_hint_seen") !== "1"
   );
-  const [isMuted, setIsMuted] = React.useState(true);
+  const [isMuted, setIsMuted] = React.useState(false);
   const [editShotOpen, setEditShotOpen] = React.useState(false);
   const [editingShot, setEditingShot] = React.useState<ShotWithUser | null>(null);
   const [deleteShotDialogOpen, setDeleteShotDialogOpen] = React.useState(false);
@@ -111,6 +111,22 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     if (targetShot) {
       openCommentsFromNotifRef.current = true;
       handleOpenComments(targetShot);
+    }
+  }, [shots, location.state]);
+
+  // Scroll to a specific shot when navigating from profile
+  const scrolledToShotRef = React.useRef(false);
+  React.useEffect(() => {
+    const state = location.state as { shotId?: string } | null;
+    if (!state?.shotId || scrolledToShotRef.current || shots.length === 0) return;
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const el = container.querySelector(`[data-shot-id="${state.shotId}"]`);
+    if (el) {
+      scrolledToShotRef.current = true;
+      el.scrollIntoView({ behavior: "instant" });
     }
   }, [shots, location.state]);
 
@@ -155,18 +171,23 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
 
     const observer = new IntersectionObserver((entries) => {
       if (!isMounted) return;
+      // Pause outgoing videos first to avoid audio overlap
       entries.forEach((entry) => {
+        if (entry.isIntersecting) return;
         const shotId = entry.target.getAttribute("data-shot-id");
         if (!shotId) return;
-        if (entry.isIntersecting) {
-          setVisibleShotId(shotId);
-          const video = videoRefsMap.current[shotId];
-          if (video) {
-            video.play().catch((err) => { if (err?.name !== "AbortError") console.error("Erro ao reproduzir vídeo:", err); });
-          }
-        } else {
-          const video = videoRefsMap.current[shotId];
-          if (video) video.pause();
+        const video = videoRefsMap.current[shotId];
+        if (video) video.pause();
+      });
+      // Then play incoming video
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const shotId = entry.target.getAttribute("data-shot-id");
+        if (!shotId) return;
+        setVisibleShotId(shotId);
+        const video = videoRefsMap.current[shotId];
+        if (video) {
+          video.play().catch((err) => { if (err?.name !== "AbortError") console.error("Erro ao reproduzir vídeo:", err); });
         }
       });
     }, observerOptions);

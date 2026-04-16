@@ -126,13 +126,13 @@ export function ExecuteAtDrawer({
         </DrawerHeader>
         <div className="flex flex-col gap-4 px-4 pb-6 flex-1 overflow-y-auto">
           <p className="text-sm text-muted-foreground">
-            Defina quando você pretende realizar esta rotina. Você pode escolher um ou mais dias. Esse campo é opcional.
+            Defina quando você pretende realizar esta rotina. A rotina será criada uma única vez — os dias selecionados serão usados para enviar lembretes de notificação. Esse campo é opcional.
           </p>
 
           {/* Atalhos de dias da semana */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">Dias da semana</label>
+              <label className="text-sm font-medium">Dias de lembrete</label>
               <button
                 type="button"
                 onClick={toggleAllWeekDays}
@@ -226,7 +226,7 @@ export function ExecuteAtDrawer({
               onClick={() => { onConfirm(buildExecuteDates()); onOpenChange(false); }}
               disabled={isSaving}
             >
-              {isSaving ? "Salvando..." : `Salvar${dates.length > 1 ? ` (${dates.length} dias)` : ""}`}
+              {isSaving ? "Salvando..." : "Salvar"}
             </Button>
           </div>
         </div>

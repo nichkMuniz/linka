@@ -168,6 +168,12 @@ export function FlowViewerModal({
   React.useEffect(() => {
     if (!open || !story) return;
 
+    // Reset immediately so stale comments from the previous story don't render
+    // with an out-of-bounds activeCommentIndex while the new data loads.
+    setComments([]);
+    setUserLikes([]);
+    setActiveCommentIndex(0);
+
     const loadStoryData = async () => {
       try {
         const [userLikesData, commentsData] = await Promise.all([
@@ -360,7 +366,9 @@ export function FlowViewerModal({
   }, [stories]);
 
   const currentIndex = story ? sortedStories.findIndex((s) => s.id === story.id) : -1;
-  const hasNextStory = currentIndex < sortedStories.length - 1;
+  // If currentIndex is -1 the story isn't in the sorted list (activeViewerStories out of sync).
+  // Treat as if we're at the end so navigation closes rather than jumping to a wrong story.
+  const hasNextStory = currentIndex >= 0 && currentIndex < sortedStories.length - 1;
   const hasPrevStory = currentIndex > 0;
   const isOwner = story ? user?.id === story.user_id : false;
   const userStories = story ? sortedStories.filter((s) => s.user_id === story.user_id) : [];
@@ -563,7 +571,7 @@ export function FlowViewerModal({
                   </div>
 
                   {/* Bottom Comment Section */}
-                  <div className="shrink-0 pt-2 pb-6 px-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-[60]">
+                  <div className="shrink-0 pt-2 px-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-[60]" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1.5rem)" }}>
                     {/* Incentive Buttons - Horizontal Row */}
                     {user && (
                       <motion.div className="flex justify-around items-center mb-3">
@@ -584,7 +592,8 @@ export function FlowViewerModal({
                       >
                         <AnimatePresence mode="popLayout" initial={false}>
                           {(() => {
-                            const comment = comments[activeCommentIndex];
+                            const comment = comments[activeCommentIndex] ?? comments[0];
+                            if (!comment) return null;
                             return (
                               <motion.div
                                 key={comment.id}
@@ -605,7 +614,7 @@ export function FlowViewerModal({
                                 <span className="text-[11px] font-bold text-white shrink-0 drop-shadow">
                                   {comment.userName}
                                   {comment.userHandle && (
-                                    <span className="font-normal text-white/60"> @{comment.userHandle}</span>
+                                    <span className="font-normal text-white/60"> @{comment.userHandle.replace(/^@/, "")}</span>
                                   )}
                                 </span>
                                 <span className="text-[11px] text-white/85 truncate leading-normal drop-shadow">{comment.text}</span>
@@ -704,7 +713,7 @@ export function FlowViewerModal({
                         <span className="text-sm font-bold leading-tight">
                           {comment.userName}
                           {comment.userHandle && (
-                            <span className="font-normal text-muted-foreground"> @{comment.userHandle}</span>
+                            <span className="font-normal text-muted-foreground"> @{comment.userHandle.replace(/^@/, "")}</span>
                           )}
                         </span>
                         {editingCommentId === comment.id ? (
@@ -750,7 +759,7 @@ export function FlowViewerModal({
                       </div>
                     </div>
                     {user?.id === comment.userId && editingCommentId !== comment.id && (
-                      <div className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                      <div className="flex shrink-0 gap-0.5 ml-2">
                         <button
                           onClick={() => handleStartEditComment(comment)}
                           className="text-muted-foreground hover:text-foreground p-1"

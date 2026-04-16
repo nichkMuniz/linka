@@ -1,4 +1,3 @@
-import React from "react";
 import {
   Drawer,
   DrawerContent,
@@ -6,7 +5,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { UserAvatar } from "@/components/shared/user-avatar";
 import { useNavigate } from "react-router-dom";
 import { Heart } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
@@ -20,12 +19,12 @@ const INCENTIVE_ICONS: Record<number, string> = {
   6: "⚡",
 };
 
-const INCENTIVE_TYPE_MAP: Record<number, number> = { 1:1, 2:2, 3:3, 4:4, 5:5, 6:6 };
 
 export interface PostLike {
   userId: string;
   userNickname: string;
   userPhoto: string | null;
+  userGender?: string | null;
   type: number;
 }
 
@@ -121,16 +120,11 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
                   className="w-full flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors border border-border/40"
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    {like.userPhoto ? (
-                      <ImageWithFallback
-                        src={like.userPhoto}
-                        alt={like.userNickname}
-                        fallback="/placeholder.svg"
-                        className="h-10 w-10 rounded-full object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="h-10 w-10 rounded-full bg-muted flex-shrink-0" />
-                    )}
+                    <UserAvatar
+                      photo={like.userPhoto}
+                      gender={like.userGender}
+                      nickname={like.userNickname}
+                    />
                     <p className="text-sm font-medium text-foreground truncate">
                       {like.userNickname}
                     </p>

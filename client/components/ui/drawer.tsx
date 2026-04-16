@@ -47,6 +47,8 @@ const DrawerContent = React.forwardRef<
           "left-0 right-0 mx-auto",
           // Desktop: Shift left anchor 244px (sidebar width), centering naturally within the feed area
           "md:left-[244px]",
+          // Safe area: respect iPhone home indicator / notch
+          "pb-[env(safe-area-inset-bottom)]",
           className,
         )}
         {...props}
@@ -75,7 +77,7 @@ const DrawerFooter = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+    className={cn("mt-auto flex flex-col gap-2 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]", className)}
     {...props}
   />
 );

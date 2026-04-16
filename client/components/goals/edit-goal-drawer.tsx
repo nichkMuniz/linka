@@ -119,7 +119,12 @@ export function EditGoalDrawer({
                 <input
                   type="number"
                   value={duration === 0 ? "" : duration}
-                  onChange={(e) => setDuration(e.target.value === "" ? 0 : parseInt(e.target.value) || 0)}
+                  onChange={(e) => {
+                    const val = e.target.value === "" ? 0 : parseInt(e.target.value) || 0;
+                    setDuration(val);
+                    if (val > 0 && quantity > val) setQuantity(val);
+                  }}
+                  onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
                   placeholder="Digite a duração"
                   className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
                 />
@@ -130,10 +135,18 @@ export function EditGoalDrawer({
                 <input
                   type="number"
                   value={quantity === 0 ? "" : quantity}
-                  onChange={(e) => setQuantity(e.target.value === "" ? 0 : parseInt(e.target.value) || 0)}
+                  onChange={(e) => {
+                    const val = e.target.value === "" ? 0 : parseInt(e.target.value) || 0;
+                    setQuantity(duration > 0 ? Math.min(val, duration) : val);
+                  }}
+                  onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
                   placeholder="Digite a quantidade"
+                  max={duration > 0 ? duration : undefined}
                   className="w-full h-10 px-3 border border-border/60 rounded-lg text-sm"
                 />
+                {duration > 0 && quantity > duration && (
+                  <p className="text-xs text-destructive">A frequência não pode ser maior que a duração ({duration} dias).</p>
+                )}
               </div>
 
               <div className="flex items-center justify-between p-4 bg-muted/20 rounded-lg mb-2">
@@ -151,7 +164,7 @@ export function EditGoalDrawer({
               <div className="space-y-2">
                 <Button
                   onClick={handleSave}
-                  disabled={isUpdating || duration === 0 || quantity === 0}
+                  disabled={isUpdating || duration === 0 || quantity === 0 || quantity > duration}
                   className="w-full rounded-full"
                 >
                   {isUpdating ? "Atualizando..." : "Salvar Alterações"}

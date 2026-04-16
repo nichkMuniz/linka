@@ -83,8 +83,8 @@ interface AddRoutineModalProps {
   userDiets: UserDietWithDetails[];
   userHabits: any[];
 
-  imageZoom: { src: string | null; name: string; description?: string } | null;
-  onImageZoomChange: (v: { src: string | null; name: string; description?: string } | null) => void;
+  imageZoom: import("@/components/shared/image-zoom-drawer").ImageZoomItem | null;
+  onImageZoomChange: (v: import("@/components/shared/image-zoom-drawer").ImageZoomItem | null) => void;
 
   onSaveRoutines: (executeAtOverrides?: (string | null)[]) => Promise<void>;
 
@@ -203,6 +203,7 @@ export function AddRoutineModal({
                     type="text"
                     value={routineName}
                     onChange={(e) => onRoutineNameChange(e.target.value)}
+                    onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
                     className="h-10 border-brand/30 focus:border-brand bg-background"
                   />
                   <p className="text-xs text-muted-foreground">
@@ -270,6 +271,7 @@ export function AddRoutineModal({
                         placeholder={t("goals_search_habit")}
                         value={searchQuery}
                         onChange={(e) => onSearchQueryChange(e.target.value)}
+                        onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
                         className="pl-10 h-9"
                       />
                     </div>
@@ -285,6 +287,7 @@ export function AddRoutineModal({
                           placeholder={t("goals_search_diet")}
                           value={searchQuery}
                           onChange={(e) => onSearchQueryChange(e.target.value)}
+                          onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
                           className="pl-10 h-9"
                         />
                       </div>
@@ -345,6 +348,7 @@ export function AddRoutineModal({
                           placeholder={t("goals_search_exercise")}
                           value={searchQuery}
                           onChange={(e) => onSearchQueryChange(e.target.value)}
+                          onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
                           className="pl-10 h-9"
                         />
                       </div>
@@ -464,7 +468,7 @@ export function AddRoutineModal({
                             <div className="flex items-center gap-3">
                               <div
                                 className="flex-shrink-0 rounded overflow-hidden cursor-pointer"
-                                onClick={(e) => { e.stopPropagation(); onImageZoomChange({ src: exercise.photo || null, name: exercise.name, description: exercise.description || undefined }); }}
+                                onClick={(e) => { e.stopPropagation(); onImageZoomChange({ src: exercise.photo || null, name: exercise.name, description: exercise.description || undefined, muscleGroup: exercise.muscleGroup }); }}
                               >
                                 <ExerciseImage
                                   photo={exercise.photo}
@@ -547,7 +551,7 @@ export function AddRoutineModal({
                             <div className="flex items-center gap-3">
                               <div
                                 className="flex-shrink-0 rounded overflow-hidden cursor-pointer"
-                                onClick={(e) => { e.stopPropagation(); onImageZoomChange({ src: (diet as any).photo || (diet as any).image || null, name: diet.name, description: diet.description || undefined }); }}
+                                onClick={(e) => { e.stopPropagation(); onImageZoomChange({ src: (diet as any).photo || (diet as any).image || null, name: diet.name, description: diet.description || undefined, category: diet.category }); }}
                               >
                                 <DietImage
                                   photo={diet.photo}

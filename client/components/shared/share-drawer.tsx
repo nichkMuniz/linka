@@ -6,7 +6,9 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { toast } from "@/components/ui/use-toast";
-import { Copy, Link, ExternalLink, ImageIcon } from "lucide-react";
+import { Copy, Link, ExternalLink, ImageIcon, Loader2 } from "lucide-react";
+import { Share } from "@capacitor/share";
+import { Filesystem, Directory } from "@capacitor/filesystem";
 
 interface ShareDrawerProps {
   open: boolean;
@@ -14,12 +16,43 @@ interface ShareDrawerProps {
   text: string;
   /** URL a ser compartilhada. Se não fornecida, usa a URL atual. */
   url?: string;
-  /** URL de imagem para exibir no preview card */
+  /** URL de imagem para exibir no preview card e compartilhar */
   imageUrl?: string;
-  /** Imagem em Blob para compartilhar no Instagram (via Web Share API Level 2) */
+  /** Imagem em Blob (opcional — se não fornecida, derivada de imageUrl) */
   imageBlob?: Blob | null;
   /** Título do drawer */
   title?: string;
+}
+
+/** Converte blob para base64 string (sem o prefixo data:...) */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove o prefixo "data:image/jpeg;base64,"
+      resolve(result.split(",")[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Salva a imagem no diretório de cache do dispositivo e retorna o URI local */
+async function saveImageToCache(blob: Blob): Promise<string | null> {
+  try {
+    const base64 = await blobToBase64(blob);
+    const ext = blob.type.includes("png") ? "png" : "jpg";
+    const fileName = `linka-share-${Date.now()}.${ext}`;
+    const result = await Filesystem.writeFile({
+      path: fileName,
+      data: base64,
+      directory: Directory.Cache,
+    });
+    return result.uri;
+  } catch {
+    return null;
+  }
 }
 
 export function ShareDrawer({
@@ -34,43 +67,49 @@ export function ShareDrawer({
   const shareUrl = url || window.location.href;
   const fullText = `${text}\n\n${shareUrl}`;
 
-  // Fetch image as blob automatically when drawer opens and imageUrl is provided
-  const [derivedBlob, setDerivedBlob] = React.useState<Blob | null>(null);
+  // Fetch e cache da imagem como blob quando o drawer abre
+  const [imageBlob, setImageBlob] = React.useState<Blob | null>(null);
+  const [imageLoading, setImageLoading] = React.useState(false);
+
   React.useEffect(() => {
-    if (!open || (!imageUrl && !imageBlobProp)) {
-      setDerivedBlob(null);
+    if (!open) {
+      setImageBlob(null);
       return;
     }
     if (imageBlobProp) {
-      setDerivedBlob(imageBlobProp);
+      setImageBlob(imageBlobProp);
       return;
     }
+    if (!imageUrl) return;
+
     let cancelled = false;
-    fetch(imageUrl!)
+    setImageLoading(true);
+    fetch(imageUrl)
       .then((r) => r.blob())
-      .then((blob) => { if (!cancelled) setDerivedBlob(blob); })
-      .catch(() => { if (!cancelled) setDerivedBlob(null); });
+      .then((blob) => { if (!cancelled) { setImageBlob(blob); setImageLoading(false); } })
+      .catch(() => { if (!cancelled) setImageLoading(false); });
     return () => { cancelled = true; };
   }, [open, imageUrl, imageBlobProp]);
 
-  const imageBlob = derivedBlob;
-
+  /** Compartilhamento nativo com imagem usando @capacitor/share */
   const handleNativeShare = async () => {
-    if (!navigator.share) return false;
     try {
-      if (imageBlob && navigator.canShare) {
-        const ext = imageBlob.type.includes("png") ? "png" : "jpg";
-        const file = new File([imageBlob], `linka-share.${ext}`, { type: imageBlob.type });
-        const dataWithFile: ShareData = { files: [file], text, url: shareUrl };
-        if (navigator.canShare(dataWithFile)) {
-          await navigator.share(dataWithFile);
-          return true;
-        }
+      let fileUri: string | null = null;
+
+      if (imageBlob) {
+        fileUri = await saveImageToCache(imageBlob);
       }
-      const shareData: ShareData = { text, url: shareUrl };
-      await navigator.share(shareData);
+
+      await Share.share({
+        title: text,
+        text,
+        url: shareUrl,
+        ...(fileUri ? { files: [fileUri] } : {}),
+        dialogTitle: "Compartilhar via",
+      });
       return true;
     } catch {
+      // Usuário cancelou ou plataforma não suporta
       return false;
     }
   };
@@ -85,10 +124,10 @@ export function ShareDrawer({
   };
 
   const shareWhatsApp = async () => {
-    // Try native share with image first (works on mobile — includes the image)
+    // Tenta native share com imagem primeiro
     const shared = await handleNativeShare();
     if (!shared) {
-      // Fallback: open WhatsApp with text only
+      // Fallback: abre WhatsApp com texto
       const encoded = encodeURIComponent(fullText);
       window.open(`https://wa.me/?text=${encoded}`, "_blank", "noopener,noreferrer");
     }
@@ -109,14 +148,15 @@ export function ShareDrawer({
         title: "Texto copiado!",
         description: "Abra o Instagram e cole o texto no seu post ou story.",
       });
-      onOpenChange(false);
-    } else {
-      onOpenChange(false);
     }
+    onOpenChange(false);
   };
 
-  const shareTelegram = () => {
-    window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+  const shareTelegram = async () => {
+    const shared = await handleNativeShare();
+    if (!shared) {
+      window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+    }
     onOpenChange(false);
   };
 
@@ -158,6 +198,11 @@ export function ShareDrawer({
                     (e.currentTarget as HTMLImageElement).style.display = "none";
                   }}
                 />
+                {imageLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                    <Loader2 className="h-5 w-5 animate-spin text-white" />
+                  </div>
+                )}
               </div>
             ) : (
               <div className="w-full h-24 bg-muted flex items-center justify-center">

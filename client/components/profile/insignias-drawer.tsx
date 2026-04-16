@@ -19,6 +19,8 @@ interface InsigniasDrawerProps {
   allBadges: Badge[];
   /** Total de check-ins acumulados do usuário (todos os tempos) */
   totalCheckIns: number;
+  /** ID do dono do perfil sendo visualizado */
+  profileUserId?: string;
 }
 
 const BADGE_COLORS: Record<string, { active: string; check: string; bar: string; ring: string }> = {
@@ -28,7 +30,7 @@ const BADGE_COLORS: Record<string, { active: string; check: string; bar: string;
   lendario:  { active: "from-purple-500/20 to-purple-500/5 border-purple-500/40 shadow-purple-500/10", check: "text-purple-600", bar: "bg-purple-500", ring: "ring-purple-500/40" },
 };
 
-export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, totalCheckIns }: InsigniasDrawerProps) {
+export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, totalCheckIns, profileUserId }: InsigniasDrawerProps) {
   const { t } = useLanguage();
   const [isSelecting, setIsSelecting] = React.useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null);
@@ -37,6 +39,9 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
   React.useEffect(() => {
     getViewer().then(u => setCurrentUserId(u?.id || null));
   }, []);
+
+  // Se profileUserId foi passado e é diferente do viewer, é perfil alheio
+  const isReadOnly = !!profileUserId && !!currentUserId && profileUserId !== currentUserId;
 
   const activeBadgeId = userBadges.length > 0 ? userBadges[0].badge_id : null;
 
@@ -49,6 +54,7 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
   const isMaxed = !nextBadge && sortedBadges.length > 0;
 
   const handleSelect = async (badge: Badge) => {
+    if (isReadOnly) return;
     if (isSelecting) return;
     if (totalCheckIns < badge.required_checkins) {
       toast.error(t("badges_not_reached"));
@@ -121,11 +127,17 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
               return (
                 <button
                   key={badge.id}
-                  disabled={!unlocked || busy}
+                  disabled={isReadOnly || !unlocked || busy}
                   onClick={() => handleSelect(badge)}
                   className={cn(
                     "w-full text-left group relative overflow-hidden rounded-2xl transition-all duration-300 border",
-                    unlocked
+                    isReadOnly
+                      ? cn(
+                          "bg-gradient-to-r cursor-default",
+                          unlocked ? color.active : "bg-muted/30 border-border/20 opacity-60 grayscale",
+                          isActive ? `ring-2 ${color.ring} border-transparent` : unlocked ? "border-border/60" : ""
+                        )
+                      : unlocked
                       ? cn(
                           "bg-gradient-to-r cursor-pointer hover:scale-[1.02] active:scale-95",
                           color.active,
@@ -152,7 +164,7 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
                             </span>
                           )}
                         </div>
-                        {unlocked && (
+                        {unlocked && !isReadOnly && (
                           <div className={cn(
                             "h-5 w-5 rounded-full flex items-center justify-center transition-all",
                             isActive ? "bg-brand text-white" : "border border-border/60"

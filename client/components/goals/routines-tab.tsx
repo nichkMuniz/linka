@@ -106,7 +106,7 @@ interface RoutinesTabProps {
   onDeleteRoutineType: (typeCode: number, routineCardName: string | null) => void;
   onDeleteItem: (itemId: string, typeCode: number) => Promise<void>;
   onOpenWorkoutHistory: (workout: { id: string; name: string; description?: string; photo?: string }) => void;
-  onImageZoom: (item: { src: string | null; name: string; description?: string }) => void;
+  onImageZoom: (item: import("@/components/shared/image-zoom-drawer").ImageZoomItem) => void;
 
   formatScheduledTime: (time: string) => string;
 }
@@ -652,7 +652,7 @@ export function RoutinesTab({
                                         className="flex-shrink-0 rounded overflow-hidden"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          onImageZoom({ src: item.workoutPhoto || null, name: item.workoutName || "", description: item.workoutDescription || undefined });
+                                          onImageZoom({ src: item.workoutPhoto || null, name: item.workoutName || "", description: item.workoutDescription || undefined, muscleGroup: item.muscle_group });
                                         }}
                                       >
                                         <ExerciseImage
@@ -669,12 +669,13 @@ export function RoutinesTab({
                                         className="flex-shrink-0 rounded overflow-hidden"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          onImageZoom({ src: item.dietPhoto || null, name: item.dietName || "", description: item.dietDescription || undefined });
+                                          onImageZoom({ src: item.dietPhoto || null, name: item.dietName || "", description: item.dietDescription || undefined, category: item.dietCategory });
                                         }}
                                       >
                                         <DietImage
                                           photo={item.dietPhoto || null}
                                           name={item.dietName || ""}
+                                          category={item.dietCategory}
                                           className="h-10 w-10"
                                         />
                                       </button>
@@ -690,12 +691,12 @@ export function RoutinesTab({
                                             photo: item.workoutPhoto || undefined,
                                           })}
                                         >
-                                          {item.workoutName?.length > 30 ? item.workoutName.slice(0, 30) + "…" : item.workoutName}
+                                          {item.workoutName?.length > 18 ? item.workoutName.slice(0, 18) + "…" : item.workoutName}
                                         </button>
                                       ) : (
                                         <p className="text-sm font-medium truncate w-full">
-                                          {(typeCode === 2 ? item.dietName : item.habitName)?.length > 30
-                                            ? (typeCode === 2 ? item.dietName : item.habitName).slice(0, 30) + "…"
+                                          {(typeCode === 2 ? item.dietName : item.habitName)?.length > 18
+                                            ? (typeCode === 2 ? item.dietName : item.habitName).slice(0, 18) + "…"
                                             : (typeCode === 2 ? item.dietName : item.habitName)}
                                         </p>
                                       )}
