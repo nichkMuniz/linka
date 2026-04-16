@@ -322,6 +322,11 @@ export const translations = {
     comments_login_view: "Faça login para comentar.",
     comments_list_desc: "Lista de comentários do post",
     comments_view_label: "Ver comentários",
+    comments_edit_label: "Editar comentário",
+    comments_edit_save: "Salvar",
+    comments_edit_cancel: "Cancelar",
+    comments_edited: "Comentário editado!",
+    comments_edit_error: "Erro ao editar comentário",
     // Post incentives modal
     incentives_title: "Incentivos",
     incentives_desc: "Lista de pessoas que incentivaram este post",
@@ -987,6 +992,11 @@ export const translations = {
     comments_login_view: "Sign in to comment.",
     comments_list_desc: "Post comment list",
     comments_view_label: "View comments",
+    comments_edit_label: "Edit comment",
+    comments_edit_save: "Save",
+    comments_edit_cancel: "Cancel",
+    comments_edited: "Comment edited!",
+    comments_edit_error: "Error editing comment",
     // Post incentives modal
     incentives_title: "Incentives",
     incentives_desc: "List of people who incentivized this post",

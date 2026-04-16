@@ -58,7 +58,7 @@ export function EmojiPicker({ onSelect, placement = "top", triggerClassName }: E
         side={placement}
         align="end"
         sideOffset={8}
-        className="w-64 p-0 overflow-hidden border-border/60"
+        className="w-64 p-0 overflow-hidden border-border/60 z-[9999]"
       >
         {/* Category tabs */}
         <div className="flex border-b border-border/40 px-1 pt-1 bg-popover">

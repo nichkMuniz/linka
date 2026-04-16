@@ -2347,7 +2347,7 @@ export default function Profile() {
                               <SelectTrigger className="rounded-lg">
                                 <SelectValue placeholder="Selecione uma meta ou deixe em branco" />
                               </SelectTrigger>
-                              <SelectContent>
+                              <SelectContent className="z-[200]">
                                 {userGoals.map((goal) => (
                                   <SelectItem key={goal.id} value={goal.id}>
                                     {goal.description}
@@ -2380,7 +2380,7 @@ export default function Profile() {
                     ) : null}
 
                     {/* Incentives + Comments */}
-                    {!isLoadingPostData && (
+                    {!isLoadingPostData && !isEditingPost && (
                       <div className="space-y-1.5 pt-1">
                         <div className="flex items-center gap-1 flex-wrap">
                           {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (

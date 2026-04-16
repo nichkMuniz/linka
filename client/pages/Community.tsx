@@ -34,6 +34,7 @@ import {
   getCheckInCommentsDb,
   addCheckInCommentDb,
   deleteCheckInCommentDb,
+  updateCheckInCommentDb,
   getCheckInReactionsDb,
   setCheckInReactionDb,
   sendCheckInReactionNotificationDb,
@@ -53,7 +54,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2 } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Pencil } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
@@ -208,6 +209,9 @@ export default function Community() {
   const [commentText, setCommentText] = React.useState("");
   const [isSendingComment, setIsSendingComment] = React.useState(false);
   const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
+  const [editingCommentId, setEditingCommentId] = React.useState<string | null>(null);
+  const [editCommentDraft, setEditCommentDraft] = React.useState("");
+  const [isSavingEditComment, setIsSavingEditComment] = React.useState(false);
 
   // Check-in emoji reactions state
   const [checkInReactions, setCheckInReactions] = React.useState<Record<string, CheckInReaction[]>>({});
@@ -288,6 +292,34 @@ export default function Community() {
       setIsSendingComment(false);
     }
   }, [commentText, isSendingComment]);
+
+  const handleStartEditComment = React.useCallback((comment: CheckInComment) => {
+    setEditingCommentId(comment.id);
+    setEditCommentDraft(comment.text);
+  }, []);
+
+  const handleCancelEditComment = React.useCallback(() => {
+    setEditingCommentId(null);
+    setEditCommentDraft("");
+  }, []);
+
+  const handleSaveEditComment = React.useCallback(async (commentId: string) => {
+    if (!editCommentDraft.trim()) return;
+    setIsSavingEditComment(true);
+    try {
+      await updateCheckInCommentDb(commentId, editCommentDraft);
+      setCheckInComments((prev) =>
+        prev.map((c) => c.id === commentId ? { ...c, text: editCommentDraft.trim() } : c)
+      );
+      setEditingCommentId(null);
+      setEditCommentDraft("");
+      toast({ title: "Comentário editado!" });
+    } catch (err: any) {
+      toast({ title: "Erro ao editar comentário", description: err?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setIsSavingEditComment(false);
+    }
+  }, [editCommentDraft]);
 
   const handleDeleteCheckInComment = React.useCallback(async (commentId: string) => {
     setDeletingCommentId(commentId);
@@ -2821,19 +2853,68 @@ export default function Community() {
                                 <span className="text-xs font-semibold">{comment.userNickname}</span>
                                 <span className="text-[10px] text-muted-foreground">{new Date(comment.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                               </div>
-                              {user?.id === comment.userId && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteCheckInComment(comment.id)}
-                                  disabled={deletingCommentId === comment.id}
-                                  className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-                                  aria-label="Excluir comentário"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
+                              {user?.id === comment.userId && editingCommentId !== comment.id && (
+                                <div className="flex shrink-0 gap-0.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartEditComment(comment)}
+                                    className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                    aria-label="Editar comentário"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteCheckInComment(comment.id)}
+                                    disabled={deletingCommentId === comment.id}
+                                    className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+                                    aria-label="Excluir comentário"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
                               )}
                             </div>
-                            <p className="text-xs text-foreground/90 break-words">{comment.text}</p>
+                            {editingCommentId === comment.id ? (
+                              <div className="mt-1 flex flex-col gap-1.5">
+                                <textarea
+                                  value={editCommentDraft}
+                                  onChange={(e) => setEditCommentDraft(e.target.value)}
+                                  className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring min-h-14"
+                                  disabled={isSavingEditComment}
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && !e.shiftKey && editCommentDraft.trim()) {
+                                      e.preventDefault();
+                                      handleSaveEditComment(comment.id);
+                                    }
+                                    if (e.key === "Escape") handleCancelEditComment();
+                                  }}
+                                />
+                                <div className="flex gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveEditComment(comment.id)}
+                                    disabled={!editCommentDraft.trim() || isSavingEditComment}
+                                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                  >
+                                    <Check className="h-3 w-3" />
+                                    Salvar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={handleCancelEditComment}
+                                    disabled={isSavingEditComment}
+                                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50 transition-colors"
+                                  >
+                                    <X className="h-3 w-3" />
+                                    Cancelar
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-foreground/90 break-words">{comment.text}</p>
+                            )}
                             <CommentReactions commentType="checkin" commentId={comment.id} commentOwnerId={comment.userId} sourceId={selectedCheckInForDetail?.id} isOwnComment={!!(user?.id === comment.userId)} />
                           </div>
                         </div>

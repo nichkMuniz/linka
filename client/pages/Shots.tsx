@@ -17,13 +17,14 @@ import {
   addShotCommentDb,
   getShotCommentsDb,
   deleteShotCommentDb,
+  updateShotCommentDb,
   getFollowingStatusBatchDb,
   deleteShotDb,
   type ShotWithUser,
   type ShotComment,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle } from "lucide-react";
+import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -84,6 +85,9 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   const [deleteCommentDialogOpen, setDeleteCommentDialogOpen] = React.useState(false);
   const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
   const [isDeletingComment, setIsDeletingComment] = React.useState(false);
+  const [editingCommentId, setEditingCommentId] = React.useState<string | null>(null);
+  const [editCommentDraft, setEditCommentDraft] = React.useState("");
+  const [isSavingEditComment, setIsSavingEditComment] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const videoRefsMap = React.useRef<Record<string, HTMLVideoElement>>({});
 
@@ -323,6 +327,35 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     setDeletingCommentId(commentId);
     setDeleteCommentDialogOpen(true);
   }, []);
+
+  const handleStartEditComment = React.useCallback((comment: ShotComment) => {
+    setEditingCommentId(comment.id);
+    setEditCommentDraft(comment.text);
+  }, []);
+
+  const handleCancelEditComment = React.useCallback(() => {
+    setEditingCommentId(null);
+    setEditCommentDraft("");
+  }, []);
+
+  const handleSaveEditComment = React.useCallback(async (commentId: string) => {
+    if (!editCommentDraft.trim()) return;
+    setIsSavingEditComment(true);
+    try {
+      await updateShotCommentDb(commentId, editCommentDraft);
+      setComments((prev) =>
+        prev.map((c) => c.id === commentId ? { ...c, text: editCommentDraft.trim() } : c)
+      );
+      setEditingCommentId(null);
+      setEditCommentDraft("");
+      toast({ title: t("comments_edited") });
+    } catch (err: any) {
+      console.error("Error editing comment:", err);
+      toast({ title: t("comments_edit_error"), description: err?.message || t("retry") });
+    } finally {
+      setIsSavingEditComment(false);
+    }
+  }, [editCommentDraft, t]);
 
   const handleConfirmDeleteComment = React.useCallback(async () => {
     if (!deletingCommentId) return;
@@ -721,28 +754,76 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     nickname={comment.userName}
                     size="sm"
                   />
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium">
                       {comment.userName || "Usuário"}
                       <span className="ml-1 text-xs text-muted-foreground">
                         {comment.userHandle ? (comment.userHandle.startsWith("@") ? comment.userHandle : `@${comment.userHandle}`) : "@user"}
                       </span>
                     </p>
-                    <p className="text-sm text-foreground mt-1">
-                      {comment.text}
-                    </p>
+                    {editingCommentId === comment.id ? (
+                      <div className="mt-1 flex flex-col gap-1.5">
+                        <textarea
+                          value={editCommentDraft}
+                          onChange={(e) => setEditCommentDraft(e.target.value)}
+                          className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-16"
+                          disabled={isSavingEditComment}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey && editCommentDraft.trim()) {
+                              e.preventDefault();
+                              handleSaveEditComment(comment.id);
+                            }
+                            if (e.key === "Escape") handleCancelEditComment();
+                          }}
+                        />
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEditComment(comment.id)}
+                            disabled={!editCommentDraft.trim() || isSavingEditComment}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <Check className="h-3 w-3" />
+                            {t("comments_edit_save")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCancelEditComment}
+                            disabled={isSavingEditComment}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50 transition-colors"
+                          >
+                            <X className="h-3 w-3" />
+                            {t("comments_edit_cancel")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-foreground mt-1">
+                        {comment.text}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground mt-1">
                       {new Date(comment.createdAt).toLocaleString("pt-BR")}
                     </p>
                     <CommentReactions commentType="shot" commentId={comment.id} commentOwnerId={comment.userId} sourceId={selectedShot?.id} isOwnComment={!!(user?.id === comment.userId)} />
                   </div>
-                  {user?.id === comment.userId && (
-                    <button
-                      onClick={() => handleDeleteComment(comment.id)}
-                      className="text-muted-foreground hover:text-destructive transition-colors"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                  {user?.id === comment.userId && editingCommentId !== comment.id && (
+                    <div className="flex shrink-0 gap-0.5">
+                      <button
+                        onClick={() => handleStartEditComment(comment)}
+                        className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                        aria-label={t("comments_edit_label")}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteComment(comment.id)}
+                        className="text-muted-foreground hover:text-destructive transition-colors p-1"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   )}
                 </div>
               ))

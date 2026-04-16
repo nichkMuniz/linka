@@ -603,6 +603,25 @@ export async function deletePostCommentDb(commentId: string) {
   invalidateQueryCache("postComments");
 }
 
+export async function updatePostCommentDb(commentId: string, text: string) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  assertNotEmpty(text, "Comentário");
+  assertMaxLength(text.trim(), 500, "Comentário");
+
+  const { error } = await supabase
+    .from("comments")
+    .update({ text: text.trim() })
+    .eq("id", commentId);
+
+  if (error) {
+    console.error("Error updating comment:", error);
+    throw error;
+  }
+
+  invalidateQueryCache("postComments");
+}
+
 export async function markPostCommentsAsReadDb(postId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
@@ -3771,6 +3790,28 @@ export async function deleteStoryCommentDb(commentId: string): Promise<boolean> 
   }
 }
 
+export async function updateStoryCommentDb(commentId: string, text: string): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+
+  try {
+    assertNotEmpty(text, "Comentário");
+    assertMaxLength(text.trim(), 500, "Comentário");
+
+    const numId = Number(commentId);
+    const idVal = Number.isFinite(numId) ? numId : commentId;
+    const { error } = await supabase
+      .from("flow_comments")
+      .update({ text: text.trim() })
+      .eq("id", idVal);
+
+    if (error) throw error;
+    return true;
+  } catch (err: any) {
+    console.error("Error updating story comment:", err);
+    return false;
+  }
+}
+
 // In-memory set to avoid duplicate inserts within the same browser session
 const _recordedFlowViews = new Set<string>();
 // In-flight lock set to prevent race conditions
@@ -5068,6 +5109,29 @@ export async function deleteShotCommentDb(commentId: string) {
       err?.message || JSON.stringify(err),
     );
     throw err;
+  }
+
+  invalidateQueryCache("shotComments");
+}
+
+export async function updateShotCommentDb(commentId: string, text: string) {
+  if (!hasSupabaseConfig || !supabase) return;
+  assertUUID(commentId, "ID do comentário");
+  assertNotEmpty(text, "Comentário");
+  assertMaxLength(text.trim(), 500, "Comentário");
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const { error } = await supabase
+    .from("shots_comments")
+    .update({ text: text.trim() })
+    .eq("id", commentId)
+    .eq("user_id", viewer.id);
+
+  if (error) {
+    console.error("Error updating shot comment:", error);
+    throw error;
   }
 
   invalidateQueryCache("shotComments");
@@ -8671,6 +8735,25 @@ export async function deleteCheckInCommentDb(commentId: string): Promise<void> {
 
   if (error) {
     console.error("Error deleting check-in comment:", error);
+    throw error;
+  }
+
+  invalidateQueryCache("checkInComments");
+}
+
+export async function updateCheckInCommentDb(commentId: string, text: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  assertNotEmpty(text, "Comentário");
+  assertMaxLength(text.trim(), 500, "Comentário");
+
+  const { error } = await supabase
+    .from("duel_check_in_comments")
+    .update({ text: text.trim() })
+    .eq("id", commentId);
+
+  if (error) {
+    console.error("Error updating check-in comment:", error);
     throw error;
   }
 

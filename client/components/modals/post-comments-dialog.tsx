@@ -1,5 +1,5 @@
 import * as React from "react";
-import { MessageCircle, Trash2 } from "lucide-react";
+import { MessageCircle, Trash2, Pencil, Check, X } from "lucide-react";
 import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { motion } from "framer-motion";
@@ -19,6 +19,7 @@ import {
   getPostCommentsDb,
   addPostCommentDb,
   deletePostCommentDb,
+  updatePostCommentDb,
   markPostCommentsAsReadDb,
   type PostComment,
 } from "@/lib/ritmofit-db";
@@ -68,6 +69,9 @@ export function PostCommentsDialog({
   const [draft, setDraft] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editDraft, setEditDraft] = React.useState("");
+  const [savingEditId, setSavingEditId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
@@ -134,6 +138,35 @@ export function PostCommentsDialog({
       setSubmitting(false);
     }
   }, [draft, postId, user]);
+
+  const handleStartEdit = React.useCallback((comment: PostComment) => {
+    setEditingId(comment.id);
+    setEditDraft(comment.text);
+  }, []);
+
+  const handleCancelEdit = React.useCallback(() => {
+    setEditingId(null);
+    setEditDraft("");
+  }, []);
+
+  const handleSaveEdit = React.useCallback(async (commentId: string) => {
+    if (!editDraft.trim()) return;
+    try {
+      setSavingEditId(commentId);
+      await updatePostCommentDb(commentId, editDraft);
+      setComments((prev) =>
+        prev.map((c) => c.id === commentId ? { ...c, text: editDraft.trim() } : c)
+      );
+      setEditingId(null);
+      setEditDraft("");
+      toast({ title: t("comments_edited") });
+    } catch (err: any) {
+      console.error("Error editing comment:", err);
+      toast({ title: t("comments_edit_error"), description: err?.message || t("retry") });
+    } finally {
+      setSavingEditId(null);
+    }
+  }, [editDraft, t]);
 
   const handleDelete = React.useCallback(async (commentId: string) => {
     if (!confirm(t("comments_delete_confirm"))) return;
@@ -214,9 +247,48 @@ export function PostCommentsDialog({
                         {comment.userName}{comment.userHandle ? <span className="font-normal text-muted-foreground"> | {comment.userHandle}</span> : null}
                       </div>
                     </div>
-                    <p className="mt-1 text-sm leading-relaxed break-words">
-                      {comment.text}
-                    </p>
+                    {editingId === comment.id ? (
+                      <div className="mt-1 flex flex-col gap-1.5">
+                        <Textarea
+                          value={editDraft}
+                          onChange={(e) => setEditDraft(e.target.value)}
+                          className="min-h-16 resize-none text-sm"
+                          disabled={savingEditId === comment.id}
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey && editDraft.trim()) {
+                              e.preventDefault();
+                              handleSaveEdit(comment.id);
+                            }
+                            if (e.key === "Escape") handleCancelEdit();
+                          }}
+                        />
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEdit(comment.id)}
+                            disabled={!editDraft.trim() || savingEditId === comment.id}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <Check className="h-3 w-3" />
+                            {t("comments_edit_save")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCancelEdit}
+                            disabled={savingEditId === comment.id}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50 transition-colors"
+                          >
+                            <X className="h-3 w-3" />
+                            {t("comments_edit_cancel")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-sm leading-relaxed break-words">
+                        {comment.text}
+                      </p>
+                    )}
                     <div className="mt-1 text-xs text-muted-foreground">
                       {new Date(comment.createdAt).toLocaleString("pt-BR")}
                     </div>
@@ -224,18 +296,30 @@ export function PostCommentsDialog({
                   </div>
                   </div>
 
-                  {user && user.id === comment.userId && (
-                    <motion.button
-                      type="button"
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
-                      onClick={() => handleDelete(comment.id)}
-                      disabled={deletingId === comment.id}
-                      className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
-                      aria-label={t("comments_delete_label")}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </motion.button>
+                  {user && user.id === comment.userId && editingId !== comment.id && (
+                    <div className="flex shrink-0 gap-0.5">
+                      <motion.button
+                        type="button"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => handleStartEdit(comment)}
+                        className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        aria-label={t("comments_edit_label")}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </motion.button>
+                      <motion.button
+                        type="button"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => handleDelete(comment.id)}
+                        disabled={deletingId === comment.id}
+                        className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label={t("comments_delete_label")}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </motion.button>
+                    </div>
                   )}
                 </div>
               </motion.div>
@@ -312,7 +396,7 @@ export function PostCommentsDialog({
             )}
           />
         </button>
-        <Drawer open={open} onOpenChange={setOpen}>
+        <Drawer open={open} onOpenChange={setOpen} noBodyStyles>
           {drawerContent}
         </Drawer>
       </>
@@ -320,7 +404,7 @@ export function PostCommentsDialog({
   }
 
   return (
-    <Drawer open={open} onOpenChange={setOpen}>
+    <Drawer open={open} onOpenChange={setOpen} noBodyStyles>
       <DrawerTrigger asChild>
         {triggerButton}
       </DrawerTrigger>

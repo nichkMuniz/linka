@@ -28,6 +28,7 @@ import {
   getStoryCommentsDb,
   addStoryCommentDb,
   deleteStoryCommentDb,
+  updateStoryCommentDb,
   deleteStoryDb,
   recordFlowViewDb,
   getFlowViewersDb,
@@ -36,7 +37,7 @@ import {
   type StoryComment,
   type FlowViewer,
 } from "@/lib/ritmofit-db";
-import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Heart, Flame, Trophy, TrendingUp, Dumbbell, Zap, MoreHorizontal } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Heart, Flame, Trophy, TrendingUp, Dumbbell, Zap, MoreHorizontal, Pencil, Check } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -105,8 +106,12 @@ export function FlowViewerModal({
   const [activeCommentIndex, setActiveCommentIndex] = React.useState(0);
   const commentCycleRef = React.useRef<NodeJS.Timeout | null>(null);
   const [commentsDrawerOpen, setCommentsDrawerOpen] = React.useState(false);
+  const [editingCommentId, setEditingCommentId] = React.useState<string | null>(null);
+  const [editCommentDraft, setEditCommentDraft] = React.useState("");
+  const [savingEditCommentId, setSavingEditCommentId] = React.useState<string | null>(null);
 
   const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
 
   React.useEffect(() => {
     setActiveCommentIndex(0);
@@ -130,6 +135,13 @@ export function FlowViewerModal({
 
   React.useEffect(() => {
     isPausedRef.current = isPaused;
+    if (videoRef.current) {
+      if (isPaused) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play().catch(() => {});
+      }
+    }
   }, [isPaused]);
 
   // Keep handleNext wrap for direction tracking
@@ -273,6 +285,37 @@ export function FlowViewerModal({
     }
   }, []);
 
+  const handleStartEditComment = React.useCallback((comment: StoryComment) => {
+    setEditingCommentId(comment.id);
+    setEditCommentDraft(comment.text);
+  }, []);
+
+  const handleCancelEditComment = React.useCallback(() => {
+    setEditingCommentId(null);
+    setEditCommentDraft("");
+  }, []);
+
+  const handleSaveEditComment = React.useCallback(async (commentId: string) => {
+    if (!editCommentDraft.trim()) return;
+    try {
+      setSavingEditCommentId(commentId);
+      const success = await updateStoryCommentDb(commentId, editCommentDraft);
+      if (success) {
+        setComments((prev) =>
+          prev.map((c) => c.id === commentId ? { ...c, text: editCommentDraft.trim() } : c)
+        );
+        setEditingCommentId(null);
+        setEditCommentDraft("");
+        toast({ title: "Comentário editado!" });
+      }
+    } catch (err: any) {
+      console.error("Error editing comment:", err);
+      toast({ title: "Erro ao editar comentário", description: err?.message || "Tente novamente." });
+    } finally {
+      setSavingEditCommentId(null);
+    }
+  }, [editCommentDraft]);
+
   const handleDeleteStory = React.useCallback(async () => {
     if (!story) return;
     if (!confirm("Tem certeza que deseja deletar este flow?")) return;
@@ -344,7 +387,7 @@ export function FlowViewerModal({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-screen h-screen max-w-none p-0 border-0 bg-black md:bg-black/95 rounded-none overflow-hidden [& onOpenAutoFocus={(e) => e.preventDefault()}>button]:hidden flex items-center justify-center">
+        <DialogContent className="w-screen h-screen max-w-none p-0 border-0 bg-black md:bg-black/95 rounded-none overflow-hidden flex items-center justify-center [&>button:last-child]:hidden" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogTitle className="sr-only">Flow viewer</DialogTitle>
           <DialogDescription className="sr-only">Visualizando flow</DialogDescription>
 
@@ -487,7 +530,7 @@ export function FlowViewerModal({
                         className="absolute inset-0 flex items-center justify-center"
                       >
                         {isVideo ? (
-                          <video src={story.media_url} className="w-full h-full object-contain" autoPlay loop muted playsInline preload="auto" />
+                          <video ref={videoRef} src={story.media_url} className="w-full h-full object-contain" autoPlay loop muted playsInline preload="auto" />
                         ) : (
                           <img src={story.media_url} alt="Flow" className="w-full h-full object-contain" />
                         )}
@@ -648,7 +691,7 @@ export function FlowViewerModal({
               comments.map((comment) => (
                 <div key={comment.id} className="flex flex-col gap-1.5">
                   <div className="flex items-start justify-between group">
-                    <div className="flex items-start gap-2.5 min-w-0">
+                    <div className="flex items-start gap-2.5 min-w-0 flex-1">
                       <div className="shrink-0 h-8 w-8 rounded-full overflow-hidden">
                         <UserAvatar
                           photo={comment.userPhoto}
@@ -657,23 +700,70 @@ export function FlowViewerModal({
                           className="h-full w-full"
                         />
                       </div>
-                      <div className="flex flex-col min-w-0">
+                      <div className="flex flex-col min-w-0 flex-1">
                         <span className="text-sm font-bold leading-tight">
                           {comment.userName}
                           {comment.userHandle && (
                             <span className="font-normal text-muted-foreground"> @{comment.userHandle}</span>
                           )}
                         </span>
-                        <span className="text-sm leading-normal break-words">{comment.text}</span>
+                        {editingCommentId === comment.id ? (
+                          <div className="mt-1 flex flex-col gap-1.5">
+                            <textarea
+                              value={editCommentDraft}
+                              onChange={(e) => setEditCommentDraft(e.target.value)}
+                              className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-16"
+                              disabled={savingEditCommentId === comment.id}
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.shiftKey && editCommentDraft.trim()) {
+                                  e.preventDefault();
+                                  handleSaveEditComment(comment.id);
+                                }
+                                if (e.key === "Escape") handleCancelEditComment();
+                              }}
+                            />
+                            <div className="flex gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEditComment(comment.id)}
+                                disabled={!editCommentDraft.trim() || savingEditCommentId === comment.id}
+                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              >
+                                <Check className="h-3 w-3" />
+                                Salvar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleCancelEditComment}
+                                disabled={savingEditCommentId === comment.id}
+                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50 transition-colors"
+                              >
+                                <X className="h-3 w-3" />
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-sm leading-normal break-words">{comment.text}</span>
+                        )}
                       </div>
                     </div>
-                    {user?.id === comment.userId && (
-                      <button
-                        onClick={() => setCommentToDelete(comment.id)}
-                        className="shrink-0 text-muted-foreground hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                    {user?.id === comment.userId && editingCommentId !== comment.id && (
+                      <div className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                        <button
+                          onClick={() => handleStartEditComment(comment)}
+                          className="text-muted-foreground hover:text-foreground p-1"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => setCommentToDelete(comment.id)}
+                          className="text-muted-foreground hover:text-red-400 p-1"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     )}
                   </div>
                   <CommentReactions commentType="flow" commentId={comment.id} commentOwnerId={comment.userId} sourceId={story.id} isOwnComment={user?.id === comment.userId} />
