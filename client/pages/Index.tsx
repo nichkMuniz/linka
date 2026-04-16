@@ -60,6 +60,7 @@ import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
 import { PostCarousel } from "@/components/post/post-carousel";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { FollowButton } from "@/components/shared/follow-button";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
@@ -757,8 +758,8 @@ export default function Index() {
                             size="sm"
                             className="border border-white/30"
                           />
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs font-medium text-white drop-shadow-sm">
+                          <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
+                            <span className="text-xs font-medium text-white">
                               {post.userNickname}
                             </span>
                             <span onClick={(e) => e.stopPropagation()}>
@@ -929,8 +930,8 @@ export default function Index() {
                             size="sm"
                             className="border border-white/30"
                           />
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs font-medium text-white drop-shadow-sm">
+                          <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
+                            <span className="text-xs font-medium text-white">
                               {post.userNickname}
                             </span>
                             <span onClick={(e) => e.stopPropagation()}>
@@ -1118,13 +1119,16 @@ export default function Index() {
                               size="sm"
                               className="border border-white/30"
                             />
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs font-medium text-white drop-shadow-sm">{post.userNickname}</span>
+                            <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
+                              <span className="text-xs font-medium text-white">{post.userNickname}</span>
                               <span onClick={(e) => e.stopPropagation()}>
                                 <UserInsignias userId={post.user_id} />
                               </span>
                             </div>
                           </button>
+                          {post.user_id !== user?.id && (
+                            <FollowButton targetUserId={post.user_id} variant="overlay" />
+                          )}
                         </div>
                       </div>
                       {/* Actions row: incentivos + comentários */}

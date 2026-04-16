@@ -194,6 +194,10 @@ export function SettingsDrawer({
   const [newPlanName, setNewPlanName] = React.useState("");
   const [newPlanPrice, setNewPlanPrice] = React.useState("");
   const [newPlanDescription, setNewPlanDescription] = React.useState("");
+  const [editingPlanIdx, setEditingPlanIdx] = React.useState<number | null>(null);
+  const [editPlanName, setEditPlanName] = React.useState("");
+  const [editPlanPrice, setEditPlanPrice] = React.useState("");
+  const [editPlanDescription, setEditPlanDescription] = React.useState("");
 
   const loadCommercialProfile = React.useCallback(async () => {
     try {
@@ -229,6 +233,7 @@ export function SettingsDrawer({
   const openCommercialProfile = () => {
     setIsAddingPlan(false);
     setNewPlanName(""); setNewPlanPrice(""); setNewPlanDescription("");
+    setEditingPlanIdx(null); setEditPlanName(""); setEditPlanPrice(""); setEditPlanDescription("");
     setIsCommercialOpen(true);
     loadCommercialProfile();
   };
@@ -846,16 +851,39 @@ export function SettingsDrawer({
                       {servicePlans.length > 0 && (
                         <div className="space-y-2">
                           {servicePlans.map((plan, idx) => (
-                            <div key={idx} className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium truncate">{plan.name}</p>
-                                {plan.price != null && <p className="text-xs text-brand font-semibold">R$ {plan.price.toFixed(2).replace(".", ",")}</p>}
-                                {plan.description && <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{plan.description}</p>}
+                            editingPlanIdx === idx ? (
+                              <div key={idx} className="space-y-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
+                                <p className="text-xs font-medium text-brand">{t("settings_commercial_new_plan")}</p>
+                                <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_name")} value={editPlanName} onChange={(e) => setEditPlanName(e.target.value)} maxLength={60} />
+                                <input type="number" min="0" step="0.01" className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_price")} value={editPlanPrice} onChange={(e) => setEditPlanPrice(e.target.value)} />
+                                <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_desc")} value={editPlanDescription} onChange={(e) => setEditPlanDescription(e.target.value)} maxLength={100} />
+                                <div className="flex gap-2">
+                                  <button type="button" disabled={!editPlanName.trim()} onClick={() => {
+                                    if (!editPlanName.trim()) return;
+                                    setServicePlans((prev) => prev.map((p, i) => i === idx ? { name: editPlanName.trim(), price: editPlanPrice ? parseFloat(editPlanPrice) : null, description: editPlanDescription.trim() || undefined } : p));
+                                    setEditingPlanIdx(null); setEditPlanName(""); setEditPlanPrice(""); setEditPlanDescription("");
+                                  }} className="flex-1 flex items-center justify-center gap-1.5 rounded-md bg-brand text-white text-sm font-medium py-2 hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                    {t("settings_commercial_plan_confirm")}
+                                  </button>
+                                  <button type="button" onClick={() => { setEditingPlanIdx(null); setEditPlanName(""); setEditPlanPrice(""); setEditPlanDescription(""); }} className="px-3 rounded-md border border-border text-sm text-muted-foreground hover:text-foreground transition-colors">{t("cancel")}</button>
+                                </div>
                               </div>
-                              <button type="button" onClick={() => setServicePlans((prev) => prev.filter((_, i) => i !== idx))} className="p-1 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 mt-0.5" aria-label={t("settings_plan_remove_label")}>
-                                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                              </button>
-                            </div>
+                            ) : (
+                              <div key={idx} className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate">{plan.name}</p>
+                                  {plan.price != null && <p className="text-xs text-brand font-semibold">R$ {plan.price.toFixed(2).replace(".", ",")}</p>}
+                                  {plan.description && <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{plan.description}</p>}
+                                </div>
+                                <button type="button" onClick={() => { setEditingPlanIdx(idx); setEditPlanName(plan.name); setEditPlanPrice(plan.price != null ? String(plan.price) : ""); setEditPlanDescription(plan.description ?? ""); setIsAddingPlan(false); }} className="p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5" aria-label="Editar plano">
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </button>
+                                <button type="button" onClick={() => setServicePlans((prev) => prev.filter((_, i) => i !== idx))} className="p-1 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 mt-0.5" aria-label={t("settings_plan_remove_label")}>
+                                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                              </div>
+                            )
                           ))}
                         </div>
                       )}
@@ -879,7 +907,7 @@ export function SettingsDrawer({
                             </div>
                           </div>
                         ) : (
-                          <button type="button" onClick={() => setIsAddingPlan(true)} className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2.5 text-sm text-muted-foreground hover:text-foreground hover:border-brand/50 transition-colors">
+                          <button type="button" onClick={() => { setIsAddingPlan(true); setEditingPlanIdx(null); setEditPlanName(""); setEditPlanPrice(""); setEditPlanDescription(""); }} className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2.5 text-sm text-muted-foreground hover:text-foreground hover:border-brand/50 transition-colors">
                             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
                             {t("settings_commercial_add_plan")}
                           </button>

@@ -4,6 +4,8 @@ import {
   getConversationsDb,
   getConversationMessagesDb,
   sendMessageDb,
+  uploadMessageImageDb,
+  uploadMessageAudioDb,
   markMessagesAsReadDb,
   deleteConversationDb,
   getFollowingDb,
@@ -54,7 +56,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Pencil } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Pencil, Camera, Image, Mic, Smile } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
@@ -119,7 +121,14 @@ export default function Community() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [ranking, setRanking] = React.useState<RankingUser[]>([]);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
-  const messageInputRef = React.useRef<HTMLTextAreaElement>(null);
+  const messageInputRef = React.useRef<HTMLInputElement>(null);
+  const photoInputRef = React.useRef<HTMLInputElement>(null);
+  const [isSendingPhoto, setIsSendingPhoto] = React.useState(false);
+  const [isRecording, setIsRecording] = React.useState(false);
+  const [recordingSeconds, setRecordingSeconds] = React.useState(0);
+  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const audioChunksRef = React.useRef<Blob[]>([]);
+  const recordingTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const [isNewConversationDrawerOpen, setIsNewConversationDrawerOpen] = React.useState(false);
 
   // Group creation state
@@ -664,6 +673,118 @@ export default function Community() {
     }
   }, [messageText, selectedConversation]);
 
+  const handlePhotoSend = React.useCallback(async (file: File) => {
+    if (!selectedConversation) return;
+    setIsSendingPhoto(true);
+    try {
+      const url = await uploadMessageImageDb(file);
+      const imageText = `[image]:${url}`;
+      const newMessage = await sendMessageDb(selectedConversation.userId, imageText);
+      if (newMessage) {
+        const optimisticMsg: MessageWithUser = {
+          id: newMessage.id,
+          user_id: newMessage.user_id,
+          following_id: newMessage.following_id,
+          text: newMessage.text ?? "",
+          read: newMessage.read ?? 0,
+          created_at: newMessage.created_at ?? new Date().toISOString(),
+          emoji: newMessage.emoji ?? null,
+          senderNickname: "Você",
+          senderPhoto: null,
+          recipientNickname: selectedConversation.userNickname || "Usuário",
+          recipientPhoto: selectedConversation.userPhoto || null,
+        };
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === optimisticMsg.id)) return prev;
+          return [...prev, optimisticMsg];
+        });
+      }
+    } catch (err: any) {
+      toast({ title: "Erro ao enviar foto", description: err?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setIsSendingPhoto(false);
+    }
+  }, [selectedConversation]);
+
+  const startRecording = React.useCallback(async () => {
+    if (!selectedConversation) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.start(200);
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+    } catch {
+      toast({ title: "Sem acesso ao microfone", description: "Permita o uso do microfone nas configurações.", variant: "destructive" });
+    }
+  }, [selectedConversation]);
+
+  const stopRecordingAndSend = React.useCallback(async () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || !selectedConversation) return;
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    setIsRecording(false);
+    setRecordingSeconds(0);
+
+    recorder.stop();
+    recorder.stream.getTracks().forEach((t) => t.stop());
+
+    // Wait for final data
+    await new Promise<void>((res) => { recorder.onstop = () => res(); });
+
+    const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+    if (blob.size < 500) return; // muito curto, ignorar
+
+    setIsSendingPhoto(true); // reutiliza loader visual
+    try {
+      const url = await uploadMessageAudioDb(blob);
+      const audioText = `[audio]:${url}`;
+      const newMessage = await sendMessageDb(selectedConversation.userId, audioText);
+      if (newMessage) {
+        const optimisticMsg: MessageWithUser = {
+          id: newMessage.id,
+          user_id: newMessage.user_id,
+          following_id: newMessage.following_id,
+          text: newMessage.text ?? "",
+          read: newMessage.read ?? 0,
+          created_at: newMessage.created_at ?? new Date().toISOString(),
+          emoji: newMessage.emoji ?? null,
+          senderNickname: "Você",
+          senderPhoto: null,
+          recipientNickname: selectedConversation.userNickname || "Usuário",
+          recipientPhoto: selectedConversation.userPhoto || null,
+        };
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === optimisticMsg.id)) return prev;
+          return [...prev, optimisticMsg];
+        });
+      }
+    } catch (err: any) {
+      toast({ title: "Erro ao enviar áudio", description: err?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setIsSendingPhoto(false);
+    }
+  }, [selectedConversation]);
+
+  const cancelRecording = React.useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    recorder.stop();
+    recorder.stream.getTracks().forEach((t) => t.stop());
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  }, []);
+
   // Realtime: append new message instead of full reload
   React.useEffect(() => {
     if (!selectedConversation || !user || !supabase) return;
@@ -832,7 +953,23 @@ export default function Community() {
                           <p className="truncate">{replyQuote}</p>
                         </div>
                       )}
-                      <p className="text-sm">{mainText}</p>
+                      {mainText.startsWith("[image]:") ? (
+                        <img
+                          src={mainText.replace("[image]:", "")}
+                          alt="Imagem"
+                          className="rounded-lg max-w-[220px] max-h-[280px] object-cover cursor-pointer"
+                          onClick={() => window.open(mainText.replace("[image]:", ""), "_blank")}
+                        />
+                      ) : mainText.startsWith("[audio]:") ? (
+                        <audio
+                          src={mainText.replace("[audio]:", "")}
+                          controls
+                          className="max-w-[220px] h-10 rounded-lg"
+                          style={{ colorScheme: isOwn ? "dark" : "light" }}
+                        />
+                      ) : (
+                        <p className="text-sm">{mainText}</p>
+                      )}
                       <div className="flex items-center justify-between gap-2">
                         <p
                           className={`text-xs ${isOwn ? "text-white/70" : "text-muted-foreground"
@@ -886,30 +1023,126 @@ export default function Community() {
           </div>
         )}
 
-        {/* Input */}
-        <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2">
-          <Input
-            ref={messageInputRef}
-            placeholder={t("community_type_message")}
-            value={messageText}
-            onChange={(e) => setMessageText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage();
-              }
-            }}
-            className="rounded-full"
-          />
-          <Button
-            onClick={handleSendMessage}
-            disabled={!messageText.trim()}
-            size="sm"
-            className="rounded-full flex-shrink-0"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
+        {/* Input — estilo Instagram */}
+        {isRecording ? (
+          /* ── Modo gravação ── */
+          <div className="flex-shrink-0 border-t border-border/60 bg-background px-3 py-2 flex items-center gap-3">
+            {/* Cancelar */}
+            <button
+              onClick={cancelRecording}
+              className="flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors p-1.5"
+              title="Cancelar gravação"
+            >
+              <X className="h-6 w-6" />
+            </button>
+            {/* Indicador de gravação */}
+            <div className="flex-1 flex items-center gap-2 bg-muted/50 rounded-full px-4 py-2 border border-border/40">
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+              <span className="text-sm text-muted-foreground flex-1">
+                Gravando... {Math.floor(recordingSeconds / 60).toString().padStart(2, "0")}:{(recordingSeconds % 60).toString().padStart(2, "0")}
+              </span>
+            </div>
+            {/* Enviar */}
+            <button
+              onClick={stopRecordingAndSend}
+              className="flex-shrink-0 bg-brand text-white rounded-full p-2 hover:opacity-80 transition-opacity"
+              title="Enviar áudio"
+            >
+              <Send className="h-5 w-5" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex-shrink-0 border-t border-border/60 bg-background px-3 py-2 flex items-center gap-2">
+            {/* Câmera */}
+            <button
+              className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-1.5"
+              onClick={() => photoInputRef.current?.click()}
+              disabled={isSendingPhoto}
+              title="Enviar foto da câmera"
+            >
+              {isSendingPhoto ? (
+                <div className="h-5 w-5 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Camera className="h-6 w-6" />
+              )}
+            </button>
+
+            {/* Input de arquivo oculto */}
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handlePhotoSend(file);
+                e.target.value = "";
+              }}
+            />
+
+            {/* Input de texto */}
+            <div className="flex-1 flex items-center bg-muted/50 rounded-full px-4 py-1.5 gap-2 border border-border/40">
+              <Input
+                ref={messageInputRef}
+                placeholder={t("community_type_message")}
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                className="border-0 bg-transparent p-0 h-auto text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 flex-1"
+              />
+              {/* Emoji picker real */}
+              <EmojiPicker
+                placement="top"
+                onSelect={(emoji) => setMessageText((prev) => prev + emoji)}
+                triggerClassName="flex-shrink-0 p-0.5"
+              />
+            </div>
+
+            {/* Ações à direita: quando sem texto → galeria + mic; quando com texto → enviar */}
+            {messageText.trim() ? (
+              <button
+                onClick={handleSendMessage}
+                disabled={isSending}
+                className="flex-shrink-0 text-brand hover:opacity-80 transition-opacity p-1.5"
+                title="Enviar mensagem"
+              >
+                <Send className="h-5 w-5" />
+              </button>
+            ) : (
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {/* Galeria */}
+                <button
+                  className="text-muted-foreground hover:text-foreground transition-colors p-1.5"
+                  title="Enviar da galeria"
+                  onClick={() => {
+                    if (photoInputRef.current) {
+                      photoInputRef.current.removeAttribute("capture");
+                      photoInputRef.current.click();
+                      setTimeout(() => photoInputRef.current?.setAttribute("capture", "environment"), 500);
+                    }
+                  }}
+                >
+                  <Image className="h-6 w-6" />
+                </button>
+                {/* Microfone — iniciar gravação */}
+                <button
+                  className="text-muted-foreground hover:text-foreground transition-colors p-1.5"
+                  title="Gravar áudio"
+                  onMouseDown={startRecording}
+                  onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
+                >
+                  <Mic className="h-6 w-6" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Long-press overlay */}
         {longPressedMessage && (

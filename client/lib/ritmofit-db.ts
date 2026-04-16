@@ -3986,6 +3986,33 @@ export type Conversation = {
   unreadCount: number;
 };
 
+export async function uploadMessageAudioDb(blob: Blob): Promise<string> {
+  if (!supabase) throw new Error("Supabase not configured");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+  const path = `message-audio/${viewer.id}/${Date.now()}.webm`;
+  const { error } = await supabase.storage
+    .from("posts")
+    .upload(path, blob, { upsert: false, contentType: "audio/webm" });
+  if (error) throw error;
+  const { data } = supabase.storage.from("posts").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export async function uploadMessageImageDb(file: File): Promise<string> {
+  if (!supabase) throw new Error("Supabase not configured");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Usuário não autenticado");
+  const ext = file.name.split(".").pop() ?? "jpg";
+  const path = `message-images/${viewer.id}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage
+    .from("posts")
+    .upload(path, file, { upsert: false, contentType: file.type });
+  if (error) throw error;
+  const { data } = supabase.storage.from("posts").getPublicUrl(path);
+  return data.publicUrl;
+}
+
 export async function sendMessageDb(
   recipientId: string,
   text: string,

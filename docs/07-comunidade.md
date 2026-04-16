@@ -115,10 +115,17 @@ Exibe:
 - Timestamp em cada mensagem
 - **Reações emoji** em cada mensagem (emoji picker ao segurar/clicar)
 
-**Campo de Envio:**
-- Input de texto
-- Botão `Send` para enviar
+**Campo de Envio (estilo Instagram):**
+- Ícone `Camera` à esquerda → abre câmera para capturar e enviar foto diretamente
+- Input de texto centralizado com fundo arredondado (pill)
+- Ícone `Smile` dentro do input → abre `EmojiPicker` (componente `shared/emoji-picker.tsx`) com 4 categorias; o emoji selecionado é inserido no texto
+- Quando sem texto: ícones `Image` (galeria) e `Mic` (gravação de áudio) à direita
+- Quando com texto: botão `Send` azul à direita substitui os ícones de mídia
 - Enter também envia a mensagem
+- Fotos enviadas fazem upload para Supabase Storage (`posts/message-images/`) e são exibidas como imagem na bolha da conversa
+- Mensagens de imagem: prefixo `[image]:url` → renderizadas como `<img>` clicável
+- Mensagens de áudio: prefixo `[audio]:url` → renderizadas como player `<audio controls>`; gravação usa MediaRecorder API; upload para `posts/message-audio/` no Supabase Storage
+- Permissão de microfone já declarada no `Info.plist` iOS (`NSMicrophoneUsageDescription`)
 
 **Realtime:**
 - Novas mensagens aparecem em tempo real via Supabase Realtime (canal `messages-{userId}`, evento `INSERT` na tabela `messages`)

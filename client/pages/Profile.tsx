@@ -26,6 +26,7 @@ import {
   getUserGoalsByUserIdDb,
   deletePostDb,
   updatePostDb,
+  removePostPhotoDb,
   deleteRoutineDb,
   getPostLikeUsersDb,
   getPostCommentsDb,
@@ -186,6 +187,7 @@ export default function Profile() {
   const [editPostDescription, setEditPostDescription] = React.useState("");
   const [editPostGoalId, setEditPostGoalId] = React.useState<string>("");
   const [isUpdatingPost, setIsUpdatingPost] = React.useState(false);
+  const [removingPhoto, setRemovingPhoto] = React.useState(false);
   const [postLikes, setPostLikes] = React.useState<any[]>([]);
   const [postComments, setPostComments] = React.useState<any[]>([]);
   const [postUserLikes, setPostUserLikes] = React.useState<PostIncentiveType[]>([]);
@@ -416,6 +418,22 @@ export default function Profile() {
       setIsUpdatingPost(false);
     }
   }, [selectedPost, editPostDescription, editPostGoalId]);
+
+  const handleRemoveCarouselPhoto = React.useCallback(async (photoUrl: string) => {
+    if (!selectedPost) return;
+    setRemovingPhoto(true);
+    try {
+      const updatedPhotos = await removePostPhotoDb(selectedPost.id, photoUrl);
+      const updatedPost = { ...selectedPost, photos: updatedPhotos };
+      setSelectedPost(updatedPost);
+      setPosts((prev) => prev.map((p) => p.id === selectedPost.id ? updatedPost : p));
+      toast({ title: "Foto removida!" });
+    } catch (err: any) {
+      toast({ title: "Erro ao remover foto", description: err?.message, variant: "destructive" });
+    } finally {
+      setRemovingPhoto(false);
+    }
+  }, [selectedPost]);
 
   const handleTogglePostIncentive = React.useCallback(async (type: PostIncentiveType) => {
     if (!selectedPost || isTogglingPostLike) return;
@@ -2295,7 +2313,13 @@ export default function Profile() {
                   <div className="md:w-[55%] md:shrink-0 md:sticky md:top-0">
                     {selectedPost.photos && selectedPost.photos.length > 0 ? (
                       <div className="md:h-full">
-                        <PostCarousel photos={selectedPost.photos} alt={selectedPost.description} />
+                        <PostCarousel
+                          photos={selectedPost.photos}
+                          alt={selectedPost.description}
+                          editMode={isEditingPost}
+                          onRemovePhoto={handleRemoveCarouselPhoto}
+                          removingPhoto={removingPhoto}
+                        />
                       </div>
                     ) : (
                       <div className="relative aspect-[4/3] md:aspect-square overflow-hidden md:rounded-none bg-muted border-b border-border/40 md:border-b-0">

@@ -28,24 +28,46 @@ export function ShareDrawer({
   text,
   url,
   imageUrl,
-  imageBlob,
+  imageBlob: imageBlobProp,
   title = "Compartilhar",
 }: ShareDrawerProps) {
   const shareUrl = url || window.location.href;
   const fullText = `${text}\n\n${shareUrl}`;
 
+  // Fetch image as blob automatically when drawer opens and imageUrl is provided
+  const [derivedBlob, setDerivedBlob] = React.useState<Blob | null>(null);
+  React.useEffect(() => {
+    if (!open || (!imageUrl && !imageBlobProp)) {
+      setDerivedBlob(null);
+      return;
+    }
+    if (imageBlobProp) {
+      setDerivedBlob(imageBlobProp);
+      return;
+    }
+    let cancelled = false;
+    fetch(imageUrl!)
+      .then((r) => r.blob())
+      .then((blob) => { if (!cancelled) setDerivedBlob(blob); })
+      .catch(() => { if (!cancelled) setDerivedBlob(null); });
+    return () => { cancelled = true; };
+  }, [open, imageUrl, imageBlobProp]);
+
+  const imageBlob = derivedBlob;
+
   const handleNativeShare = async () => {
     if (!navigator.share) return false;
     try {
-      const shareData: ShareData = { text, url: shareUrl };
       if (imageBlob && navigator.canShare) {
-        const file = new File([imageBlob], "linka-share.png", { type: "image/png" });
+        const ext = imageBlob.type.includes("png") ? "png" : "jpg";
+        const file = new File([imageBlob], `linka-share.${ext}`, { type: imageBlob.type });
         const dataWithFile: ShareData = { files: [file], text, url: shareUrl };
         if (navigator.canShare(dataWithFile)) {
           await navigator.share(dataWithFile);
           return true;
         }
       }
+      const shareData: ShareData = { text, url: shareUrl };
       await navigator.share(shareData);
       return true;
     } catch {
@@ -62,9 +84,14 @@ export function ShareDrawer({
     });
   };
 
-  const shareWhatsApp = () => {
-    const encoded = encodeURIComponent(fullText);
-    window.open(`https://wa.me/?text=${encoded}`, "_blank", "noopener,noreferrer");
+  const shareWhatsApp = async () => {
+    // Try native share with image first (works on mobile — includes the image)
+    const shared = await handleNativeShare();
+    if (!shared) {
+      // Fallback: open WhatsApp with text only
+      const encoded = encodeURIComponent(fullText);
+      window.open(`https://wa.me/?text=${encoded}`, "_blank", "noopener,noreferrer");
+    }
     onOpenChange(false);
   };
 

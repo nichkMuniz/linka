@@ -1,12 +1,15 @@
 import React from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 
 interface PostCarouselProps {
   photos: string[];
   alt: string;
+  editMode?: boolean;
+  onRemovePhoto?: (photoUrl: string, index: number) => void;
+  removingPhoto?: boolean;
 }
 
-export function PostCarousel({ photos, alt }: PostCarouselProps) {
+export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPhoto }: PostCarouselProps) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const touchStartX = React.useRef<number | null>(null);
   const touchStartY = React.useRef<number | null>(null);
@@ -96,6 +99,19 @@ export function PostCarousel({ photos, alt }: PostCarouselProps) {
           aria-label="Próxima foto"
         >
           <ChevronRight className="h-5 w-5 text-white" />
+        </button>
+      )}
+
+      {/* Remove photo button (edit mode only) */}
+      {editMode && onRemovePhoto && photos.length > 1 && (
+        <button
+          type="button"
+          onClick={() => onRemovePhoto(photos[currentIndex], currentIndex)}
+          disabled={removingPhoto}
+          className="absolute top-2 right-2 bg-destructive/90 hover:bg-destructive text-white rounded-full p-1.5 transition-colors disabled:opacity-50"
+          title="Remover esta foto"
+        >
+          <Trash2 className="h-4 w-4" />
         </button>
       )}
 
