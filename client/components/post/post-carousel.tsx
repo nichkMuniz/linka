@@ -17,8 +17,8 @@ export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPho
   // Final safety check for non-array photos
   if (!Array.isArray(photos)) {
     return photos ? (
-      <div className="relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 flex items-center justify-center overflow-hidden rounded-lg">
-        <img src={String(photos)} alt={alt} className="max-w-full max-h-full w-auto h-auto object-contain" />
+      <div className="relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 overflow-hidden rounded-lg">
+        <img src={String(photos)} alt={alt} className="w-full h-full object-cover" />
       </div>
     ) : null;
   }
@@ -26,11 +26,11 @@ export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPho
   // Single photo — no carousel needed
   if (photos.length === 1) {
     return (
-      <div className="relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 flex items-center justify-center overflow-hidden rounded-lg">
+      <div className="relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 overflow-hidden rounded-lg">
         <img
           src={photos[0]}
           alt={alt}
-          className="max-w-full max-h-full w-auto h-auto object-contain"
+          className="w-full h-full object-cover"
           loading="lazy"
         />
       </div>
@@ -70,11 +70,11 @@ export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPho
         style={{ transform: `translateX(-${currentIndex * 100}%)` }}
       >
         {photos.map((src, i) => (
-          <div key={i} className="w-full aspect-square md:aspect-auto md:h-[450px] flex-shrink-0 flex items-center justify-center overflow-hidden" style={{ minWidth: "100%" }}>
+          <div key={i} className="w-full aspect-square md:aspect-auto md:h-[450px] flex-shrink-0 overflow-hidden" style={{ minWidth: "100%" }}>
             <img
               src={src}
               alt={`${alt} - ${i + 1}`}
-              className="max-w-full max-h-full w-auto h-auto object-contain"
+              className="w-full h-full object-cover"
               loading={i === 0 ? "eager" : "lazy"}
               decoding="async"
             />

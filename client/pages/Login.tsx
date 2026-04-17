@@ -816,8 +816,8 @@ export default function Login() {
   }
 
   return (
-    <div className="grid min-h-dvh place-items-center bg-background p-6">
-      <div className="mx-auto grid w-full max-w-md gap-6">
+    <div className="flex min-h-dvh items-center justify-center bg-background p-6">
+      <div className="mx-auto grid w-full max-w-md gap-6 my-auto">
         <BrandHeader />
 
         <Card className="border-border/60 relative">

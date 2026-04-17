@@ -9,6 +9,8 @@ import {
   ShoppingBag,
   Timer,
   Trash2,
+  PanelLeftOpen,
+  PanelLeftClose,
 } from "lucide-react";
 import * as React from "react";
 import { LocalNotifications } from "@capacitor/local-notifications";
@@ -68,6 +70,32 @@ export function AppLayout() {
       }
     }
   }, [globalRestTimerActive]);
+
+  const [sidebarExpanded, setSidebarExpanded] = React.useState(() => {
+    const stored = localStorage.getItem("ritmofit_sidebar_expanded");
+    if (stored !== null) return stored === "true";
+    return window.innerWidth >= 1024;
+  });
+
+  const toggleSidebar = () => {
+    setSidebarExpanded((prev) => {
+      localStorage.setItem("ritmofit_sidebar_expanded", String(!prev));
+      return !prev;
+    });
+  };
+
+  React.useEffect(() => {
+    const update = () => {
+      const isDesktop = window.innerWidth >= 768;
+      document.documentElement.style.setProperty(
+        "--sidebar-width",
+        isDesktop ? (sidebarExpanded ? "244px" : "68px") : "0px",
+      );
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [sidebarExpanded]);
 
   const [headerHidden, setHeaderHidden] = React.useState(false);
   const [unreadCount, setUnreadCount] = React.useState(0);
@@ -172,7 +200,7 @@ export function AppLayout() {
         (payload) => {
           // Don't fire if user is already on the notifications page
           if (window.location.pathname === "/notificacoes") return;
-          const row = payload.new as { type?: number; [key: string]: unknown } | undefined;
+          const row = payload.new as { type?: number;[key: string]: unknown } | undefined;
           if (!row) return;
           const titleMap: Record<number, string> = {
             1: "Novo seguidor 👤",
@@ -202,7 +230,7 @@ export function AppLayout() {
               smallIcon: "ic_stat_icon_config_sample",
               iconColor: "#f97316",
             }],
-          }).catch(() => {/* permission not granted — silent */});
+          }).catch(() => {/* permission not granted — silent */ });
         },
       )
       .subscribe() : null;
@@ -324,13 +352,21 @@ export function AppLayout() {
   const allSidebarItems = [...mainNavItems, ...sidebarExtraItems];
 
   return (
-    <div className="min-h-dvh bg-background">
+    <div
+      className="min-h-dvh bg-background"
+      style={{ "--sidebar-width": typeof window !== "undefined" && window.innerWidth >= 768 ? (sidebarExpanded ? "244px" : "68px") : "0px" } as React.CSSProperties}
+    >
 
       {/* ── DESKTOP LAYOUT (md+): sidebar + feed ── */}
       <div className="hidden md:flex min-h-dvh">
 
         {/* Sidebar */}
-        <aside className="fixed top-0 left-0 z-40 flex h-full w-[244px] flex-col border-r border-border/40 bg-background px-3 py-6">
+        <aside
+          className={cn(
+            "fixed top-0 left-0 z-40 flex h-full flex-col border-r border-border/40 bg-background py-6 transition-all duration-300",
+            sidebarExpanded ? "w-[244px] px-3" : "w-[68px] px-2",
+          )}
+        >
           {/* Logo */}
           <button
             onClick={() => {
@@ -341,9 +377,15 @@ export function AppLayout() {
               }
             }}
             aria-label="Ir para Home"
-            className="mb-6 flex items-center px-3 py-2 rounded-xl hover:bg-muted/50 transition cursor-pointer"
+            className={cn(
+              "mb-6 flex items-center rounded-xl py-2 hover:bg-muted/50 transition cursor-pointer",
+              sidebarExpanded ? "px-3" : "justify-center px-0",
+            )}
           >
-            <img src={logoSrc} alt="LinKa" className="h-7" />
+            {sidebarExpanded
+              ? <img src={logoSrc} alt="LinKa" className="h-7" />
+              : <img src="/SIMBOLO.png" alt="LinKa" className="h-8 w-8 object-contain" />
+            }
           </button>
 
           {/* Nav items */}
@@ -355,14 +397,16 @@ export function AppLayout() {
                 <motion.div
                   key={item.to}
                   whileTap={{ scale: 0.97 }}
-                  whileHover={{ x: 2 }}
+                  whileHover={{ x: sidebarExpanded ? 2 : 0 }}
                   transition={{ duration: 0.15 }}
                 >
                   <Link
                     to={item.to}
                     aria-label={item.label}
+                    title={!sidebarExpanded ? item.label : undefined}
                     className={cn(
-                      "flex items-center gap-4 rounded-xl px-3 py-3 text-[15px] font-medium transition-colors",
+                      "flex items-center rounded-xl py-3 text-[15px] font-medium transition-colors",
+                      sidebarExpanded ? "gap-4 px-3" : "justify-center px-0",
                       active
                         ? "bg-muted text-foreground"
                         : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
@@ -376,7 +420,7 @@ export function AppLayout() {
                         </span>
                       ) : null}
                     </span>
-                    <span>{item.label}</span>
+                    {sidebarExpanded && <span>{item.label}</span>}
                   </Link>
                 </motion.div>
               );
@@ -387,36 +431,66 @@ export function AppLayout() {
           {showTimer && (
             <div className={cn(
               "flex items-center gap-2 px-3 py-2 rounded-xl mb-1",
+              sidebarExpanded ? "px-3" : "justify-center px-0",
               timerExpired ? "bg-red-500/10 text-red-500" : timerUrgent ? "bg-orange-500/10 text-orange-500" : "bg-muted/50 text-muted-foreground"
             )}>
               <Timer className="h-4 w-4 flex-shrink-0" />
-              <div className="flex flex-col">
-                <span className="text-[11px] font-medium">Tempo restante</span>
-                <span className="text-sm font-mono font-bold">{timerLabel}</span>
-              </div>
+              {sidebarExpanded && (
+                <div className="flex flex-col">
+                  <span className="text-[11px] font-medium">Tempo restante</span>
+                  <span className="text-sm font-mono font-bold">{timerLabel}</span>
+                </div>
+              )}
             </div>
           )}
+
+          {/* Toggle sidebar button */}
+          <button
+            onClick={toggleSidebar}
+            aria-label={sidebarExpanded ? "Recolher menu" : "Expandir menu"}
+            title={sidebarExpanded ? "Recolher menu" : "Expandir menu"}
+            className={cn(
+              "flex items-center rounded-xl py-3 mb-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors",
+              sidebarExpanded ? "gap-4 px-3" : "justify-center px-0",
+            )}
+          >
+            {sidebarExpanded
+              ? <><PanelLeftClose className="h-6 w-6 flex-shrink-0" /><span className="text-[15px] font-medium">Recolher</span></>
+              : <PanelLeftOpen className="h-6 w-6" />
+            }
+          </button>
 
           {/* Profile at bottom */}
           <Link
             to="/perfil"
             aria-label="Perfil"
-            className="flex items-center gap-3 rounded-xl px-3 py-3 transition hover:bg-muted/50"
+            title={!sidebarExpanded ? (t("nav_profile") ?? "Perfil") : undefined}
+            className={cn(
+              "flex items-center rounded-xl py-3 transition hover:bg-muted/50",
+              sidebarExpanded ? "gap-3 px-3" : "justify-center px-0",
+            )}
           >
             <UserAvatar
               photo={profilePhoto}
               gender={profileGender}
               size="sm"
-              className="h-9 w-9 border border-border/60"
+              className="h-9 w-9 border border-border/60 flex-shrink-0"
             />
-            <span className="text-[15px] font-medium text-muted-foreground group-hover:text-foreground truncate">
-              {t("nav_profile") ?? "Perfil"}
-            </span>
+            {sidebarExpanded && (
+              <span className="text-[15px] font-medium text-muted-foreground group-hover:text-foreground truncate">
+                {t("nav_profile") ?? "Perfil"}
+              </span>
+            )}
           </Link>
         </aside>
 
         {/* Feed column — centered after sidebar */}
-        <div className="ml-[244px] flex flex-1 justify-center">
+        <div
+          className={cn(
+            "flex flex-1 justify-center transition-all duration-300",
+            sidebarExpanded ? "ml-[244px]" : "ml-[68px]",
+          )}
+        >
           <main className="w-full max-w-[680px] min-h-dvh px-0 py-6">
             <PageTransition>
               <Outlet />

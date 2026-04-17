@@ -10,8 +10,10 @@ import {
   Video,
   ShoppingBag,
   Users2,
+  PanelLeftOpen,
+  PanelLeftClose,
 } from "lucide-react";
-import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { UserAvatar } from "@/components/shared/user-avatar";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
@@ -45,9 +47,23 @@ export function ShotsLayout() {
   const { user } = useAuth();
   const { layoutMode } = useLayoutMode();
   const { t } = useLanguage();
+  const [sidebarExpanded, setSidebarExpanded] = React.useState(() => {
+    const stored = localStorage.getItem("ritmofit_sidebar_expanded");
+    if (stored !== null) return stored === "true";
+    return window.innerWidth >= 1024;
+  });
+
+  const toggleSidebar = () => {
+    setSidebarExpanded((prev) => {
+      localStorage.setItem("ritmofit_sidebar_expanded", String(!prev));
+      return !prev;
+    });
+  };
+
   const [unreadCount, setUnreadCount] = React.useState(0);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = React.useState(0);
   const [profilePhoto, setProfilePhoto] = React.useState<string | null>(null);
+  const [profileGender, setProfileGender] = React.useState<string | null>(null);
   const { resolvedTheme } = useTheme();
   const logoSrc = resolvedTheme === "dark" ? "/logo-branco.png" : "/logo.png";
   const footerRef = React.useRef<HTMLDivElement>(null);
@@ -77,7 +93,10 @@ export function ShotsLayout() {
   React.useEffect(() => {
     if (!user) return;
     getUserProfileDb(user.id)
-      .then((p) => { if (p?.photo) setProfilePhoto(p.photo); })
+      .then((p) => {
+        if (p?.photo) setProfilePhoto(p.photo);
+        if (p?.gender) setProfileGender(String(p.gender));
+      })
       .catch(console.error);
   }, [user]);
 
@@ -102,14 +121,25 @@ export function ShotsLayout() {
       <div className="hidden md:flex h-screen bg-background overflow-hidden">
 
         {/* Sidebar — uses app theme */}
-        <aside className="fixed top-0 left-0 z-40 flex h-full w-[244px] flex-col border-r border-border/40 bg-background px-3 py-6">
+        <aside
+          className={cn(
+            "fixed top-0 left-0 z-40 flex h-full flex-col border-r border-border/40 bg-background py-6 transition-all duration-300",
+            sidebarExpanded ? "w-[244px] px-3" : "w-[68px] px-2",
+          )}
+        >
           {/* Logo */}
           <button
             onClick={() => { window.location.href = "/"; }}
             aria-label="Ir para Home"
-            className="mb-6 flex items-center px-3 py-2 rounded-xl hover:bg-muted/50 transition cursor-pointer"
+            className={cn(
+              "mb-6 flex items-center rounded-xl py-2 hover:bg-muted/50 transition cursor-pointer",
+              sidebarExpanded ? "px-3" : "justify-center px-0",
+            )}
           >
-            <img src={logoSrc} alt="LinKa" className="h-7" />
+            {sidebarExpanded
+              ? <img src={logoSrc} alt="LinKa" className="h-7" />
+              : <img src={logoSrc} alt="LinKa" className="h-6 w-6 object-contain" />
+            }
           </button>
 
           {/* Nav items */}
@@ -118,57 +148,86 @@ export function ShotsLayout() {
               const active = isActivePath(location.pathname, item.to);
               const Icon = item.icon;
               return (
-                <Link
+                <motion.div
                   key={item.to}
-                  to={item.to}
-                  aria-label={item.label}
-                  className={cn(
-                    "flex items-center gap-4 rounded-xl px-3 py-3 text-[15px] font-medium transition-colors",
-                    active
-                      ? "bg-muted text-foreground font-bold"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                  )}
+                  whileTap={{ scale: 0.97 }}
+                  whileHover={{ x: sidebarExpanded ? 2 : 0 }}
+                  transition={{ duration: 0.15 }}
                 >
-                  <span className="relative flex-shrink-0">
-                    <Icon className="h-6 w-6" />
-                    {item.badge && item.badge > 0 ? (
-                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold">
-                        {item.badge > 9 ? "9+" : item.badge}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span>{item.label}</span>
-                </Link>
+                  <Link
+                    to={item.to}
+                    aria-label={item.label}
+                    title={!sidebarExpanded ? item.label : undefined}
+                    className={cn(
+                      "flex items-center rounded-xl py-3 text-[15px] font-medium transition-colors",
+                      sidebarExpanded ? "gap-4 px-3" : "justify-center px-0",
+                      active
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    <span className="relative flex-shrink-0">
+                      <Icon className="h-6 w-6" />
+                      {item.badge && item.badge > 0 ? (
+                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold">
+                          {item.badge > 9 ? "9+" : item.badge}
+                        </span>
+                      ) : null}
+                    </span>
+                    {sidebarExpanded && <span>{item.label}</span>}
+                  </Link>
+                </motion.div>
               );
             })}
           </nav>
+
+          {/* Toggle sidebar button */}
+          <button
+            onClick={toggleSidebar}
+            aria-label={sidebarExpanded ? "Recolher menu" : "Expandir menu"}
+            title={sidebarExpanded ? "Recolher menu" : "Expandir menu"}
+            className={cn(
+              "flex items-center rounded-xl py-3 mb-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors",
+              sidebarExpanded ? "gap-4 px-3" : "justify-center px-0",
+            )}
+          >
+            {sidebarExpanded
+              ? <><PanelLeftClose className="h-6 w-6 flex-shrink-0" /><span className="text-[15px] font-medium">Recolher</span></>
+              : <PanelLeftOpen className="h-6 w-6" />
+            }
+          </button>
 
           {/* Profile at bottom */}
           <Link
             to="/perfil"
             aria-label="Perfil"
-            className="flex items-center gap-3 rounded-xl px-3 py-3 transition hover:bg-muted/50"
-          >
-            {profilePhoto ? (
-              <ImageWithFallback
-                src={profilePhoto}
-                alt="Seu Perfil"
-                fallback="/placeholder.svg"
-                className="h-9 w-9 rounded-full object-cover border border-border/40 flex-shrink-0"
-              />
-            ) : (
-              <div className="h-9 w-9 rounded-full bg-muted border border-border/40 flex items-center justify-center flex-shrink-0">
-                <span className="text-xs font-semibold text-muted-foreground">{t("nav_you")}</span>
-              </div>
+            title={!sidebarExpanded ? (t("nav_profile") ?? "Perfil") : undefined}
+            className={cn(
+              "flex items-center rounded-xl py-3 transition hover:bg-muted/50",
+              sidebarExpanded ? "gap-3 px-3" : "justify-center px-0",
             )}
-            <span className="text-[15px] font-medium text-muted-foreground truncate">
-              {t("nav_profile") ?? "Perfil"}
-            </span>
+          >
+            <UserAvatar
+              photo={profilePhoto}
+              gender={profileGender}
+              size="sm"
+              className="h-9 w-9 border border-border/60 flex-shrink-0"
+            />
+            {sidebarExpanded && (
+              <span className="text-[15px] font-medium text-muted-foreground truncate">
+                {t("nav_profile") ?? "Perfil"}
+              </span>
+            )}
           </Link>
         </aside>
 
         {/* Main area: vídeo centralizado */}
-        <div className="ml-[244px] flex flex-1 items-center justify-center">
+        <div
+          className={cn(
+            "flex flex-1 items-center justify-center transition-all duration-300",
+            sidebarExpanded ? "ml-[244px]" : "ml-[68px]",
+          )}
+        >
           {/* Vídeo em proporção 9:16 */}
           <div
             className="relative bg-black rounded-xl overflow-hidden"

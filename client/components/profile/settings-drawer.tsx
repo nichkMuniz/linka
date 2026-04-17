@@ -1055,10 +1055,12 @@ export function SettingsDrawer({
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-2">
-                    <Button onClick={() => { toggleLayoutMode(); window.location.reload(); }} variant="outline" className="w-full rounded-full gap-2">
-                      <span>📐</span>
-                      {layoutMode === "novo" ? t("settings_layout_old") : t("settings_layout_new")}
-                    </Button>
+                    {window.innerWidth < 768 && (
+                      <Button onClick={() => { toggleLayoutMode(); window.location.reload(); }} variant="outline" className="w-full rounded-full gap-2">
+                        <span>📐</span>
+                        {layoutMode === "novo" ? t("settings_layout_old") : t("settings_layout_new")}
+                      </Button>
+                    )}
                     <Button onClick={() => setTheme(isDark ? "light" : "dark")} variant="outline" className="w-full rounded-full gap-2">
                       {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
                       {isDark ? t("settings_theme_light2") : t("settings_theme_night")}

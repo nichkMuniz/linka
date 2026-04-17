@@ -4,6 +4,32 @@ Este arquivo define como o Claude deve trabalhar neste projeto. Leia sempre ante
 
 ---
 
+## 0. Plataforma Alvo: Aplicativo iOS (Apple App Store)
+
+> **REGRA CRÍTICA:** Este projeto **não é mais uma aplicação web**. É um **aplicativo mobile nativo/híbrido voltado exclusivamente para a Apple App Store (iOS)**. Toda e qualquer decisão de implementação deve ser tomada com essa premissa.
+
+### O que isso significa na prática
+
+- **Não pensar em browser:** Não há suporte a múltiplos navegadores, extensões, ou comportamentos de desktop. O alvo é exclusivamente iPhone/iPad via iOS.
+- **Capacitor/Xcode é o runtime:** O app roda via Capacitor dentro de um WebView nativo. Qualquer funcionalidade que dependa de API de browser deve ser validada quanto ao suporte no WebView do iOS.
+- **Apple Guidelines obrigatórias:** Qualquer funcionalidade nova deve ser compatível com as [App Store Review Guidelines](https://developer.apple.com/app-store/review/guidelines/). Isso inclui privacidade, compras, permissões, e conteúdo.
+- **Permissões iOS:** Toda API que exija permissão do sistema (câmera, microfone, localização, notificações, HealthKit, etc.) deve usar o plugin Capacitor correspondente e declarar a chave de permissão no `Info.plist`.
+- **Safe Area é obrigatória:** Regras da seção 8 deste arquivo são ainda mais críticas no iOS — notch, Dynamic Island e home indicator devem sempre ser respeitados.
+- **Sem links externos abertos no browser:** Navegação deve ser feita com `Browser` plugin do Capacitor ou dentro do próprio app. Nunca `window.open` sem controle.
+- **Performance mobile-first:** Animações, listas longas e carregamento de imagens devem ser otimizados para dispositivos móveis — não para desktop. Nada de layouts que só funcionam bem em tela grande.
+- **Testes em dispositivo real / simulador iOS:** Antes de considerar qualquer tarefa concluída, a funcionalidade deve ser validada no simulador iOS ou em dispositivo físico via Xcode/TestFlight.
+- **Sem PWA assumptions:** O app não é PWA. Funcionalidades como service workers, manifest, ou instalação via browser não se aplicam.
+- **In-App Purchases:** Qualquer funcionalidade paga deve usar o sistema de compras da Apple (StoreKit) via plugin Capacitor — nunca processamento de pagamento externo para conteúdo digital, conforme exige a Apple.
+
+### Stack mobile
+
+- **Runtime:** Capacitor 6+
+- **Projeto nativo:** `ios/App/` (Xcode)
+- **Build:** `pnpm build && npx cap sync ios && npx cap open ios`
+- **Plugins nativos:** definidos em `capacitor.config.ts` e `ios/App/`
+
+---
+
 ## 1. Consultar a Documentação Antes de Alterar
 
 Antes de modificar, criar ou refatorar qualquer tela, **sempre consulte o arquivo `.md` correspondente na pasta `docs/`**.

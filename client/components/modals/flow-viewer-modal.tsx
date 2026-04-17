@@ -373,22 +373,8 @@ export function FlowViewerModal({
   const isOwner = story ? user?.id === story.user_id : false;
   const userStories = story ? sortedStories.filter((s) => s.user_id === story.user_id) : [];
   const storyIndexInUser = story ? userStories.findIndex((s) => s.id === story.id) : -1;
-
-  const upcomingUsersFirstStories = React.useMemo(() => {
-    if (!story) return [];
-    const users: StoryWithUser[] = [];
-    const seen = new Set<string>();
-    seen.add(story.user_id);
-    for (let i = currentIndex + 1; i < sortedStories.length; i++) {
-      const s = sortedStories[i];
-      if (!seen.has(s.user_id)) {
-        seen.add(s.user_id);
-        users.push(s);
-      }
-      if (users.length >= 2) break;
-    }
-    return users;
-  }, [sortedStories, currentIndex, story?.user_id]);
+  const prevStory = hasPrevStory ? sortedStories[currentIndex - 1] : null;
+  const nextStory = hasNextStory ? sortedStories[currentIndex + 1] : null;
 
   if (!story) return null;
 
@@ -400,27 +386,40 @@ export function FlowViewerModal({
           <DialogDescription className="sr-only">Visualizando flow</DialogDescription>
 
           <div className="relative h-full w-full flex items-center justify-center overflow-hidden">
-            {hasPrevStory && (
-              <button
-                onClick={(e) => { e.stopPropagation(); handlePrev(); }}
-                className="hidden md:flex absolute left-8 lg:left-16 z-[100] items-center justify-center h-14 w-14 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-md border border-white/5"
+
+            {/* Desktop: prev card (partially visible on left) */}
+            {prevStory && (
+              <div
+                className="hidden md:block absolute z-10 rounded-2xl overflow-hidden cursor-pointer transition-opacity duration-200 hover:opacity-90"
+                style={{
+                  height: "92dvh",
+                  aspectRatio: "9/16",
+                  right: "calc(50% + 92dvh * 9 / 32 + 12px)",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  opacity: 0.6,
+                  filter: "blur(1px) brightness(0.5)",
+                }}
+                onClick={() => handlePrev()}
               >
-                <ChevronLeft className="h-8 w-8" />
-              </button>
+                {prevStory.media_url?.includes(".mp4") || prevStory.media_url?.includes(".webm") ? (
+                  <video src={prevStory.media_url} muted loop playsInline className="w-full h-full object-cover" />
+                ) : (
+                  <img src={prevStory.media_url} className="w-full h-full object-cover" alt="" />
+                )}
+                <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-2">
+                  <ChevronLeft className="h-8 w-8 text-white/80" />
+                  <Avatar className="h-12 w-12 border-2 border-white/30">
+                    <AvatarImage src={prevStory.userPhoto} />
+                    <AvatarFallback>{prevStory.userNickname?.charAt(0)}</AvatarFallback>
+                  </Avatar>
+                  <p className="text-white text-xs font-bold drop-shadow">{prevStory.userNickname}</p>
+                </div>
+              </div>
             )}
 
-            {hasNextStory && (
-              <button
-                onClick={(e) => { e.stopPropagation(); handleNext(); }}
-                className="hidden md:flex absolute right-8 lg:right-16 z-[100] items-center justify-center h-14 w-14 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-md border border-white/5"
-              >
-                <ChevronRight className="h-8 w-8" />
-              </button>
-            )}
-
-            <div className="flex items-center gap-10 lg:gap-14 md:pt-4 md:pb-4 w-full h-full md:w-auto md:h-[95vh]">
-              {/* Main Card */}
-              <div className="relative w-full h-full md:aspect-[3/4] md:h-[95vh] md:w-auto bg-black md:rounded-2xl overflow-hidden flex flex-col shadow-2xl border-0 md:border md:border-white/10">
+            {/* Main Card — mobile: fullscreen, desktop: centered 9:16 */}
+            <div className="relative w-full h-full md:w-auto md:h-full md:max-h-[92dvh] md:aspect-[9/16] bg-black md:rounded-2xl overflow-hidden flex flex-col shadow-2xl border-0 md:border md:border-white/10">
                 <main className="relative w-full h-full flex flex-col">
                   {/* Header Overlay */}
                   <div className="absolute top-0 left-0 right-0 z-[60] pb-12 px-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent" style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}>
@@ -648,38 +647,38 @@ export function FlowViewerModal({
                     </div>
                   </div>
                 </main>
-              </div>
-
-              {/* Side Previews */}
-              {upcomingUsersFirstStories.length > 0 && (
-                <div className="hidden lg:flex flex-col gap-6 pr-10">
-                  {upcomingUsersFirstStories.map((nextStory, idx) => (
-                    <motion.div
-                      key={nextStory.user_id}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: idx === 0 ? 0.7 : 0.4, x: 0 }}
-                      whileHover={{ scale: 1.05, opacity: 1 }}
-                      className="relative aspect-[3/4] h-[400px] bg-black rounded-2xl overflow-hidden border border-white/10 shadow-2xl cursor-pointer group"
-                      onClick={() => onSelectStory?.(nextStory)}
-                    >
-                      <div className="absolute inset-0 bg-black/40 group-hover:bg-transparent transition-colors z-10" />
-                      {nextStory.media_url?.includes(".mp4") ? (
-                        <video src={nextStory.media_url} className="w-full h-full object-cover grayscale-[30%] brightness-[0.6] group-hover:grayscale-0 group-hover:brightness-100 transition-all" muted playsInline />
-                      ) : (
-                        <img src={nextStory.media_url} className="w-full h-full object-cover grayscale-[30%] brightness-[0.6] group-hover:grayscale-0 group-hover:brightness-100 transition-all" alt="" />
-                      )}
-                      <div className="absolute inset-0 flex flex-col items-center justify-center p-4 z-20">
-                        <Avatar className="h-14 w-14 border-2 border-brand p-0.5 bg-black">
-                          <AvatarImage src={nextStory.userPhoto} />
-                          <AvatarFallback>{nextStory.userNickname?.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <p className="mt-2 text-white text-[10px] font-bold truncate w-full text-center drop-shadow-md">{nextStory.userNickname}</p>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
             </div>
+
+            {/* Desktop: next card (partially visible on right) */}
+            {nextStory && (
+              <div
+                className="hidden md:block absolute z-10 rounded-2xl overflow-hidden cursor-pointer transition-opacity duration-200 hover:opacity-90"
+                style={{
+                  height: "92dvh",
+                  aspectRatio: "9/16",
+                  left: "calc(50% + 92dvh * 9 / 32 + 12px)",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  opacity: 0.6,
+                  filter: "blur(1px) brightness(0.5)",
+                }}
+                onClick={() => handleNext()}
+              >
+                {nextStory.media_url?.includes(".mp4") || nextStory.media_url?.includes(".webm") ? (
+                  <video src={nextStory.media_url} muted loop playsInline className="w-full h-full object-cover" />
+                ) : (
+                  <img src={nextStory.media_url} className="w-full h-full object-cover" alt="" />
+                )}
+                <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-2">
+                  <ChevronRight className="h-8 w-8 text-white/80" />
+                  <Avatar className="h-12 w-12 border-2 border-white/30">
+                    <AvatarImage src={nextStory.userPhoto} />
+                    <AvatarFallback>{nextStory.userNickname?.charAt(0)}</AvatarFallback>
+                  </Avatar>
+                  <p className="text-white text-xs font-bold drop-shadow">{nextStory.userNickname}</p>
+                </div>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

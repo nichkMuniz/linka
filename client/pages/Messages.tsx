@@ -8,6 +8,8 @@ import {
   getMessageReactionsDb,
   addMessageReactionDb,
   removeMessageReactionDb,
+  followUserDb,
+  isFollowingDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
@@ -55,6 +57,9 @@ export default function Messages() {
     Record<string, Record<string, MessageReaction>>
   >({});
   const [activePickerMessageId, setActivePickerMessageId] = React.useState<string | null>(null);
+  const [followedIds, setFollowedIds] = React.useState<Set<string>>(new Set());
+  const [isFollowingChecked, setIsFollowingChecked] = React.useState(false);
+  const [isFollowingLoading, setIsFollowingLoading] = React.useState(false);
   // ref for custom emoji input
   const customEmojiInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -68,6 +73,7 @@ export default function Messages() {
         ]);
         setConversations(conversationsData);
         setFollowers(followingData);
+        setFollowedIds(new Set(followingData.map((f) => f.id)));
       } catch (err: any) {
         console.error("Error loading messages:", err);
         toast({
@@ -94,6 +100,31 @@ export default function Messages() {
       }
     }
   }, [searchParams, conversations]);
+
+  // Check follow status directly from DB when a conversation is opened
+  React.useEffect(() => {
+    if (!selectedConversation || viewMode !== "conversation") return;
+    const uid = selectedConversation.userId;
+    setIsFollowingChecked(false);
+    isFollowingDb(uid)
+      .then((result) => {
+        setFollowedIds((prev) => {
+          const next = new Set(prev);
+          if (result) next.add(uid);
+          else next.delete(uid);
+          return next;
+        });
+      })
+      .catch(() => {
+        // on error assume not following so button shows
+        setFollowedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(uid);
+          return next;
+        });
+      })
+      .finally(() => setIsFollowingChecked(true));
+  }, [selectedConversation?.userId, viewMode]);
 
   // Load conversation messages when selected
   React.useEffect(() => {
@@ -323,6 +354,20 @@ export default function Messages() {
     [reactions, user],
   );
 
+  const handleFollowConversationUser = React.useCallback(async () => {
+    if (!selectedConversation) return;
+    setIsFollowingLoading(true);
+    try {
+      await followUserDb(selectedConversation.userId);
+      setFollowedIds((prev) => new Set([...prev, selectedConversation.userId]));
+      toast({ title: `Você está seguindo ${selectedConversation.userNickname}` });
+    } catch (err: any) {
+      toast({ title: "Erro ao seguir", description: err?.message, variant: "destructive" });
+    } finally {
+      setIsFollowingLoading(false);
+    }
+  }, [selectedConversation]);
+
   const handleCustomEmojiInput = React.useCallback(
     (messageId: string, value: string) => {
       // Extract the first emoji-like character from the input
@@ -346,7 +391,10 @@ export default function Messages() {
 
   if (viewMode === "conversation" && selectedConversation) {
     return (
-      <div className="fixed top-0 left-0 right-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] bg-background flex flex-col z-50">
+      <div
+        className="fixed top-0 right-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] bg-background flex flex-col z-50 left-0"
+        style={{ left: "var(--sidebar-width, 0px)" }}
+      >
         {/* Header */}
         <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3" style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}>
           <button
@@ -375,6 +423,17 @@ export default function Messages() {
               </p>
             </div>
           </div>
+          {isFollowingChecked && !followedIds.has(selectedConversation.userId) && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-full flex-shrink-0 text-xs h-8 px-3"
+              onClick={handleFollowConversationUser}
+              disabled={isFollowingLoading}
+            >
+              {isFollowingLoading ? "..." : "Seguir"}
+            </Button>
+          )}
         </div>
 
         {/* Messages */}

@@ -889,7 +889,7 @@ export default function Community() {
       : "bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:bottom-0";
 
     return ReactDOM.createPortal(
-      <div className={`fixed top-0 left-0 md:left-[244px] right-0 md:right-0 ${bottomClass} bg-background flex flex-col z-[100]`}>
+      <div className={`fixed top-0 right-0 ${bottomClass} bg-background flex flex-col z-[100]`} style={{ left: "var(--sidebar-width, 0px)" }}>
         {/* Header */}
         <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3" style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}>
           <button
@@ -1420,7 +1420,7 @@ export default function Community() {
 
       {/* Duels Tab - Full Screen Group View */}
       {selectedGroupForView && ReactDOM.createPortal(
-        <div className="fixed top-0 left-0 right-0 bottom-0 md:left-[244px] md:right-0 bg-background flex flex-col z-[100] md:max-w-[680px] md:mx-auto">
+        <div className="fixed top-0 right-0 bottom-0 bg-background flex flex-col z-[100]" style={{ left: "var(--sidebar-width, 0px)" }}>
           {/* Header with Back Button */}
           <div className="flex-shrink-0 px-4 pb-0 flex items-center justify-start border-b border-border/40" style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}>
             <button
@@ -1720,7 +1720,7 @@ export default function Community() {
           </div>
 
           {/* Bottom Navigation Tabs */}
-          <div className="fixed bottom-0 left-0 right-0 md:left-[244px] md:right-0 md:max-w-[680px] md:mx-auto bg-background border-t border-border/40 z-[52]">
+          <div className="fixed bottom-0 right-0 bg-background border-t border-border/40 z-[52]" style={{ left: "var(--sidebar-width, 0px)" }}>
             <div className="flex items-center justify-around h-16 px-4">
               <button
                 onClick={() => setIsGroupDetailsOpen(true)}
@@ -1747,7 +1747,7 @@ export default function Community() {
           </div>
 
           {/* Centered Add Check-in Button at Bottom */}
-          <div className="fixed bottom-[88px] right-4 z-[101] md:bottom-[88px] md:left-[244px] md:right-0 md:max-w-[680px] md:mx-auto md:flex md:justify-end md:pr-4 md:pointer-events-none [&>*]:pointer-events-auto">
+          <div className="fixed bottom-[88px] right-4 z-[101]">
             <button
               onClick={() => {
                 if (!user?.id) return;
@@ -2011,7 +2011,7 @@ export default function Community() {
           </div>
 
           {/* Floating Create Group Button */}
-          <div className="fixed bottom-20 right-4 z-[53] md:bottom-20 md:left-[244px] md:right-0 md:max-w-[680px] md:mx-auto md:flex md:justify-end md:pr-4 md:pointer-events-none [&>*]:pointer-events-auto">
+          <div className="fixed bottom-20 right-4 z-[53]">
             <button
               onClick={() => {
                 setGroupStep(1);

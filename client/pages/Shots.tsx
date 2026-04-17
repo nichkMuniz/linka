@@ -24,7 +24,7 @@ import {
   type ShotComment,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X } from "lucide-react";
+import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -90,6 +90,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   const [isSavingEditComment, setIsSavingEditComment] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const videoRefsMap = React.useRef<Record<string, HTMLVideoElement>>({});
+  const [currentIndex, setCurrentIndex] = React.useState(0);
 
   // Auto-dismiss swipe hint after 4s to prevent blocking interaction
   React.useEffect(() => {

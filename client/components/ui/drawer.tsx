@@ -43,10 +43,7 @@ const DrawerContent = React.forwardRef<
         ref={ref}
         className={cn(
           "fixed bottom-0 z-[110] mt-24 flex h-auto w-full max-w-[680px] flex-col rounded-t-[10px] border bg-background md:rounded-xl",
-          // Mobile: center using inset-0 and margin
           "left-0 right-0 mx-auto",
-          // Desktop: Shift left anchor 244px (sidebar width), centering naturally within the feed area
-          "md:left-[244px]",
           className,
         )}
         style={{
