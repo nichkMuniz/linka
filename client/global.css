@@ -136,6 +136,15 @@
     overflow-x: auto;
     white-space: pre;
   }
+
+  /* Prevent iOS Safari auto-zoom on input focus.
+     iOS zooms whenever a focused element has font-size < 16px — this fires before
+     React hydrates inline styles, so it must be declared at the CSS layer level. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 @layer utilities {

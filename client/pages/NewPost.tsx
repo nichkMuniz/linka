@@ -61,10 +61,13 @@ export default function NewPost() {
   const [editCropIndex, setEditCropIndex] = React.useState<number | null>(null);
   const redirectTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cancel any pending redirect on unmount
+  // Cancel any pending redirect on unmount and revoke any video object URLs
   React.useEffect(() => {
     return () => {
       if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+      if (videoPreview && videoPreview.startsWith("blob:")) {
+        URL.revokeObjectURL(videoPreview);
+      }
     };
   }, []);
 
@@ -179,10 +182,15 @@ export default function NewPost() {
   // Handle video file selection
   const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset input so same file can be picked again
+    e.target.value = "";
     if (!file) return;
 
-    // Validate file type
-    if (!file.type.startsWith("video/")) {
+    // Validate file type — check MIME type OR extension (iPhone MOV files may have empty type)
+    const isVideoMime = file.type.startsWith("video/");
+    const videoExtensions = /\.(mp4|mov|m4v|webm|avi|mkv|3gp|hevc)$/i;
+    const isVideoExtension = videoExtensions.test(file.name);
+    if (!isVideoMime && !isVideoExtension) {
       toast({
         title: t("newpost_invalid_type"),
         description: t("newpost_invalid_video"),
@@ -203,12 +211,9 @@ export default function NewPost() {
 
     setSelectedVideoFile(file);
 
-    // Create preview URL
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setVideoPreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    // Use object URL instead of FileReader to avoid loading the entire video into memory
+    const objectUrl = URL.createObjectURL(file);
+    setVideoPreview(objectUrl);
   };
 
   const removePhoto = (index: number) => {
@@ -358,13 +363,25 @@ export default function NewPost() {
     try {
       // Upload video
       const timestamp = Date.now();
-      const extension = selectedVideoFile.name.split(".").pop() || "mp4";
+      const extension = (selectedVideoFile.name.split(".").pop() || "mp4").toLowerCase();
       const filePath = `${user.id}/shots/${timestamp}.${extension}`;
+
+      // Resolve content type — iPhone MOV files may have empty MIME type
+      const contentTypeMap: Record<string, string> = {
+        mov: "video/quicktime",
+        mp4: "video/mp4",
+        m4v: "video/x-m4v",
+        webm: "video/webm",
+        avi: "video/x-msvideo",
+        mkv: "video/x-matroska",
+        "3gp": "video/3gpp",
+      };
+      const contentType = selectedVideoFile.type || contentTypeMap[extension] || "video/mp4";
 
       const { error: uploadError } = await supabase.storage
         .from("posts")
         .upload(filePath, selectedVideoFile, {
-          contentType: selectedVideoFile.type,
+          contentType,
           upsert: false,
         });
 
@@ -391,6 +408,9 @@ export default function NewPost() {
 
       // Reset form
       videoDraft.file = null;
+      if (videoDraft.preview && videoDraft.preview.startsWith("blob:")) {
+        URL.revokeObjectURL(videoDraft.preview);
+      }
       videoDraft.preview = null;
       setSelectedVideoFile(null);
       setVideoPreview(null);
@@ -720,6 +740,9 @@ export default function NewPost() {
                       />
                       <button
                         onClick={() => {
+                          if (videoPreview && videoPreview.startsWith("blob:")) {
+                            URL.revokeObjectURL(videoPreview);
+                          }
                           setVideoPreview(null);
                           setSelectedVideoFile(null);
                         }}

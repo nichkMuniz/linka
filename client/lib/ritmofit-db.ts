@@ -7351,10 +7351,11 @@ export async function createDuelGroupDb(
 
     if (participantsError) throw participantsError;
 
-    // Send duel invite notification to each invited member
-    if (members.length > 0) {
+    // Send duel invite notification to each invited member (never to the creator themselves)
+    const membersToNotify = members.filter((id) => id !== createdBy);
+    if (membersToNotify.length > 0) {
       const { error: notifError } = await supabase.from("notifications").insert(
-        members.map((userId) => ({
+        membersToNotify.map((userId) => ({
           user_id: userId,
           follower_id: createdBy,
           type: 4,
@@ -7366,6 +7367,7 @@ export async function createDuelGroupDb(
         console.error("Error inserting duel invite notifications:", notifError);
       }
     }
+
 
     return {
       id: groupData.id,
@@ -8053,18 +8055,24 @@ export async function addMembersToGroupDb(
 
     if (insertError) throw insertError;
 
-    // Send duel invite notification to each newly invited member
-    const { error: notifError } = await supabase.from("notifications").insert(
-      newMembers.map((userId) => ({
-        user_id: userId,
-        follower_id: viewer.id,
-        type: 4,
-        post_id: groupId,
-        read: false,
-      }))
-    );
-    if (notifError) {
-      console.error("Error inserting duel invite notifications:", notifError);
+    // Only send duel invite notifications when members were explicitly invited (not for self join requests)
+    // Also never notify the viewer about their own action
+    if (status === "invited") {
+      const membersToInvite = newMembers.filter((id) => id !== viewer.id);
+      const { error: notifError } = membersToInvite.length > 0
+        ? await supabase.from("notifications").insert(
+            membersToInvite.map((userId) => ({
+              user_id: userId,
+              follower_id: viewer.id,
+              type: 4,
+              post_id: groupId,
+              read: false,
+            }))
+          )
+        : { error: null };
+      if (notifError) {
+        console.error("Error inserting duel invite notifications:", notifError);
+      }
     }
   } catch (error) {
     console.error("Error adding members to group:", error);
@@ -8197,6 +8205,8 @@ export async function sendGroupJoinRequestNotificationDb(groupId: string, creato
   if (!supabase) return;
   const viewer = await getViewer();
   if (!viewer) return;
+  // Never send a notification to yourself (happens if createdBy === viewer due to stale data)
+  if (viewer.id === creatorId) return;
 
   const { error } = await supabase.from("notifications").insert({
     user_id: creatorId,
@@ -9720,6 +9730,12 @@ export async function savePushTokenDb(token: string, platform: "ios" | "android"
   if (!hasSupabaseConfig || !supabase) return;
   const viewer = await getViewer();
   if (!viewer) return;
+  // Remove este token de qualquer outro usuário que o possua (troca de conta no mesmo dispositivo)
+  await supabase
+    .from("push_tokens")
+    .delete()
+    .eq("token", token)
+    .neq("user_id", viewer.id);
   const { error } = await supabase
     .from("push_tokens")
     .upsert(

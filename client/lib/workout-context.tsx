@@ -1,4 +1,5 @@
 import * as React from "react";
+import { LocalNotifications } from "@capacitor/local-notifications";
 
 type WorkoutSeriesEntry = {
   series: number;
@@ -146,6 +147,67 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     };
   }, [workoutModalOpen, workoutMinimized, workoutStartTime]);
 
+  const REST_NOTIF_ID = 91823;
+  const REST_TIMER_END_KEY = "rest_timer_end_at";
+
+  // Schedule / cancel the local notification for rest timer
+  const scheduleRestNotification = React.useCallback(async (secondsRemaining: number) => {
+    try {
+      await LocalNotifications.requestPermissions();
+      await LocalNotifications.cancel({ notifications: [{ id: REST_NOTIF_ID }] });
+      if (secondsRemaining <= 0) return;
+      await LocalNotifications.schedule({
+        notifications: [{
+          id: REST_NOTIF_ID,
+          title: "Tempo de descanso terminou! 💪",
+          body: "Pronto para a próxima série?",
+          schedule: { at: new Date(Date.now() + secondsRemaining * 1000) },
+          smallIcon: "ic_stat_icon_config_sample",
+          sound: "default",
+        }],
+      });
+    } catch (_) { /* notifications not available on web */ }
+  }, []);
+
+  const cancelRestNotification = React.useCallback(async () => {
+    try {
+      await LocalNotifications.cancel({ notifications: [{ id: REST_NOTIF_ID }] });
+    } catch (_) {}
+    localStorage.removeItem(REST_TIMER_END_KEY);
+  }, []);
+
+  // Persist end timestamp when timer starts so background sync works
+  React.useEffect(() => {
+    if (globalRestTimerActive && globalRestTimerRemaining > 0) {
+      const endAt = Date.now() + globalRestTimerRemaining * 1000;
+      localStorage.setItem(REST_TIMER_END_KEY, String(endAt));
+      scheduleRestNotification(globalRestTimerRemaining);
+    } else if (!globalRestTimerActive) {
+      cancelRestNotification();
+    }
+  }, [globalRestTimerKey, globalRestTimerActive]); // trigger on start/stop/restart
+
+  // Sync timer when app returns to foreground
+  React.useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      const endAtStr = localStorage.getItem(REST_TIMER_END_KEY);
+      if (!endAtStr) return;
+      const endAt = Number(endAtStr);
+      const remaining = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+      if (remaining <= 0) {
+        localStorage.removeItem(REST_TIMER_END_KEY);
+        setGlobalRestTimerRemaining(0);
+        setGlobalRestTimerActive(false);
+      } else {
+        setGlobalRestTimerRemaining(remaining);
+        if (!globalRestTimerActive) setGlobalRestTimerActive(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [globalRestTimerActive]);
+
   // Rest timer countdown — always runs in context so it persists when dialog is closed/minimized
   React.useEffect(() => {
     if (!globalRestTimerActive || globalRestTimerRemaining <= 0) return;
@@ -154,16 +216,18 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
         if (prev <= 1) {
           clearInterval(interval);
           setGlobalRestTimerActive(false);
+          localStorage.removeItem(REST_TIMER_END_KEY);
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [globalRestTimerKey]); // re-run only when a new timer is explicitly started
+  }, [globalRestTimerKey, globalRestTimerActive]); // also re-run when paused/resumed so interval is cleared
 
   const resetWorkoutState = React.useCallback(() => {
     localStorage.removeItem(WORKOUT_STORAGE_KEY);
+    cancelRestNotification();
     setWorkoutSeries({});
     setWorkoutDuration(0);
     setWorkoutStartTime(null);
@@ -175,7 +239,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     setGlobalRestTimerRemaining(0);
     setGlobalRestTimerActive(false);
     setGlobalRestTimerTotal(0);
-  }, []);
+  }, [cancelRestNotification]);
 
   return (
     <WorkoutContext.Provider value={{

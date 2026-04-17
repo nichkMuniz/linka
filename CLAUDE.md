@@ -188,7 +188,50 @@ O design system é a fonte de verdade para:
 
 ---
 
-## 8. Database Schema (Obrigatório)
+## 8. Safe Area do iPhone (Obrigatório)
+
+O app usa `viewport-fit=cover` para funcionar como PWA no iPhone. Isso significa que o conteúdo pode renderizar atrás do notch e do home indicator se não houver tratamento correto.
+
+### Regras para qualquer elemento fixo ou popup
+
+- **Nunca** posicionar um elemento fixo sem considerar `env(safe-area-inset-top/bottom/left/right)`
+- Usar sempre `max(Xrem, env(safe-area-inset-*))` para garantir espaço mínimo mesmo em dispositivos sem notch
+- Para dialogs/modais centrados: usar um wrapper `fixed inset-0 flex items-center justify-center pointer-events-none` com padding safe area, e `pointer-events-auto` no conteúdo interno
+- Para drawers que sobem de baixo: `padding-bottom: env(safe-area-inset-bottom)`
+- Para sheets laterais ou superiores: padding no lado correspondente
+- Para toasts (Sonner): `--offset: max(1rem, env(safe-area-inset-bottom))`
+
+### Padrão de implementação
+
+```tsx
+// Dialog / Modal centrado
+<div
+  className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+  style={{
+    paddingTop: "max(1rem, env(safe-area-inset-top))",
+    paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+    paddingLeft: "max(1rem, env(safe-area-inset-left))",
+    paddingRight: "max(1rem, env(safe-area-inset-right))",
+  }}
+>
+  <div className="pointer-events-auto max-h-full overflow-y-auto ...">
+    {/* conteúdo */}
+  </div>
+</div>
+
+// Drawer (bottom sheet)
+style={{
+  paddingBottom: "env(safe-area-inset-bottom)",
+  paddingLeft: "env(safe-area-inset-left)",
+  paddingRight: "env(safe-area-inset-right)",
+}}
+```
+
+> **Regra:** Qualquer novo popup, drawer, dialog, sheet ou elemento fixo criado deve respeitar as safe areas. Os componentes base em `client/components/ui/` (drawer, dialog, alert-dialog, sheet, sonner) já aplicam isso — não remover.
+
+---
+
+## 10. Database Schema (Obrigatório)
 
 **Sempre que uma nova tabela for criada, sugerida ou alterada**, atualizar `docs/14-database-schema.md`.
 

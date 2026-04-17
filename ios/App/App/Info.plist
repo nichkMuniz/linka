@@ -57,6 +57,14 @@
 	<string>Permita o acesso ao microfone para gravar vídeos com áudio.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Permita o acesso à localização para rastrear sua rota e distância durante a corrida.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Permita o acesso à localização em segundo plano para continuar rastreando sua corrida com a tela bloqueada.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Permita o acesso à localização em segundo plano para continuar rastreando sua corrida com a tela bloqueada.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Permita o acesso à galeria para escolher uma foto de perfil.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

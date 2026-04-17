@@ -6,6 +6,8 @@ import Foundation
 /// LinkaWorkoutWidget extension target so both sides agree on the type.
 public struct LinkaWorkoutAttributes: ActivityAttributes {
 
+    public static let activityType = "com.linka.meuapp.workout"
+
     public struct ContentState: Codable, Hashable {
         var exerciseName: String
         var seriesLabel: String

@@ -214,7 +214,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
       observer.disconnect();
       mutationObserver.disconnect();
     };
-  }, []); // runs once — MutationObserver handles DOM changes dynamically
+  }, [shots]); // re-run when shots load so containerRef is populated
 
   // Auto-play first video when shots load
   React.useEffect(() => {

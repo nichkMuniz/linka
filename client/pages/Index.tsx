@@ -199,7 +199,8 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
   React.useEffect(() => {
     const handler = () => {
       window.scrollTo({ top: 0, behavior: "smooth" });
-      loadFeed(false);
+      setDiscoverLoaded(false);
+      loadFeed(true);
     };
     window.addEventListener("ritmofit-refresh-feed", handler);
     return () => window.removeEventListener("ritmofit-refresh-feed", handler);

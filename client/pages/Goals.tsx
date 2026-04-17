@@ -167,6 +167,7 @@ import { ExecuteAtDrawer } from "@/components/goals/execute-at-drawer";
 import { ScheduledTimeDrawer } from "@/components/goals/scheduled-time-drawer";
 import { useRoutineNotifications, requestNotificationPermission, formatScheduledTime } from "@/hooks/use-routine-notifications";
 import { startWorkoutLiveActivity, updateWorkoutLiveActivity, stopWorkoutLiveActivity } from "@/hooks/use-live-activity";
+import { GpsTracking, isNativeGpsSupported } from "@/hooks/use-native-gps";
 import {
   updateRoutineScheduledTimeDb,
   type RoutineType,
@@ -330,8 +331,11 @@ export default function Goals() {
   const gpsRouteRef = React.useRef<Array<{ lat: number; lng: number }>>([]);
   const gpsWatchIdRef = React.useRef<number | null>(null);
   const gpsLastPosRef = React.useRef<GeolocationPosition | null>(null);
+  const gpsLastNativePosRef = React.useRef<{ lat: number; lng: number } | null>(null);
   const gpsStartTimeRef = React.useRef<number | null>(null);
   const gpsElapsedIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const nativeGpsListenerRef = React.useRef<{ remove: () => void } | null>(null);
+  const nativeGpsAccumRef = React.useRef(0);
 
   const gpsHaversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371;
@@ -347,10 +351,6 @@ export default function Goals() {
   };
 
   const startGpsTracking = (workoutId: string) => {
-    if (!navigator.geolocation) {
-      toast({ title: "GPS não disponível", description: "Seu dispositivo não suporta geolocalização.", variant: "destructive" });
-      return;
-    }
     setGpsActive(true);
     setGpsDistance(0);
     setGpsPace(null);
@@ -358,6 +358,8 @@ export default function Goals() {
     setGpsRoute([]);
     gpsRouteRef.current = [];
     gpsLastPosRef.current = null;
+    gpsLastNativePosRef.current = null;
+    nativeGpsAccumRef.current = 0;
     gpsStartTimeRef.current = Date.now();
 
     if (gpsElapsedIntervalRef.current) clearInterval(gpsElapsedIntervalRef.current);
@@ -365,49 +367,74 @@ export default function Goals() {
       setGpsElapsedSecs((prev) => prev + 1);
     }, 1000);
 
-    let accumulatedKm = 0;
-    gpsWatchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const point = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        const prev = gpsLastPosRef.current;
-        if (!prev) {
-          // First point — always record
-          gpsRouteRef.current = [point];
-          setGpsRoute([point]);
-        } else {
-          const delta = gpsHaversineKm(
-            prev.coords.latitude, prev.coords.longitude,
-            pos.coords.latitude, pos.coords.longitude
-          );
-          // Ignore GPS noise (< 5m jumps)
-          if (delta > 0.005) {
-            accumulatedKm += delta;
-            setGpsDistance(Math.round(accumulatedKm * 100) / 100);
-            // Pace: secs per km
-            const elapsedMins = (Date.now() - (gpsStartTimeRef.current ?? Date.now())) / 60000;
-            if (accumulatedKm > 0) {
-              setGpsPace(Math.round((elapsedMins / accumulatedKm) * 60));
-            }
-            // Accumulate route
-            const updated = [...gpsRouteRef.current, point];
-            gpsRouteRef.current = updated;
-            setGpsRoute(updated);
-            // Auto-fill distance field
-            handleUpdateSerie(workoutId, 0, "kg", String(Math.round(accumulatedKm * 100) / 100));
+    const onLocation = (point: { lat: number; lng: number }) => {
+      const prev = gpsLastNativePosRef.current;
+      if (!prev) {
+        gpsRouteRef.current = [point];
+        setGpsRoute([point]);
+      } else {
+        const delta = gpsHaversineKm(prev.lat, prev.lng, point.lat, point.lng);
+        // Ignore GPS noise (< 5m jumps)
+        if (delta > 0.005) {
+          nativeGpsAccumRef.current += delta;
+          const accumulatedKm = nativeGpsAccumRef.current;
+          setGpsDistance(Math.round(accumulatedKm * 100) / 100);
+          const elapsedMins = (Date.now() - (gpsStartTimeRef.current ?? Date.now())) / 60000;
+          if (accumulatedKm > 0) {
+            setGpsPace(Math.round((elapsedMins / accumulatedKm) * 60));
           }
+          const updated = [...gpsRouteRef.current, point];
+          gpsRouteRef.current = updated;
+          setGpsRoute(updated);
+          handleUpdateSerie(workoutId, 0, "kg", String(Math.round(accumulatedKm * 100) / 100));
         }
-        gpsLastPosRef.current = pos;
-      },
-      (err) => {
-        toast({ title: "Erro de GPS", description: err.message, variant: "destructive" });
+      }
+      gpsLastNativePosRef.current = point;
+    };
+
+    if (isNativeGpsSupported()) {
+      // Use native plugin — continues tracking with screen locked
+      GpsTracking.start().catch(() => {
+        toast({ title: "GPS não disponível", description: "Não foi possível iniciar o rastreamento nativo.", variant: "destructive" });
+        setGpsActive(false);
+      });
+      GpsTracking.addListener("location", (data) => {
+        onLocation({ lat: data.lat, lng: data.lng });
+      }).then((listener) => {
+        nativeGpsListenerRef.current = listener;
+      });
+      GpsTracking.addListener("error", (data) => {
+        toast({ title: "Erro de GPS", description: data.message, variant: "destructive" });
         stopGpsTracking();
-      },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
-    );
+      });
+    } else {
+      // Fallback: Web Geolocation API (pauses when screen is locked)
+      if (!navigator.geolocation) {
+        toast({ title: "GPS não disponível", description: "Seu dispositivo não suporta geolocalização.", variant: "destructive" });
+        setGpsActive(false);
+        return;
+      }
+      gpsWatchIdRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          onLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          gpsLastPosRef.current = pos;
+        },
+        (err) => {
+          toast({ title: "Erro de GPS", description: err.message, variant: "destructive" });
+          stopGpsTracking();
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      );
+    }
   };
 
   const stopGpsTracking = () => {
-    if (gpsWatchIdRef.current !== null) {
+    if (isNativeGpsSupported()) {
+      nativeGpsListenerRef.current?.remove();
+      nativeGpsListenerRef.current = null;
+      GpsTracking.removeAllListeners().catch(() => {});
+      GpsTracking.stop().catch(() => {});
+    } else if (gpsWatchIdRef.current !== null) {
       navigator.geolocation.clearWatch(gpsWatchIdRef.current);
       gpsWatchIdRef.current = null;
     }
@@ -1054,7 +1081,7 @@ export default function Goals() {
       updateWorkoutLiveActivity({
         exerciseName: exName,
         seriesLabel: `Série ${done}/${total}`,
-        elapsedSeconds: workoutDuration,
+        elapsedSeconds: workoutStartTime ? Math.floor((Date.now() - workoutStartTime) / 1000) : 0,
         isPaused: false,
       });
     }, 5000);
@@ -3361,7 +3388,7 @@ export default function Goals() {
 
                                 {/* Confirm button */}
                                 <button
-                                  onClick={() => handleToggleSerieCompleted(workout.workout_id, 0)}
+                                  onPointerDown={(e) => { e.preventDefault(); handleToggleSerieCompleted(workout.workout_id, 0); }}
                                   className={`w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
                                     s.completed
                                       ? "bg-brand text-white"
@@ -3419,6 +3446,7 @@ export default function Goals() {
                                       {/* KG Input */}
                                       <input
                                         type="number"
+                                        inputMode="decimal"
                                         step="0.5"
                                         min="0"
                                         value={s.kg === 0 ? "" : s.kg}
@@ -3438,6 +3466,8 @@ export default function Goals() {
                                       {/* REPS Input */}
                                       <input
                                         type="number"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
                                         min="0"
                                         value={s.reps === 0 ? "" : s.reps}
                                         onChange={(e) =>
@@ -3455,12 +3485,7 @@ export default function Goals() {
 
                                       {/* Checkbox */}
                                       <button
-                                        onClick={() =>
-                                          handleToggleSerieCompleted(
-                                            workout.workout_id,
-                                            index,
-                                          )
-                                        }
+                                        onPointerDown={(e) => { e.preventDefault(); handleToggleSerieCompleted(workout.workout_id, index); }}
                                         className="h-6 w-6 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors mx-auto"
                                       >
                                         {s.completed ? (
@@ -3543,6 +3568,7 @@ export default function Goals() {
         <div
           className="fixed inset-0 z-[200] flex items-center justify-center"
           style={{ pointerEvents: "auto" }}
+          onPointerDown={(e) => e.stopPropagation()}
         >
           {/* Backdrop */}
           <div
@@ -3602,6 +3628,8 @@ export default function Goals() {
                 <Button
                   onClick={() => {
                     setRestTimerModalOpen(false);
+                    setWorkoutModalOpen(false);
+                    setTimeout(() => setWorkoutMinimized(true), 300);
                   }}
                   variant="outline"
                   className="flex-1 rounded-full"

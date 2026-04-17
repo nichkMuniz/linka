@@ -524,12 +524,20 @@ export function AppLayout() {
               {mainNavItems.map((item) => {
                 const active = isActivePath(location.pathname, item.to);
                 const Icon = item.icon;
+                const isHome = item.to === "/";
                 return (
                   <Link
                     key={item.to}
                     to={item.to}
                     aria-label={item.label}
                     className="relative flex flex-col items-center justify-center py-2 text-[11px]"
+                    onClick={(e) => {
+                      if (isHome && location.pathname === "/") {
+                        e.preventDefault();
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                        window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
+                      }
+                    }}
                   >
                     <motion.span
                       whileTap={{ scale: 0.78 }}

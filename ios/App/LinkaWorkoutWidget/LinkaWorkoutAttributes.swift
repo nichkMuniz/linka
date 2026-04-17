@@ -6,6 +6,8 @@ import Foundation
 /// - Attributes: values that are FIXED when the activity starts (routine name)
 public struct LinkaWorkoutAttributes: ActivityAttributes {
 
+    public static let activityType = "com.linka.meuapp.workout"
+
     public struct ContentState: Codable, Hashable {
         /// Name of the current exercise being performed
         var exerciseName: String

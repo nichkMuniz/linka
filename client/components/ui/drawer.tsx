@@ -47,10 +47,13 @@ const DrawerContent = React.forwardRef<
           "left-0 right-0 mx-auto",
           // Desktop: Shift left anchor 244px (sidebar width), centering naturally within the feed area
           "md:left-[244px]",
-          // Safe area: respect iPhone home indicator / notch
-          "pb-[env(safe-area-inset-bottom)]",
           className,
         )}
+        style={{
+          paddingBottom: "env(safe-area-inset-bottom)",
+          paddingLeft: "env(safe-area-inset-left)",
+          paddingRight: "env(safe-area-inset-right)",
+        }}
         {...props}
       >
         <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />
