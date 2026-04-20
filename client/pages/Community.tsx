@@ -129,6 +129,7 @@ export default function Community() {
   const [recordingSeconds, setRecordingSeconds] = React.useState(0);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
   const audioChunksRef = React.useRef<Blob[]>([]);
+  const audioMimeTypeRef = React.useRef<string>("audio/webm");
   const recordingTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const [isNewConversationDrawerOpen, setIsNewConversationDrawerOpen] = React.useState(false);
 
@@ -716,11 +717,14 @@ export default function Community() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType });
+        : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : "";
+      audioMimeTypeRef.current = mimeType || "audio/webm";
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       audioChunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      recorder.start(200);
+      recorder.start();
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
       setRecordingSeconds(0);
@@ -743,7 +747,7 @@ export default function Community() {
     // Wait for final data
     await new Promise<void>((res) => { recorder.onstop = () => res(); });
 
-    const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+    const blob = new Blob(audioChunksRef.current, { type: audioMimeTypeRef.current });
     if (blob.size < 500) return; // muito curto, ignorar
 
     setIsSendingPhoto(true); // reutiliza loader visual
@@ -963,7 +967,7 @@ export default function Community() {
                     >
                       {replyQuote && (
                         <div className={`text-xs px-2 py-1 rounded mb-1 border-l-2 ${isOwn ? "bg-white/10 border-white/50 text-white/80" : "bg-muted-foreground/10 border-muted-foreground/40 text-muted-foreground"}`}>
-                          <p className="truncate">{replyQuote}</p>
+                          <p className="truncate">{replyQuote?.startsWith("[audio]:") ? "🎤 Áudio" : replyQuote}</p>
                         </div>
                       )}
                       {mainText.startsWith("[image]:") ? (
@@ -977,8 +981,10 @@ export default function Community() {
                         <audio
                           src={mainText.replace("[audio]:", "")}
                           controls
+                          preload="metadata"
                           className="max-w-[220px] h-10 rounded-lg"
                           style={{ colorScheme: isOwn ? "dark" : "light" }}
+                          onError={(e) => { const el = e.target as HTMLAudioElement; console.error("Audio playback error:", el.error, "src:", el.src); }}
                         />
                       ) : (
                         <p className="text-sm">{mainText}</p>
@@ -1148,7 +1154,7 @@ export default function Community() {
                   className="text-muted-foreground hover:text-foreground transition-colors p-1.5"
                   title="Gravar áudio"
                   onMouseDown={startRecording}
-                  onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
+                  onTouchStart={() => { startRecording(); }}
                 >
                   <Mic className="h-6 w-6" />
                 </button>
@@ -1318,7 +1324,7 @@ export default function Community() {
                           </p>
                         </div>
                         <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-medium text-foreground" : "text-muted-foreground"}`}>
-                          {conversation.lastMessage || "Iniciar conversa"}
+                          {conversation.lastMessage?.startsWith("[audio]:") ? "🎤 Áudio" : conversation.lastMessage?.startsWith("[image]:") ? "🖼️ Imagem" : conversation.lastMessage || "Iniciar conversa"}
                         </p>
                       </div>
 

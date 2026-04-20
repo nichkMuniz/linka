@@ -3995,10 +3995,11 @@ export async function uploadMessageAudioDb(blob: Blob): Promise<string> {
   if (!supabase) throw new Error("Supabase not configured");
   const viewer = await getViewer();
   if (!viewer) throw new Error("Usuário não autenticado");
-  const path = `message-audio/${viewer.id}/${Date.now()}.webm`;
+  const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+  const path = `message-audio/${viewer.id}/${Date.now()}.${ext}`;
   const { error } = await supabase.storage
     .from("posts")
-    .upload(path, blob, { upsert: false, contentType: "audio/webm" });
+    .upload(path, blob, { upsert: false, contentType: blob.type || "audio/webm" });
   if (error) throw error;
   const { data } = supabase.storage.from("posts").getPublicUrl(path);
   return data.publicUrl;
@@ -4032,19 +4033,6 @@ export async function sendMessageDb(
   if (!viewer) return null;
 
   try {
-    // Validate that a following relationship exists in either direction
-    const { data: followingData, error: followingError } = await supabase
-      .from("following")
-      .select("id")
-      .or(`and(user_id.eq.${viewer.id},following_id.eq.${recipientId}),and(user_id.eq.${recipientId},following_id.eq.${viewer.id})`)
-      .limit(1)
-      .maybeSingle();
-
-    if (followingError || !followingData) {
-      console.error("Error validating following relationship:", followingError);
-      return null;
-    }
-
     // Create the message
     const { data, error } = await supabase
       .from("messages")
