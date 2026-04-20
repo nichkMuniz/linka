@@ -52,7 +52,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { formatTimeAgo } from "@/lib/utils";
-import { LoadingSpinner, PostSkeleton } from "@/components/shared/animated-loading";
+import { PostSkeleton } from "@/components/shared/animated-loading";
 import type { PostWithStats } from "../services/post.service";
 import { FlowCarousel } from "@/components/shots/flow-carousel";
 import { FlowCreationDialog } from "@/components/modals/flow-creation-dialog";
@@ -64,6 +64,27 @@ import { FollowButton } from "@/components/shared/follow-button";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+
+function sortStoriesInstagram(storiesList: StoryWithUser[]): StoryWithUser[] {
+  const groups: Record<string, StoryWithUser[]> = {};
+  storiesList.forEach((s) => {
+    if (!groups[s.user_id]) groups[s.user_id] = [];
+    groups[s.user_id].push(s);
+  });
+  const userLatests = Object.keys(groups).map((uid) => ({
+    uid,
+    latest: Math.max(...groups[uid].map((s) => new Date(s.created_at).getTime())),
+  }));
+  userLatests.sort((a, b) => b.latest - a.latest);
+  const sorted: StoryWithUser[] = [];
+  userLatests.forEach(({ uid }) => {
+    const userGroup = [...groups[uid]].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
+    sorted.push(...userGroup);
+  });
+  return sorted;
+}
 
 export default function Index() {
   const { user } = useAuth();
@@ -116,8 +137,7 @@ export default function Index() {
   const [discoverPosts, setDiscoverPosts] = React.useState<PostWithStats[]>([]);
   const [discoverLoading, setDiscoverLoading] = React.useState(false);
   const [discoverLoaded, setDiscoverLoaded] = React.useState(false);
-const [tabBarHidden, setTabBarHidden] = React.useState(false);
-  const [likesModalOpen, setLikesModalOpen] = React.useState(false);
+const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [selectedPostForLikes, setSelectedPostForLikes] = React.useState<PostWithStats | null>(null);
   const [postLikes, setPostLikes] = React.useState<Array<{
     userId: string;
@@ -237,29 +257,6 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
       .catch((err) => console.error("Erro ao carregar foto do perfil:", err));
   }, [user?.id]);
 
-  // Sync tab bar visibility with header scroll behavior
-  React.useEffect(() => {
-    let lastY = window.scrollY;
-    let ticking = false;
-
-    const onScroll = () => {
-      if (ticking) return;
-      ticking = true;
-      window.requestAnimationFrame(() => {
-        const y = window.scrollY;
-        const delta = y - lastY;
-        // 96px = header height; hide tab bar only after user scrolled past it
-        // delta > 30 / < -30 = ignore micro-movements to avoid jitter
-        if (y > 96 && delta > 30) setTabBarHidden(true);
-        if (delta < -30) setTabBarHidden(false);
-        lastY = y;
-        ticking = false;
-      });
-    };
-
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
 
 
   const handleCreateStory = React.useCallback(
@@ -308,7 +305,7 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
           // Open viewer immediately on the newly created flow
           setStoryCreationOpen(false);
           setSelectedStory(enrichedStory);
-          setActiveViewerStories([enrichedStory, ...stories.filter(s => s.user_id === user.id)]);
+          setActiveViewerStories([enrichedStory, ...stories.filter((s) => s.user_id === user.id)]);
           setStoryViewerOpen(true);
         }
       } catch (err) {
@@ -318,7 +315,7 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
         setIsCreatingStory(false);
       }
     },
-    [user, currentUserNickname, currentUserPhoto],
+    [user, currentUserNickname, currentUserPhoto, stories],
   );
 
   const handleStoryClick = React.useCallback((story: StoryWithUser) => {
@@ -354,31 +351,8 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
   const handleSkipStory = React.useCallback(() => {
     const current = selectedStoryRef.current;
     if (!current) return;
-
-    // Use the same Instagram-like sorting logic as the modal
-    const groups: Record<string, StoryWithUser[]> = {};
-    viewerStoriesRef.current.forEach((s) => {
-      if (!groups[s.user_id]) groups[s.user_id] = [];
-      groups[s.user_id].push(s);
-    });
-
-    const userLatests = Object.keys(groups).map((uid) => {
-      const group = groups[uid];
-      const latest = Math.max(...group.map((s) => new Date(s.created_at).getTime()));
-      return { uid, latest };
-    });
-    userLatests.sort((a, b) => b.latest - a.latest);
-
-    const sortedStories: StoryWithUser[] = [];
-    userLatests.forEach(({ uid }) => {
-      const userGroup = [...groups[uid]].sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-      );
-      sortedStories.push(...userGroup);
-    });
-
+    const sortedStories = sortStoriesInstagram(viewerStoriesRef.current);
     const currentIndex = sortedStories.findIndex((s) => s.id === current.id);
-    // Guard: if story not found in list (e.g. activeViewerStories out of sync), close safely
     if (currentIndex === -1) {
       setStoryViewerOpen(false);
       return;
@@ -393,31 +367,8 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
   const handlePrevStory = React.useCallback(() => {
     const current = selectedStoryRef.current;
     if (!current) return;
-
-    // Use the same Instagram-like sorting logic
-    const groups: Record<string, StoryWithUser[]> = {};
-    viewerStoriesRef.current.forEach((s) => {
-      if (!groups[s.user_id]) groups[s.user_id] = [];
-      groups[s.user_id].push(s);
-    });
-
-    const userLatests = Object.keys(groups).map((uid) => {
-      const group = groups[uid];
-      const latest = Math.max(...group.map((s) => new Date(s.created_at).getTime()));
-      return { uid, latest };
-    });
-    userLatests.sort((a, b) => b.latest - a.latest);
-
-    const sortedStories: StoryWithUser[] = [];
-    userLatests.forEach(({ uid }) => {
-      const userGroup = [...groups[uid]].sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-      );
-      sortedStories.push(...userGroup);
-    });
-
+    const sortedStories = sortStoriesInstagram(viewerStoriesRef.current);
     const currentIndex = sortedStories.findIndex((s) => s.id === current.id);
-    // Guard: if story not found in list, do nothing
     if (currentIndex <= 0) return;
     setSelectedStory(sortedStories[currentIndex - 1]);
   }, []);
@@ -591,7 +542,8 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
 
   const handleSharePost = React.useCallback((post: PostWithStats) => {
     const text = `Confira o post de @${post.userNickname} no Linka! 💪${post.description ? `\n"${post.description}"` : ""}`;
-    const postUrl = `${window.location.origin}/post/${post.id}`;
+    const appOrigin = import.meta.env.VITE_APP_URL || "https://linka.app";
+    const postUrl = `${appOrigin}/post/${post.id}`;
     setShareDrawerText(text);
     setShareDrawerUrl(postUrl);
     setShareDrawerOpen(true);
@@ -643,6 +595,7 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
           try {
             await deletePostDb(post.id);
             setPosts((prev) => prev.filter((p) => p.id !== post.id));
+            setDiscoverPosts((prev) => prev.filter((p) => p.id !== post.id));
             toast({ title: "Sucesso", description: "Post deletado com sucesso." });
           } catch (err: any) {
             console.error("Error deleting post:", err);
@@ -743,12 +696,14 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
                       {post.photos && post.photos.length > 0 ? (
                         <PostCarousel photos={post.photos} alt="Post" />
                       ) : (
-                        <ImageWithFallback
-                          src={post.photo}
-                          alt="Post"
-                          fallback="/placeholder.svg"
-                          className="w-full object-cover rounded-lg"
-                        />
+                        <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-lg">
+                          <ImageWithFallback
+                            src={post.photo}
+                            alt="Post"
+                            fallback="/placeholder.svg"
+                            className="max-w-full max-h-full w-auto h-auto object-contain"
+                          />
+                        </div>
                       )}
 
                       {/* User Info Overlay - Bottom Left */}

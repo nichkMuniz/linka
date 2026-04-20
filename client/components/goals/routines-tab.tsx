@@ -577,13 +577,21 @@ export function RoutinesTab({
 
                       {typeCode === 1 && itemsForRoutine.length > 0 && (
                         <>
-                          <button
-                            onClick={() => onShowRoutineSummary({ typeCode, name: isNamed ? displayLabel : null })}
-                            className="p-2 rounded-lg hover:bg-muted/50 transition-colors flex-shrink-0"
-                            title="Resumo da rotina"
-                          >
-                            <BarChart2 className="h-5 w-5 text-muted-foreground" />
-                          </button>
+                          {(() => {
+                            try {
+                              const routineKey = isNamed ? displayLabel : "__unnamed__";
+                              const storageKey = `lastWorkoutSummary_${user?.id}_${routineKey}`;
+                              return localStorage.getItem(storageKey) !== null;
+                            } catch (_) { return false; }
+                          })() && (
+                            <button
+                              onClick={() => onShowRoutineSummary({ typeCode, name: isNamed ? displayLabel : null })}
+                              className="p-2 rounded-lg hover:bg-muted/50 transition-colors flex-shrink-0"
+                              title="Resumo da rotina"
+                            >
+                              <BarChart2 className="h-5 w-5 text-muted-foreground" />
+                            </button>
+                          )}
                           <button
                             onClick={() => onStartWorkout(isNamed ? displayLabel : "__unnamed__")}
                             className="p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors flex-shrink-0"

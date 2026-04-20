@@ -1783,9 +1783,8 @@ export async function updateRoutineNameDb(
     await hQuery;
   }
 
-  return true;
-
   invalidateQueryCache("userRoutines");
+  return true;
 }
 
 export async function deleteRoutinesOfTypeDb(
@@ -1803,6 +1802,7 @@ export async function deleteRoutinesOfTypeDb(
       .eq("type", type);
 
     if (error) throw error;
+    invalidateQueryCache("userRoutines");
     return true;
   } catch (err: any) {
     const errorMsg = err?.message || String(err);
@@ -1810,8 +1810,6 @@ export async function deleteRoutinesOfTypeDb(
     console.error(`Error deleting routines of type [${errorCode}]:`, errorMsg);
     throw new Error(`Erro ao deletar rotina: ${errorMsg}`);
   }
-
-  invalidateQueryCache("userRoutines");
 }
 
 export async function deleteRoutineDb(routineId: string, userId: string): Promise<void> {
@@ -3257,9 +3255,8 @@ export async function followUserDb(followingId: string): Promise<boolean> {
     return false;
   }
 
-  return true;
-
   invalidateQueryCache("following"); invalidateQueryCache("followers"); invalidateQueryCache("followingIds"); invalidateQueryCache("userStats");
+  return true;
 }
 
 export async function unfollowUserDb(followingId: string): Promise<boolean> {
@@ -3281,9 +3278,8 @@ export async function unfollowUserDb(followingId: string): Promise<boolean> {
     return false;
   }
 
-  return true;
-
   invalidateQueryCache("following"); invalidateQueryCache("followers"); invalidateQueryCache("followingIds"); invalidateQueryCache("userStats");
+  return true;
 }
 
 export async function isFollowingDb(followingId: string): Promise<boolean> {
@@ -7190,9 +7186,9 @@ export async function getCompletedRoutinesTodayDb(userId: string): Promise<Compl
   if (!hasSupabaseConfig || !supabase || !userId) return [];
   return cached(`completedRoutines:${userId}`, CACHE_TTL_SHORT, async () => {
   try {
-    // Fetch all hist records from the last 7 days so the user always has recent options
+    // Fetch only today's completed workouts
     const since = new Date();
-    since.setDate(since.getDate() - 7);
+    since.setHours(0, 0, 0, 0);
 
     const { data, error } = await supabase
       .from("user_workouts_hist")

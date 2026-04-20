@@ -1551,6 +1551,21 @@ export default function Goals() {
   };
 
   const handleShowRoutineSummary = (key: { typeCode: number; name: string | null }) => {
+    // Try to load the last completed workout summary from localStorage first
+    try {
+      const storageKey = `lastWorkoutSummary_${user?.id}_${key.name || "__unnamed__"}`;
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setWorkoutSummaryData(parsed);
+        setWorkoutPostDescription("");
+        setWorkoutSummaryOpen(true);
+        setShowPostWorkoutNutrition(false);
+        return;
+      }
+    } catch (_) {}
+
+    // Fallback: build summary from workout history map
     const exercises = userWorkouts.filter((w) =>
       key.name ? w.name === key.name : !w.name,
     );
@@ -2111,7 +2126,7 @@ export default function Goals() {
       }
 
       // Show summary screen instead of closing immediately
-      setWorkoutSummaryData({
+      const summaryPayload = {
         duration: workoutDuration,
         totalVolume: Math.round(totalVolume * 10) / 10,
         totalSeries,
@@ -2124,7 +2139,15 @@ export default function Goals() {
         totalCardioTimeSecs,
         gpsRoute: gpsRouteRef.current.length >= 2 ? [...gpsRouteRef.current] : undefined,
         gpsPace: gpsPace,
-      });
+      };
+
+      // Persist last completed workout summary so the bar chart icon can retrieve it
+      try {
+        const storageKey = `lastWorkoutSummary_${user?.id}_${selectedRoutineName === "__unnamed__" ? "__unnamed__" : (selectedRoutineName || "__unnamed__")}`;
+        localStorage.setItem(storageKey, JSON.stringify(summaryPayload));
+      } catch (_) {}
+
+      setWorkoutSummaryData(summaryPayload);
       setFinishWorkoutConfirmOpen(false);
       setWorkoutModalOpen(false);
       setWorkoutMinimized(false);
@@ -4119,7 +4142,7 @@ export default function Goals() {
             {/* Desktop Backdrop */}
             <div className="hidden md:block fixed inset-0 z-[190] bg-black/80 backdrop-blur-sm" onClick={closeSummary} />
 
-            <div className="fixed inset-0 z-[200] flex flex-col bg-background overflow-y-auto md:top-[5vh] md:bottom-[5vh] md:left-[244px] md:right-0 md:mx-auto md:w-full md:max-w-[680px] md:rounded-2xl md:border md:border-border/50 md:shadow-2xl">
+            <div className="fixed inset-0 z-[200] flex flex-col bg-background overflow-y-auto md:top-[5vh] md:bottom-[5vh] md:left-1/2 md:-translate-x-1/2 md:right-auto md:w-full md:max-w-[680px] md:rounded-2xl md:border md:border-border/50 md:shadow-2xl">
               {/* Hidden canvases for cover generation */}
               <canvas ref={workoutCanvasRef} width={800} height={800} className="hidden" />
               <canvas ref={prCanvasRef} width={800} height={800} className="hidden" />

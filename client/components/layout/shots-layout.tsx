@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Home,
   PlusSquare,
@@ -261,29 +261,29 @@ export function ShotsLayout() {
                     className="relative flex flex-col items-center justify-center py-2 text-[11px]"
                   >
                     <motion.span
-                      whileTap={{ scale: 0.78 }}
-                      animate={active ? { y: -6, scale: 1 } : { y: 0, scale: 1 }}
-                      transition={{ type: "spring", stiffness: 420, damping: 26 }}
+                      whileTap={{ scale: 0.72 }}
+                      animate={active ? { y: -4, scale: 1 } : { y: 0, scale: 1 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 22 }}
                       className={cn(
-                        "relative grid h-12 w-12 place-items-center rounded-2xl transition-colors duration-200",
-                        active ? "bg-brand-gradient text-white" : "bg-transparent text-muted-foreground",
+                        "relative grid h-12 w-12 place-items-center",
+                        active ? "text-foreground" : "text-muted-foreground",
                       )}
-                      style={active ? {
-                        boxShadow: "0 6px 24px rgba(58,141,255,0.45), 0 2px 8px rgba(123,63,242,0.35)",
-                      } : undefined}
                     >
                       <Icon className="h-[22px] w-[22px]" />
                     </motion.span>
 
-                    {active && (
-                      <motion.span
-                        layoutId="shots-nav-glow"
-                        className="absolute bottom-0 h-[3px] w-10 rounded-t-full bg-brand-gradient opacity-60 blur-[2px]"
-                        initial={{ opacity: 0, scaleX: 0.4 }}
-                        animate={{ opacity: 0.6, scaleX: 1 }}
-                        transition={{ duration: 0.25 }}
-                      />
-                    )}
+                    <AnimatePresence>
+                      {active && (
+                        <motion.span
+                          layoutId="shots-nav-indicator"
+                          className="absolute bottom-1 h-1 w-1 rounded-full bg-foreground"
+                          initial={{ opacity: 0, scale: 0 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0 }}
+                          transition={{ type: "spring", stiffness: 500, damping: 28 }}
+                        />
+                      )}
+                    </AnimatePresence>
                   </Link>
                 );
               })}

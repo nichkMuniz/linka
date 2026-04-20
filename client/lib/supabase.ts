@@ -68,6 +68,13 @@ export const supabase: SupabaseClient | null = hasSupabaseConfig
   })
   : null;
 
+// Invalidate viewer + query cache whenever auth session is lost (logout, token revocation, expiry)
+supabase?.auth.onAuthStateChange((event) => {
+  if (event === "SIGNED_OUT") {
+    _invalidateViewerCache?.();
+  }
+});
+
 
 function isInvalidRefreshTokenError(err: unknown) {
   const message =

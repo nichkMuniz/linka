@@ -2842,7 +2842,7 @@ export default function Community() {
                   <div className="rounded-xl border border-border/60 bg-muted/20 p-4 text-center space-y-3">
                     <div>
                       <p className="text-sm font-medium">Nenhum treino concluído</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Conclua uma rotina nos últimos 7 dias para fazer check-in</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Conclua uma rotina hoje para fazer check-in</p>
                     </div>
                     <Button
                       size="sm"

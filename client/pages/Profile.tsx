@@ -190,6 +190,7 @@ export default function Profile() {
   const [postLikes, setPostLikes] = React.useState<any[]>([]);
   const [postComments, setPostComments] = React.useState<any[]>([]);
   const [postUserLikes, setPostUserLikes] = React.useState<PostIncentiveType[]>([]);
+  const postUserLikesRef = React.useRef<PostIncentiveType[]>([]);
   const [isTogglingPostLike, setIsTogglingPostLike] = React.useState(false);
   const [isLoadingPostData, setIsLoadingPostData] = React.useState(false);
   const [isLikesModalOpen, setIsLikesModalOpen] = React.useState(false);
@@ -380,6 +381,7 @@ export default function Profile() {
       setPostUserLikes(userLikes);
     } catch (err) {
       console.error("Error loading post data:", err);
+      toast({ title: "Erro ao carregar dados do post", description: "Tente novamente.", variant: "destructive" });
     } finally {
       setIsLoadingPostData(false);
     }
@@ -434,24 +436,26 @@ export default function Profile() {
     }
   }, [selectedPost]);
 
+  // Keep ref always in sync so handleTogglePostIncentive can read current value without closure staleness
+  React.useEffect(() => { postUserLikesRef.current = postUserLikes; }, [postUserLikes]);
+
   const handleTogglePostIncentive = React.useCallback(async (type: PostIncentiveType) => {
     if (!selectedPost || isTogglingPostLike) return;
     setIsTogglingPostLike(true);
-    const wasActive = postUserLikes.includes(type);
-    const newUserLikes = wasActive
-      ? postUserLikes.filter((t) => t !== type)
-      : [...postUserLikes, type];
-    setPostUserLikes(newUserLikes);
+    const previousLikes = postUserLikesRef.current;
+    const wasActive = previousLikes.includes(type);
+    setPostUserLikes(wasActive ? previousLikes.filter((t) => t !== type) : [...previousLikes, type]);
     try {
       await togglePostLike(selectedPost.id, type);
       const updatedLikes = await getPostLikeUsersDb(selectedPost.id);
       setPostLikes(updatedLikes);
     } catch (err) {
-      setPostUserLikes(postUserLikes);
+      setPostUserLikes(previousLikes);
+      toast({ title: "Erro ao registrar incentivo", description: "Tente novamente.", variant: "destructive" });
     } finally {
       setIsTogglingPostLike(false);
     }
-  }, [selectedPost, postUserLikes, isTogglingPostLike]);
+  }, [selectedPost, isTogglingPostLike]);
 
   const handleDeletePost = React.useCallback(() => {
     if (!selectedPost) return;
@@ -1181,7 +1185,12 @@ export default function Profile() {
           {isViewingOtherProfile && (
             <div className="flex gap-2 justify-center mt-3">
               {/* Follow/Unfollow Button */}
-              <FollowButton targetUserId={profileUserId!} />
+              <FollowButton
+                targetUserId={profileUserId!}
+                onFollowChange={() => {
+                  getUserStatsDb(profileUserId!).then(setStats);
+                }}
+              />
 
               {/* Message Button */}
               <Button
@@ -1575,7 +1584,7 @@ export default function Profile() {
 
                     {/* Floating Save Button */}
                     {selectedWorkoutIds.size > 0 && (
-                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
+                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
                         <Button
                           onClick={handleSaveWorkouts}
                           disabled={isSavingWorkouts}
@@ -1699,7 +1708,7 @@ export default function Profile() {
 
                     {/* Floating Save Button */}
                     {selectedDietIds.size > 0 && (
-                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
+                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
                         <Button
                           onClick={handleSaveDiets}
                           disabled={isSavingDiets}
@@ -1795,7 +1804,7 @@ export default function Profile() {
 
                     {/* Floating Save Button */}
                     {selectedHabitIds.size > 0 && (
-                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background">
+                      <div className="sticky bottom-0 left-0 right-0 pt-4 border-t border-border/60 bg-background" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
                         <Button
                           onClick={handleSaveHabits}
                           disabled={isSavingHabits}
@@ -2275,7 +2284,20 @@ export default function Profile() {
       </Tabs>
 
       {/* Post Viewer Drawer */}
-      <Drawer open={isPostViewerOpen} onOpenChange={setIsPostViewerOpen}>
+      <Drawer
+        open={isPostViewerOpen}
+        onOpenChange={(open) => {
+          if (!open && isEditingPost && editPostDescription !== (selectedPost?.description ?? "")) {
+            showConfirm(
+              "Descartar alterações?",
+              "Você tem alterações não salvas. Deseja sair sem salvar?",
+              () => { setIsPostViewerOpen(false); setIsEditingPost(false); }
+            );
+          } else {
+            setIsPostViewerOpen(open);
+          }
+        }}
+      >
         <DrawerContent className="max-h-[95dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           {/* Header compacto com autor inline */}
           <DrawerHeader className="shrink-0 pb-2">
@@ -2402,6 +2424,13 @@ export default function Profile() {
                     ) : null}
 
                     {/* Incentives + Comments */}
+                    {isLoadingPostData && !isEditingPost && (
+                      <div className="flex items-center gap-2 pt-1">
+                        {[...Array(6)].map((_, i) => (
+                          <div key={i} className="h-8 w-12 rounded-full bg-muted animate-pulse" />
+                        ))}
+                      </div>
+                    )}
                     {!isLoadingPostData && !isEditingPost && (
                       <div className="space-y-1.5 pt-1">
                         <div className="flex items-center gap-1 flex-wrap">

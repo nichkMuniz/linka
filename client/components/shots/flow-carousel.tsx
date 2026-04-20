@@ -78,12 +78,6 @@ export function FlowCarousel({
                     />
                   </div>
                 </div>
-                {/* Status dot: gray when owner has viewed, green otherwise */}
-                <div
-                  className={`absolute bottom-0 right-0 h-3 w-3 ${
-                    isOwnerViewing ? "bg-gray-400" : "bg-green-500"
-                  } rounded-full ring-1 ring-background`}
-                />
               </div>
               <span className="text-xs text-center truncate max-w-[60px] font-semibold text-brand">
                 Seu flow

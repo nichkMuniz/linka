@@ -15,7 +15,7 @@ import {
 import * as React from "react";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { PageTransition } from "@/components/layout/page-transition";
 
 import { Button } from "@/components/ui/button";
@@ -614,33 +614,30 @@ export function AppLayout() {
                     }}
                   >
                     <motion.span
-                      whileTap={{ scale: 0.78 }}
-                      animate={active
-                        ? { y: -6, scale: 1 }
-                        : { y: 0, scale: 1 }
-                      }
-                      transition={{ type: "spring", stiffness: 420, damping: 26 }}
+                      whileTap={{ scale: 0.72 }}
+                      animate={active ? { y: -4, scale: 1 } : { y: 0, scale: 1 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 22 }}
                       className={cn(
-                        "relative grid h-12 w-12 place-items-center rounded-2xl transition-colors duration-200",
-                        active ? "bg-brand-gradient text-white" : "bg-transparent text-muted-foreground",
+                        "relative grid h-12 w-12 place-items-center",
+                        active ? "text-foreground" : "text-muted-foreground",
                       )}
-                      style={active ? {
-                        boxShadow: "0 6px 24px rgba(58,141,255,0.45), 0 2px 8px rgba(123,63,242,0.35)",
-                      } : undefined}
                     >
                       <Icon className="h-[22px] w-[22px]" />
                     </motion.span>
 
-                    {/* Glow reflection on the nav bar surface */}
-                    {active && (
-                      <motion.span
-                        layoutId="bottom-nav-glow"
-                        className="absolute bottom-0 h-[3px] w-10 rounded-t-full bg-brand-gradient opacity-60 blur-[2px]"
-                        initial={{ opacity: 0, scaleX: 0.4 }}
-                        animate={{ opacity: 0.6, scaleX: 1 }}
-                        transition={{ duration: 0.25 }}
-                      />
-                    )}
+                    {/* Indicator dot */}
+                    <AnimatePresence>
+                      {active && (
+                        <motion.span
+                          layoutId="bottom-nav-indicator"
+                          className="absolute bottom-1 h-1 w-1 rounded-full bg-foreground"
+                          initial={{ opacity: 0, scale: 0 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0 }}
+                          transition={{ type: "spring", stiffness: 500, damping: 28 }}
+                        />
+                      )}
+                    </AnimatePresence>
 
                     <span className="hidden sm:block">{item.label}</span>
                   </Link>
@@ -652,6 +649,7 @@ export function AppLayout() {
       </div>
 
       {/* Minimized Workout FAB — visible on all pages */}
+      <AnimatePresence>
       {workoutMinimized && (() => {
         const hasAnyValues = Object.values(workoutSeries).some((series) =>
           series.some((s) => (s.kg > 0 || s.reps > 0))
@@ -662,7 +660,13 @@ export function AppLayout() {
           : 0;
 
         return (
-          <div className="fixed bottom-24 right-4 z-[150] flex items-center gap-2">
+          <motion.div
+            className="fixed bottom-24 right-4 z-[150] flex items-center gap-2"
+            initial={{ opacity: 0, scale: 0.7, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.7, y: 20 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+          >
             <button
               onClick={() => {
                 if (hasAnyValues) {
@@ -706,9 +710,10 @@ export function AppLayout() {
                 </>
               )}
             </button>
-          </div>
+          </motion.div>
         );
       })()}
+      </AnimatePresence>
 
       {/* Timer Expired Full-Screen Block */}
       {timerBlockVisible && (
