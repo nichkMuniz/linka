@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { NativeBiometric } from "capacitor-native-biometric";
+import { NativeBiometric } from "@/lib/biometric-plugin";
 import { App as CapApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { SignInWithApple, type SignInWithAppleResponse } from "@capacitor-community/apple-sign-in";
