@@ -10,34 +10,34 @@ importers:
     dependencies:
       '@capacitor-community/apple-sign-in':
         specifier: ^7.1.0
-        version: 7.1.0(@capacitor/core@8.3.0)
+        version: 7.1.0(@capacitor/core@7.6.2)
       '@capacitor/app':
-        specifier: ^8.1.0
-        version: 8.1.0(@capacitor/core@8.3.0)
+        specifier: ^7.0.0
+        version: 7.1.2(@capacitor/core@7.6.2)
       '@capacitor/browser':
-        specifier: ^8.0.3
-        version: 8.0.3(@capacitor/core@8.3.0)
+        specifier: ^7.0.0
+        version: 7.0.5(@capacitor/core@7.6.2)
       '@capacitor/cli':
-        specifier: ^8.0.0
-        version: 8.3.0
+        specifier: ^7.0.0
+        version: 7.6.2
       '@capacitor/core':
-        specifier: ^8.0.0
-        version: 8.3.0
+        specifier: ^7.0.0
+        version: 7.6.2
       '@capacitor/filesystem':
-        specifier: ^8.1.2
-        version: 8.1.2(@capacitor/core@8.3.0)
+        specifier: ^7.0.0
+        version: 7.1.8(@capacitor/core@7.6.2)
       '@capacitor/ios':
-        specifier: ^8.3.0
-        version: 8.3.0(@capacitor/core@8.3.0)
+        specifier: ^7.0.0
+        version: 7.6.2(@capacitor/core@7.6.2)
       '@capacitor/local-notifications':
-        specifier: ^8.0.2
-        version: 8.0.2(@capacitor/core@8.3.0)
+        specifier: ^7.0.0
+        version: 7.0.6(@capacitor/core@7.6.2)
       '@capacitor/push-notifications':
-        specifier: ^8.0.3
-        version: 8.0.3(@capacitor/core@8.3.0)
+        specifier: ^7.0.0
+        version: 7.0.6(@capacitor/core@7.6.2)
       '@capacitor/share':
-        specifier: ^8.0.1
-        version: 8.0.1(@capacitor/core@8.3.0)
+        specifier: ^7.0.0
+        version: 7.0.4(@capacitor/core@7.6.2)
       '@supabase/supabase-js':
         specifier: ^2.91.0
         version: 2.91.0
@@ -801,58 +801,58 @@ packages:
     peerDependencies:
       '@capacitor/core': '>=7.0.0'
 
-  '@capacitor/app@8.1.0':
-    resolution: {integrity: sha512-MlmttTOWHDedr/G4SrhNRxsXMqY+R75S4MM4eIgzsgCzOYhb/MpCkA5Q3nuOCfL1oHm26xjUzqZ5aupbOwdfYg==}
+  '@capacitor/app@7.1.2':
+    resolution: {integrity: sha512-d4I/oF/PRu4megL7/IGKYfe5j7yzSON1FRFgq6kH+m5kH6g7V+wyjHRLauCzGNjdRx4S+nWOumINds0qcRBtKg==}
     peerDependencies:
-      '@capacitor/core': '>=8.0.0'
+      '@capacitor/core': '>=7.0.0'
 
   '@capacitor/assets@3.0.5':
     resolution: {integrity: sha512-ohz/OUq61Y1Fc6aVSt0uDrUdeOA7oTH4pkWDbv/8I3UrPjH7oPkzYhShuDRUjekNp9RBi198VSFdt0CetpEOzw==}
     engines: {node: '>=10.3.0'}
     hasBin: true
 
-  '@capacitor/browser@8.0.3':
-    resolution: {integrity: sha512-WJWPHEPbweiFoHYmVlCbZf5yrqJ2Rchx2Xvbmd+3Lf+Zkpq3nXBThThY2CF69lYEg1NINGF9BcHThIOEU1gZlQ==}
+  '@capacitor/browser@7.0.5':
+    resolution: {integrity: sha512-YF/kC1m1e6c81X/agtAnYItVlqiQ/nXLG+Q3QXNDuiMoRynqa3Guu8ZaV9kWvqQcHoE2w18xz7WGpPOuh+R1fA==}
     peerDependencies:
-      '@capacitor/core': '>=8.0.0'
+      '@capacitor/core': '>=7.0.0'
 
   '@capacitor/cli@5.7.8':
     resolution: {integrity: sha512-qN8LDlREMhrYhOvVXahoJVNkP8LP55/YPRJrzTAFrMqlNJC18L3CzgWYIblFPnuwfbH/RxbfoZT/ydkwgVpMrw==}
     engines: {node: '>=16.0.0'}
     hasBin: true
 
-  '@capacitor/cli@8.3.0':
-    resolution: {integrity: sha512-n3QDUimtFNbagoo8kLdjvTz3i3Y4jX1fOjvo6ptUKLzErmuqeamL8kECASoyQvg/OzJisZToGZrgLphBsptJcw==}
-    engines: {node: '>=22.0.0'}
+  '@capacitor/cli@7.6.2':
+    resolution: {integrity: sha512-uPm+GDVhdWrM/DBWZ/L6c8uBVaEcge4MAXhqrIJWSkwad/9vNoVfUjtHaVgXxPE1g399PhlGm4kU8U7Qdfmwow==}
+    engines: {node: '>=20.0.0'}
     hasBin: true
 
-  '@capacitor/core@8.3.0':
-    resolution: {integrity: sha512-S4ajn4G/fS3VJj8salxqH/3LO5PPWv1VxGKQ27OCajnDcLJjEg9VXwgMPnlypgkIOqCJ2fmQLtk8GT+BlI9/rw==}
+  '@capacitor/core@7.6.2':
+    resolution: {integrity: sha512-8HRKEUlYpCOeRec8bCHZwEA4o/E2q5dhHSd0v/Cr6+ume08fZY/gniF+ZCKF+6DO0T/nRaBeNRQn6Up+45J1mg==}
 
-  '@capacitor/filesystem@8.1.2':
-    resolution: {integrity: sha512-doaaMfGoFR2hWU6aV6u83I+5ZsGyJVq+Gz4r9lMpJzUKMm1eMu0hLnFdV1aXZlU9FlK/RndFrVD8oRZfNOqWgQ==}
+  '@capacitor/filesystem@7.1.8':
+    resolution: {integrity: sha512-Qpw/2SE4/CzqAUvGgSM9hw/uXQ5qoOaF4wxbToXwpAaKPS+tzletS1h5ti3jjLmGcqizTs2sEXMtcsARW/Ceew==}
     peerDependencies:
-      '@capacitor/core': '>=8.0.0'
+      '@capacitor/core': '>=7.0.0'
 
-  '@capacitor/ios@8.3.0':
-    resolution: {integrity: sha512-5Rtwv8SITKlYTt8lAZG+khnVIdzPtqbocH3eP+JkEmX1vpSMwx4TOKtT8OBz8gpQ+pUJDRp7DBYOv3U6l/obCw==}
+  '@capacitor/ios@7.6.2':
+    resolution: {integrity: sha512-TZOXn7ZSEMsetrIEb8EHT4X9Nwsed1itqMwe+z5QOCDvm9XZ7i2YsjnrinUC1ZOIgva9IE2l+azus7qOpQ0aCg==}
     peerDependencies:
-      '@capacitor/core': ^8.3.0
+      '@capacitor/core': ^7.6.0
 
-  '@capacitor/local-notifications@8.0.2':
-    resolution: {integrity: sha512-X7KE/I4ZutMTGVHNUyTjIugYcQEcHJRLks+TsPnOriuS+lo0geSTuaRln6zAZlJSSXSoVMSSzHexdSbIjR/8iw==}
+  '@capacitor/local-notifications@7.0.6':
+    resolution: {integrity: sha512-RuZQ9P5aAlw6VU2i0i6g4i1XYZbbeDE9oaBg87gggHaUUscX7b1lltTlC1t11/JCPoyjECnZ/N8xfDNZ26hKhw==}
     peerDependencies:
-      '@capacitor/core': '>=8.0.0'
+      '@capacitor/core': '>=7.0.0'
 
-  '@capacitor/push-notifications@8.0.3':
-    resolution: {integrity: sha512-jmBBoJvOzmzem8YoO9dQJBPFiM1bksTNAoV7yksCBN10BybAOtmBF19vFPt/jr2KGAirnPZz0ne2X0OH/rRGtg==}
+  '@capacitor/push-notifications@7.0.6':
+    resolution: {integrity: sha512-zAhbHpdbc15ImuVGgoFwUZsKI+jjGxy/oO5mgfYKUx8Xl2OskndzhL79PYsCPjyGLbqUR9NRUZJthV9auVT3nw==}
     peerDependencies:
-      '@capacitor/core': '>=8.0.0'
+      '@capacitor/core': '>=7.0.0'
 
-  '@capacitor/share@8.0.1':
-    resolution: {integrity: sha512-3cSBKBCJVon54rKDROP2rqGyeGks4pBh9TbaEk9S375Kbek/ZHe72N50zIa0Vn9Eac/SuhwgehO/mmA4CsUOiw==}
+  '@capacitor/share@7.0.4':
+    resolution: {integrity: sha512-wNXxmXUcChrtbZ5jQv8scFIbIGKo3rk6B7qpWySxfUhYJP5NANgAqQ9Z69m0k/zYsucdh66SBU7XW1ykd9aUug==}
     peerDependencies:
-      '@capacitor/core': '>=8.0.0'
+      '@capacitor/core': '>=7.0.0'
 
   '@capacitor/synapse@1.0.4':
     resolution: {integrity: sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==}
@@ -6349,15 +6349,15 @@ snapshots:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
 
-  '@capacitor-community/apple-sign-in@7.1.0(@capacitor/core@8.3.0)':
+  '@capacitor-community/apple-sign-in@7.1.0(@capacitor/core@7.6.2)':
     dependencies:
-      '@capacitor/core': 8.3.0
+      '@capacitor/core': 7.6.2
       '@types/scriptjs': 0.0.2
       scriptjs: 2.5.9
 
-  '@capacitor/app@8.1.0(@capacitor/core@8.3.0)':
+  '@capacitor/app@7.1.2(@capacitor/core@7.6.2)':
     dependencies:
-      '@capacitor/core': 8.3.0
+      '@capacitor/core': 7.6.2
 
   '@capacitor/assets@3.0.5(@swc/core@1.15.8)(@types/node@24.10.9)(typescript@5.9.3)':
     dependencies:
@@ -6384,9 +6384,9 @@ snapshots:
       - supports-color
       - typescript
 
-  '@capacitor/browser@8.0.3(@capacitor/core@8.3.0)':
+  '@capacitor/browser@7.0.5(@capacitor/core@7.6.2)':
     dependencies:
-      '@capacitor/core': 8.3.0
+      '@capacitor/core': 7.6.2
 
   '@capacitor/cli@5.7.8':
     dependencies:
@@ -6410,7 +6410,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@capacitor/cli@8.3.0':
+  '@capacitor/cli@7.6.2':
     dependencies:
       '@ionic/cli-framework-output': 2.2.8
       '@ionic/utils-subprocess': 3.0.1
@@ -6432,30 +6432,30 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@capacitor/core@8.3.0':
+  '@capacitor/core@7.6.2':
     dependencies:
       tslib: 2.8.1
 
-  '@capacitor/filesystem@8.1.2(@capacitor/core@8.3.0)':
+  '@capacitor/filesystem@7.1.8(@capacitor/core@7.6.2)':
     dependencies:
-      '@capacitor/core': 8.3.0
+      '@capacitor/core': 7.6.2
       '@capacitor/synapse': 1.0.4
 
-  '@capacitor/ios@8.3.0(@capacitor/core@8.3.0)':
+  '@capacitor/ios@7.6.2(@capacitor/core@7.6.2)':
     dependencies:
-      '@capacitor/core': 8.3.0
+      '@capacitor/core': 7.6.2
 
-  '@capacitor/local-notifications@8.0.2(@capacitor/core@8.3.0)':
+  '@capacitor/local-notifications@7.0.6(@capacitor/core@7.6.2)':
     dependencies:
-      '@capacitor/core': 8.3.0
+      '@capacitor/core': 7.6.2
 
-  '@capacitor/push-notifications@8.0.3(@capacitor/core@8.3.0)':
+  '@capacitor/push-notifications@7.0.6(@capacitor/core@7.6.2)':
     dependencies:
-      '@capacitor/core': 8.3.0
+      '@capacitor/core': 7.6.2
 
-  '@capacitor/share@8.0.1(@capacitor/core@8.3.0)':
+  '@capacitor/share@7.0.4(@capacitor/core@7.6.2)':
     dependencies:
-      '@capacitor/core': 8.3.0
+      '@capacitor/core': 7.6.2
 
   '@capacitor/synapse@1.0.4': {}
 

@@ -11,14 +11,14 @@ let package = Package(
             targets: ["CapApp-SPM"])
     ],
     dependencies: [
-        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.3.0"),
-        .package(name: "CapacitorCommunityAppleSignIn", path: "..\..\..\node_modules\.pnpm\@capacitor-community+apple-_f6d82b0a1655cc4b68c64959de8bd119\node_modules\@capacitor-community\apple-sign-in"),
-        .package(name: "CapacitorApp", path: "..\..\..\node_modules\.pnpm\@capacitor+app@8.1.0_@capacitor+core@8.3.0\node_modules\@capacitor\app"),
-        .package(name: "CapacitorBrowser", path: "..\..\..\node_modules\.pnpm\@capacitor+browser@8.0.3_@capacitor+core@8.3.0\node_modules\@capacitor\browser"),
-        .package(name: "CapacitorFilesystem", path: "..\..\..\node_modules\.pnpm\@capacitor+filesystem@8.1.2_@capacitor+core@8.3.0\node_modules\@capacitor\filesystem"),
-        .package(name: "CapacitorLocalNotifications", path: "..\..\..\node_modules\.pnpm\@capacitor+local-notifications@8.0.2_@capacitor+core@8.3.0\node_modules\@capacitor\local-notifications"),
-        .package(name: "CapacitorPushNotifications", path: "..\..\..\node_modules\.pnpm\@capacitor+push-notifications@8.0.3_@capacitor+core@8.3.0\node_modules\@capacitor\push-notifications"),
-        .package(name: "CapacitorShare", path: "..\..\..\node_modules\.pnpm\@capacitor+share@8.0.1_@capacitor+core@8.3.0\node_modules\@capacitor\share")
+        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "7.6.2"),
+        .package(name: "CapacitorCommunityAppleSignIn", path: "..\..\..\node_modules\.pnpm\@capacitor-community+apple-_97a8a5dbecdaf55775174955233c7498\node_modules\@capacitor-community\apple-sign-in"),
+        .package(name: "CapacitorApp", path: "..\..\..\node_modules\.pnpm\@capacitor+app@7.1.2_@capacitor+core@7.6.2\node_modules\@capacitor\app"),
+        .package(name: "CapacitorBrowser", path: "..\..\..\node_modules\.pnpm\@capacitor+browser@7.0.5_@capacitor+core@7.6.2\node_modules\@capacitor\browser"),
+        .package(name: "CapacitorFilesystem", path: "..\..\..\node_modules\.pnpm\@capacitor+filesystem@7.1.8_@capacitor+core@7.6.2\node_modules\@capacitor\filesystem"),
+        .package(name: "CapacitorLocalNotifications", path: "..\..\..\node_modules\.pnpm\@capacitor+local-notifications@7.0.6_@capacitor+core@7.6.2\node_modules\@capacitor\local-notifications"),
+        .package(name: "CapacitorPushNotifications", path: "..\..\..\node_modules\.pnpm\@capacitor+push-notifications@7.0.6_@capacitor+core@7.6.2\node_modules\@capacitor\push-notifications"),
+        .package(name: "CapacitorShare", path: "..\..\..\node_modules\.pnpm\@capacitor+share@7.0.4_@capacitor+core@7.6.2\node_modules\@capacitor\share")
     ],
     targets: [
         .target(
