@@ -5,6 +5,7 @@ import {
   deletePromotionDb,
   updatePromotionDb,
   togglePromotionLikeDb,
+  reportPromotionStatusDb,
   PROMOTION_CATEGORIES,
   type Promotion,
   type PromotionCategory,
@@ -43,6 +44,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -78,6 +85,10 @@ import {
   Mail,
   Globe,
   MessageCircle,
+  ThumbsUp,
+  ThumbsDown,
+  AlertTriangle,
+  ListChecks,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
@@ -137,6 +148,7 @@ type PromotionCardProps = {
   viewerUserId: string | null;
   viewerLoading: boolean;
   onLike: (id: string) => void;
+  onStatusVote: (id: string, status: "active" | "expired") => void;
   onEdit: (promo: Promotion) => void;
   onInactivate: (id: string) => void;
   onDelete: (id: string) => void;
@@ -148,13 +160,20 @@ function PromotionCard({
   viewerUserId,
   viewerLoading,
   onLike,
+  onStatusVote,
   onEdit,
   onInactivate,
   onDelete,
   onUserClick,
 }: PromotionCardProps) {
   const isOwner = !viewerLoading && viewerUserId === promo.user_id;
+  const isLoggedIn = !viewerLoading && !!viewerUserId;
   const [couponCopied, setCouponCopied] = React.useState(false);
+
+  const expiredReports = promo.expired_reports ?? 0;
+  const activeReports = promo.active_reports ?? 0;
+  const totalVotes = expiredReports + activeReports;
+  const majorityExpired = totalVotes >= 3 && expiredReports / totalVotes > 0.5;
 
   const discountDisplay = (() => {
     if (promo.discount_percent) return `${promo.discount_percent}% OFF`;
@@ -175,13 +194,21 @@ function PromotionCard({
           <ImageWithFallback
             src={promo.photo_url}
             alt={promo.title}
-            className="w-full h-full object-contain"
+            className={`w-full h-full object-contain transition-opacity ${majorityExpired ? "opacity-50" : ""}`}
             fallback="/placeholder.svg"
           />
           {discountDisplay && (
             <span className="absolute top-2 left-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
               {discountDisplay}
             </span>
+          )}
+          {majorityExpired && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="bg-background/80 text-destructive text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1 border border-destructive/30">
+                <AlertTriangle className="h-3 w-3" />
+                Pode ter expirado
+              </span>
+            </div>
           )}
         </div>
       )}
@@ -286,6 +313,37 @@ function PromotionCard({
           </div>
         )}
 
+
+        {/* Status vote — only for non-owners when logged in */}
+        {!isOwner && isLoggedIn && (
+          <div className="flex items-center gap-1.5 pt-1.5 border-t border-border/40 mt-1">
+            <span className="text-[10px] text-muted-foreground flex-shrink-0">Ainda ativo?</span>
+            <button
+              onClick={() => onStatusVote(promo.id, "active")}
+              aria-label="Marcar como ativo"
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+                promo.user_status_vote === "active"
+                  ? "bg-green-500/20 text-green-500"
+                  : "text-muted-foreground hover:text-green-500 hover:bg-green-500/10"
+              }`}
+            >
+              <ThumbsUp className="h-3 w-3" />
+              {(promo.active_reports ?? 0) > 0 && <span>{promo.active_reports}</span>}
+            </button>
+            <button
+              onClick={() => onStatusVote(promo.id, "expired")}
+              aria-label="Marcar como expirada"
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+                promo.user_status_vote === "expired"
+                  ? "bg-destructive/20 text-destructive"
+                  : "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              }`}
+            >
+              <ThumbsDown className="h-3 w-3" />
+              {(promo.expired_reports ?? 0) > 0 && <span>{promo.expired_reports}</span>}
+            </button>
+          </div>
+        )}
 
         {/* Footer — always at bottom */}
         <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-1">
@@ -1008,9 +1066,10 @@ type ProfessionalCardProps = {
   professional: ProfessionalProfile;
   onViewProfile: (userId: string) => void;
   onMessage: (userId: string) => void;
+  onViewPlans: (pro: ProfessionalProfile) => void;
 };
 
-function ProfessionalCard({ professional: pro, onViewProfile, onMessage }: ProfessionalCardProps) {
+function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewPlans }: ProfessionalCardProps) {
   const logoSrc = pro.business_logo_url || pro.photo;
   const [planIndex, setPlanIndex] = React.useState(0);
   const plans = pro.service_plans ?? [];
@@ -1068,9 +1127,10 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage }: Profe
             {plans.length <= 3 ? (
               <div className="flex gap-1">
                 {plans.map((plan, idx) => (
-                  <div
+                  <button
                     key={idx}
-                    className="flex-1 flex flex-col rounded-md bg-muted/30 px-2 py-1.5 gap-0.5 min-w-0"
+                    onClick={() => onViewPlans(pro)}
+                    className="flex-1 flex flex-col rounded-md bg-muted/30 px-2 py-1.5 gap-0.5 min-w-0 text-left hover:bg-muted/60 active:bg-muted/80 transition-colors"
                   >
                     <span className="text-[10px] font-medium truncate leading-tight">{plan.name}</span>
                     {plan.price != null && (
@@ -1078,16 +1138,17 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage }: Profe
                         R$ {plan.price.toFixed(2).replace(".", ",")}
                       </span>
                     )}
-                  </div>
+                  </button>
                 ))}
               </div>
             ) : (
               <>
                 <div className="flex gap-1">
                   {plans.slice(planIndex * 3, planIndex * 3 + 3).map((plan, idx) => (
-                    <div
+                    <button
                       key={idx}
-                      className="flex-1 flex flex-col rounded-md bg-muted/30 px-2 py-1.5 gap-0.5 min-w-0"
+                      onClick={() => onViewPlans(pro)}
+                      className="flex-1 flex flex-col rounded-md bg-muted/30 px-2 py-1.5 gap-0.5 min-w-0 text-left hover:bg-muted/60 active:bg-muted/80 transition-colors"
                     >
                       <span className="text-[10px] font-medium truncate leading-tight">{plan.name}</span>
                       {plan.price != null && (
@@ -1095,7 +1156,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage }: Profe
                           R$ {plan.price.toFixed(2).replace(".", ",")}
                         </span>
                       )}
-                    </div>
+                    </button>
                   ))}
                 </div>
                 <div className="flex items-center justify-between gap-1">
@@ -1210,6 +1271,7 @@ export default function Store() {
   const [proLoading, setProLoading] = React.useState(false);
   const [proSearch, setProSearch] = React.useState("");
   const [proSegment, setProSegment] = React.useState<string>("todos");
+  const [plansModalPro, setPlansModalPro] = React.useState<ProfessionalProfile | null>(null);
 
   React.useEffect(() => {
     setViewerLoading(true);
@@ -1252,6 +1314,41 @@ export default function Store() {
     if (activeTab === "profissionais") loadProfessionals();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, proSegment]);
+
+  async function handleStatusVote(id: string, status: "active" | "expired") {
+    if (!user) {
+      toast({ title: "Faça login para votar.", variant: "destructive" });
+      return;
+    }
+    try {
+      const result = await reportPromotionStatusDb(id, status);
+      setPromotions((prev) =>
+        prev.map((p) => {
+          if (p.id !== id) return p;
+          const prevVote = p.user_status_vote;
+          const wasActive = prevVote === "active";
+          const wasExpired = prevVote === "expired";
+          if (result === "removed") {
+            return {
+              ...p,
+              user_status_vote: null,
+              active_reports: Math.max(0, (p.active_reports ?? 0) - (wasActive ? 1 : 0)),
+              expired_reports: Math.max(0, (p.expired_reports ?? 0) - (wasExpired ? 1 : 0)),
+            };
+          }
+          // voted (new or changed)
+          return {
+            ...p,
+            user_status_vote: status,
+            active_reports: (p.active_reports ?? 0) + (status === "active" ? 1 : 0) - (wasActive ? 1 : 0),
+            expired_reports: (p.expired_reports ?? 0) + (status === "expired" ? 1 : 0) - (wasExpired ? 1 : 0),
+          };
+        }),
+      );
+    } catch (err: any) {
+      toast({ title: "Erro ao votar", description: err?.message, variant: "destructive" });
+    }
+  }
 
   async function handleLike(id: string) {
     if (!user) {
@@ -1519,6 +1616,7 @@ export default function Store() {
                   viewerUserId={viewerUserId}
                   viewerLoading={viewerLoading}
                   onLike={handleLike}
+                  onStatusVote={handleStatusVote}
                   onEdit={(promo) => setEditingPromo(promo)}
                   onInactivate={(id) => setInactivateTargetId(id)}
                   onDelete={(id) => setDeleteTargetId(id)}
@@ -1556,6 +1654,7 @@ export default function Store() {
                   professional={pro}
                   onViewProfile={(userId) => navigate(`/usuario/${userId}`)}
                   onMessage={(userId) => navigate(`/comunidade?user=${userId}`)}
+                  onViewPlans={(p) => setPlansModalPro(p)}
                 />
               ))}
             </div>
@@ -1598,6 +1697,41 @@ export default function Store() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Plans Modal */}
+      <Dialog open={!!plansModalPro} onOpenChange={(v) => !v && setPlansModalPro(null)}>
+        <DialogContent className="max-w-sm rounded-2xl" onOpenAutoFocus={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ListChecks className="h-5 w-5 text-brand" />
+              Planos e Preços
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            {plansModalPro && (
+              <p className="text-sm text-muted-foreground">{plansModalPro.business_name || plansModalPro.nickname}</p>
+            )}
+            {(plansModalPro?.service_plans ?? []).map((plan, idx) => (
+              <div key={idx} className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold">{plan.name}</span>
+                  {plan.price != null && (
+                    <span className="text-sm font-bold text-brand">
+                      R$ {typeof plan.price === "number" ? plan.price.toFixed(2).replace(".", ",") : plan.price}
+                    </span>
+                  )}
+                </div>
+                {plan.description && (
+                  <p className="text-xs text-muted-foreground leading-snug">{plan.description}</p>
+                )}
+              </div>
+            ))}
+            {(plansModalPro?.service_plans ?? []).length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">Nenhum plano cadastrado.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirm */}
       <AlertDialog

@@ -156,6 +156,8 @@ import { WorkoutHistoryDrawer } from "@/components/goals/workout-history-drawer"
 import { RoutinesTab } from "@/components/goals/routines-tab";
 import { EditGoalDrawer } from "@/components/goals/edit-goal-drawer";
 import { MoodDialog } from "@/components/goals/mood-dialog";
+import { MoodHistoryDrawer } from "@/components/goals/mood-history-drawer";
+import { BadgeUnlockedDialog } from "@/components/goals/badge-unlocked-dialog";
 import { RenameRoutineDialog } from "@/components/goals/rename-routine-dialog";
 import { ImageZoomDrawer, type ImageZoomItem } from "@/components/shared/image-zoom-drawer";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
@@ -477,8 +479,12 @@ export default function Goals() {
   const [hydrationGoalMl] = React.useState(2000); // meta padrão: 2L/dia
   const [isAddingHydration, setIsAddingHydration] = React.useState(false);
 
+  // ─── Badge desbloqueada ───────────────────────────────────────────────────
+  const [unlockedBadges, setUnlockedBadges] = React.useState<Badge[]>([]);
+
   // ─── Humor do Dia ─────────────────────────────────────────────────────────
   const [moodModalOpen, setMoodModalOpen] = React.useState(false);
+  const [moodHistoryOpen, setMoodHistoryOpen] = React.useState(false);
   const [todayMood, setTodayMood] = React.useState<MoodValue | null>(null);
   // Ref para garantir que o modal de humor seja exibido apenas uma vez por sessão
   const moodModalShownRef = React.useRef(false);
@@ -1544,6 +1550,56 @@ export default function Goals() {
     setScheduledTimeDrawerOpen(true);
   };
 
+  const handleShowRoutineSummary = (key: { typeCode: number; name: string | null }) => {
+    const exercises = userWorkouts.filter((w) =>
+      key.name ? w.name === key.name : !w.name,
+    );
+    if (exercises.length === 0) return;
+
+    let totalVolume = 0;
+    let totalSeries = 0;
+    const exerciseNames: string[] = [];
+    const completedExercises: CompletedRoutineExercise[] = [];
+
+    for (const w of exercises) {
+      const history = workoutHistoriesMap[w.workout_id] || [];
+      if (history.length === 0) continue;
+      const isCardio = (w.muscle_group || "").toLowerCase() === "cardio";
+      const bestKg = Math.max(...history.slice(0, 5).map((h) => h.kilos || 0));
+      const volRaw = parseFloat(history[0]?.volume || "0") || 0;
+      if (!isCardio) totalVolume += volRaw;
+      totalSeries += history.length > 0 ? 1 : 0;
+      if (w.workoutName) {
+        exerciseNames.push(w.workoutName);
+        completedExercises.push({
+          workoutId: w.workout_id,
+          workoutName: w.workoutName,
+          muscleGroup: w.muscle_group || null,
+          kilos: bestKg > 0 ? bestKg : null,
+          volume: volRaw > 0 ? String(Math.round(volRaw * 10) / 10) : null,
+        });
+      }
+    }
+
+    if (completedExercises.length === 0) return;
+
+    setWorkoutSummaryData({
+      duration: 0,
+      totalVolume: Math.round(totalVolume * 10) / 10,
+      totalSeries,
+      exerciseNames,
+      exercises: completedExercises,
+      routineName: key.name,
+      prs: [],
+      isAllCardio: false,
+      totalKm: 0,
+      totalCardioTimeSecs: 0,
+    });
+    setWorkoutPostDescription("");
+    setWorkoutSummaryOpen(true);
+    setShowPostWorkoutNutrition(false);
+  };
+
   // Unified exercise list: local workouts + catalog (deduped by name)
   type UnifiedExercise = {
     key: string;
@@ -1837,8 +1893,9 @@ export default function Goals() {
       const dayOfWeek = new Date().getDay();
       setWeekCheckIns((prev) => new Set(prev).add(dayOfWeek));
 
-      // Refresh badges after check-in (trigger handles awarding automatically)
+      // Award new badges and refresh badge state
       try {
+        const newBadges = await awardBadgesForCheckInsDb(user.id);
         const [earned, catalog, total] = await Promise.all([
           getUserBadgesDb(user.id),
           getAllBadgesDb(),
@@ -1847,6 +1904,9 @@ export default function Goals() {
         setUserBadges(earned);
         setAllBadges(catalog);
         setTotalCheckIns(total);
+        if (newBadges.length > 0) {
+          setUnlockedBadges(newBadges);
+        }
       } catch (badgeErr) {
         console.error("Error refreshing badges:", badgeErr);
       }
@@ -2310,6 +2370,26 @@ export default function Goals() {
           </p>
         </div>
 
+        {/* Header icons: Humor + Insignias */}
+        <div className="flex items-center gap-2">
+
+        {/* Mood History Icon */}
+        <button
+          onClick={() => setMoodHistoryOpen(true)}
+          className="h-10 w-10 rounded-full border border-border flex items-center justify-center transition-all"
+          aria-label="Histórico de humor"
+          title="Histórico de humor"
+        >
+          <span className="text-lg">
+            {todayMood === "muito_triste" ? "😢"
+              : todayMood === "triste" ? "😕"
+              : todayMood === "neutro" ? "😐"
+              : todayMood === "feliz" ? "😊"
+              : todayMood === "muito_feliz" ? "😄"
+              : "🙂"}
+          </span>
+        </button>
+
         {/* Badges Icon */}
         <div className="relative flex-shrink-0" style={{ width: 44, height: 44 }}>
           <button
@@ -2337,6 +2417,7 @@ export default function Goals() {
             </span>
           )}
         </div>
+        </div>{/* end flex icons wrapper */}
       </div>
 
 
@@ -2417,6 +2498,7 @@ export default function Goals() {
             onDeleteRoutineType={handleDeleteRoutineType}
             onDeleteItem={handleDeleteRoutineItem}
             onOpenWorkoutHistory={handleOpenWorkoutHistory}
+            onShowRoutineSummary={handleShowRoutineSummary}
             onImageZoom={setImageZoom}
             formatScheduledTime={formatScheduledTime}
           />
@@ -5397,6 +5479,23 @@ export default function Goals() {
         </DialogContent>
       </Dialog>
 
+
+      {/* ─── Popup de nova insígnia desbloqueada ─────────────────────────── */}
+      {unlockedBadges.length > 0 && (
+        <BadgeUnlockedDialog
+          badges={unlockedBadges}
+          onClose={() => setUnlockedBadges([])}
+        />
+      )}
+
+      {/* ─── Histórico de Humor ───────────────────────────────────────────── */}
+      {user && (
+        <MoodHistoryDrawer
+          open={moodHistoryOpen}
+          onOpenChange={setMoodHistoryOpen}
+          userId={user.id}
+        />
+      )}
 
       {/* ─── Modal de Humor do Dia ─────────────────────────────────────────── */}
       <MoodDialog

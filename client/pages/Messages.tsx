@@ -58,7 +58,6 @@ export default function Messages() {
   >({});
   const [activePickerMessageId, setActivePickerMessageId] = React.useState<string | null>(null);
   const [followedIds, setFollowedIds] = React.useState<Set<string>>(new Set());
-  const [isFollowingChecked, setIsFollowingChecked] = React.useState(false);
   const [isFollowingLoading, setIsFollowingLoading] = React.useState(false);
   // ref for custom emoji input
   const customEmojiInputRef = React.useRef<HTMLInputElement>(null);
@@ -105,7 +104,6 @@ export default function Messages() {
   React.useEffect(() => {
     if (!selectedConversation || viewMode !== "conversation") return;
     const uid = selectedConversation.userId;
-    setIsFollowingChecked(false);
     isFollowingDb(uid)
       .then((result) => {
         setFollowedIds((prev) => {
@@ -115,15 +113,7 @@ export default function Messages() {
           return next;
         });
       })
-      .catch(() => {
-        // on error assume not following so button shows
-        setFollowedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(uid);
-          return next;
-        });
-      })
-      .finally(() => setIsFollowingChecked(true));
+      .catch(() => {});
   }, [selectedConversation?.userId, viewMode]);
 
   // Load conversation messages when selected
@@ -423,7 +413,7 @@ export default function Messages() {
               </p>
             </div>
           </div>
-          {isFollowingChecked && !followedIds.has(selectedConversation.userId) && (
+          {!followedIds.has(selectedConversation.userId) && (
             <Button
               size="sm"
               variant="outline"
@@ -560,8 +550,44 @@ export default function Messages() {
                 );
               })
             ) : (
-              <div className="text-center text-muted-foreground text-sm">
-                Sem mensagens ainda. Inicie uma conversa!
+              <div className="flex flex-col items-center gap-4 py-8">
+                {selectedConversation.userPhoto ? (
+                  <img
+                    src={selectedConversation.userPhoto}
+                    alt={selectedConversation.userNickname}
+                    className="h-20 w-20 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="h-20 w-20 rounded-full bg-muted flex items-center justify-center">
+                    <span className="text-2xl font-medium text-muted-foreground">
+                      {selectedConversation.userNickname.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                )}
+                <p className="font-semibold text-base">{selectedConversation.userNickname}</p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-full text-xs h-8 px-4"
+                    onClick={() => navigate(`/perfil/${selectedConversation.userId}`)}
+                  >
+                    Ver perfil
+                  </Button>
+                  {!followedIds.has(selectedConversation.userId) && (
+                    <Button
+                      size="sm"
+                      className="rounded-full text-xs h-8 px-4"
+                      onClick={handleFollowConversationUser}
+                      disabled={isFollowingLoading}
+                    >
+                      {isFollowingLoading ? "..." : "Seguir"}
+                    </Button>
+                  )}
+                </div>
+                <p className="text-center text-muted-foreground text-sm">
+                  Sem mensagens ainda. Inicie uma conversa!
+                </p>
               </div>
             )}
             <div ref={messagesEndRef} />

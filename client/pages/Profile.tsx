@@ -177,7 +177,6 @@ export default function Profile() {
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
   const [shareDrawerUrl, setShareDrawerUrl] = React.useState<string | undefined>(undefined);
-  const [shareDrawerImageUrl, setShareDrawerImageUrl] = React.useState<string | undefined>(undefined);
   const [posts, setPosts] = React.useState<PostWithUser[]>([]);
   const [shots, setShots] = React.useState<ShotWithUser[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
@@ -1205,7 +1204,6 @@ export default function Profile() {
                   const profileUrl = `${window.location.origin}/usuario/${profileUserId}`;
                   setShareDrawerText(text);
                   setShareDrawerUrl(profileUrl);
-                  setShareDrawerImageUrl(profile?.photo ?? undefined);
                   setShareDrawerOpen(true);
                 }}
               >
@@ -1227,7 +1225,6 @@ export default function Profile() {
                   const profileUrl = `${window.location.origin}/usuario/${profileUserId}`;
                   setShareDrawerText(text);
                   setShareDrawerUrl(profileUrl);
-                  setShareDrawerImageUrl(profile.photo ?? undefined);
                   setShareDrawerOpen(true);
                 }}
               >
@@ -2319,6 +2316,7 @@ export default function Profile() {
                           editMode={isEditingPost}
                           onRemovePhoto={handleRemoveCarouselPhoto}
                           removingPhoto={removingPhoto}
+                          objectFit="contain"
                         />
                       </div>
                     ) : (
@@ -2538,7 +2536,6 @@ export default function Profile() {
         onOpenChange={setShareDrawerOpen}
         text={shareDrawerText}
         url={shareDrawerUrl}
-        imageUrl={shareDrawerImageUrl}
         title="Compartilhar perfil"
       />
 

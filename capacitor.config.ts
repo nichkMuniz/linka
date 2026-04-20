@@ -6,7 +6,12 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: {
     androidScheme: 'https'
-  }
+  },
+  plugins: {
+    Browser: {
+      presentationStyle: 'popover',
+    },
+  },
 };
 
 export default config;

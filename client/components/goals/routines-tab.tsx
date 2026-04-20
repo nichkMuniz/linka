@@ -13,6 +13,7 @@ import {
   ChevronUp,
   Play,
   CheckCircle2,
+  Check,
   Plus,
   MoreVertical,
   Trash2,
@@ -25,6 +26,7 @@ import {
   AlertCircle,
   Bell,
   BellOff,
+  BarChart2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -106,6 +108,7 @@ interface RoutinesTabProps {
   onDeleteRoutineType: (typeCode: number, routineCardName: string | null) => void;
   onDeleteItem: (itemId: string, typeCode: number) => Promise<void>;
   onOpenWorkoutHistory: (workout: { id: string; name: string; description?: string; photo?: string }) => void;
+  onShowRoutineSummary: (key: { typeCode: number; name: string | null }) => void;
   onImageZoom: (item: import("@/components/shared/image-zoom-drawer").ImageZoomItem) => void;
 
   formatScheduledTime: (time: string) => string;
@@ -149,10 +152,12 @@ export function RoutinesTab({
   onDeleteRoutineType,
   onDeleteItem,
   onOpenWorkoutHistory,
+  onShowRoutineSummary,
   onImageZoom,
   formatScheduledTime,
 }: RoutinesTabProps) {
   const { t } = useLanguage();
+  const [hydrationCollapsed, setHydrationCollapsed] = React.useState(false);
 
   const hasWaterHabit = userHabits.some((h) => String((h as any).habit_id) === "1");
 
@@ -219,18 +224,51 @@ export function RoutinesTab({
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </button>
                   </div>
-                  <div className="grid grid-cols-7 gap-1 w-full">
-                    {[t("goals_day_sun"), t("goals_day_mon"), t("goals_day_tue"), t("goals_day_wed"), t("goals_day_thu"), t("goals_day_fri"), t("goals_day_sat")].map((day, index) => (
-                      <div
-                        key={index}
-                        className={`flex flex-col items-center justify-center aspect-square rounded-lg transition-all ${daysToShow.has(index)
-                          ? "bg-brand text-white font-bold"
-                          : "bg-muted text-muted-foreground"
-                          }`}
-                      >
-                        <span className="text-[10px] font-medium">{day}</span>
-                      </div>
-                    ))}
+                  <div className="flex w-full">
+                    {[t("goals_day_sun"), t("goals_day_mon"), t("goals_day_tue"), t("goals_day_wed"), t("goals_day_thu"), t("goals_day_fri"), t("goals_day_sat")].map((day, index) => {
+                      const cellDate = new Date(displayedSunday);
+                      cellDate.setDate(displayedSunday.getDate() + index);
+                      const dayNum = cellDate.getDate();
+                      const isToday = checkInWeekOffset === 0 && index === today.getDay();
+                      const isChecked = daysToShow.has(index);
+                      const prevChecked = index > 0 && daysToShow.has(index - 1);
+                      const nextChecked = index < 6 && daysToShow.has(index + 1);
+                      const isGroupFirst = isChecked && !prevChecked;
+                      const isGroupLast = isChecked && !nextChecked;
+                      const isSingle = isGroupFirst && isGroupLast;
+
+                      return (
+                        <div key={index} className="flex-1 flex flex-col items-center gap-1.5">
+                          <span className={`text-[10px] font-medium leading-none ${isToday ? "text-foreground font-semibold" : "text-muted-foreground"}`}>
+                            {isToday ? "Hoje" : day}
+                          </span>
+
+                          {isChecked ? (
+                            <div
+                              className={`w-full h-9 flex items-center justify-center border-2 border-brand bg-brand/10 transition-all
+                                ${isSingle ? "rounded-full px-1" : ""}
+                                ${isGroupFirst && !isGroupLast ? "rounded-l-full border-r-0 pl-1 pr-0" : ""}
+                                ${isGroupLast && !isGroupFirst ? "rounded-r-full border-l-0 pl-0 pr-1" : ""}
+                                ${!isGroupFirst && !isGroupLast ? "border-l-0 border-r-0" : ""}
+                              `}
+                            >
+                              <Check className="h-4 w-4 text-brand" strokeWidth={2.5} />
+                            </div>
+                          ) : (
+                            <div className={`w-9 h-9 rounded-full flex items-center justify-center
+                              ${isToday
+                                ? "bg-muted-foreground/20 border border-muted-foreground/40"
+                                : "bg-muted/60"
+                              }`}
+                            >
+                              <span className={`text-xs font-bold ${isToday ? "text-foreground" : "text-muted-foreground"}`}>
+                                {dayNum}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </>
               );
@@ -279,42 +317,57 @@ export function RoutinesTab({
                   <Droplets className="h-4 w-4 text-blue-500" />
                   <span className="text-sm font-semibold">{t("goals_hydration")}</span>
                 </div>
-                <span className="text-xs text-muted-foreground">
-                  {hydrationMl}ml / {hydrationGoalMl}ml
-                </span>
-              </div>
-
-              <Progress value={Math.min(100, (hydrationMl / hydrationGoalMl) * 100)} className="h-2" />
-
-              <div className="flex items-center gap-2">
-                {[250, 350, 500].map((ml) => (
-                  <Button
-                    key={ml}
-                    size="sm"
-                    variant="outline"
-                    disabled={isAddingHydration}
-                    className="flex-1 h-8 text-xs border-blue-500/30 hover:bg-blue-500/10"
-                    onClick={() => onAddHydration(ml)}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {hydrationMl}ml / {hydrationGoalMl}ml
+                  </span>
+                  <button
+                    onClick={() => setHydrationCollapsed((v) => !v)}
+                    className="p-1 rounded hover:bg-blue-500/10 transition-colors"
+                    aria-label={hydrationCollapsed ? "Expandir hidratação" : "Minimizar hidratação"}
                   >
-                    +{ml}ml
-                  </Button>
-                ))}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={isAddingHydration}
-                  className="h-8 px-2"
-                  title="Desfazer"
-                  onClick={onUndoHydration}
-                >
-                  <Minus className="h-3 w-3" />
-                </Button>
+                    <ChevronDown
+                      className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${hydrationCollapsed ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                </div>
               </div>
 
-              {hydrationMl >= hydrationGoalMl && (
-                <p className="text-xs text-blue-600 dark:text-blue-400 font-medium text-center">
-                  {t("goals_hydration_today_done")}
-                </p>
+              {!hydrationCollapsed && (
+                <>
+                  <Progress value={Math.min(100, (hydrationMl / hydrationGoalMl) * 100)} className="h-2" />
+
+                  <div className="flex items-center gap-2">
+                    {[250, 350, 500].map((ml) => (
+                      <Button
+                        key={ml}
+                        size="sm"
+                        variant="outline"
+                        disabled={isAddingHydration}
+                        className="flex-1 h-8 text-xs border-blue-500/30 hover:bg-blue-500/10"
+                        onClick={() => onAddHydration(ml)}
+                      >
+                        +{ml}ml
+                      </Button>
+                    ))}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={isAddingHydration}
+                      className="h-8 px-2"
+                      title="Desfazer"
+                      onClick={onUndoHydration}
+                    >
+                      <Minus className="h-3 w-3" />
+                    </Button>
+                  </div>
+
+                  {hydrationMl >= hydrationGoalMl && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 font-medium text-center">
+                      {t("goals_hydration_today_done")}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </CardContent>
@@ -523,12 +576,21 @@ export function RoutinesTab({
                       </button>
 
                       {typeCode === 1 && itemsForRoutine.length > 0 && (
-                        <button
-                          onClick={() => onStartWorkout(isNamed ? displayLabel : "__unnamed__")}
-                          className="p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors flex-shrink-0"
-                        >
-                          <Play className="h-5 w-5 text-brand" />
-                        </button>
+                        <>
+                          <button
+                            onClick={() => onShowRoutineSummary({ typeCode, name: isNamed ? displayLabel : null })}
+                            className="p-2 rounded-lg hover:bg-muted/50 transition-colors flex-shrink-0"
+                            title="Resumo da rotina"
+                          >
+                            <BarChart2 className="h-5 w-5 text-muted-foreground" />
+                          </button>
+                          <button
+                            onClick={() => onStartWorkout(isNamed ? displayLabel : "__unnamed__")}
+                            className="p-2 rounded-lg bg-brand/10 hover:bg-brand/20 transition-colors flex-shrink-0"
+                          >
+                            <Play className="h-5 w-5 text-brand" />
+                          </button>
+                        </>
                       )}
 
                       <button

@@ -12,7 +12,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Edit2, Plus } from "lucide-react";
+import { Edit2, Plus, Search } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import type {
   ProgrammedGoal,
@@ -56,6 +56,7 @@ export function GoalsTab({
   onCreateGoalDrawerOpen,
 }: GoalsTabProps) {
   const { t } = useLanguage();
+  const [availableGoalSearch, setAvailableGoalSearch] = React.useState("");
 
   return (
     <>
@@ -208,9 +209,24 @@ export function GoalsTab({
                   </div>
                 </AccordionTrigger>
                 <AccordionContent>
-                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 pt-4">
+                  <div className="relative pt-4 pb-2">
+                    <Search className="absolute left-3 top-1/2 translate-y-[2px] h-4 w-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Buscar meta..."
+                      value={availableGoalSearch}
+                      onChange={(e) => setAvailableGoalSearch(e.target.value)}
+                      className="w-full h-9 pl-9 pr-3 border border-border/60 rounded-lg text-sm bg-background focus:border-brand focus:outline-none"
+                      style={{ fontSize: "16px" }}
+                    />
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 pt-2">
                     {goals
                       .filter((g) => !selectedGoalIds.includes(g.id))
+                      .filter((g) =>
+                        availableGoalSearch.trim() === "" ||
+                        g.description.toLowerCase().includes(availableGoalSearch.toLowerCase())
+                      )
                       .map((goal) => {
                         const goalTypeLabel =
                           goal.type === 1
@@ -331,6 +347,16 @@ export function GoalsTab({
                         );
                       })}
                   </div>
+                  {goals
+                    .filter((g) => !selectedGoalIds.includes(g.id))
+                    .filter((g) =>
+                      availableGoalSearch.trim() === "" ||
+                      g.description.toLowerCase().includes(availableGoalSearch.toLowerCase())
+                    ).length === 0 && availableGoalSearch.trim() !== "" && (
+                    <p className="text-xs text-muted-foreground text-center py-4">
+                      Nenhuma meta encontrada para "{availableGoalSearch}"
+                    </p>
+                  )}
                 </AccordionContent>
               </AccordionItem>
             </Accordion>

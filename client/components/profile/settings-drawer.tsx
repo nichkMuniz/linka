@@ -8,11 +8,6 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -33,6 +28,8 @@ import {
   getCommercialPlansDb,
   saveCommercialPlansDb,
   getExpiredUserFlowsDb,
+  deleteStoryDb,
+  createPostDb,
   updateUserPersonalDataDb,
   type UserProfile,
   type UserStats,
@@ -55,9 +52,10 @@ import {
   Bell,
   Globe,
   BarChart3,
-  ChevronDown,
   User,
   X,
+  Share2,
+  ZoomIn,
 } from "lucide-react";
 
 interface SettingsDrawerProps {
@@ -299,6 +297,9 @@ export function SettingsDrawer({
   const [isFlowHistoryOpen, setIsFlowHistoryOpen] = React.useState(false);
   const [expiredFlows, setExpiredFlows] = React.useState<StoryWithUser[]>([]);
   const [isLoadingFlowHistory, setIsLoadingFlowHistory] = React.useState(false);
+  const [expandedFlow, setExpandedFlow] = React.useState<StoryWithUser | null>(null);
+  const [repostingFlowId, setRepostingFlowId] = React.useState<string | null>(null);
+  const [deletingFlowId, setDeletingFlowId] = React.useState<string | null>(null);
 
   const openFlowHistory = async () => {
     setIsFlowHistoryOpen(true);
@@ -310,6 +311,38 @@ export function SettingsDrawer({
       console.error("Error loading flow history:", err);
     } finally {
       setIsLoadingFlowHistory(false);
+    }
+  };
+
+  const handleDeleteFlow = async (flow: StoryWithUser) => {
+    setDeletingFlowId(flow.id);
+    try {
+      const ok = await deleteStoryDb(flow.id);
+      if (ok) {
+        setExpiredFlows((prev) => prev.filter((f) => f.id !== flow.id));
+        if (expandedFlow?.id === flow.id) setExpandedFlow(null);
+        toast({ title: "Flow excluído" });
+      } else {
+        toast({ title: "Erro ao excluir flow", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Erro ao excluir flow", variant: "destructive" });
+    } finally {
+      setDeletingFlowId(null);
+    }
+  };
+
+  const handleRepostFlow = async (flow: StoryWithUser) => {
+    if (!flow.media_url) return;
+    setRepostingFlowId(flow.id);
+    try {
+      await createPostDb(flow.media_url, flow.description || "");
+      toast({ title: "Flow repostado no feed! 🎉" });
+      if (expandedFlow?.id === flow.id) setExpandedFlow(null);
+    } catch {
+      toast({ title: "Erro ao repostar flow", variant: "destructive" });
+    } finally {
+      setRepostingFlowId(null);
     }
   };
 
@@ -1096,24 +1129,136 @@ export function SettingsDrawer({
                       <p className="text-xs text-muted-foreground">{t("settings_flow_empty_desc")}</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-3 gap-1">
-                      {expiredFlows.map((flow) => (
-                        <div key={flow.id} className="relative aspect-[9/16] rounded-lg overflow-hidden bg-muted border border-border/40">
-                          {flow.media_url ? (
-                            flow.media_url.match(/\.(mp4|mov|webm)/) ? (
-                              <video src={flow.media_url} className="w-full h-full object-cover" muted playsInline />
-                            ) : (
-                              <img src={flow.media_url} alt="flow" className="w-full h-full object-cover" />
-                            )
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-muted/50"><span className="text-2xl">🌊</span></div>
-                          )}
-                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-1.5">
-                            <p className="text-[10px] text-white/80 truncate">{new Date(flow.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}</p>
+                    <>
+                      {/* Expanded flow viewer — true fullscreen */}
+                      {expandedFlow && (
+                        <div
+                          className="fixed inset-0 z-[9999] bg-black flex flex-col"
+                          style={{
+                            paddingTop: "env(safe-area-inset-top)",
+                            paddingBottom: "env(safe-area-inset-bottom)",
+                          }}
+                        >
+                          {/* Top bar */}
+                          <div className="flex items-center justify-between px-4 py-3">
+                            <button
+                              onClick={() => setExpandedFlow(null)}
+                              className="p-2.5 rounded-full bg-white/15 active:bg-white/30 transition-colors"
+                              aria-label="Fechar"
+                            >
+                              <X className="h-5 w-5 text-white" />
+                            </button>
+                            <p className="text-xs text-white/60 font-medium">
+                              {new Date(expandedFlow.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleRepostFlow(expandedFlow)}
+                                disabled={repostingFlowId === expandedFlow.id}
+                                className="p-2.5 rounded-full bg-brand active:bg-brand/70 transition-colors disabled:opacity-40"
+                                title="Repostar no feed"
+                                aria-label="Repostar no feed"
+                              >
+                                <Share2 className="h-4.5 w-4.5 text-white" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteFlow(expandedFlow)}
+                                disabled={deletingFlowId === expandedFlow.id}
+                                className="p-2.5 rounded-full bg-red-500 active:bg-red-600 transition-colors disabled:opacity-40"
+                                title="Excluir flow"
+                                aria-label="Excluir flow"
+                              >
+                                <Trash2 className="h-4.5 w-4.5 text-white" />
+                              </button>
+                            </div>
                           </div>
+
+                          {/* Media — ocupa todo o espaço restante */}
+                          <div className="flex-1 flex items-center justify-center overflow-hidden">
+                            {expandedFlow.media_url?.match(/\.(mp4|mov|webm)/) ? (
+                              <video
+                                src={expandedFlow.media_url}
+                                className="w-full h-full object-contain"
+                                controls
+                                playsInline
+                                autoPlay
+                              />
+                            ) : expandedFlow.media_url ? (
+                              <img
+                                src={expandedFlow.media_url}
+                                alt="flow"
+                                className="w-full h-full object-contain"
+                              />
+                            ) : (
+                              <span className="text-6xl">🌊</span>
+                            )}
+                          </div>
+
+                          {/* Caption */}
+                          {expandedFlow.description && (
+                            <p className="text-sm text-white/70 text-center px-6 py-4">
+                              {expandedFlow.description}
+                            </p>
+                          )}
                         </div>
-                      ))}
-                    </div>
+                      )}
+
+                      <div className="grid grid-cols-3 gap-1">
+                        {expiredFlows.map((flow) => (
+                          <div key={flow.id} className="relative aspect-[9/16] rounded-lg overflow-hidden bg-muted border border-border/40 group">
+                            <button
+                              className="absolute inset-0 w-full h-full"
+                              onClick={() => setExpandedFlow(flow)}
+                              aria-label="Ver flow"
+                            >
+                              {flow.media_url ? (
+                                flow.media_url.match(/\.(mp4|mov|webm)/) ? (
+                                  <video src={flow.media_url} className="w-full h-full object-cover" muted playsInline />
+                                ) : (
+                                  <img src={flow.media_url} alt="flow" className="w-full h-full object-cover" />
+                                )
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-muted/50"><span className="text-2xl">🌊</span></div>
+                              )}
+                            </button>
+
+                            {/* Expand hint */}
+                            <div className="absolute top-1.5 right-1.5 opacity-0 group-active:opacity-100 transition-opacity pointer-events-none">
+                              <div className="bg-black/50 rounded-full p-1">
+                                <ZoomIn className="h-3 w-3 text-white" />
+                              </div>
+                            </div>
+
+                            {/* Bottom bar with date + actions */}
+                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5 flex items-end justify-between gap-1">
+                              <p className="text-[10px] text-white/80 truncate flex-1">
+                                {new Date(flow.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+                              </p>
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleRepostFlow(flow); }}
+                                  disabled={repostingFlowId === flow.id}
+                                  className="p-1 rounded-full bg-brand/70 hover:bg-brand transition-colors disabled:opacity-40"
+                                  title="Repostar no feed"
+                                  aria-label="Repostar flow"
+                                >
+                                  <Share2 className="h-2.5 w-2.5 text-white" />
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDeleteFlow(flow); }}
+                                  disabled={deletingFlowId === flow.id}
+                                  className="p-1 rounded-full bg-red-500/70 hover:bg-red-500 transition-colors disabled:opacity-40"
+                                  title="Excluir flow"
+                                  aria-label="Excluir flow"
+                                >
+                                  <Trash2 className="h-2.5 w-2.5 text-white" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   )}
                 </div>
               </DrawerContent>

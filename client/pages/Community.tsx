@@ -1859,17 +1859,28 @@ export default function Community() {
                   {userCreatedGroups.map((group) => (
                     <Card
                       key={group.id}
-                      className="border-border/60 hover:shadow-md transition-shadow flex flex-col"
+                      className="border-border/60 hover:shadow-md transition-shadow flex flex-col overflow-hidden"
                     >
-                      <CardContent className="p-3 flex flex-col h-full">
-                        <div className="flex items-start gap-2 mb-2">
-                          <span className="text-2xl flex-shrink-0">{group.icon}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-xs line-clamp-2">{group.name}</p>
-                            <span className="inline-block text-xs bg-brand/20 text-brand px-1.5 py-0.5 rounded-full mt-0.5">
-                              {group.createdBy === user?.id ? "Seu Grupo" : "Participante"}
-                            </span>
+                      {/* Group cover photo */}
+                      <div className="relative w-full h-20 bg-muted flex-shrink-0">
+                        {group.photo ? (
+                          <ImageWithFallback
+                            src={group.photo}
+                            alt={group.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-brand/10">
+                            <span className="text-3xl">{group.icon}</span>
                           </div>
+                        )}
+                      </div>
+                      <CardContent className="p-3 flex flex-col h-full">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <p className="font-semibold text-xs line-clamp-2 flex-1">{group.name}</p>
+                          <span className="inline-block text-xs bg-brand/20 text-brand px-1.5 py-0.5 rounded-full flex-shrink-0">
+                            {group.createdBy === user?.id ? "Seu Grupo" : "Participante"}
+                          </span>
                         </div>
                         <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{group.description}</p>
                         {/* Creator info */}
@@ -1925,15 +1936,24 @@ export default function Community() {
                   {availableGroups.map((group) => (
                     <Card
                       key={group.id}
-                      className="border-border/60 hover:shadow-md transition-shadow flex flex-col"
+                      className="border-border/60 hover:shadow-md transition-shadow flex flex-col overflow-hidden"
                     >
-                      <CardContent className="p-3 flex flex-col h-full">
-                        <div className="flex items-start gap-2 mb-2">
-                          <span className="text-2xl flex-shrink-0">{group.icon}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-xs line-clamp-2">{group.name}</p>
+                      {/* Group cover photo */}
+                      <div className="relative w-full h-20 bg-muted flex-shrink-0">
+                        {group.photo ? (
+                          <ImageWithFallback
+                            src={group.photo}
+                            alt={group.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-brand/10">
+                            <span className="text-3xl">{group.icon}</span>
                           </div>
-                        </div>
+                        )}
+                      </div>
+                      <CardContent className="p-3 flex flex-col h-full">
+                        <p className="font-semibold text-xs line-clamp-2 mb-1">{group.name}</p>
                         <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{group.description}</p>
                         {/* Creator info */}
                         <div className="flex items-center gap-1.5 mb-3">
@@ -3107,17 +3127,34 @@ export default function Community() {
                   )}
                 </div>
 
-                {/* Exercises list — compact */}
-                {selectedCheckInForDetail.exercises && selectedCheckInForDetail.exercises.length > 0 && (
-                  <div className="divide-y divide-border/30">
-                    {selectedCheckInForDetail.exercises.map((ex, i) => (
-                      <div key={i} className="flex items-center justify-between py-1.5">
-                        <span className="text-xs truncate flex-1 text-foreground/80">{ex.workoutName}</span>
-                        {ex.kilos && <span className="text-xs font-medium text-brand ml-2 shrink-0">{ex.kilos} kg</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {/* Exercises list — grouped */}
+                {selectedCheckInForDetail.exercises && selectedCheckInForDetail.exercises.length > 0 && (() => {
+                  const grouped: { name: string; sets: string[] }[] = [];
+                  for (const ex of selectedCheckInForDetail.exercises) {
+                    const existing = grouped.find(g => g.name === ex.workoutName);
+                    if (existing) {
+                      if (ex.kilos) existing.sets.push(`${ex.kilos}kg`);
+                    } else {
+                      grouped.push({ name: ex.workoutName, sets: ex.kilos ? [`${ex.kilos}kg`] : [] });
+                    }
+                  }
+                  return (
+                    <div className="space-y-2 pt-0.5">
+                      {grouped.map((ex, i) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <span className="text-xs text-foreground/70 flex-1 leading-5 truncate">{ex.name}</span>
+                          {ex.sets.length > 0 && (
+                            <div className="flex flex-wrap gap-1 justify-end shrink-0 max-w-[55%]">
+                              {ex.sets.map((s, j) => (
+                                <span key={j} className="text-[10px] font-medium text-brand bg-brand/10 rounded px-1.5 py-0.5 leading-none">{s}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 {/* Comments Section */}
                 <div className="pt-2 border-t border-border/40 space-y-3">
@@ -3766,12 +3803,12 @@ export default function Community() {
         open={isEditCheckInOpen}
         onOpenChange={setIsEditCheckInOpen}
         checkIn={selectedCheckInForDetail}
-        onUpdated={({ id, workoutInfo, description }) => {
+        onUpdated={({ id, workoutInfo, description, photo, photos }) => {
           setGroupCheckIns((prev) =>
-            prev.map((c) => c.id === id ? { ...c, workoutInfo, description } : c)
+            prev.map((c) => c.id === id ? { ...c, workoutInfo, description, photo: photo ?? c.photo, photos: photos ?? c.photos } : c)
           );
           if (selectedCheckInForDetail?.id === id) {
-            setSelectedCheckInForDetail({ ...selectedCheckInForDetail, workoutInfo, description });
+            setSelectedCheckInForDetail({ ...selectedCheckInForDetail, workoutInfo, description, photo: photo ?? selectedCheckInForDetail.photo, photos: photos ?? selectedCheckInForDetail.photos });
           }
         }}
       />

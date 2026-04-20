@@ -61,6 +61,13 @@ export default function NewPost() {
   const [editCropIndex, setEditCropIndex] = React.useState<number | null>(null);
   const redirectTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Drag-and-drop reorder state (touch-based for iOS)
+  const [dragIndex, setDragIndex] = React.useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = React.useState<number | null>(null);
+  const thumbnailContainerRef = React.useRef<HTMLDivElement>(null);
+  const dragStartXRef = React.useRef(0);
+  const isDraggingRef = React.useRef(false);
+
   // Cancel any pending redirect on unmount and revoke any video object URLs
   React.useEffect(() => {
     return () => {
@@ -216,6 +223,50 @@ export default function NewPost() {
     setVideoPreview(objectUrl);
   };
 
+  const reorderPhotos = (from: number, to: number) => {
+    const newFiles = [...selectedFiles];
+    const newPreviews = [...previewUrls];
+    const [removedFile] = newFiles.splice(from, 1);
+    const [removedPreview] = newPreviews.splice(from, 1);
+    newFiles.splice(to, 0, removedFile);
+    newPreviews.splice(to, 0, removedPreview);
+    imageDraft.files = newFiles;
+    imageDraft.previews = newPreviews;
+    setSelectedFiles(newFiles);
+    setPreviewUrls(newPreviews);
+  };
+
+  const handleThumbnailTouchStart = (e: React.TouchEvent, index: number) => {
+    dragStartXRef.current = e.touches[0].clientX;
+    isDraggingRef.current = false;
+    setDragIndex(index);
+  };
+
+  const handleThumbnailTouchMove = (e: React.TouchEvent) => {
+    const dx = Math.abs(e.touches[0].clientX - dragStartXRef.current);
+    if (dx > 8 || isDraggingRef.current) {
+      isDraggingRef.current = true;
+      e.preventDefault();
+      const container = thumbnailContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const touchX = e.touches[0].clientX - rect.left + container.scrollLeft;
+      const itemWidth = 72; // 64px image + 8px gap
+      const overIndex = Math.max(0, Math.min(previewUrls.length - 1, Math.floor(touchX / itemWidth)));
+      setDragOverIndex(overIndex);
+    }
+  };
+
+  const handleThumbnailTouchEnd = () => {
+    if (isDraggingRef.current && dragIndex !== null && dragOverIndex !== null && dragIndex !== dragOverIndex) {
+      reorderPhotos(dragIndex, dragOverIndex);
+      setCurrentPreviewIndex(dragOverIndex);
+    }
+    setDragIndex(null);
+    setDragOverIndex(null);
+    isDraggingRef.current = false;
+  };
+
   const removePhoto = (index: number) => {
     imageDraft.files = imageDraft.files.filter((_, i) => i !== index);
     imageDraft.previews = imageDraft.previews.filter((_, i) => i !== index);
@@ -325,7 +376,7 @@ export default function NewPost() {
       sessionStorage.removeItem("newpost_goal_id");
 
       // Redirect to feed after a short delay
-      redirectTimerRef.current = setTimeout(() => navigate("/"), 1500);
+      navigate("/");
     } catch (err: any) {
       console.error("Error creating post:", err);
       toast({
@@ -418,7 +469,7 @@ export default function NewPost() {
       sessionStorage.removeItem("newpost_video_description");
 
       // Redirect to shots after a short delay
-      redirectTimerRef.current = setTimeout(() => navigate("/shots"), 1500);
+      navigate("/shots");
     } catch (err: any) {
       console.error("Error creating shot:", err);
       toast({
@@ -558,22 +609,34 @@ export default function NewPost() {
 
                     </div>
 
-                    {/* Photo Thumbnails Strip */}
+                    {/* Photo Thumbnails Strip — drag to reorder */}
                     {previewUrls.length > 1 && (
-                      <div className="flex gap-2 overflow-x-auto pb-2">
+                      <div
+                        ref={thumbnailContainerRef}
+                        className="flex gap-2 overflow-x-auto pb-2"
+                        onTouchMove={handleThumbnailTouchMove}
+                        onTouchEnd={handleThumbnailTouchEnd}
+                      >
                         {previewUrls.map((url, index) => (
                           <div
                             key={index}
-                            className={`relative flex-shrink-0 cursor-pointer rounded-lg overflow-hidden border-2 transition-colors ${currentPreviewIndex === index
+                            onTouchStart={(e) => handleThumbnailTouchStart(e, index)}
+                            className={`relative flex-shrink-0 cursor-grab rounded-lg overflow-hidden border-2 transition-all select-none ${
+                              dragIndex === index
+                                ? "opacity-40 scale-95"
+                                : dragOverIndex === index && dragIndex !== null
+                                ? "border-primary scale-105 shadow-lg"
+                                : currentPreviewIndex === index
                                 ? "border-primary"
                                 : "border-border/40 hover:border-border"
-                              }`}
+                            }`}
                           >
                             <img
                               src={url}
                               alt={`Thumbnail ${index + 1}`}
                               className="h-16 w-16 object-cover"
-                              onClick={() => setCurrentPreviewIndex(index)}
+                              onClick={() => !isDraggingRef.current && setCurrentPreviewIndex(index)}
+                              draggable={false}
                             />
                             <button
                               onClick={() => removePhoto(index)}

@@ -7953,26 +7953,46 @@ export async function getGroupCheckInDetailDb(checkInId: string): Promise<GroupC
 }
 
 // Update a check-in
+export async function uploadCheckInPhotoDb(userId: string, file: File, index: number): Promise<string> {
+  if (!supabase) throw new Error("Supabase not configured");
+  const ext = file.name.split(".").pop() || "jpg";
+  const filePath = `checkins/${userId}/${Date.now()}-${index}.${ext}`;
+  const { error } = await supabase.storage
+    .from("posts")
+    .upload(filePath, file, { contentType: file.type, upsert: false });
+  if (error) throw error;
+  const { data } = supabase.storage.from("posts").getPublicUrl(filePath);
+  return data.publicUrl;
+}
+
 export async function updateGroupCheckInDb(
   checkInId: string,
   workoutInfo: string,
-  description: string
+  description: string,
+  photo?: string,
+  photos?: string[]
 ): Promise<GroupCheckIn> {
   if (!supabase) throw new Error("Supabase not configured");
 
   try {
+    const updatePayload: Record<string, unknown> = {
+      workout_info: workoutInfo,
+      description: description,
+    };
+    if (photo !== undefined) updatePayload.photo = photo;
+    if (photos !== undefined) updatePayload.photos = photos;
+
     const { data, error } = await supabase
       .from("duel_check_ins")
-      .update({
-        workout_info: workoutInfo,
-        description: description,
-      })
+      .update(updatePayload)
       .eq("id", checkInId)
       .select()
       .single();
 
     if (error) throw error;
     if (!data) throw new Error("Failed to update check-in");
+
+    invalidateQueryCache("groupCheckIns");
 
     return {
       id: data.id,
@@ -7981,6 +8001,7 @@ export async function updateGroupCheckInDb(
       userName: data.user_name,
       userPhoto: null,
       photo: data.photo || "",
+      photos: Array.isArray(data.photos) ? data.photos : (data.photo ? [data.photo] : []),
       description: data.description || "",
       workoutInfo: data.workout_info || "",
       muscleGroup: data.muscle_group || null,
@@ -7993,8 +8014,6 @@ export async function updateGroupCheckInDb(
     console.error("Error updating check-in:", error);
     throw error;
   }
-
-  invalidateQueryCache("groupCheckIns");
 }
 
 // Delete a check-in
@@ -8954,39 +8973,45 @@ export async function setSelectedBadgeDb(badgeId: string): Promise<void> {
  * caso ele ainda não tenha nenhum. Não substitui badges escolhidos manualmente
  * se o usuário já possuir um.
  */
-export async function awardBadgesForCheckInsDb(userId: string): Promise<void> {
-  if (!hasSupabaseConfig || !supabase) return;
+/**
+ * Avalia o total de check-ins do usuário, concede todas as insígnias recém-desbloqueadas
+ * e retorna as insígnias que acabaram de ser ganhas (para exibir popup).
+ */
+export async function awardBadgesForCheckInsDb(userId: string): Promise<Badge[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
   try {
-    const totalCheckIns = await getTotalCheckInsDb(userId);
-    const allBadges = await getAllBadgesDb();
+    const [totalCheckIns, allBadges] = await Promise.all([
+      getTotalCheckInsDb(userId),
+      getAllBadgesDb(),
+    ]);
 
-    // Find the highest badge earned
-    const earnedBadges = allBadges
-      .filter((b) => b.required_checkins <= totalCheckIns)
-      .sort((a, b) => b.required_checkins - a.required_checkins);
-
-    if (earnedBadges.length === 0) return;
-
-    const highestBadge = earnedBadges[0];
+    const reachableBadges = allBadges.filter((b) => b.required_checkins <= totalCheckIns);
+    if (reachableBadges.length === 0) return [];
 
     const { data: existingRows } = await supabase
       .from("user_badges")
-      .select("id, badge_id")
+      .select("badge_id")
       .eq("user_id", userId);
 
-    if (!existingRows || existingRows.length === 0) {
+    const alreadyEarnedIds = new Set((existingRows ?? []).map((r: any) => String(r.badge_id)));
+
+    const newBadges = reachableBadges.filter((b) => !alreadyEarnedIds.has(String(b.id)));
+
+    if (newBadges.length > 0) {
       await supabase
         .from("user_badges")
-        .upsert({ user_id: userId, badge_id: highestBadge.id }, { onConflict: "user_id,badge_id", ignoreDuplicates: true });
+        .upsert(
+          newBadges.map((b) => ({ user_id: userId, badge_id: b.id })),
+          { onConflict: "user_id,badge_id", ignoreDuplicates: true }
+        );
+      invalidateQueryCache("userBadges");
     }
-    // Note: We don't auto-update anymore to avoid overwriting user selection.
-    // If we wanted to "auto-upgrade" only if they haven't manually selected,
-    // we would need an 'is_manual' flag in the DB, but for now we'll keep it simple.
+
+    return newBadges;
   } catch (err) {
     console.error("Error in awardBadgesForCheckInsDb:", err);
+    return [];
   }
-
-  invalidateQueryCache("userBadges");
 }
 
 /**
@@ -9387,6 +9412,10 @@ export type Promotion = {
   // stats
   likes_count?: number;
   user_liked?: boolean;
+  // status reports
+  active_reports?: number;
+  expired_reports?: number;
+  user_status_vote?: "active" | "expired" | null;
 };
 
 export type PromotionCategory =
@@ -9476,6 +9505,33 @@ export async function getPromotionsDb(
       countMap.set(pid, (countMap.get(pid) ?? 0) + 1);
     }
 
+    // Fetch status reports counts
+    const { data: statusReports } = await supabase!
+      .from("promotion_status_reports")
+      .select("promotion_id, status")
+      .in("promotion_id", rows.map((r) => r.id));
+
+    const activeReportsMap = new Map<string, number>();
+    const expiredReportsMap = new Map<string, number>();
+    for (const r of statusReports ?? []) {
+      const pid = String(r.promotion_id);
+      if (r.status === "active") activeReportsMap.set(pid, (activeReportsMap.get(pid) ?? 0) + 1);
+      else if (r.status === "expired") expiredReportsMap.set(pid, (expiredReportsMap.get(pid) ?? 0) + 1);
+    }
+
+    // Viewer's own votes
+    let userVoteMap = new Map<string, "active" | "expired">();
+    if (viewer) {
+      const { data: myVotes } = await supabase!
+        .from("promotion_status_reports")
+        .select("promotion_id, status")
+        .eq("user_id", viewer.id)
+        .in("promotion_id", rows.map((r) => r.id));
+      for (const v of myVotes ?? []) {
+        userVoteMap.set(String(v.promotion_id), v.status as "active" | "expired");
+      }
+    }
+
     return rows.map((r) => {
       const profile = profileMap.get(String(r.user_id));
       return {
@@ -9486,6 +9542,9 @@ export async function getPromotionsDb(
         user_gender: profile?.gender ?? null,
         likes_count: countMap.get(r.id) ?? 0,
         user_liked: likedSet.has(r.id),
+        active_reports: activeReportsMap.get(r.id) ?? 0,
+        expired_reports: expiredReportsMap.get(r.id) ?? 0,
+        user_status_vote: userVoteMap.get(r.id) ?? null,
       };
     });
   });
@@ -9629,6 +9688,52 @@ export async function togglePromotionLikeDb(promotionId: string): Promise<"liked
       .insert({ promotion_id: promotionId, user_id: viewer.id });
     invalidateQueryCache("promotions");
     return "liked";
+  }
+}
+
+export async function reportPromotionStatusDb(
+  promotionId: string,
+  status: "active" | "expired",
+): Promise<"voted" | "removed"> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("No Supabase config");
+  assertUUID(promotionId, "promotionId");
+
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+
+  const { data: existing } = await supabase
+    .from("promotion_status_reports")
+    .select("id, status")
+    .eq("promotion_id", promotionId)
+    .eq("user_id", viewer.id)
+    .maybeSingle();
+
+  if (existing) {
+    if (existing.status === status) {
+      // Toggle off — remove vote
+      await supabase
+        .from("promotion_status_reports")
+        .delete()
+        .eq("promotion_id", promotionId)
+        .eq("user_id", viewer.id);
+      invalidateQueryCache("promotions");
+      return "removed";
+    } else {
+      // Change vote
+      await supabase
+        .from("promotion_status_reports")
+        .update({ status })
+        .eq("promotion_id", promotionId)
+        .eq("user_id", viewer.id);
+      invalidateQueryCache("promotions");
+      return "voted";
+    }
+  } else {
+    await supabase
+      .from("promotion_status_reports")
+      .insert({ promotion_id: promotionId, user_id: viewer.id, status });
+    invalidateQueryCache("promotions");
+    return "voted";
   }
 }
 

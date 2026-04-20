@@ -73,7 +73,7 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
               className="inline-flex items-center gap-0.5 cursor-pointer focus:outline-none"
               aria-label={`Insígnia: ${topBadge.name}`}
             >
-              <span className="text-xs leading-none">{topBadge.emoji}</span>
+              <span className="text-xs leading-none align-middle">{topBadge.emoji}</span>
               {showStreak && (
                 <span className="text-xs font-semibold text-orange-400 ml-0.5">
                   {topBadge.name}

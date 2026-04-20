@@ -6,9 +6,8 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { toast } from "@/components/ui/use-toast";
-import { Copy, Link, ExternalLink, ImageIcon, Loader2 } from "lucide-react";
+import { Copy, Link, ExternalLink } from "lucide-react";
 import { Share } from "@capacitor/share";
-import { Filesystem, Directory } from "@capacitor/filesystem";
 
 interface ShareDrawerProps {
   open: boolean;
@@ -16,43 +15,8 @@ interface ShareDrawerProps {
   text: string;
   /** URL a ser compartilhada. Se não fornecida, usa a URL atual. */
   url?: string;
-  /** URL de imagem para exibir no preview card e compartilhar */
-  imageUrl?: string;
-  /** Imagem em Blob (opcional — se não fornecida, derivada de imageUrl) */
-  imageBlob?: Blob | null;
   /** Título do drawer */
   title?: string;
-}
-
-/** Converte blob para base64 string (sem o prefixo data:...) */
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      // Remove o prefixo "data:image/jpeg;base64,"
-      resolve(result.split(",")[1]);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-/** Salva a imagem no diretório de cache do dispositivo e retorna o URI local */
-async function saveImageToCache(blob: Blob): Promise<string | null> {
-  try {
-    const base64 = await blobToBase64(blob);
-    const ext = blob.type.includes("png") ? "png" : "jpg";
-    const fileName = `linka-share-${Date.now()}.${ext}`;
-    const result = await Filesystem.writeFile({
-      path: fileName,
-      data: base64,
-      directory: Directory.Cache,
-    });
-    return result.uri;
-  } catch {
-    return null;
-  }
 }
 
 export function ShareDrawer({
@@ -60,63 +24,27 @@ export function ShareDrawer({
   onOpenChange,
   text,
   url,
-  imageUrl,
-  imageBlob: imageBlobProp,
   title = "Compartilhar",
 }: ShareDrawerProps) {
   const shareUrl = url || window.location.href;
-  const fullText = `${text}\n\n${shareUrl}`;
 
-  // Fetch e cache da imagem como blob quando o drawer abre
-  const [imageBlob, setImageBlob] = React.useState<Blob | null>(null);
-  const [imageLoading, setImageLoading] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!open) {
-      setImageBlob(null);
-      return;
-    }
-    if (imageBlobProp) {
-      setImageBlob(imageBlobProp);
-      return;
-    }
-    if (!imageUrl) return;
-
-    let cancelled = false;
-    setImageLoading(true);
-    fetch(imageUrl)
-      .then((r) => r.blob())
-      .then((blob) => { if (!cancelled) { setImageBlob(blob); setImageLoading(false); } })
-      .catch(() => { if (!cancelled) setImageLoading(false); });
-    return () => { cancelled = true; };
-  }, [open, imageUrl, imageBlobProp]);
-
-  /** Compartilhamento nativo com imagem usando @capacitor/share */
+  /** Compartilhamento nativo — envia apenas o link */
   const handleNativeShare = async () => {
     try {
-      let fileUri: string | null = null;
-
-      if (imageBlob) {
-        fileUri = await saveImageToCache(imageBlob);
-      }
-
       await Share.share({
         title: text,
-        text,
         url: shareUrl,
-        ...(fileUri ? { files: [fileUri] } : {}),
         dialogTitle: "Compartilhar via",
       });
       return true;
     } catch {
-      // Usuário cancelou ou plataforma não suporta
       return false;
     }
   };
 
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(fullText).then(() => {
-      toast({ title: "Copiado!", description: "Texto e link copiados para a área de transferência." });
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      toast({ title: "Copiado!", description: "Link copiado para a área de transferência." });
       onOpenChange(false);
     }).catch(() => {
       toast({ title: "Erro", description: "Não foi possível copiar.", variant: "destructive" });
@@ -124,11 +52,9 @@ export function ShareDrawer({
   };
 
   const shareWhatsApp = async () => {
-    // Tenta native share com imagem primeiro
     const shared = await handleNativeShare();
     if (!shared) {
-      // Fallback: abre WhatsApp com texto
-      const encoded = encodeURIComponent(fullText);
+      const encoded = encodeURIComponent(shareUrl);
       window.open(`https://wa.me/?text=${encoded}`, "_blank", "noopener,noreferrer");
     }
     onOpenChange(false);
@@ -136,17 +62,17 @@ export function ShareDrawer({
 
   const shareFacebook = () => {
     const encoded = encodeURIComponent(shareUrl);
-    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encoded}&quote=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${encoded}`, "_blank", "noopener,noreferrer");
     onOpenChange(false);
   };
 
   const shareInstagram = async () => {
     const shared = await handleNativeShare();
     if (!shared) {
-      navigator.clipboard.writeText(fullText).catch(() => { });
+      navigator.clipboard.writeText(shareUrl).catch(() => { });
       toast({
-        title: "Texto copiado!",
-        description: "Abra o Instagram e cole o texto no seu post ou story.",
+        title: "Link copiado!",
+        description: "Abra o Instagram e cole o link no seu post ou story.",
       });
     }
     onOpenChange(false);
@@ -155,13 +81,13 @@ export function ShareDrawer({
   const shareTelegram = async () => {
     const shared = await handleNativeShare();
     if (!shared) {
-      window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+      window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}`, "_blank", "noopener,noreferrer");
     }
     onOpenChange(false);
   };
 
   const shareTwitterX = () => {
-    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(fullText)}`, "_blank", "noopener,noreferrer");
+    window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}`, "_blank", "noopener,noreferrer");
     onOpenChange(false);
   };
 
@@ -174,7 +100,6 @@ export function ShareDrawer({
     }
   };
 
-  // Derive a short display URL (no protocol)
   const displayUrl = shareUrl.replace(/^https?:\/\//, "");
 
   return (
@@ -186,39 +111,11 @@ export function ShareDrawer({
 
         {/* Preview card */}
         <div className="px-4 pb-3">
-          <div className="rounded-xl border border-border/60 overflow-hidden bg-card shadow-sm">
-            {/* Image preview */}
-            {imageUrl ? (
-              <div className="w-full aspect-video bg-muted relative overflow-hidden">
-                <img
-                  src={imageUrl}
-                  alt="Preview"
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.display = "none";
-                  }}
-                />
-                {imageLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                    <Loader2 className="h-5 w-5 animate-spin text-white" />
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="w-full h-24 bg-muted flex items-center justify-center">
-                <ImageIcon className="h-8 w-8 text-muted-foreground/40" />
-              </div>
-            )}
-
-            {/* Text + link */}
-            <div className="p-3 space-y-2">
-              <p className="text-sm text-foreground line-clamp-2 leading-snug">
-                {text}
-              </p>
-              <div className="flex items-center gap-1.5 text-xs text-primary">
-                <ExternalLink className="h-3 w-3 shrink-0" />
-                <span className="truncate font-medium">{displayUrl}</span>
-              </div>
+          <div className="rounded-xl border border-border/60 overflow-hidden bg-card shadow-sm p-3 space-y-1">
+            <p className="text-sm text-foreground line-clamp-2 leading-snug">{text}</p>
+            <div className="flex items-center gap-1.5 text-xs text-primary">
+              <ExternalLink className="h-3 w-3 shrink-0" />
+              <span className="truncate font-medium">{displayUrl}</span>
             </div>
           </div>
         </div>
@@ -226,10 +123,7 @@ export function ShareDrawer({
         {/* App share buttons */}
         <div className="flex gap-4 px-4 py-3 overflow-x-auto">
           {/* WhatsApp */}
-          <button
-            onClick={shareWhatsApp}
-            className="flex flex-col items-center gap-1.5 min-w-[60px]"
-          >
+          <button onClick={shareWhatsApp} className="flex flex-col items-center gap-1.5 min-w-[60px]">
             <div className="w-14 h-14 rounded-2xl bg-[#25D366] flex items-center justify-center shadow-md">
               <svg viewBox="0 0 24 24" className="w-8 h-8 fill-white">
                 <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
@@ -239,10 +133,7 @@ export function ShareDrawer({
           </button>
 
           {/* Instagram */}
-          <button
-            onClick={shareInstagram}
-            className="flex flex-col items-center gap-1.5 min-w-[60px]"
-          >
+          <button onClick={shareInstagram} className="flex flex-col items-center gap-1.5 min-w-[60px]">
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-md"
               style={{ background: "linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%)" }}>
               <svg viewBox="0 0 24 24" className="w-8 h-8 fill-white">
@@ -253,10 +144,7 @@ export function ShareDrawer({
           </button>
 
           {/* Facebook */}
-          <button
-            onClick={shareFacebook}
-            className="flex flex-col items-center gap-1.5 min-w-[60px]"
-          >
+          <button onClick={shareFacebook} className="flex flex-col items-center gap-1.5 min-w-[60px]">
             <div className="w-14 h-14 rounded-2xl bg-[#1877F2] flex items-center justify-center shadow-md">
               <svg viewBox="0 0 24 24" className="w-8 h-8 fill-white">
                 <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
@@ -266,10 +154,7 @@ export function ShareDrawer({
           </button>
 
           {/* Telegram */}
-          <button
-            onClick={shareTelegram}
-            className="flex flex-col items-center gap-1.5 min-w-[60px]"
-          >
+          <button onClick={shareTelegram} className="flex flex-col items-center gap-1.5 min-w-[60px]">
             <div className="w-14 h-14 rounded-2xl bg-[#2CA5E0] flex items-center justify-center shadow-md">
               <svg viewBox="0 0 24 24" className="w-8 h-8 fill-white">
                 <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
@@ -279,10 +164,7 @@ export function ShareDrawer({
           </button>
 
           {/* X / Twitter */}
-          <button
-            onClick={shareTwitterX}
-            className="flex flex-col items-center gap-1.5 min-w-[60px]"
-          >
+          <button onClick={shareTwitterX} className="flex flex-col items-center gap-1.5 min-w-[60px]">
             <div className="w-14 h-14 rounded-2xl bg-black flex items-center justify-center shadow-md">
               <svg viewBox="0 0 24 24" className="w-8 h-8 fill-white">
                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
@@ -291,11 +173,8 @@ export function ShareDrawer({
             <span className="text-xs text-center text-foreground">X</span>
           </button>
 
-          {/* Mais opções (share nativo) */}
-          <button
-            onClick={handleMoreOptions}
-            className="flex flex-col items-center gap-1.5 min-w-[60px]"
-          >
+          {/* Mais opções */}
+          <button onClick={handleMoreOptions} className="flex flex-col items-center gap-1.5 min-w-[60px]">
             <div className="w-14 h-14 rounded-2xl bg-muted border border-border flex items-center justify-center shadow-sm">
               <Link className="w-7 h-7 text-foreground" />
             </div>
@@ -303,10 +182,7 @@ export function ShareDrawer({
           </button>
 
           {/* Copiar */}
-          <button
-            onClick={copyToClipboard}
-            className="flex flex-col items-center gap-1.5 min-w-[60px]"
-          >
+          <button onClick={copyToClipboard} className="flex flex-col items-center gap-1.5 min-w-[60px]">
             <div className="w-14 h-14 rounded-2xl bg-muted border border-border flex items-center justify-center shadow-sm">
               <Copy className="w-7 h-7 text-foreground" />
             </div>

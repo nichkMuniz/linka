@@ -95,7 +95,6 @@ export default function Index() {
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
   const [shareDrawerUrl, setShareDrawerUrl] = React.useState<string | undefined>(undefined);
-  const [shareDrawerImageUrl, setShareDrawerImageUrl] = React.useState<string | undefined>(undefined);
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   const [reportType, setReportType] = React.useState<"user" | "post" | null>(
     null,
@@ -593,10 +592,8 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
   const handleSharePost = React.useCallback((post: PostWithStats) => {
     const text = `Confira o post de @${post.userNickname} no Linka! 💪${post.description ? `\n"${post.description}"` : ""}`;
     const postUrl = `${window.location.origin}/post/${post.id}`;
-    const firstImage = (post.photos && post.photos.length > 0 ? post.photos[0] : null) || post.photo || undefined;
     setShareDrawerText(text);
     setShareDrawerUrl(postUrl);
-    setShareDrawerImageUrl(firstImage ?? undefined);
     setShareDrawerOpen(true);
   }, []);
 
@@ -768,10 +765,10 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
                             className="border border-white/30"
                           />
                           <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
-                            <span className="text-xs font-medium text-white">
+                            <span className="text-xs font-medium text-white leading-none">
                               {post.userNickname}
                             </span>
-                            <span onClick={(e) => e.stopPropagation()}>
+                            <span className="inline-flex items-center" onClick={(e) => e.stopPropagation()}>
                               <UserInsignias userId={post.user_id} />
                             </span>
                           </div>
@@ -940,10 +937,10 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
                             className="border border-white/30"
                           />
                           <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
-                            <span className="text-xs font-medium text-white">
+                            <span className="text-xs font-medium text-white leading-none">
                               {post.userNickname}
                             </span>
-                            <span onClick={(e) => e.stopPropagation()}>
+                            <span className="inline-flex items-center" onClick={(e) => e.stopPropagation()}>
                               <UserInsignias userId={post.user_id} />
                             </span>
                           </div>
@@ -1119,7 +1116,7 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
                             <ImageWithFallback src={post.photo} alt="Post" fallback="/placeholder.svg" className="max-w-full max-h-full w-auto h-auto object-contain" />
                           </div>
                         ) : null}
-                        <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
+                        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
                           <button onClick={() => navigate(`/usuario/${post.user_id}`)} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
                             <UserAvatar
                               photo={post.userPhoto}
@@ -1129,8 +1126,8 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
                               className="border border-white/30"
                             />
                             <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
-                              <span className="text-xs font-medium text-white">{post.userNickname}</span>
-                              <span onClick={(e) => e.stopPropagation()}>
+                              <span className="text-xs font-medium text-white leading-none">{post.userNickname}</span>
+                              <span className="inline-flex items-center" onClick={(e) => e.stopPropagation()}>
                                 <UserInsignias userId={post.user_id} />
                               </span>
                             </div>
@@ -1521,7 +1518,6 @@ const [tabBarHidden, setTabBarHidden] = React.useState(false);
         onOpenChange={setShareDrawerOpen}
         text={shareDrawerText}
         url={shareDrawerUrl}
-        imageUrl={shareDrawerImageUrl}
         title="Compartilhar post"
       />
 

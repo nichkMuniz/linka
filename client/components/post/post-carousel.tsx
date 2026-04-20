@@ -7,32 +7,43 @@ interface PostCarouselProps {
   editMode?: boolean;
   onRemovePhoto?: (photoUrl: string, index: number) => void;
   removingPhoto?: boolean;
+  objectFit?: "cover" | "contain";
 }
 
-export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPhoto }: PostCarouselProps) {
+export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPhoto, objectFit = "cover" }: PostCarouselProps) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const touchStartX = React.useRef<number | null>(null);
   const touchStartY = React.useRef<number | null>(null);
 
+  const isContain = objectFit === "contain";
+  // contain: image flows at natural size; cover: fixed aspect-ratio box
+  const imgClass = isContain ? "w-full h-auto block" : "w-full h-full object-cover";
+  const coverBox = "relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 overflow-hidden rounded-lg";
+
   // Final safety check for non-array photos
   if (!Array.isArray(photos)) {
     return photos ? (
-      <div className="relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 overflow-hidden rounded-lg">
-        <img src={String(photos)} alt={alt} className="w-full h-full object-cover" />
-      </div>
+      isContain ? (
+        <div className="w-full bg-black rounded-lg overflow-hidden">
+          <img src={String(photos)} alt={alt} className={imgClass} />
+        </div>
+      ) : (
+        <div className={coverBox}>
+          <img src={String(photos)} alt={alt} className={imgClass} />
+        </div>
+      )
     ) : null;
   }
 
   // Single photo — no carousel needed
   if (photos.length === 1) {
-    return (
-      <div className="relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 overflow-hidden rounded-lg">
-        <img
-          src={photos[0]}
-          alt={alt}
-          className="w-full h-full object-cover"
-          loading="lazy"
-        />
+    return isContain ? (
+      <div className="w-full bg-black rounded-lg">
+        <img src={photos[0]} alt={alt} className={imgClass} loading="lazy" />
+      </div>
+    ) : (
+      <div className={coverBox}>
+        <img src={photos[0]} alt={alt} className={imgClass} loading="lazy" />
       </div>
     );
   }
@@ -60,7 +71,7 @@ export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPho
 
   return (
     <div
-      className="relative group overflow-hidden rounded-lg bg-slate-900/10"
+      className={`relative group overflow-hidden rounded-lg ${isContain ? "bg-black" : "bg-slate-900/10"}`}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -70,11 +81,11 @@ export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPho
         style={{ transform: `translateX(-${currentIndex * 100}%)` }}
       >
         {photos.map((src, i) => (
-          <div key={i} className="w-full aspect-square md:aspect-auto md:h-[450px] flex-shrink-0 overflow-hidden" style={{ minWidth: "100%" }}>
+          <div key={i} className={`flex-shrink-0 ${isContain ? "w-full" : "w-full aspect-square md:aspect-auto md:h-[450px] overflow-hidden"}`} style={{ minWidth: "100%" }}>
             <img
               src={src}
               alt={`${alt} - ${i + 1}`}
-              className="w-full h-full object-cover"
+              className={imgClass}
               loading={i === 0 ? "eager" : "lazy"}
               decoding="async"
             />

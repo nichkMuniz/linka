@@ -24,7 +24,7 @@ import {
   type ShotComment,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, ChevronLeft, ChevronRight, Play, Pause } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -91,6 +91,24 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   const containerRef = React.useRef<HTMLDivElement>(null);
   const videoRefsMap = React.useRef<Record<string, HTMLVideoElement>>({});
   const [currentIndex, setCurrentIndex] = React.useState(0);
+  const [isPaused, setIsPaused] = React.useState(false);
+  const [showPauseIcon, setShowPauseIcon] = React.useState(false);
+  const pauseIconTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleVideoTap = React.useCallback((shotId: string) => {
+    const video = videoRefsMap.current[shotId];
+    if (!video) return;
+    if (video.paused) {
+      video.play().catch(() => {});
+      setIsPaused(false);
+    } else {
+      video.pause();
+      setIsPaused(true);
+    }
+    setShowPauseIcon(true);
+    if (pauseIconTimerRef.current) clearTimeout(pauseIconTimerRef.current);
+    pauseIconTimerRef.current = setTimeout(() => setShowPauseIcon(false), 800);
+  }, []);
 
   // Auto-dismiss swipe hint after 4s to prevent blocking interaction
   React.useEffect(() => {
@@ -499,19 +517,32 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
             >
               {/* Video */}
               {shot.video_url ? (
-                <video
-                  ref={(el) => {
-                    if (el) {
-                      videoRefsMap.current[shot.id] = el;
-                      el.muted = isMuted;
-                    }
-                  }}
-                  src={shot.video_url}
-                  muted={isMuted}
-                  loop
-                  playsInline
-                  className="h-full w-full object-cover"
-                />
+                <div className="h-full w-full relative" onClick={() => handleVideoTap(shot.id)}>
+                  <video
+                    ref={(el) => {
+                      if (el) {
+                        videoRefsMap.current[shot.id] = el;
+                        el.muted = isMuted;
+                      }
+                    }}
+                    src={shot.video_url}
+                    muted={isMuted}
+                    loop
+                    playsInline
+                    className="h-full w-full object-cover"
+                  />
+                  {/* Tap feedback icon */}
+                  {showPauseIcon && visibleShotId === shot.id && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="bg-black/50 rounded-full p-4 animate-fade-in">
+                        {isPaused
+                          ? <Pause className="h-10 w-10 text-white" />
+                          : <Play className="h-10 w-10 text-white" />
+                        }
+                      </div>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
                   {t("shots_video_unavailable")}
@@ -601,8 +632,8 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                 className="absolute left-0 right-0 z-10 flex items-end px-4 gap-3"
                 style={{
                   bottom: isDesktop
-                    ? "1.5rem"
-                    : "calc(68px + env(safe-area-inset-bottom) + 0.75rem)",
+                    ? "1rem"
+                    : `calc(${footerHeight}px + env(safe-area-inset-bottom) + 0.25rem)`,
                 }}
               >
                 {/* Description - Bottom Left */}
@@ -616,43 +647,43 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
 
                 {/* Incentive Buttons + Comments - Right Side */}
                 <div className="flex-shrink-0 flex flex-col gap-3 z-20">
-                {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
-                  const likeKeyMap: Record<number, keyof typeof shot.likes> = {
-                    1: "apoio", 2: "continua", 3: "ganhador",
-                    4: "consegueMais", 5: "limiteMaior", 6: "maisAlgum",
-                  };
-                  const count = shot.likes?.[likeKeyMap[type]] ?? 0;
-                  return (
-                    <div key={type} className="flex flex-col items-center gap-0.5">
-                      <PostIncentiveButton
-                        type={type}
-                        isActive={(shot.userLikes || [])?.includes(type) ?? false}
-                        onClick={() => handleIncentiveClick(shot, type)}
-                        loading={togglingIncentives.has(`${shot.id}-${type}`)}
-                      />
-                      {count > 0 && (
-                        <span className="text-xs text-white/70 font-medium leading-none">
-                          {count}
+                  {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
+                    const likeKeyMap: Record<number, keyof typeof shot.likes> = {
+                      1: "apoio", 2: "continua", 3: "ganhador",
+                      4: "consegueMais", 5: "limiteMaior", 6: "maisAlgum",
+                    };
+                    const count = shot.likes?.[likeKeyMap[type]] ?? 0;
+                    return (
+                      <div key={type} className="flex flex-col items-center gap-0.5">
+                        <PostIncentiveButton
+                          type={type}
+                          isActive={(shot.userLikes || [])?.includes(type) ?? false}
+                          onClick={() => handleIncentiveClick(shot, type)}
+                          loading={togglingIncentives.has(`${shot.id}-${type}`)}
+                        />
+                        {count > 0 && (
+                          <span className="text-xs text-white/70 font-medium leading-none">
+                            {count}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Comments Button */}
+                  <button
+                    onClick={() => handleOpenComments(shot)}
+                    aria-label={`Comentários (${shot.commentCount || 0})`}
+                    className="inline-flex shrink-0 items-center gap-1 transition-opacity hover:opacity-80 min-h-[44px] min-w-[44px] justify-center"
+                  >
+                    <div className="flex flex-col items-center gap-1">
+                      <MessageCircle className="h-[18px] w-[18px] text-white hover:scale-110 transition-transform" />
+                      {(shot.commentCount || 0) > 0 && (
+                        <span className="text-xs text-white/70 font-medium">
+                          {shot.commentCount}
                         </span>
                       )}
                     </div>
-                  );
-                })}
-                {/* Comments Button */}
-                <button
-                  onClick={() => handleOpenComments(shot)}
-                  aria-label={`Comentários (${shot.commentCount || 0})`}
-                  className="inline-flex shrink-0 items-center gap-1 transition-opacity hover:opacity-80 min-h-[44px] min-w-[44px] justify-center"
-                >
-                  <div className="flex flex-col items-center gap-1">
-                    <MessageCircle className="h-[18px] w-[18px] text-white hover:scale-110 transition-transform" />
-                    {(shot.commentCount || 0) > 0 && (
-                      <span className="text-xs text-white/70 font-medium">
-                        {shot.commentCount}
-                      </span>
-                    )}
-                  </div>
-                </button>
+                  </button>
                 </div>
               </div>
 

@@ -89,6 +89,7 @@ Cada rotina exibe:
 - Lista de itens (exercícios / refeições / hábitos)
 - Status de conclusão diária
 - Botão de compartilhar rotina
+- **Botão de resumo da rotina** (`BarChart2`): disponível apenas em rotinas de treino (`typeCode === 1`) com exercícios; abre o modal de Resumo do Treino com dados agregados do histórico de cada exercício da rotina (volume, séries, nome dos exercícios)
 - Menu: Adicionar itens | Editar rotina (renomear) | Vincular Meta | Excluir rotina
 
 Cada **item** dentro da rotina exibe:
@@ -219,9 +220,34 @@ Dados: `getTodayMoodDb`, `saveTodayMoodDb` — tabela `mood_logs`
 
 ---
 
+### Card: Humor do Dia + Histórico
+
+Card permanente exibido na aba **Rotinas & Metas**, logo após o card de Macro do Dia.
+
+**Conteúdo:**
+- Emoji + label do humor registrado hoje (ou "Nenhum registro hoje" se ainda não registrado)
+- Botão/link "Ver histórico →" que abre o `MoodHistoryDrawer`
+
+**MoodHistoryDrawer** — `client/components/goals/mood-history-drawer.tsx`
+
+Drawer que sobe do bottom com histórico dos últimos 30 dias:
+- **Mini-calendário semanal (7 dias):** grade de 7 colunas mostrando o emoji de cada dia; dia atual com destaque (`ring-brand`); dias sem registro exibem `·`
+- **Resumo do período:** humor predominante (moda) + média numérica (1–5) dos últimos 30 dias
+- **Lista cronológica:** cada entrada com emoji, label colorido, data formatada e barra de score visual (5 barrinhas preenchidas proporcionalmente)
+- **Empty state:** ícone 🌱 + mensagem orientando o usuário
+- **Skeleton loader** durante carregamento
+
+Dados: `getMoodHistoryDb(userId, 30)` — tabela `mood_logs`
+
+Componente: `MoodHistoryDrawer` em `client/components/goals/mood-history-drawer.tsx`
+
+---
+
 ## Metas Disponíveis (catálogo)
 
 Exibe apenas metas com `created_by_user = 0` (metas padrão do sistema). Metas criadas por usuários (`created_by_user = 1`) ficam visíveis somente para quem as criou via `getUserGoalsDb`.
+
+**Campo de busca:** Input de texto dentro do accordion "Metas Disponíveis" que filtra as metas em tempo real pelo campo `description`. Exibe mensagem de empty state quando nenhuma meta corresponde ao termo buscado. State local: `availableGoalSearch` em `GoalsTab`.
 
 ---
 
