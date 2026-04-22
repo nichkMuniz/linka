@@ -2307,16 +2307,13 @@ export default function Profile() {
               </DrawerTitle>
               {selectedPost && (
                 <div className="flex items-center gap-2">
-                  {selectedPost.userPhoto ? (
-                    <ImageWithFallback
-                      src={selectedPost.userPhoto}
-                      alt={selectedPost.userNickname}
-                      fallback="/placeholder.svg"
-                      className="h-7 w-7 rounded-full object-cover border border-border/60"
-                    />
-                  ) : (
-                    <div className="h-7 w-7 rounded-full bg-muted" />
-                  )}
+                  <UserAvatar
+                    photo={selectedPost.userPhoto}
+                    gender={selectedPost.userGender}
+                    nickname={selectedPost.userNickname}
+                    size="sm"
+                    className="h-7 w-7 border border-border/60"
+                  />
                   <span className="text-sm font-medium">{selectedPost.userNickname}</span>
                 </div>
               )}

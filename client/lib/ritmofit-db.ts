@@ -3658,6 +3658,7 @@ export type FlowViewer = {
   followerId: string;
   userNickname: string;
   userPhoto: string | null;
+  userGender: string | null;
   incentiveTypes: number[]; // empty = no incentive sent
   viewedAt: string;
 };
@@ -3925,7 +3926,7 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
     const [profilesResult, likesResult] = await Promise.all([
       supabase
         .from("profiles")
-        .select("user_id, nickname, photo")
+        .select("user_id, nickname, photo, gender")
         .in("user_id", followerIds),
       supabase
         .from("flow_likes")
@@ -3952,6 +3953,7 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
         followerId: String(view.follower_id),
         userNickname: profile?.nickname ?? "Usuário",
         userPhoto: profile?.photo ?? null,
+        userGender: profile?.gender ?? null,
         incentiveTypes: likesPerUser.get(String(view.follower_id)) ?? [],
         viewedAt: String(view.updated_at ?? view.created_at),
       };
@@ -4620,62 +4622,48 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
       return [];
     }
 
-    // Get all unique user IDs to batch fetch profiles
-    const uniqueUserIds = [
-      ...new Set((shotsData ?? []).map((r: any) => String(r.user_id))),
-    ];
+    const shotIds = shotsData.map((r: any) => String(r.id));
+    const uniqueUserIds = [...new Set(shotsData.map((r: any) => String(r.user_id)))];
 
-    let profiles: any[] = [];
-    if (uniqueUserIds.length > 0) {
-      const { data: profilesData, error: profilesError } = await supabase
+    // Fetch profiles, likes, and comment counts in parallel
+    const [profilesResult, likesResult, commentsResult] = await Promise.all([
+      supabase
         .from("profiles")
         .select("user_id, nickname, photo, gender")
-        .in("user_id", uniqueUserIds);
+        .in("user_id", uniqueUserIds),
+      supabase
+        .from("shots_likes")
+        .select("shots_id, type, user_id")
+        .in("shots_id", shotIds),
+      supabase
+        .from("shots_comments")
+        .select("shots_id")
+        .in("shots_id", shotIds),
+    ]);
 
-      if (profilesError) {
-        console.error("[getShotsDb] Error fetching profiles:", profilesError);
-      } else {
-        profiles = profilesData ?? [];
-      }
+    const profiles: any[] = profilesResult.data ?? [];
+    if (profilesResult.error) console.error("[getShotsDb] Error fetching profiles:", profilesResult.error);
+
+    let allLikes: any[] = [];
+    if (likesResult.error) {
+      console.error("[getShotsDb] Error fetching likes:", likesResult.error?.message);
+    } else {
+      allLikes = likesResult.data ?? [];
     }
 
-
     const profileMap = new Map(
-      (profiles ?? []).map((p: any) => [
+      profiles.map((p: any) => [
         p.user_id,
         { nickname: p.nickname, photo: p.photo, gender: p.gender },
       ]),
     );
 
-    // Get all likes for these shots in one query
-    const shotIds = (shotsData ?? []).map((r: any) => String(r.id));
-
-    let allLikes: any[] = [];
-    if (shotIds.length > 0) {
-      const { data: likesData, error: likesError } = await supabase
-        .from("shots_likes")
-        .select("shots_id, type, user_id")
-        .in("shots_id", shotIds);
-
-      if (likesError) {
-        console.error(
-          "[getShotsDb] Error fetching likes:",
-          likesError?.message || JSON.stringify(likesError),
-        );
-        // Try legacy format if shots_likes table doesn't exist
-        const { data: legacyLikes, error: legacyError } = await supabase
-          .from("likes")
-          .select("post_id, type, user_id")
-          .in("post_id", shotIds);
-
-        if (!legacyError && legacyLikes) {
-          allLikes = (legacyLikes ?? []).map((like: any) => ({
-            ...like,
-            shots_id: like.post_id,
-          }));
-        }
-      } else {
-        allLikes = likesData ?? [];
+    // Build comment count map
+    const commentCountMap = new Map<string, number>();
+    if (!commentsResult.error && commentsResult.data) {
+      for (const row of commentsResult.data) {
+        const id = String(row.shots_id);
+        commentCountMap.set(id, (commentCountMap.get(id) ?? 0) + 1);
       }
     }
 
@@ -4730,6 +4718,7 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
           created_at: String(shot.created_at ?? new Date().toISOString()),
           likes: likeData.likes,
           userLikes: likeData.userLikes,
+          commentCount: commentCountMap.get(String(shot.id)) ?? 0,
           userNickname: String(userProfile.nickname ?? "Usuário"),
           userPhoto: userProfile.photo ? String(userProfile.photo) : null,
           userGender: userProfile.gender ? String(userProfile.gender) : null,
@@ -4805,13 +4794,12 @@ export async function updateShotDb(
       return false;
     }
 
+    invalidateQueryCache("shots"); invalidateQueryCache("userShots");
     return true;
   } catch (err: any) {
     console.error("Error updating shot:", err);
     return false;
   }
-
-  invalidateQueryCache("shots"); invalidateQueryCache("userShots");
 }
 
 export async function deleteShotDb(shotId: string): Promise<boolean> {
@@ -4836,13 +4824,12 @@ export async function deleteShotDb(shotId: string): Promise<boolean> {
       return false;
     }
 
+    invalidateQueryCache("shots"); invalidateQueryCache("userShots");
     return true;
   } catch (err: any) {
     console.error("Error deleting shot:", err);
     return false;
   }
-
-  invalidateQueryCache("shots"); invalidateQueryCache("userShots");
 }
 
 export async function toggleShotIncentiveDb(
@@ -5399,7 +5386,7 @@ export async function saveWorkoutSeriesDb(
 // Notifications functionality
 export type NotificationItem = {
   id: string;
-  type: 1 | 2 | 3 | 4 | 5 | 6 | 7; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction
+  type: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; // 1 = new follower, 2 = incentive, 3 = comment, 4 = duel invite, 5 = join request, 6 = comment reaction, 7 = check-in reaction, 8 = promotion comment
   userId: string;
   userNickname: string;
   userPhoto: string | null;
@@ -5408,6 +5395,7 @@ export type NotificationItem = {
   shotId?: string; // Present when notification relates to a shot (from shots_id column in notifications)
   flowId?: string; // Present when type=6 and reaction was on a flow comment (decoded from shots_id "flow:<id>")
   checkInId?: string; // Present when type=6/7 and reaction was on a checkin comment or checkin itself (decoded from shots_id "checkin:<id>" or from duel_check_in_id column)
+  promotionId?: string; // For type 8 (promotion comment) — stored in post_id column
   postPhoto?: string;
   incentiveType?: number; // For type 2 (incentive): 1=apoio, 2=continua, 3=ganhador, 4=consegueMais, 5=limiteMaior, 6=maisAlgum
   groupName?: string; // For type 4 (duel invite)
@@ -5692,6 +5680,11 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           notification.groupName = group?.name ?? "Duelo";
         }
 
+        // Type 8: promotion comment — promotion_id stored in post_id column
+        if (notif.type === 8 && notif.post_id) {
+          notification.promotionId = String(notif.post_id);
+        }
+
         return notification;
       })
       .filter((n: NotificationItem | null) => n !== null) as NotificationItem[];
@@ -5846,9 +5839,13 @@ export function subscribeToUnreadNotificationsDb(
       const viewer = await getViewer();
       if (!viewer || !isSubscribed) return;
 
+      // Remove existing channel before creating a new one to avoid duplicate subscription errors
+      const channelName = `notifications:${viewer.id}`;
+      await supabase.removeChannel(supabase.channel(channelName));
+
       // Subscribe to insert/update events on notifications table
       const subscription = supabase
-        .channel(`notifications:${viewer.id}`)
+        .channel(channelName)
         .on(
           "postgres_changes",
           {
@@ -5866,19 +5863,19 @@ export function subscribeToUnreadNotificationsDb(
         )
         .subscribe();
 
-      // Return unsubscribe function
-      return () => {
-        isSubscribed = false;
-        subscription.unsubscribe();
-      };
     } catch (err: any) {
       console.error("Error subscribing to notifications:", err);
     }
   })();
 
-  // Cleanup function
   return () => {
     isSubscribed = false;
+    if (supabase) {
+      // getViewer is async so we do best-effort removal
+      getViewer().then((viewer) => {
+        if (viewer) supabase!.removeChannel(supabase!.channel(`notifications:${viewer.id}`));
+      });
+    }
   };
 }
 
@@ -6296,7 +6293,8 @@ export async function createCheckInDb(userId: string): Promise<CheckIn> {
       .single();
 
     if (insertError) {
-      // 409 = unique constraint violation — check-in already exists for today
+      // 23505 / 409 = unique constraint violation — either check-in already exists
+      // for today, or a DB trigger on check_ins failed due to a duplicate in user_badges.
       if (insertError.code === '23505' || (insertError as any).status === 409) {
         const { data: existingToday } = await supabase
           .from("check_ins")
@@ -6305,6 +6303,15 @@ export async function createCheckInDb(userId: string): Promise<CheckIn> {
           .eq("check_in_date", checkInDate)
           .maybeSingle();
         if (existingToday) return existingToday as CheckIn;
+
+        // If the check-in doesn't exist but we got 23505, the violation came from a
+        // DB trigger (e.g. awarding badges) rather than from the check_ins constraint.
+        // Log it but don't surface it as a check-in failure — the trigger should be
+        // removed via the 20260422-fix-badge-trigger.sql migration.
+        if (insertError.message?.includes('user_badges')) {
+          console.warn('createCheckInDb: 23505 from user_badges trigger — run migration 20260422-fix-badge-trigger.sql');
+          throw new Error('Trigger de badges causou conflito. Execute a migration 20260422-fix-badge-trigger.sql no Supabase.');
+        }
       }
       throw insertError;
     }
@@ -8931,25 +8938,20 @@ export async function setSelectedBadgeDb(badgeId: string): Promise<void> {
        throw new Error(`Requisito não atingido (${totalCheckIns}/${badge.data.required_checkins} check-ins)`);
     }
 
-    // 2. Atualizar ou inserir na user_badges
-    // Buscamos se já existe alguma linha para esse usuário
-    const { data: existingRows } = await supabase
+    // 2. Substituir a insígnia selecionada: remove linhas antigas e insere a escolhida.
+    // Isso garante sempre uma única linha por usuário (a insígnia ativa).
+    // Múltiplas linhas podiam surgir de triggers de check-in — esta abordagem é idempotente.
+    await supabase.from("user_badges").delete().eq("user_id", viewer.id);
+    const { error: insertError } = await supabase
       .from("user_badges")
-      .select("id")
-      .eq("user_id", viewer.id);
-
-    if (!existingRows || existingRows.length === 0) {
-      await supabase.from("user_badges").insert({ user_id: viewer.id, badge_id: badgeId });
-    } else {
-      // Atualiza a primeira linha encontrada para ser a selecionada
-      await supabase.from("user_badges").update({ badge_id: badgeId, earned_at: new Date().toISOString() }).eq("id", existingRows[0].id);
-    }
+      .insert({ user_id: viewer.id, badge_id: badgeId });
+    if (insertError) throw insertError;
   } catch (err) {
     console.error("Error in setSelectedBadgeDb:", err);
     throw err;
   }
 
-  invalidateQueryCache("userBadges");
+  invalidateQueryCache(`userBadges:${viewer.id}`);
 }
 
 /**
@@ -8991,7 +8993,11 @@ export async function awardBadgesForCheckInsDb(userId: string): Promise<Badge[]>
       invalidateQueryCache("userBadges");
     }
 
-    return newBadges;
+    // Only surface badges whose threshold was reached by THIS specific check-in.
+    // All earned badges are still persisted above (backfill), but we avoid
+    // showing historic badges as "new" when the DB had no prior records.
+    const justUnlocked = newBadges.filter((b) => b.required_checkins > totalCheckIns - 1);
+    return justUnlocked;
   } catch (err) {
     console.error("Error in awardBadgesForCheckInsDb:", err);
     return [];
@@ -9400,6 +9406,8 @@ export type Promotion = {
   active_reports?: number;
   expired_reports?: number;
   user_status_vote?: "active" | "expired" | null;
+  // comments
+  comments_count?: number;
 };
 
 export type PromotionCategory =
@@ -9516,6 +9524,18 @@ export async function getPromotionsDb(
       }
     }
 
+    // Fetch comments counts
+    const { data: commentCountRows } = await supabase!
+      .from("promotion_comments")
+      .select("promotion_id")
+      .in("promotion_id", rows.map((r) => r.id));
+
+    const commentCountMap = new Map<string, number>();
+    for (const c of commentCountRows ?? []) {
+      const pid = String(c.promotion_id);
+      commentCountMap.set(pid, (commentCountMap.get(pid) ?? 0) + 1);
+    }
+
     return rows.map((r) => {
       const profile = profileMap.get(String(r.user_id));
       return {
@@ -9529,6 +9549,7 @@ export async function getPromotionsDb(
         active_reports: activeReportsMap.get(r.id) ?? 0,
         expired_reports: expiredReportsMap.get(r.id) ?? 0,
         user_status_vote: userVoteMap.get(r.id) ?? null,
+        comments_count: commentCountMap.get(r.id) ?? 0,
       };
     });
   });
@@ -9719,6 +9740,183 @@ export async function reportPromotionStatusDb(
     invalidateQueryCache("promotions");
     return "voted";
   }
+}
+
+// ─── Promotion Comments ───────────────────────────────────────────────────────
+
+export type PromotionComment = {
+  id: string;
+  promotionId: string;
+  userId: string;
+  userName: string;
+  userHandle: string;
+  userPhoto: string | null;
+  userGender: string | null;
+  text: string;
+  createdAt: string;
+};
+
+export async function getPromotionCommentsDb(
+  promotionId: string,
+): Promise<PromotionComment[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  return cached(`promotionComments:${promotionId}`, CACHE_TTL_SHORT, async () => {
+    const { data, error } = await supabase
+      .from("promotion_comments")
+      .select("id, promotion_id, user_id, text, created_at")
+      .eq("promotion_id", promotionId)
+      .order("created_at", { ascending: true })
+      .limit(500);
+
+    if (error) {
+      console.error("Error fetching promotion comments:", error);
+      return [];
+    }
+
+    const rows = data ?? [];
+    if (rows.length === 0) return [];
+
+    const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, handle, photo, gender")
+      .in("user_id", userIds);
+
+    const profileMap = new Map(
+      (profiles ?? []).map((p: any) => [
+        String(p.user_id),
+        { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo ?? null, gender: p.gender ?? null },
+      ]),
+    );
+
+    return rows.map((row: any) => {
+      const profile = profileMap.get(String(row.user_id));
+      return {
+        id: String(row.id),
+        promotionId: String(row.promotion_id),
+        userId: String(row.user_id),
+        userName: profile?.nickname ?? "Usuário",
+        userHandle: profile?.handle ?? "",
+        userPhoto: profile?.photo ?? null,
+        userGender: profile?.gender ?? null,
+        text: String(row.text ?? ""),
+        createdAt: String(row.created_at ?? new Date().toISOString()),
+      } satisfies PromotionComment;
+    });
+  });
+}
+
+export async function addPromotionCommentDb(promotionId: string, text: string) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  assertUUID(promotionId, "ID da promoção");
+  assertNotEmpty(text, "Comentário");
+  assertMaxLength(text.trim(), 500, "Comentário");
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  const { error } = await supabase.from("promotion_comments").insert({
+    promotion_id: promotionId,
+    user_id: viewer.id,
+    text: text.trim(),
+  });
+
+  if (error) {
+    console.error("Error adding promotion comment:", error);
+    throw error;
+  }
+
+  invalidateQueryCache("promotionComments");
+  invalidateQueryCache("promotions");
+
+  // Notify the promotion owner (fire-and-forget — don't block the UI)
+  const { data: promo } = await supabase
+    .from("promotions")
+    .select("user_id")
+    .eq("id", promotionId)
+    .maybeSingle();
+
+  if (promo?.user_id) {
+    sendPromotionCommentNotificationDb(promotionId, promo.user_id).catch((err) =>
+      console.error("Error sending promotion comment notification:", err),
+    );
+  }
+}
+
+export async function deletePromotionCommentDb(commentId: string) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const { error } = await supabase
+    .from("promotion_comments")
+    .delete()
+    .eq("id", commentId);
+
+  if (error) {
+    console.error("Error deleting promotion comment:", error);
+    throw error;
+  }
+
+  invalidateQueryCache("promotionComments");
+  invalidateQueryCache("promotions");
+}
+
+export async function updatePromotionCommentDb(commentId: string, text: string) {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  assertNotEmpty(text, "Comentário");
+  assertMaxLength(text.trim(), 500, "Comentário");
+
+  const { error } = await supabase
+    .from("promotion_comments")
+    .update({ text: text.trim() })
+    .eq("id", commentId);
+
+  if (error) {
+    console.error("Error updating promotion comment:", error);
+    throw error;
+  }
+
+  invalidateQueryCache("promotionComments");
+}
+
+export async function sendPromotionCommentNotificationDb(
+  promotionId: string,
+  promotionOwnerId: string,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+  // Don't notify the owner when they comment on their own promotion
+  if (viewer.id === promotionOwnerId) return;
+
+  // Avoid duplicate notifications: one per commenter per promotion
+  const { data: existing } = await supabase
+    .from("notifications")
+    .select("id")
+    .eq("user_id", promotionOwnerId)
+    .eq("follower_id", viewer.id)
+    .eq("type", 8)
+    .eq("post_id", promotionId)
+    .maybeSingle();
+
+  if (existing) return;
+
+  const { error } = await supabase.from("notifications").insert({
+    user_id: promotionOwnerId,
+    follower_id: viewer.id,
+    type: 8,
+    post_id: promotionId, // reuse post_id column to store promotion_id
+    read: false,
+  });
+
+  if (error) {
+    console.error("Error sending promotion comment notification:", error);
+  }
+
+  invalidateQueryCache("notifications");
+  invalidateQueryCache("unreadNotifCount");
 }
 
 // ─── Admin ────────────────────────────────────────────────────────────────────

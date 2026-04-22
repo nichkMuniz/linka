@@ -1,3 +1,4 @@
+import React from "react";
 import {
   Drawer,
   DrawerContent,
@@ -37,6 +38,11 @@ interface PostLikesModalProps {
 export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProps) {
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const [activeFilter, setActiveFilter] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    if (!open) setActiveFilter(null);
+  }, [open]);
 
   const getIncentiveTypeName = (type: number): string => {
     const map: Record<number, "incentive_1"|"incentive_2"|"incentive_3"|"incentive_4"|"incentive_5"|"incentive_6"> = {
@@ -63,6 +69,8 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
     {} as { [key: number]: number }
   );
 
+  const filteredLikes = activeFilter !== null ? likes.filter((l) => l.type === activeFilter) : likes;
+
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
@@ -81,22 +89,28 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
               </p>
             </div>
 
-            {/* Incentive Type Breakdown with Icons - Single Line */}
+            {/* Incentive Type Breakdown with Icons - Filterable */}
             {Object.keys(incentiveTypeCounts).length > 0 && (
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-2">
                 {Object.entries(incentiveTypeCounts).map(([typeStr, count]) => {
                   const typeNum = Number(typeStr);
+                  const isActive = activeFilter === typeNum;
                   return (
-                    <div
+                    <button
                       key={typeStr}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-muted/40 rounded-full text-sm"
+                      onClick={() => setActiveFilter(isActive ? null : typeNum)}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm transition-all active:scale-95 ${
+                        isActive
+                          ? "bg-primary text-primary-foreground shadow-md"
+                          : "bg-muted/40 text-foreground hover:bg-muted/70"
+                      }`}
                     >
-                      <span className="font-semibold text-foreground">{count}</span>
-                      <p className="text-muted-foreground">{getIncentiveTypeName(typeNum)}</p>
+                      <span className="font-semibold">{count}</span>
+                      <p className={isActive ? "text-primary-foreground" : "text-muted-foreground"}>{getIncentiveTypeName(typeNum)}</p>
                       <span className="text-base ml-1">
                         {INCENTIVE_ICONS[typeNum] || "👍"}
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -105,15 +119,15 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
         </DrawerHeader>
 
         <div className="flex-1 overflow-y-auto px-4 pb-6">
-          {likes.length === 0 ? (
+          {filteredLikes.length === 0 ? (
             <div className="flex items-center justify-center py-8">
               <p className="text-sm text-muted-foreground">
-                {t("incentives_none")}
+                {likes.length === 0 ? t("incentives_none") : "Nenhum incentivo deste tipo"}
               </p>
             </div>
           ) : (
             <div className="space-y-2 pt-4">
-              {likes.map((like) => (
+              {filteredLikes.map((like) => (
                 <button
                   key={`${like.userId}-${like.type}`}
                   onClick={() => handleUserClick(like.userId)}

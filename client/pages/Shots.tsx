@@ -41,7 +41,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { EditShotDescriptionDrawer } from "@/components/profile/edit-shot-description-drawer";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useAuth } from "@/hooks/useAuth";
@@ -174,7 +173,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         setLoading(false);
       }
     })();
-  }, [user]);
+  }, [user?.id]);
 
   // Set up IntersectionObserver to detect visible shot and auto-play video
   React.useEffect(() => {
@@ -529,6 +528,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     muted={isMuted}
                     loop
                     playsInline
+                    preload="metadata"
                     className="h-full w-full object-cover"
                   />
                   {/* Tap feedback icon */}
@@ -902,10 +902,6 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                 }}
                 disabled={isAddingComment}
                 className="rounded-full"
-              />
-              <EmojiPicker
-                placement="top"
-                onSelect={(emoji) => setCommentText((prev) => prev + emoji)}
               />
               <Button
                 onClick={handleAddComment}

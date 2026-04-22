@@ -532,13 +532,26 @@ export function RoutinesTab({
                 const isExpanded = expandedRoutineId === key;
                 const lastDateLabel = typeCode === 1 && lastDate
                   ? (() => {
-                    const d = new Date(lastDate);
+                    const localDateStr = (date: Date) => {
+                      const y = date.getFullYear();
+                      const m = String(date.getMonth() + 1).padStart(2, "0");
+                      const day = String(date.getDate()).padStart(2, "0");
+                      return `${y}-${m}-${day}`;
+                    };
+                    // Treat lastDate as local date to avoid UTC midnight parsing issues
+                    const parts = lastDate.split("T")[0].split("-");
+                    const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
                     const today = new Date();
+                    const todayStr = localDateStr(today);
+                    const dStr = localDateStr(d);
+                    if (dStr === todayStr) return "Hoje";
+                    const yesterday = new Date(today);
+                    yesterday.setDate(today.getDate() - 1);
+                    if (dStr === localDateStr(yesterday)) return "Ontem";
                     const diffMs = today.getTime() - d.getTime();
                     const diffDays = Math.floor(diffMs / 86400000);
-                    if (diffDays === 0) return "Hoje";
-                    if (diffDays === 1) return "Ontem";
-                    return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+                    if (diffDays > 2) return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+                    return null;
                   })()
                   : null;
 

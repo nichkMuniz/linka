@@ -382,7 +382,7 @@ export default function Messages() {
   if (viewMode === "conversation" && selectedConversation) {
     return (
       <div
-        className="fixed top-0 right-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] bg-background flex flex-col z-50 left-0"
+        className="fixed top-0 right-0 bottom-0 bg-background flex flex-col z-[60] left-0"
         style={{ left: "var(--sidebar-width, 0px)" }}
       >
         {/* Header */}
@@ -595,7 +595,7 @@ export default function Messages() {
         </div>
 
         {/* Input */}
-        <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2">
+        <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
           <Input
             placeholder="Envie uma mensagem..."
             value={messageText}
@@ -610,7 +610,7 @@ export default function Messages() {
           />
           <Button
             onClick={handleSendMessage}
-            disabled={!messageText.trim()}
+            disabled={!messageText.trim() || isSending}
             size="sm"
             className="rounded-full flex-shrink-0"
           >

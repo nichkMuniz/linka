@@ -27,7 +27,8 @@ import { useLanguage } from "@/lib/language-context";
 
 // Module-level draft store — persists across navigation within the same SPA session
 // (survives React unmount/remount; cleared on page reload or explicit reset)
-const imageDraft: { files: File[]; previews: string[] } = { files: [], previews: [] };
+const imageDraft: { files: File[]; previews: string[]; originalDataUrls: string[] } = { files: [], previews: [], originalDataUrls: [] };
+const pendingCropQueue: File[] = [];
 const videoDraft: { file: File | null; preview: string | null } = { file: null, preview: null };
 
 export default function NewPost() {
@@ -56,10 +57,10 @@ export default function NewPost() {
   // Crop state — when set, shows the cropper before adding the image
   const [pendingCropSrc, setPendingCropSrc] = React.useState<string | null>(null);
   const pendingFileRef = React.useRef<File | null>(null);
-  const pendingFileQueueRef = React.useRef<File[]>([]);
   // Crop state for editing an already-added image
   const [editCropIndex, setEditCropIndex] = React.useState<number | null>(null);
-  const redirectTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Original (pre-crop) dataUrls — used for re-editing without quality loss
+  const [originalDataUrls, setOriginalDataUrls] = React.useState<string[]>(() => imageDraft.originalDataUrls);
 
   // Drag-and-drop reorder state (touch-based for iOS)
   const [dragIndex, setDragIndex] = React.useState<number | null>(null);
@@ -68,10 +69,9 @@ export default function NewPost() {
   const dragStartXRef = React.useRef(0);
   const isDraggingRef = React.useRef(false);
 
-  // Cancel any pending redirect on unmount and revoke any video object URLs
+  // Revoke video object URL on unmount to avoid memory leak
   React.useEffect(() => {
     return () => {
-      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
       if (videoPreview && videoPreview.startsWith("blob:")) {
         URL.revokeObjectURL(videoPreview);
       }
@@ -88,7 +88,8 @@ export default function NewPost() {
   React.useEffect(() => {
     imageDraft.files = selectedFiles;
     imageDraft.previews = previewUrls;
-  }, [selectedFiles, previewUrls]);
+    imageDraft.originalDataUrls = originalDataUrls;
+  }, [selectedFiles, previewUrls, originalDataUrls]);
 
   // Keep module-level video draft in sync with state
   React.useEffect(() => {
@@ -116,13 +117,12 @@ export default function NewPost() {
 
   // Opens cropper for the next file in queue
   const processNextInQueue = () => {
-    const queue = pendingFileQueueRef.current;
-    if (queue.length === 0) {
+    if (pendingCropQueue.length === 0) {
       pendingFileRef.current = null;
       setPendingCropSrc(null);
       return;
     }
-    const file = queue[0];
+    const file = pendingCropQueue[0];
     pendingFileRef.current = file;
     const reader = new FileReader();
     reader.onloadend = () => setPendingCropSrc(reader.result as string);
@@ -131,19 +131,20 @@ export default function NewPost() {
 
   const handleCropConfirm = (dataUrl: string, blob: Blob) => {
     const file = pendingFileRef.current;
-    if (!file) return;
-    // Create a new File from the cropped blob
+    const originalSrc = pendingCropSrc; // dataUrl of the original file (pre-crop)
+    if (!file || !originalSrc) return;
     const croppedFile = new File([blob], file.name, { type: "image/jpeg" });
     setSelectedFiles((prev) => [...prev, croppedFile]);
     setPreviewUrls((prev) => [...prev, dataUrl]);
+    setOriginalDataUrls((prev) => [...prev, originalSrc]);
     // Remove processed file from queue and go to next
-    pendingFileQueueRef.current = pendingFileQueueRef.current.slice(1);
+    pendingCropQueue.splice(0, 1);
     processNextInQueue();
   };
 
   const handleCropCancel = () => {
     // Skip this image, go to next
-    pendingFileQueueRef.current = pendingFileQueueRef.current.slice(1);
+    pendingCropQueue.splice(0, 1);
     processNextInQueue();
   };
 
@@ -179,7 +180,7 @@ export default function NewPost() {
     if (validFiles.length === 0) return;
 
     // Queue all files for cropping one by one
-    pendingFileQueueRef.current = [...pendingFileQueueRef.current, ...validFiles];
+    pendingCropQueue.push(...validFiles);
     // If not already processing, start
     if (!pendingCropSrc) {
       processNextInQueue();
@@ -226,14 +227,19 @@ export default function NewPost() {
   const reorderPhotos = (from: number, to: number) => {
     const newFiles = [...selectedFiles];
     const newPreviews = [...previewUrls];
+    const newOriginals = [...originalDataUrls];
     const [removedFile] = newFiles.splice(from, 1);
     const [removedPreview] = newPreviews.splice(from, 1);
+    const [removedOriginal] = newOriginals.splice(from, 1);
     newFiles.splice(to, 0, removedFile);
     newPreviews.splice(to, 0, removedPreview);
+    newOriginals.splice(to, 0, removedOriginal);
     imageDraft.files = newFiles;
     imageDraft.previews = newPreviews;
+    imageDraft.originalDataUrls = newOriginals;
     setSelectedFiles(newFiles);
     setPreviewUrls(newPreviews);
+    setOriginalDataUrls(newOriginals);
   };
 
   const handleThumbnailTouchStart = (e: React.TouchEvent, index: number) => {
@@ -270,13 +276,18 @@ export default function NewPost() {
   const removePhoto = (index: number) => {
     imageDraft.files = imageDraft.files.filter((_, i) => i !== index);
     imageDraft.previews = imageDraft.previews.filter((_, i) => i !== index);
+    imageDraft.originalDataUrls = imageDraft.originalDataUrls.filter((_, i) => i !== index);
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
     setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
+    setOriginalDataUrls((prev) => prev.filter((_, i) => i !== index));
 
-    // Adjust currentPreviewIndex if necessary
-    if (currentPreviewIndex >= previewUrls.length - 1 && currentPreviewIndex > 0) {
-      setCurrentPreviewIndex(currentPreviewIndex - 1);
-    }
+    setCurrentPreviewIndex((prev) => {
+      const newLength = previewUrls.length - 1;
+      if (newLength === 0) return 0;
+      if (prev > index) return prev - 1;
+      if (prev >= newLength) return newLength - 1;
+      return prev;
+    });
   };
 
   const navigatePreview = (direction: "next" | "prev") => {
@@ -312,6 +323,7 @@ export default function NewPost() {
     }
 
     setIsSubmitting(true);
+    const uploadedPaths: string[] = [];
 
     try {
       const uploadedUrls: string[] = [];
@@ -333,6 +345,8 @@ export default function NewPost() {
         if (uploadError) {
           throw new Error(`Erro ao fazer upload de ${file.name}: ${uploadError.message}`);
         }
+
+        uploadedPaths.push(filePath);
 
         // Get public URL
         const { data: urlData } = supabase.storage
@@ -367,8 +381,10 @@ export default function NewPost() {
       // Reset form
       imageDraft.files = [];
       imageDraft.previews = [];
+      imageDraft.originalDataUrls = [];
       setSelectedFiles([]);
       setPreviewUrls([]);
+      setOriginalDataUrls([]);
       setCurrentPreviewIndex(0);
       setDescription("");
       setSelectedGoalId("");
@@ -379,6 +395,9 @@ export default function NewPost() {
       navigate("/");
     } catch (err: any) {
       console.error("Error creating post:", err);
+      if (uploadedPaths.length > 0) {
+        supabase!.storage.from("posts").remove(uploadedPaths).catch(console.error);
+      }
       toast({
         title: t("newpost_post_error"),
         description: err?.message || t("newpost_try_later"),
@@ -822,7 +841,9 @@ export default function NewPost() {
                         <Clapperboard className="h-3.5 w-3.5 shrink-0" />
                         <span className="truncate">{selectedVideoFile.name}</span>
                         <span className="shrink-0 ml-auto font-medium">
-                          {Math.round(selectedVideoFile.size / (1024 * 1024))} MB
+                          {selectedVideoFile.size < 1024 * 1024
+                            ? `${Math.round(selectedVideoFile.size / 1024)} KB`
+                            : `${(selectedVideoFile.size / (1024 * 1024)).toFixed(1)} MB`}
                         </span>
                       </div>
                     )}
@@ -911,9 +932,9 @@ export default function NewPost() {
         onCancel={handleCropCancel}
       />
 
-      {/* Cropper for re-editing an existing image */}
+      {/* Cropper for re-editing an existing image — always sources from the original to avoid re-compression */}
       <ImageCropperDrawer
-        imageSrc={editCropIndex !== null ? previewUrls[editCropIndex] : null}
+        imageSrc={editCropIndex !== null ? (originalDataUrls[editCropIndex] ?? previewUrls[editCropIndex]) : null}
         aspectRatio={1}
         onConfirm={(dataUrl, blob) => {
           if (editCropIndex === null) return;
@@ -921,6 +942,7 @@ export default function NewPost() {
           const croppedFile = new File([blob], original?.name ?? "photo.jpg", { type: "image/jpeg" });
           setSelectedFiles((prev) => prev.map((f, i) => i === editCropIndex ? croppedFile : f));
           setPreviewUrls((prev) => prev.map((u, i) => i === editCropIndex ? dataUrl : u));
+          // originalDataUrls stays unchanged — always re-crop from the original source
           setEditCropIndex(null);
         }}
         onCancel={() => setEditCropIndex(null)}

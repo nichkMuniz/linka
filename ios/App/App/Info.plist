@@ -71,5 +71,16 @@
 	<string>Permita salvar fotos na galeria.</string>
 	<key>NSUserTrackingUsageDescription</key>
 	<string>Permitir o rastreamento nos ajuda a personalizar sua experiência e exibir conteúdo relevante para você.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.linka.meuapp</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.linka.meuapp</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

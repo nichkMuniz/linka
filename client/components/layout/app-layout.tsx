@@ -97,6 +97,15 @@ export function AppLayout() {
     return () => window.removeEventListener("resize", update);
   }, [sidebarExpanded]);
 
+  const [hideNav, setHideNav] = React.useState(false);
+  React.useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setHideNav(document.body.dataset.hideNav === "true");
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ["data-hide-nav"] });
+    return () => observer.disconnect();
+  }, []);
+
   const [headerHidden, setHeaderHidden] = React.useState(false);
   const [unreadCount, setUnreadCount] = React.useState(0);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = React.useState(0);
@@ -357,296 +366,289 @@ export function AppLayout() {
       style={{ "--sidebar-width": typeof window !== "undefined" && window.innerWidth >= 768 ? (sidebarExpanded ? "244px" : "68px") : "0px" } as React.CSSProperties}
     >
 
-      {/* ── DESKTOP LAYOUT (md+): sidebar + feed ── */}
-      <div className="hidden md:flex min-h-dvh">
-
-        {/* Sidebar */}
-        <aside
+      {/* ── DESKTOP SIDEBAR (md+) — chrome only, no Outlet ── */}
+      <aside
+        className={cn(
+          "hidden md:flex fixed top-0 left-0 z-40 h-full flex-col border-r border-border/40 bg-background py-6 transition-all duration-300",
+          sidebarExpanded ? "w-[244px] px-3" : "w-[68px] px-2",
+        )}
+      >
+        {/* Logo */}
+        <button
+          onClick={() => {
+            if (location.pathname === "/") {
+              window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
+            } else {
+              window.location.href = "/";
+            }
+          }}
+          aria-label="Ir para Home"
           className={cn(
-            "fixed top-0 left-0 z-40 flex h-full flex-col border-r border-border/40 bg-background py-6 transition-all duration-300",
-            sidebarExpanded ? "w-[244px] px-3" : "w-[68px] px-2",
+            "mb-6 flex items-center rounded-xl py-2 hover:bg-muted/50 transition cursor-pointer",
+            sidebarExpanded ? "px-3" : "justify-center px-0",
           )}
         >
-          {/* Logo */}
+          {sidebarExpanded
+            ? <img src={logoSrc} alt="LinKa" className="h-7" />
+            : <img src="/SIMBOLO.png" alt="LinKa" className="h-8 w-8 object-contain" />
+          }
+        </button>
+
+        {/* Nav items */}
+        <nav className="flex flex-col gap-1 flex-1">
+          {allSidebarItems.map((item) => {
+            const active = isActivePath(location.pathname, item.to);
+            const Icon = item.icon;
+            return (
+              <motion.div
+                key={item.to}
+                whileTap={{ scale: 0.97 }}
+                whileHover={{ x: sidebarExpanded ? 2 : 0 }}
+                transition={{ duration: 0.15 }}
+              >
+                <Link
+                  to={item.to}
+                  aria-label={item.label}
+                  title={!sidebarExpanded ? item.label : undefined}
+                  className={cn(
+                    "flex items-center rounded-xl py-3 text-[15px] font-medium transition-colors",
+                    sidebarExpanded ? "gap-4 px-3" : "justify-center px-0",
+                    active
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                  )}
+                >
+                  <span className="relative flex-shrink-0">
+                    <Icon className="h-6 w-6" />
+                    {item.badge && item.badge > 0 ? (
+                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold">
+                        {item.badge > 9 ? "9+" : item.badge}
+                      </span>
+                    ) : null}
+                  </span>
+                  {sidebarExpanded && <span>{item.label}</span>}
+                </Link>
+              </motion.div>
+            );
+          })}
+        </nav>
+
+        {/* Usage timer */}
+        {showTimer && (
+          <div className={cn(
+            "flex items-center gap-2 px-3 py-2 rounded-xl mb-1",
+            sidebarExpanded ? "px-3" : "justify-center px-0",
+            timerExpired ? "bg-red-500/10 text-red-500" : timerUrgent ? "bg-orange-500/10 text-orange-500" : "bg-muted/50 text-muted-foreground"
+          )}>
+            <Timer className="h-4 w-4 flex-shrink-0" />
+            {sidebarExpanded && (
+              <div className="flex flex-col">
+                <span className="text-[11px] font-medium">Tempo restante</span>
+                <span className="text-sm font-mono font-bold">{timerLabel}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Toggle sidebar button */}
+        <button
+          onClick={toggleSidebar}
+          aria-label={sidebarExpanded ? "Recolher menu" : "Expandir menu"}
+          title={sidebarExpanded ? "Recolher menu" : "Expandir menu"}
+          className={cn(
+            "flex items-center rounded-xl py-3 mb-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors",
+            sidebarExpanded ? "gap-4 px-3" : "justify-center px-0",
+          )}
+        >
+          {sidebarExpanded
+            ? <><PanelLeftClose className="h-6 w-6 flex-shrink-0" /><span className="text-[15px] font-medium">Recolher</span></>
+            : <PanelLeftOpen className="h-6 w-6" />
+          }
+        </button>
+
+        {/* Profile at bottom */}
+        <Link
+          to="/perfil"
+          aria-label="Perfil"
+          title={!sidebarExpanded ? (t("nav_profile") ?? "Perfil") : undefined}
+          className={cn(
+            "flex items-center rounded-xl py-3 transition hover:bg-muted/50",
+            sidebarExpanded ? "gap-3 px-3" : "justify-center px-0",
+          )}
+        >
+          <UserAvatar
+            photo={profilePhoto}
+            gender={profileGender}
+            size="sm"
+            className="h-9 w-9 border border-border/60 flex-shrink-0"
+          />
+          {sidebarExpanded && (
+            <span className="text-[15px] font-medium text-muted-foreground group-hover:text-foreground truncate">
+              {t("nav_profile") ?? "Perfil"}
+            </span>
+          )}
+        </Link>
+      </aside>
+
+      {/* ── MOBILE HEADER (< md) ── */}
+      <header
+        className={cn(
+          "md:hidden sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55 transition-transform duration-200",
+          headerHidden ? "-translate-y-full pointer-events-none" : "translate-y-0",
+        )}
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
+        <div className="relative flex h-16 w-full items-center justify-center gap-4 px-4">
+          {/* Left: Profile + Timer */}
+          <div className="absolute left-4 flex items-center gap-2">
+            <Link to="/perfil" aria-label="Perfil" className="flex-shrink-0 rounded-full hover:opacity-80 transition">
+              <UserAvatar
+                photo={profilePhoto}
+                gender={profileGender}
+                size="md"
+                className="border-2 border-border/60"
+              />
+            </Link>
+            {showTimer && (
+              <div className={cn(
+                "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-mono font-semibold",
+                timerExpired ? "bg-red-500/20 text-red-500" : timerUrgent ? "bg-orange-500/20 text-orange-500" : "bg-muted text-muted-foreground"
+              )}>
+                <Timer className="h-3 w-3" />
+                {timerLabel}
+              </div>
+            )}
+          </div>
+
+          {/* Center: Logo */}
           <button
             onClick={() => {
               if (location.pathname === "/") {
                 window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
+                const feedContainer = document.querySelector('[data-feed-container]');
+                if (feedContainer) feedContainer.scrollTop = 0;
               } else {
                 window.location.href = "/";
               }
             }}
-            aria-label="Ir para Home"
-            className={cn(
-              "mb-6 flex items-center rounded-xl py-2 hover:bg-muted/50 transition cursor-pointer",
-              sidebarExpanded ? "px-3" : "justify-center px-0",
-            )}
+            aria-label="Ir para Home ou Atualizar Feed"
+            className="flex items-center justify-center rounded-2xl px-3 py-1 transition hover:bg-muted/50 cursor-pointer"
           >
-            {sidebarExpanded
-              ? <img src={logoSrc} alt="LinKa" className="h-7" />
-              : <img src="/SIMBOLO.png" alt="LinKa" className="h-8 w-8 object-contain" />
-            }
+            <img src={logoSrc} alt="LinKa" className="h-7" />
           </button>
 
-          {/* Nav items */}
-          <nav className="flex flex-col gap-1 flex-1">
-            {allSidebarItems.map((item) => {
-              const active = isActivePath(location.pathname, item.to);
-              const Icon = item.icon;
-              return (
-                <motion.div
-                  key={item.to}
-                  whileTap={{ scale: 0.97 }}
-                  whileHover={{ x: sidebarExpanded ? 2 : 0 }}
-                  transition={{ duration: 0.15 }}
-                >
-                  <Link
-                    to={item.to}
-                    aria-label={item.label}
-                    title={!sidebarExpanded ? item.label : undefined}
-                    className={cn(
-                      "flex items-center rounded-xl py-3 text-[15px] font-medium transition-colors",
-                      sidebarExpanded ? "gap-4 px-3" : "justify-center px-0",
-                      active
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                    )}
-                  >
-                    <span className="relative flex-shrink-0">
-                      <Icon className="h-6 w-6" />
-                      {item.badge && item.badge > 0 ? (
-                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold">
-                          {item.badge > 9 ? "9+" : item.badge}
-                        </span>
-                      ) : null}
-                    </span>
-                    {sidebarExpanded && <span>{item.label}</span>}
-                  </Link>
-                </motion.div>
-              );
-            })}
-          </nav>
-
-          {/* Usage timer */}
-          {showTimer && (
-            <div className={cn(
-              "flex items-center gap-2 px-3 py-2 rounded-xl mb-1",
-              sidebarExpanded ? "px-3" : "justify-center px-0",
-              timerExpired ? "bg-red-500/10 text-red-500" : timerUrgent ? "bg-orange-500/10 text-orange-500" : "bg-muted/50 text-muted-foreground"
-            )}>
-              <Timer className="h-4 w-4 flex-shrink-0" />
-              {sidebarExpanded && (
-                <div className="flex flex-col">
-                  <span className="text-[11px] font-medium">Tempo restante</span>
-                  <span className="text-sm font-mono font-bold">{timerLabel}</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Toggle sidebar button */}
-          <button
-            onClick={toggleSidebar}
-            aria-label={sidebarExpanded ? "Recolher menu" : "Expandir menu"}
-            title={sidebarExpanded ? "Recolher menu" : "Expandir menu"}
-            className={cn(
-              "flex items-center rounded-xl py-3 mb-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors",
-              sidebarExpanded ? "gap-4 px-3" : "justify-center px-0",
-            )}
-          >
-            {sidebarExpanded
-              ? <><PanelLeftClose className="h-6 w-6 flex-shrink-0" /><span className="text-[15px] font-medium">Recolher</span></>
-              : <PanelLeftOpen className="h-6 w-6" />
-            }
-          </button>
-
-          {/* Profile at bottom */}
-          <Link
-            to="/perfil"
-            aria-label="Perfil"
-            title={!sidebarExpanded ? (t("nav_profile") ?? "Perfil") : undefined}
-            className={cn(
-              "flex items-center rounded-xl py-3 transition hover:bg-muted/50",
-              sidebarExpanded ? "gap-3 px-3" : "justify-center px-0",
-            )}
-          >
-            <UserAvatar
-              photo={profilePhoto}
-              gender={profileGender}
-              size="sm"
-              className="h-9 w-9 border border-border/60 flex-shrink-0"
-            />
-            {sidebarExpanded && (
-              <span className="text-[15px] font-medium text-muted-foreground group-hover:text-foreground truncate">
-                {t("nav_profile") ?? "Perfil"}
-              </span>
-            )}
-          </Link>
-        </aside>
-
-        {/* Feed column — centered after sidebar */}
-        <div
-          className={cn(
-            "flex flex-1 justify-center transition-all duration-300",
-            sidebarExpanded ? "ml-[244px]" : "ml-[68px]",
-          )}
-        >
-          <main className="w-full max-w-[680px] min-h-dvh px-0 py-6">
-            <PageTransition>
-              <Outlet />
-            </PageTransition>
-          </main>
-        </div>
-      </div>
-
-      {/* ── MOBILE LAYOUT (< md): top header + bottom nav ── */}
-      <div className="flex flex-col min-h-dvh md:hidden">
-        <header
-          className={cn(
-            "sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55 transition-transform duration-200",
-            headerHidden ? "-translate-y-full pointer-events-none" : "translate-y-0",
-          )}
-          style={{ paddingTop: "env(safe-area-inset-top)" }}
-        >
-          <div className="relative flex h-16 w-full items-center justify-center gap-4 px-4">
-            {/* Left: Profile + Timer */}
-            <div className="absolute left-4 flex items-center gap-2">
-              <Link to="/perfil" aria-label="Perfil" className="flex-shrink-0 rounded-full hover:opacity-80 transition">
-                <UserAvatar
-                  photo={profilePhoto}
-                  gender={profileGender}
-                  size="md"
-                  className="border-2 border-border/60"
-                />
-              </Link>
-              {showTimer && (
-                <div className={cn(
-                  "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-mono font-semibold",
-                  timerExpired ? "bg-red-500/20 text-red-500" : timerUrgent ? "bg-orange-500/20 text-orange-500" : "bg-muted text-muted-foreground"
-                )}>
-                  <Timer className="h-3 w-3" />
-                  {timerLabel}
-                </div>
-              )}
-            </div>
-
-            {/* Center: Logo */}
-            <button
-              onClick={() => {
-                if (location.pathname === "/") {
-                  window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
-                  const feedContainer = document.querySelector('[data-feed-container]');
-                  if (feedContainer) feedContainer.scrollTop = 0;
-                } else {
-                  window.location.href = "/";
-                }
-              }}
-              aria-label="Ir para Home ou Atualizar Feed"
-              className="flex items-center justify-center rounded-2xl px-3 py-1 transition hover:bg-muted/50 cursor-pointer"
-            >
-              <img src={logoSrc} alt="LinKa" className="h-7" />
-            </button>
-
-            {/* Right: actions */}
-            <div className="absolute right-4 flex items-center gap-1">
-              <Link to="/buscar">
-                <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full" aria-label="Buscar">
-                  <Search className="h-5 w-5" />
-                </Button>
-              </Link>
-              <Link to="/notificacoes">
-                <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative" aria-label="Notificações">
-                  <Bell className="h-5 w-5" />
-                  {unreadNotificationsCount > 0 && (
-                    <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand text-white text-xs font-semibold">
-                      {unreadNotificationsCount > 9 ? "9+" : unreadNotificationsCount}
-                    </span>
-                  )}
-                </Button>
-              </Link>
-              <Link to="/comunidade">
-                <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative" aria-label="Comunidade">
-                  <Users2 className="h-5 w-5" />
-                  {unreadCount > 0 && (
-                    <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand-2 text-white text-xs font-semibold">
-                      {unreadCount > 9 ? "9+" : unreadCount}
-                    </span>
-                  )}
-                </Button>
-              </Link>
-            </div>
+          {/* Right: actions */}
+          <div className="absolute right-4 flex items-center gap-1">
+            <Link to="/buscar">
+              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full" aria-label="Buscar">
+                <Search className="h-5 w-5" />
+              </Button>
+            </Link>
+            <Link to="/notificacoes">
+              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative" aria-label="Notificações">
+                <Bell className="h-5 w-5" />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand text-white text-xs font-semibold">
+                    {unreadNotificationsCount > 9 ? "9+" : unreadNotificationsCount}
+                  </span>
+                )}
+              </Button>
+            </Link>
+            <Link to="/comunidade">
+              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative" aria-label="Comunidade">
+                <Users2 className="h-5 w-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand-2 text-white text-xs font-semibold">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </Button>
+            </Link>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <main className={cn(
-          "flex-1 w-full px-4 pt-6",
-          layoutMode === "default" ? "pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)]" : "pb-6"
-        )}>
+      {/* ── SINGLE OUTLET — rendered once, responsive for mobile and desktop ── */}
+      <div
+        className={cn(
+          "transition-all duration-300",
+          // Desktop: offset by sidebar, centered content
+          sidebarExpanded ? "md:ml-[244px]" : "md:ml-[68px]",
+        )}
+      >
+        <main
+          className={cn(
+            "w-full pt-6",
+            // Mobile
+            "px-4",
+            layoutMode === "default" && !hideNav
+              ? "pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)]"
+              : "pb-6",
+            // Desktop overrides
+            "md:px-0 md:pb-6 md:max-w-[680px] md:mx-auto md:min-h-dvh",
+          )}
+        >
           <PageTransition>
             <Outlet />
           </PageTransition>
         </main>
-
-        {layoutMode === "default" && (
-          <nav className={cn(
-            "fixed bottom-0 left-0 right-0 z-50 border-t border-border/60",
-            location.pathname === "/shots"
-              ? "bg-background"
-              : "bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65"
-          )}>
-            <div className="grid w-full grid-cols-5 px-1" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-              {mainNavItems.map((item) => {
-                const active = isActivePath(location.pathname, item.to);
-                const Icon = item.icon;
-                const isHome = item.to === "/";
-                return (
-                  <Link
-                    key={item.to}
-                    to={item.to}
-                    aria-label={item.label}
-                    className="relative flex flex-col items-center justify-center py-2 text-[11px]"
-                    onClick={(e) => {
-                      if (isHome && location.pathname === "/") {
-                        e.preventDefault();
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                        window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
-                      }
-                    }}
-                  >
-                    <motion.span
-                      whileTap={{ scale: 0.72 }}
-                      animate={active ? { y: -4, scale: 1 } : { y: 0, scale: 1 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 22 }}
-                      className={cn(
-                        "relative grid h-12 w-12 place-items-center",
-                        active ? "text-foreground" : "text-muted-foreground",
-                      )}
-                    >
-                      <Icon className="h-[22px] w-[22px]" />
-                    </motion.span>
-
-                    {/* Indicator dot */}
-                    <AnimatePresence>
-                      {active && (
-                        <motion.span
-                          layoutId="bottom-nav-indicator"
-                          className="absolute bottom-1 h-1 w-1 rounded-full bg-foreground"
-                          initial={{ opacity: 0, scale: 0 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0 }}
-                          transition={{ type: "spring", stiffness: 500, damping: 28 }}
-                        />
-                      )}
-                    </AnimatePresence>
-
-                    <span className="hidden sm:block">{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          </nav>
-        )}
       </div>
+
+      {/* ── MOBILE BOTTOM NAV (< md) ── */}
+      {layoutMode === "default" && !hideNav && (
+        <nav className={cn(
+          "md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border/60",
+          location.pathname === "/shots"
+            ? "bg-background"
+            : "bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65"
+        )}>
+          <div className="grid w-full grid-cols-5 px-1" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+            {mainNavItems.map((item) => {
+              const active = isActivePath(location.pathname, item.to);
+              const Icon = item.icon;
+              const isHome = item.to === "/";
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  aria-label={item.label}
+                  className="relative flex flex-col items-center justify-center py-2 text-[11px]"
+                  onClick={(e) => {
+                    if (isHome && location.pathname === "/") {
+                      e.preventDefault();
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                      window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
+                    }
+                  }}
+                >
+                  <motion.span
+                    whileTap={{ scale: 0.72 }}
+                    animate={active ? { y: -4, scale: 1 } : { y: 0, scale: 1 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 22 }}
+                    className={cn(
+                      "relative grid h-12 w-12 place-items-center",
+                      active ? "text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    <Icon className="h-[22px] w-[22px]" />
+                  </motion.span>
+
+                  {/* Indicator dot */}
+                  {active && (
+                    <motion.span
+                      layoutId="bottom-nav-indicator"
+                      className="absolute bottom-1 h-1 w-1 rounded-full bg-foreground"
+                      transition={{ type: "spring", stiffness: 500, damping: 28 }}
+                    />
+                  )}
+
+                  <span className="hidden sm:block">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      )}
 
       {/* Minimized Workout FAB — visible on all pages */}
       <AnimatePresence>

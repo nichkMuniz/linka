@@ -1820,18 +1820,19 @@ export default function Goals() {
       }
     }
 
-    // If marking as completed, open rest timer only if user set a time
+    // If marking as completed, open rest timer only if user set a time.
+    // setTimeout defers the modal open to after the current pointer event cycle
+    // completes, preventing the backdrop from receiving the iOS pointerup click.
     if (isMarking) {
       const restSeconds = workoutExerciseRestTimes[workoutId] || 0;
       if (restSeconds > 0) {
         setRestTimerExerciseId(workoutId);
         setRestTimerRemaining(restSeconds);
-        setRestTimerModalOpen(true);
-        // Sync to global context so FAB can show timer
         setGlobalRestTimerRemaining(restSeconds);
         setGlobalRestTimerTotal(restSeconds);
         setGlobalRestTimerActive(true);
         setGlobalRestTimerKey((prev) => prev + 1);
+        setTimeout(() => setRestTimerModalOpen(true), 50);
       }
     }
   };

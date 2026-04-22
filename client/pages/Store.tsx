@@ -13,6 +13,7 @@ import {
   getProfessionalsDb,
   type ProfessionalProfile,
 } from "@/lib/ritmofit-db";
+import { PromotionCommentsDrawer } from "@/components/modals/promotion-comments-drawer";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
@@ -93,6 +94,27 @@ import {
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
+import { Browser } from "@capacitor/browser";
+
+// ─── Clipboard helper (fallback for iOS WebView) ─────────────────────────────
+
+function copyToClipboard(text: string): void {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text: string): void {
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.style.cssText = "position:fixed;opacity:0;pointer-events:none;";
+  document.body.appendChild(el);
+  el.select();
+  try { document.execCommand("copy"); } catch { /* silent */ }
+  document.body.removeChild(el);
+}
 
 // ─── Promotion Skeleton ──────────────────────────────────────────────────────
 
@@ -273,7 +295,7 @@ function PromotionCard({
         {promo.coupon_code && (
           <button
             onClick={() => {
-              navigator.clipboard.writeText(promo.coupon_code!);
+              copyToClipboard(promo.coupon_code!);
               toast({ title: "Cupom copiado!", description: promo.coupon_code });
               setCouponCopied(true);
               setTimeout(() => setCouponCopied(false), 2000);
@@ -345,6 +367,47 @@ function PromotionCard({
           </div>
         )}
 
+        {/* Owner-only: status signal from the community */}
+        {isOwner && (promo.active_reports ?? 0) + (promo.expired_reports ?? 0) > 0 && (() => {
+          const total = (promo.active_reports ?? 0) + (promo.expired_reports ?? 0);
+          const expiredPct = Math.round(((promo.expired_reports ?? 0) / total) * 100);
+          const activePct = 100 - expiredPct;
+          const alertExpired = majorityExpired;
+          return (
+            <div className={`flex flex-col gap-1 pt-1.5 border-t border-border/40 mt-1 ${alertExpired ? "rounded-md bg-destructive/5 px-1.5 py-1 -mx-1.5" : ""}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-muted-foreground">
+                  {alertExpired
+                    ? "⚠️ Comunidade sinaliza expirada"
+                    : "Opinião da comunidade"}
+                </span>
+                <span className="text-[10px] text-muted-foreground">{total} {total === 1 ? "voto" : "votos"}</span>
+              </div>
+              {/* Progress bar */}
+              <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted/50">
+                <div
+                  className="h-full bg-green-500 transition-all"
+                  style={{ width: `${activePct}%` }}
+                />
+                <div
+                  className="h-full bg-destructive transition-all"
+                  style={{ width: `${expiredPct}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-0.5 text-[10px] text-green-500">
+                  <ThumbsUp className="h-2.5 w-2.5" />
+                  {promo.active_reports ?? 0} ativo
+                </span>
+                <span className="flex items-center gap-0.5 text-[10px] text-destructive">
+                  <ThumbsDown className="h-2.5 w-2.5" />
+                  {promo.expired_reports ?? 0} expirada
+                </span>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Footer — always at bottom */}
         <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-1">
           <button
@@ -364,12 +427,19 @@ function PromotionCard({
 
           <div className="flex items-center gap-1 flex-shrink-0">
             {promo.external_link && (
-              <a href={promo.external_link} target="_blank" rel="noopener noreferrer">
-                <Button variant="ghost" size="icon" className="h-7 w-7">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </Button>
-              </a>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => Browser.open({ url: promo.external_link! })}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Button>
             )}
+            <PromotionCommentsDrawer
+              promotionId={promo.id}
+              commentsCount={promo.comments_count ?? 0}
+            />
             <button
               onClick={() => onLike(promo.id)}
               className="flex items-center gap-1 px-1.5 py-1 text-xs text-muted-foreground hover:text-red-500 transition-colors"
@@ -522,9 +592,8 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
       }
     } catch (err: any) {
       toast({
-        title: "Não foi possível buscar o link",
-        description: err?.message ?? "Preencha manualmente os campos abaixo.",
-        variant: "destructive",
+        title: "Importação automática indisponível",
+        description: "Preencha os dados da promoção manualmente nos campos abaixo.",
       });
       setExternalLink(url);
       setTitle("");
@@ -538,6 +607,18 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
   async function handleSubmit() {
     if (!title.trim()) {
       toast({ title: "Preencha o título da promoção.", variant: "destructive" });
+      return;
+    }
+    if (originalPrice && parseFloat(originalPrice) < 0) {
+      toast({ title: "Preço original não pode ser negativo.", variant: "destructive" });
+      return;
+    }
+    if (promoPrice && parseFloat(promoPrice) < 0) {
+      toast({ title: "Preço promocional não pode ser negativo.", variant: "destructive" });
+      return;
+    }
+    if (promoPrice && originalPrice && parseFloat(promoPrice) > parseFloat(originalPrice)) {
+      toast({ title: "Preço promocional não pode ser maior que o original.", variant: "destructive" });
       return;
     }
     setSaving(true);
@@ -791,6 +872,7 @@ function NewPromoDrawer({ open, onClose, onCreated }: NewPromoFormProps) {
                 <Input
                   type="date"
                   value={expiresAt}
+                  min={new Date().toISOString().split("T")[0]}
                   onChange={(e) => setExpiresAt(e.target.value)}
                 />
               </div>
@@ -850,7 +932,14 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
   const [expiresAt, setExpiresAt] = React.useState("");
   const [category, setCategory] = React.useState<PromotionCategory>("equipamento");
   const [photoUrl, setPhotoUrl] = React.useState("");
+  const [imageMode, setImageMode] = React.useState<"url" | "upload">("url");
+  const [uploadFile, setUploadFile] = React.useState<File | null>(null);
+  const [uploading, setUploading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [pendingCropSrc, setPendingCropSrc] = React.useState<string | null>(null);
+  const pendingFileRef = React.useRef<File | null>(null);
+  const todayStr = new Date().toISOString().split("T")[0];
 
   React.useEffect(() => {
     if (promo) {
@@ -862,8 +951,47 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
       setExpiresAt(promo.expires_at ? promo.expires_at.slice(0, 10) : "");
       setCategory((promo.category as PromotionCategory) || "equipamento");
       setPhotoUrl(promo.photo_url || "");
+      setImageMode("url");
+      setUploadFile(null);
     }
   }, [promo, open]);
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Selecione uma imagem válida.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "Imagem deve ter no máximo 10MB.", variant: "destructive" });
+      return;
+    }
+    pendingFileRef.current = file;
+    const reader = new FileReader();
+    reader.onload = (ev) => setPendingCropSrc(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  async function uploadImageToStorage(): Promise<string | null> {
+    if (!uploadFile || !supabase) return photoUrl || null;
+    setUploading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Não autenticado");
+      const ext = uploadFile.name.split(".").pop() ?? "jpg";
+      const path = `${user.id}/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage
+        .from("promotions")
+        .upload(path, uploadFile, { contentType: uploadFile.type, upsert: false });
+      if (error) throw error;
+      const { data: urlData } = supabase.storage.from("promotions").getPublicUrl(path);
+      return urlData.publicUrl;
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!promo) return;
@@ -871,8 +999,24 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
       toast({ title: "O título não pode estar vazio.", variant: "destructive" });
       return;
     }
+    if (originalPrice && parseFloat(originalPrice) < 0) {
+      toast({ title: "Preço original não pode ser negativo.", variant: "destructive" });
+      return;
+    }
+    if (promoPrice && parseFloat(promoPrice) < 0) {
+      toast({ title: "Preço promocional não pode ser negativo.", variant: "destructive" });
+      return;
+    }
+    if (promoPrice && originalPrice && parseFloat(promoPrice) > parseFloat(originalPrice)) {
+      toast({ title: "Preço promocional não pode ser maior que o original.", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
+      const finalPhotoUrl = imageMode === "upload" && uploadFile
+        ? await uploadImageToStorage()
+        : (photoUrl || null);
+
       await updatePromotionDb(promo.id, {
         title: title.trim(),
         description: description || undefined,
@@ -881,7 +1025,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
         promo_price: promoPrice ? parseFloat(promoPrice) : null,
         expires_at: expiresAt || null,
         category,
-        photo_url: photoUrl || null,
+        photo_url: finalPhotoUrl,
       });
       toast({ title: "Promoção atualizada!" });
       onUpdated();
@@ -898,6 +1042,7 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
   }
 
   return (
+    <>
     <Drawer open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DrawerContent onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader>
@@ -974,15 +1119,61 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
             </div>
           </div>
 
-          {/* Photo URL */}
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">URL da imagem</label>
-            <Input
-              placeholder="https://..."
-              value={photoUrl}
-              onChange={(e) => setPhotoUrl(e.target.value)}
-            />
-            {photoUrl && (
+          {/* Photo — URL or upload */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">Imagem do produto</label>
+              <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+                <button
+                  type="button"
+                  onClick={() => setImageMode("url")}
+                  className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "url" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  <Link className="h-3 w-3" /> URL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageMode("upload")}
+                  className={`flex items-center gap-1 px-2.5 py-1 transition-colors ${imageMode === "upload" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  <ImageIcon className="h-3 w-3" /> Galeria
+                </button>
+              </div>
+            </div>
+
+            {imageMode === "url" ? (
+              <Input
+                placeholder="https://..."
+                value={photoUrl}
+                onChange={(e) => setPhotoUrl(e.target.value)}
+              />
+            ) : (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full rounded-lg border-2 border-dashed border-border hover:border-brand/50 transition-colors p-4 flex flex-col items-center gap-2"
+                >
+                  {uploadFile ? (
+                    <span className="text-xs text-green-500 font-medium">{uploadFile.name}</span>
+                  ) : (
+                    <>
+                      <Upload className="h-5 w-5 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">Toque para escolher da galeria</span>
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+
+            {photoUrl && imageMode === "url" && (
               <div className="rounded-lg overflow-hidden aspect-video bg-muted">
                 <ImageWithFallback
                   src={photoUrl}
@@ -1016,23 +1207,41 @@ function EditPromoDrawer({ open, onClose, onUpdated, promo }: EditPromoDrawerPro
             <Input
               type="date"
               value={expiresAt}
+              min={todayStr}
               onChange={(e) => setExpiresAt(e.target.value)}
             />
           </div>
         </div>
 
         <DrawerFooter className="pt-2">
-          <Button onClick={handleSubmit} disabled={saving} className="w-full">
-            {saving ? (
+          <Button onClick={handleSubmit} disabled={saving || uploading} className="w-full">
+            {uploading ? (
+              <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">Enviando imagem...</span></>
+            ) : saving ? (
               <><LoadingSpinner className="h-4 w-4" /><span className="ml-2">Salvando...</span></>
             ) : "Salvar Alterações"}
           </Button>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
+          <Button variant="ghost" onClick={onClose} disabled={saving || uploading}>
             Cancelar
           </Button>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
+
+    <ImageCropperDrawer
+      imageSrc={pendingCropSrc}
+      aspectRatio={1}
+      onConfirm={(dataUrl, blob) => {
+        const file = pendingFileRef.current;
+        if (!file) return;
+        const croppedFile = new File([blob], file.name, { type: "image/jpeg" });
+        setUploadFile(croppedFile);
+        setPhotoUrl(dataUrl);
+        setPendingCropSrc(null);
+      }}
+      onCancel={() => setPendingCropSrc(null)}
+    />
+    </>
   );
 }
 
@@ -1188,35 +1397,34 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
         {/* Contact links */}
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
           {pro.business_phone && (
-            <a
-              href={`https://wa.me/${pro.business_phone.replace(/\D/g, "")}`}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => Browser.open({ url: `https://wa.me/${pro.business_phone!.replace(/\D/g, "")}` })}
               className="flex items-center gap-1 hover:text-green-500 transition-colors"
             >
               <Phone className="h-3 w-3" />
               WhatsApp
-            </a>
+            </button>
           )}
           {pro.business_email && (
-            <a
-              href={`mailto:${pro.business_email}`}
+            <button
+              type="button"
+              onClick={() => Browser.open({ url: `mailto:${pro.business_email}` })}
               className="flex items-center gap-1 hover:text-brand transition-colors"
             >
               <Mail className="h-3 w-3" />
               Email
-            </a>
+            </button>
           )}
           {pro.business_website && (
-            <a
-              href={/^https?:\/\//.test(pro.business_website) ? pro.business_website : `https://${pro.business_website}`}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => Browser.open({ url: /^https?:\/\//.test(pro.business_website!) ? pro.business_website! : `https://${pro.business_website}` })}
               className="flex items-center gap-1 hover:text-brand transition-colors"
             >
               <Globe className="h-3 w-3" />
               Site
-            </a>
+            </button>
           )}
         </div>
 
@@ -1265,6 +1473,7 @@ export default function Store() {
   const [viewerUserId, setViewerUserId] = React.useState<string | null>(null);
   const [viewerLoading, setViewerLoading] = React.useState(true);
   const likingRef = React.useRef<Set<string>>(new Set());
+  const votingRef = React.useRef<Set<string>>(new Set());
 
   // Professionals state
   const [professionals, setProfessionals] = React.useState<ProfessionalProfile[]>([]);
@@ -1320,6 +1529,9 @@ export default function Store() {
       toast({ title: "Faça login para votar.", variant: "destructive" });
       return;
     }
+    const voteKey = `${id}-${status}`;
+    if (votingRef.current.has(voteKey)) return;
+    votingRef.current.add(voteKey);
     try {
       const result = await reportPromotionStatusDb(id, status);
       setPromotions((prev) =>
@@ -1347,6 +1559,8 @@ export default function Store() {
       );
     } catch (err: any) {
       toast({ title: "Erro ao votar", description: err?.message, variant: "destructive" });
+    } finally {
+      votingRef.current.delete(voteKey);
     }
   }
 
@@ -1355,23 +1569,40 @@ export default function Store() {
       toast({ title: "Faça login para curtir.", variant: "destructive" });
       return;
     }
-    // Prevent race condition: ignore if already processing this promotion
     if (likingRef.current.has(id)) return;
     likingRef.current.add(id);
+
+    let previousPromotions: Promotion[] = [];
+    setPromotions((prev) => {
+      previousPromotions = prev;
+      return prev.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              user_liked: !p.user_liked,
+              likes_count: Math.max(0, (p.likes_count ?? 0) + (p.user_liked ? -1 : 1)),
+            }
+          : p,
+      );
+    });
+
     try {
       const result = await togglePromotionLikeDb(id);
+      // Reconcile with server response in case of divergence
+      const baseLikes = previousPromotions.find((p) => p.id === id)?.likes_count ?? 0;
       setPromotions((prev) =>
         prev.map((p) =>
           p.id === id
             ? {
-              ...p,
-              user_liked: result === "liked",
-              likes_count: Math.max(0, (p.likes_count ?? 0) + (result === "liked" ? 1 : -1)),
-            }
+                ...p,
+                user_liked: result === "liked",
+                likes_count: Math.max(0, baseLikes + (result === "liked" ? 1 : -1)),
+              }
             : p,
         ),
       );
     } catch (err: any) {
+      setPromotions(previousPromotions);
       const msg = err?.message ?? err?.error_description ?? JSON.stringify(err);
       console.error("[handleLike]", err);
       toast({ title: "Erro ao curtir", description: msg, variant: "destructive" });
@@ -1384,30 +1615,25 @@ export default function Store() {
     try {
       await updatePromotionDb(id, { is_active: false });
       setPromotions((prev) => prev.filter((p) => p.id !== id));
+      setInactivateTargetId(null);
       toast({ title: "Promoção inativada." });
     } catch (err: any) {
       const msg = err?.message ?? err?.error_description ?? JSON.stringify(err);
       console.error("[handleInactivate]", err);
       toast({ title: "Erro ao inativar", description: msg, variant: "destructive" });
-    } finally {
-      setInactivateTargetId(null);
     }
   }
 
   async function handleDelete(id: string) {
     try {
-      // For now, deletePromotionDb also soft-deletes via is_active = false
-      // If we want a hard delete, we could update the DB function,
-      // but following user instruction, inactivate = soft-delete.
       await deletePromotionDb(id);
       setPromotions((prev) => prev.filter((p) => p.id !== id));
+      setDeleteTargetId(null);
       toast({ title: "Promoção removida." });
     } catch (err: any) {
       const msg = err?.message ?? err?.error_description ?? JSON.stringify(err);
       console.error("[handleDelete]", err);
       toast({ title: "Erro ao remover", description: msg, variant: "destructive" });
-    } finally {
-      setDeleteTargetId(null);
     }
   }
 
@@ -1443,7 +1669,7 @@ export default function Store() {
             <Tag className="h-5 w-5 text-brand" />
             <h1 className="font-bold text-lg">Vitrine</h1>
           </div>
-          {activeTab === "promocoes" && (
+          {activeTab === "promocoes" && user && (
             <Button size="sm" onClick={() => setNewPromoOpen(true)} className="gap-1.5">
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">Publicar</span>
@@ -1593,14 +1819,22 @@ export default function Store() {
                 <Tag className="h-7 w-7 text-muted-foreground" />
               </div>
               <p className="font-semibold text-muted-foreground">
-                {search ? "Nenhuma promoção encontrada" : "Ainda não há promoções"}
+                {search || activeCategory !== "todos" ? "Nenhuma promoção encontrada" : "Ainda não há promoções"}
               </p>
               <p className="text-sm text-muted-foreground max-w-xs">
                 {search
-                  ? "Tente buscar por outro termo."
+                  ? `Nenhum resultado para "${search}"${activeCategory !== "todos" ? ` na categoria selecionada` : ""}.`
+                  : activeCategory !== "todos"
+                  ? `Nenhuma promoção na categoria "${PROMOTION_CATEGORIES.find((c) => c.value === activeCategory)?.label}".`
                   : "Seja o primeiro a divulgar uma promoção de equipamento, suplemento ou produto fitness!"}
               </p>
-              {!search && (
+              {activeCategory !== "todos" && (
+                <Button variant="outline" onClick={() => setActiveCategory("todos")} className="mt-1 gap-2">
+                  <PackageOpen className="h-4 w-4" />
+                  Ver todas as categorias
+                </Button>
+              )}
+              {!search && activeCategory === "todos" && user && (
                 <Button onClick={() => setNewPromoOpen(true)} className="mt-2 gap-2">
                   <Plus className="h-4 w-4" />
                   Publicar Promoção
@@ -1620,7 +1854,7 @@ export default function Store() {
                   onEdit={(promo) => setEditingPromo(promo)}
                   onInactivate={(id) => setInactivateTargetId(id)}
                   onDelete={(id) => setDeleteTargetId(id)}
-                  onUserClick={(userId) => navigate(`/perfil/${userId}`)}
+                  onUserClick={(userId) => navigate(`/usuario/${userId}`)}
                 />
               ))}
             </div>
@@ -1638,13 +1872,27 @@ export default function Store() {
                 <Users className="h-7 w-7 text-muted-foreground" />
               </div>
               <p className="font-semibold text-muted-foreground">
-                {proSearch ? "Nenhum profissional encontrado" : "Ainda não há profissionais cadastrados"}
+                {proSearch || proSegment !== "todos" ? "Nenhum profissional encontrado" : "Ainda não há profissionais cadastrados"}
               </p>
               <p className="text-sm text-muted-foreground max-w-xs">
                 {proSearch
                   ? "Tente buscar por outro termo."
-                  : "Profissionais como personal trainers e nutricionistas aparecerão aqui quando ativarem o perfil comercial."}
+                  : proSegment !== "todos"
+                  ? `Nenhum profissional cadastrado no segmento "${SEGMENT_LABELS[proSegment] ?? proSegment}".`
+                  : "Você é personal trainer, nutricionista ou outro profissional fitness? Ative o perfil comercial no seu perfil para aparecer aqui."}
               </p>
+              {proSegment !== "todos" && (
+                <Button variant="outline" onClick={() => setProSegment("todos")} className="mt-1 gap-2">
+                  <Users className="h-4 w-4" />
+                  Ver todos os segmentos
+                </Button>
+              )}
+              {!proSearch && proSegment === "todos" && user && (
+                <Button variant="outline" onClick={() => navigate("/perfil")} className="mt-1 gap-2">
+                  <Briefcase className="h-4 w-4" />
+                  Ativar perfil comercial
+                </Button>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 auto-rows-fr">

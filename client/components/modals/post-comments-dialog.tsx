@@ -1,6 +1,5 @@
 import * as React from "react";
 import { MessageCircle, Trash2, Pencil, Check, X } from "lucide-react";
-import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { motion } from "framer-motion";
 import {
@@ -345,15 +344,9 @@ export function PostCommentsDialog({
                     handleSubmit();
                   }
                 }}
-                className="min-h-20 resize-none pr-10"
+                className="min-h-20 resize-none"
                 disabled={submitting}
               />
-              <div className="absolute bottom-2 right-2">
-                <EmojiPicker
-                  placement="top"
-                  onSelect={(emoji) => setDraft((prev) => prev + emoji)}
-                />
-              </div>
             </div>
             <Button
               onClick={handleSubmit}

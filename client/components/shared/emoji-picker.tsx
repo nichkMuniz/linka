@@ -41,7 +41,6 @@ export function EmojiPicker({ onSelect, placement = "top", triggerClassName }: E
   const updatePopoverPosition = React.useCallback(() => {
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
-    const POPOVER_HEIGHT = 220;
     const POPOVER_WIDTH = 256;
 
     if (placement === "top") {
@@ -121,8 +120,11 @@ export function EmojiPicker({ onSelect, placement = "top", triggerClassName }: E
           <button
             key={emoji}
             type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => handleSelect(emoji)}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleSelect(emoji);
+            }}
             className="flex h-7 w-7 items-center justify-center rounded-md text-lg transition-colors hover:bg-muted"
             aria-label={emoji}
           >

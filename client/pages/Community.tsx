@@ -71,7 +71,6 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { EmojiPicker } from "@/components/shared/emoji-picker";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -571,6 +570,13 @@ export default function Community() {
     }
   }, [searchParams, conversations, loading]);
 
+  // Hide bottom nav when inside a private conversation
+  React.useEffect(() => {
+    const isConversation = activeTab === "messages" && viewMode === "conversation";
+    document.body.dataset.hideNav = isConversation ? "true" : "false";
+    return () => { document.body.dataset.hideNav = "false"; };
+  }, [viewMode, activeTab]);
+
   // Load conversation messages when selected
   React.useEffect(() => {
     if (!selectedConversation || viewMode !== "conversation") return;
@@ -888,9 +894,7 @@ export default function Community() {
   }
 
   if (activeTab === "messages" && viewMode === "conversation" && selectedConversation) {
-    const bottomClass = layoutMode === "novo"
-      ? "bottom-0"
-      : "bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:bottom-0";
+    const bottomClass = "bottom-0";
 
     return ReactDOM.createPortal(
       <div className={`fixed top-0 right-0 ${bottomClass} bg-background flex flex-col z-[100]`} style={{ left: "var(--sidebar-width, 0px)" }}>
@@ -1114,12 +1118,6 @@ export default function Community() {
                   }
                 }}
                 className="border-0 bg-transparent p-0 h-auto text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 flex-1"
-              />
-              {/* Emoji picker real */}
-              <EmojiPicker
-                placement="top"
-                onSelect={(emoji) => setMessageText((prev) => prev + emoji)}
-                triggerClassName="flex-shrink-0 p-0.5"
               />
             </div>
 
@@ -3281,10 +3279,6 @@ export default function Community() {
                       }}
                       className="rounded-full text-xs h-9"
                       disabled={isSendingComment}
-                    />
-                    <EmojiPicker
-                      placement="top"
-                      onSelect={(emoji) => setCommentText((prev) => prev + emoji)}
                     />
                     <Button
                       size="sm"

@@ -9,12 +9,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import {
   Drawer,
   DrawerContent,
@@ -44,7 +40,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { toast } from "@/components/ui/use-toast";
 import { Input } from "@/components/ui/input";
-import { EmojiPicker } from "@/components/shared/emoji-picker";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -380,10 +375,15 @@ export function FlowViewerModal({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-screen h-screen max-w-none p-0 border-0 bg-black md:bg-black/95 rounded-none overflow-hidden flex items-center justify-center [&>button:last-child]:hidden" onOpenAutoFocus={(e) => e.preventDefault()}>
-          <DialogTitle className="sr-only">Flow viewer</DialogTitle>
-          <DialogDescription className="sr-only">Visualizando flow</DialogDescription>
+      <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black" />
+          <DialogPrimitive.Content
+            className="fixed inset-0 z-50 bg-black overflow-hidden flex items-center justify-center"
+            onOpenAutoFocus={(e) => e.preventDefault()}
+          >
+            <VisuallyHidden><DialogPrimitive.Title>Flow viewer</DialogPrimitive.Title></VisuallyHidden>
+            <VisuallyHidden><DialogPrimitive.Description>Visualizando flow</DialogPrimitive.Description></VisuallyHidden>
 
           <div className="relative h-full w-full flex items-center justify-center overflow-hidden">
 
@@ -537,9 +537,9 @@ export function FlowViewerModal({
                         className="absolute inset-0 flex items-center justify-center"
                       >
                         {isVideo ? (
-                          <video ref={videoRef} src={story.media_url} className="w-full h-full object-contain" autoPlay loop muted playsInline preload="auto" />
+                          <video ref={videoRef} src={story.media_url} className="w-full h-full object-cover" autoPlay loop muted playsInline preload="auto" />
                         ) : (
-                          <img src={story.media_url} alt="Flow" className="w-full h-full object-contain" />
+                          <img src={story.media_url} alt="Flow" className="w-full h-full object-cover" />
                         )}
                       </motion.div>
                     </AnimatePresence>
@@ -639,7 +639,6 @@ export function FlowViewerModal({
                           className="flex-1 bg-transparent border-0 text-xs text-white placeholder-white/50 focus-visible:ring-0 h-auto p-0"
                           disabled={isAddingComment}
                         />
-                        <EmojiPicker onSelect={(emoji) => setNewComment(prev => prev + emoji)} triggerClassName="text-white/40 hover:text-white" />
                       </div>
                       <motion.button onClick={handleAddComment} disabled={!newComment.trim() || isAddingComment} className="bg-brand text-white p-3 rounded-full shadow-lg disabled:opacity-40">
                         <Send className="h-5 w-5" />
@@ -680,8 +679,9 @@ export function FlowViewerModal({
               </div>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
 
       {/* Comments Drawer */}
       <Drawer open={commentsDrawerOpen} onOpenChange={(o) => { setCommentsDrawerOpen(o); if (!o) { setIsPaused(false); isPausedRef.current = false; } }}>
@@ -799,17 +799,31 @@ export function FlowViewerModal({
             ) : (
               viewers.map(viewer => (
                 <div key={viewer.followerId} className="flex items-center gap-3 p-3 rounded-xl bg-muted/30">
-                  <Avatar className="h-10 w-10">
-                    <AvatarImage src={viewer.userPhoto} />
-                    <AvatarFallback>{viewer.userNickname?.charAt(0)}</AvatarFallback>
-                  </Avatar>
+                  <div className="h-10 w-10 rounded-full overflow-hidden shrink-0">
+                    <UserAvatar
+                      photo={viewer.userPhoto}
+                      gender={viewer.userGender}
+                      nickname={viewer.userNickname}
+                      className="h-full w-full"
+                    />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">{viewer.userNickname}</p>
                     <p className="text-[10px] text-muted-foreground">{formatTimeAgo(viewer.viewedAt)}</p>
                   </div>
                   {viewer.incentiveTypes.length > 0 && (
                     <div className="flex gap-0.5">
-                      {viewer.incentiveTypes.map((t, i) => <Zap key={i} className="h-3 w-3 text-brand fill-brand/20" />)}
+                      {viewer.incentiveTypes.map((t, i) => {
+                        const iconMap: Record<number, React.ReactNode> = {
+                          1: <Heart key={i} className="h-3.5 w-3.5 text-rose-500 fill-rose-500" />,
+                          2: <Flame key={i} className="h-3.5 w-3.5 text-orange-500 fill-orange-500" />,
+                          3: <Trophy key={i} className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />,
+                          4: <TrendingUp key={i} className="h-3.5 w-3.5 text-emerald-500" />,
+                          5: <Dumbbell key={i} className="h-3.5 w-3.5 text-blue-500 fill-blue-500" />,
+                          6: <Zap key={i} className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500" />,
+                        };
+                        return iconMap[t] ?? null;
+                      })}
                     </div>
                   )}
                 </div>

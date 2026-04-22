@@ -48,8 +48,9 @@ export default function Notifications() {
     loadNotifications();
 
     // Subscribe to new notifications via Realtime instead of polling every 30s
+    const channelName = `notifications-page-${Date.now()}`;
     const channel = supabase
-      ?.channel("notifications-page")
+      ?.channel(channelName)
       .on(
         "postgres_changes",
         {
@@ -69,7 +70,7 @@ export default function Notifications() {
 
     return () => {
       isMounted = false;
-      channel?.unsubscribe();
+      if (channel) supabase?.removeChannel(channel);
     };
   }, [user]);
 
@@ -167,6 +168,14 @@ export default function Notifications() {
           description: `${notification.userNickname} reagiu ao seu check-in`,
           bgColor: "bg-orange-400/10",
           borderColor: "border-orange-200/50",
+        };
+      case 8:
+        return {
+          icon: <MessageCircle className="h-5 w-5 text-brand" />,
+          title: "Comentário na promoção",
+          description: `${notification.userNickname} comentou na sua promoção`,
+          bgColor: "bg-brand/10",
+          borderColor: "border-brand/30",
         };
       default:
         return {
@@ -300,6 +309,11 @@ export default function Notifications() {
   };
 
   const handleNotificationClick = (notification: NotificationItem) => {
+    // Type 8 (promotion comment) - navigate to vitrine
+    if (notification.type === 8) {
+      navigate("/vitrine");
+      return;
+    }
     // Type 1 (new follower) - navigate to user profile
     if (notification.type === 1) {
       navigate(`/usuario/${notification.userId}`);

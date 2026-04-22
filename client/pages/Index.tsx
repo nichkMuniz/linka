@@ -1,6 +1,5 @@
 import * as React from "react";
 import { getFeedPosts, getDiscoverPosts, togglePostLike } from "../services/post.service";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Drawer,
   DrawerContent,
@@ -8,9 +7,6 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
-import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
-import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
-import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import {
   getRoutinesByGoalIdDb,
@@ -33,6 +29,7 @@ import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { ReportDrawer } from "@/components/shared/report-drawer";
 import { ShareDrawer } from "@/components/shared/share-drawer";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
+import { PostCard } from "@/components/post/post-card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,24 +40,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronDown, MoreVertical, Flag, Trash2, Share2, Edit2, Target } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
-import { formatTimeAgo } from "@/lib/utils";
+import { ChevronDown, Target } from "lucide-react";
 import { PostSkeleton } from "@/components/shared/animated-loading";
 import type { PostWithStats } from "../services/post.service";
 import { FlowCarousel } from "@/components/shots/flow-carousel";
 import { FlowCreationDialog } from "@/components/modals/flow-creation-dialog";
 import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
-import { PostCarousel } from "@/components/post/post-carousel";
-import { UserInsignias } from "@/components/profile/user-insignias";
-import { UserAvatar } from "@/components/shared/user-avatar";
-import { FollowButton } from "@/components/shared/follow-button";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
@@ -91,20 +76,26 @@ export default function Index() {
   const navigate = useNavigate();
   const location = useLocation();
   const [posts, setPosts] = React.useState<PostWithStats[]>([]);
+  const [discoverPosts, setDiscoverPosts] = React.useState<PostWithStats[]>([]);
   const [stories, setStories] = React.useState<StoryWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [discoverLoading, setDiscoverLoading] = React.useState(false);
+  const [discoverLoaded, setDiscoverLoaded] = React.useState(false);
+
+  // Bug 2 fix: use a ref for the toggling set so the guard is always current
+  const togglingIncentivesRef = React.useRef<Set<string>>(new Set());
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<string>>(new Set());
+
   const [goalModalOpen, setGoalModalOpen] = React.useState(false);
-  const [selectedGoalPost, setSelectedGoalPost] =
-    React.useState<PostWithStats | null>(null);
+  const [goalRoutinesLoading, setGoalRoutinesLoading] = React.useState(false); // Bug 5
+  const [selectedGoalPost, setSelectedGoalPost] = React.useState<PostWithStats | null>(null);
   const [linkedRoutines, setLinkedRoutines] = React.useState<any[]>([]);
   const [expandedLinkedRoutine, setExpandedLinkedRoutine] = React.useState<string | null>(null);
   const [linkedRoutineItems, setLinkedRoutineItems] = React.useState<Record<string, any[]>>({});
-
   const [expandedRoutines, setExpandedRoutines] = React.useState(false);
+
   const [storyCreationOpen, setStoryCreationOpen] = React.useState(false);
-  const [selectedStory, setSelectedStory] =
-    React.useState<StoryWithUser | null>(null);
+  const [selectedStory, setSelectedStory] = React.useState<StoryWithUser | null>(null);
   const [storyViewerOpen, setStoryViewerOpen] = React.useState(false);
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
@@ -113,32 +104,23 @@ export default function Index() {
   const [ownerHasViewedFlow, setOwnerHasViewedFlow] = React.useState(false);
   const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(new Set());
   const [activeViewerStories, setActiveViewerStories] = React.useState<StoryWithUser[]>([]);
+
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
   const [shareDrawerUrl, setShareDrawerUrl] = React.useState<string | undefined>(undefined);
+
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
-  const [reportType, setReportType] = React.useState<"user" | "post" | null>(
-    null,
-  );
-  const [reportedPost, setReportedPost] = React.useState<PostWithStats | null>(
-    null,
-  );
+  const [reportType, setReportType] = React.useState<"user" | "post" | null>(null);
+  const [reportedPost, setReportedPost] = React.useState<PostWithStats | null>(null);
+
   const [isCopyingGoal, setIsCopyingGoal] = React.useState(false);
   const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
   const [copyingRoutineKeys, setCopyingRoutineKeys] = React.useState<Set<string>>(new Set());
   const [copiedRoutineKeys, setCopiedRoutineKeys] = React.useState<Set<string>>(new Set());
-  const [feedMode, setFeedMode] = React.useState<"following" | "discover">(() => {
-    if (localStorage.getItem("new_user_open_discover") === "1") {
-      localStorage.removeItem("new_user_open_discover");
-      return "discover";
-    }
-    return "following";
-  });
-  const [discoverPosts, setDiscoverPosts] = React.useState<PostWithStats[]>([]);
-  const [discoverLoading, setDiscoverLoading] = React.useState(false);
-  const [discoverLoaded, setDiscoverLoaded] = React.useState(false);
-const [likesModalOpen, setLikesModalOpen] = React.useState(false);
-  const [selectedPostForLikes, setSelectedPostForLikes] = React.useState<PostWithStats | null>(null);
+
+  // Bug 6 fix: track whether likes modal is loading to prevent double-clicks
+  const [likesModalOpen, setLikesModalOpen] = React.useState(false);
+  const [likesLoading, setLikesLoading] = React.useState(false);
   const [postLikes, setPostLikes] = React.useState<Array<{
     userId: string;
     userNickname: string;
@@ -146,6 +128,7 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
     userGender: string | null;
     type: number;
   }>>([]);
+
   const [editPostOpen, setEditPostOpen] = React.useState(false);
   const [editingPost, setEditingPost] = React.useState<PostWithStats | null>(null);
 
@@ -154,7 +137,7 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
     title: string;
     description: string;
     onConfirm: () => void;
-  }>({ open: false, title: "", description: "", onConfirm: () => { } });
+  }>({ open: false, title: "", description: "", onConfirm: () => {} });
 
   const showConfirm = React.useCallback(
     (title: string, description: string, onConfirm: () => void) => {
@@ -176,15 +159,9 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
       const viewedUserIds = await getMyViewedFlowUserIdsDb(activeFlowIds);
       setViewedStoryIds(viewedUserIds);
 
-      // Get current user's story for flow viewer count (photo is loaded separately in the useEffect below)
       const userStory = storiesData.find((s: StoryWithUser) => s.user_id === user?.id);
-      // Fallback: if profile photo not yet loaded, use story photo
       if (userStory?.userPhoto) setCurrentUserPhoto((prev) => prev || userStory.userPhoto);
-      if (userStory) {
-        // userStory logic here if needed, but the count is gone
-      }
 
-      // Clean up old stories in background
       deleteOldStoriesDb().catch((err) =>
         console.error("Error cleaning old stories:", err),
       );
@@ -203,7 +180,7 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
     loadFeed();
   }, [loadFeed]);
 
-  // Open a specific flow when navigating from a notification (state.openFlow = flowId)
+  // Open a specific flow when navigating from a notification
   React.useEffect(() => {
     const state = location.state as { openFlow?: string } | null;
     if (!state?.openFlow || stories.length === 0) return;
@@ -226,7 +203,6 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   }, [loadFeed]);
 
   // Pre-load discover posts in the background once the following feed is loaded
-  // (so the inline "Descobrir" section at the bottom of the following feed is ready)
   React.useEffect(() => {
     if (!loading && !discoverLoaded) {
       setDiscoverLoading(true);
@@ -240,10 +216,9 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
     }
   }, [loading, discoverLoaded]);
 
-  // Load current user's profile photo (also handles force_profile_reload for new signups)
+  // Load current user's profile photo
   React.useEffect(() => {
     if (!user?.id) return;
-    // Clear force flag if set (newly registered users with photo uploaded during signup)
     if (localStorage.getItem("force_profile_reload") === "1") {
       localStorage.removeItem("force_profile_reload");
       invalidateProfileCache(user.id);
@@ -257,7 +232,24 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
       .catch((err) => console.error("Erro ao carregar foto do perfil:", err));
   }, [user?.id]);
 
-
+  // Bug 4 fix: feedMode is derived from URL/session state, not persisted localStorage
+  // new_user_open_discover flag is consumed once at mount (no lazy initializer that
+  // escapes the auth context)
+  React.useEffect(() => {
+    const flag = localStorage.getItem("new_user_open_discover");
+    if (flag === "1" && user?.id) {
+      localStorage.removeItem("new_user_open_discover");
+      // Trigger immediate discover pre-load if not yet done
+      if (!discoverLoaded) {
+        setDiscoverLoading(true);
+        getDiscoverPosts()
+          .then((data) => { setDiscoverPosts(data); setDiscoverLoaded(true); })
+          .catch(console.error)
+          .finally(() => setDiscoverLoading(false));
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const handleCreateStory = React.useCallback(
     async (mediaDataUrl: string, description: string) => {
@@ -265,47 +257,44 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
       try {
         if (!user || !supabase) throw new Error("User not authenticated");
 
-        // Convert data URL to Blob - preserves original MIME type
         const response = await fetch(mediaDataUrl);
         const blob = await response.blob();
 
-        // Extract extension from blob MIME type
         const mimeType = blob.type || "image/jpeg";
         const rawExtension = mimeType.split("/")[1] || "jpg";
-        // Normalize iPhone/QuickTime format to mp4 for broad compatibility
         const extension = rawExtension === "quicktime" ? "mov" : rawExtension;
         const fileName = `${Date.now()}-story.${extension}`;
         const filePath = `${user.id}/stories/${fileName}`;
 
-        // Upload to Supabase storage
         const { error: uploadError } = await supabase.storage
           .from("posts")
           .upload(filePath, blob);
 
         if (uploadError) throw uploadError;
 
-        // Get public URL
         const {
           data: { publicUrl },
         } = supabase.storage.from("posts").getPublicUrl(filePath);
-        const publicMediaUrl = publicUrl;
 
-        // Create story with public URL
-        const newStory = await createStoryDb(description, publicMediaUrl);
+        const newStory = await createStoryDb(description, publicUrl);
         if (newStory && user) {
-          // Add the new story to the list
           const enrichedStory: StoryWithUser = {
             ...newStory,
             id: String(newStory.id),
             userNickname: currentUserNickname || user.email?.split("@")[0] || "Você",
             userPhoto: currentUserPhoto,
           };
+
+          // Bug 3 fix: capture the current stories list synchronously before any
+          // setState so we never read a stale closure when building activeViewerStories
+          const currentStories = stories;
           setStories((prev) => [enrichedStory, ...prev]);
           setOwnerHasViewedFlow(false);
-          // Open viewer immediately on the newly created flow
           setStoryCreationOpen(false);
+
+          const ownerStories = [enrichedStory, ...currentStories.filter((s) => s.user_id === user.id)];
+          setActiveViewerStories(ownerStories);
           setSelectedStory(enrichedStory);
-          setActiveViewerStories([enrichedStory, ...stories.filter((s) => s.user_id === user.id)]);
           setStoryViewerOpen(true);
         }
       } catch (err) {
@@ -321,20 +310,17 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const handleStoryClick = React.useCallback((story: StoryWithUser) => {
     setSelectedStory(story);
 
-    // Filter stories based on ownership to separate personal flow from community flow
     const isOwner = story.user_id === user?.id;
     const storiesList = isOwner
-      ? stories.filter(s => s.user_id === user?.id)
-      : stories.filter(s => s.user_id !== user?.id);
+      ? stories.filter((s) => s.user_id === user?.id)
+      : stories.filter((s) => s.user_id !== user?.id);
 
     setActiveViewerStories(storiesList);
     setStoryViewerOpen(true);
 
     if (isOwner) {
-      // Mark as viewed so the green dot turns gray for the owner
       setOwnerHasViewedFlow(true);
     } else {
-      // Optimistically mark as viewed and persist to DB
       setViewedStoryIds((prev) => new Set(prev).add(story.id));
       recordFlowViewDb(story.id, story.user_id).catch((err) =>
         console.error("Error recording flow view:", err),
@@ -342,27 +328,30 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
     }
   }, [stories, user?.id]);
 
-  // Use refs to avoid stale closures without making stories/selectedStory deps
   const viewerStoriesRef = React.useRef(activeViewerStories);
   const selectedStoryRef = React.useRef(selectedStory);
   React.useEffect(() => { viewerStoriesRef.current = activeViewerStories; }, [activeViewerStories]);
   React.useEffect(() => { selectedStoryRef.current = selectedStory; }, [selectedStory]);
 
+  // Bug 8 fix: record view for each story the user navigates to (not just the first)
   const handleSkipStory = React.useCallback(() => {
     const current = selectedStoryRef.current;
     if (!current) return;
     const sortedStories = sortStoriesInstagram(viewerStoriesRef.current);
     const currentIndex = sortedStories.findIndex((s) => s.id === current.id);
-    if (currentIndex === -1) {
-      setStoryViewerOpen(false);
-      return;
-    }
+    if (currentIndex === -1) { setStoryViewerOpen(false); return; }
     if (currentIndex < sortedStories.length - 1) {
-      setSelectedStory(sortedStories[currentIndex + 1]);
+      const next = sortedStories[currentIndex + 1];
+      setSelectedStory(next);
+      // Record view for the story we're navigating to (if not already viewed)
+      if (next.user_id !== user?.id) {
+        setViewedStoryIds((prev) => new Set(prev).add(next.id));
+        recordFlowViewDb(next.id, next.user_id).catch(console.error);
+      }
     } else {
       setStoryViewerOpen(false);
     }
-  }, []);
+  }, [user?.id]);
 
   const handlePrevStory = React.useCallback(() => {
     const current = selectedStoryRef.current;
@@ -386,29 +375,36 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
     setLinkedRoutineItems({});
     setCopyingRoutineKeys(new Set());
     setCopiedRoutineKeys(new Set());
+    setLinkedRoutines([]);
 
-    // Fetch routines
     if (post.userGoal) {
+      // Bug 5 fix: show loading state while fetching routines
+      setGoalRoutinesLoading(true);
       try {
         const routines = await getRoutinesByGoalIdDb(post.userGoal.goal_id);
         setLinkedRoutines(routines);
       } catch (err) {
         console.error("Error fetching routines:", err);
         setLinkedRoutines([]);
+      } finally {
+        setGoalRoutinesLoading(false);
       }
     }
-  }, [user]);
-
-  const handleToggleLinkedRoutine = React.useCallback(async (groupKey: string, type: number, name: string | undefined, targetUserId: string) => {
-    setExpandedLinkedRoutine((prev) => (prev === groupKey ? null : groupKey));
-    setLinkedRoutineItems((prev) => {
-      if (prev[groupKey] !== undefined) return prev; // already loaded, no re-render
-      getRoutineItemsForViewDb(targetUserId, type, name)
-        .then((items) => setLinkedRoutineItems((p) => ({ ...p, [groupKey]: items })))
-        .catch(() => setLinkedRoutineItems((p) => ({ ...p, [groupKey]: [] })));
-      return prev;
-    });
   }, []);
+
+  const handleToggleLinkedRoutine = React.useCallback(
+    async (groupKey: string, type: number, name: string | undefined, targetUserId: string) => {
+      setExpandedLinkedRoutine((prev) => (prev === groupKey ? null : groupKey));
+      setLinkedRoutineItems((prev) => {
+        if (prev[groupKey] !== undefined) return prev;
+        getRoutineItemsForViewDb(targetUserId, type, name)
+          .then((items) => setLinkedRoutineItems((p) => ({ ...p, [groupKey]: items })))
+          .catch(() => setLinkedRoutineItems((p) => ({ ...p, [groupKey]: [] })));
+        return prev;
+      });
+    },
+    [],
+  );
 
   const handleCopyGoal = React.useCallback(async () => {
     if (!selectedGoalPost?.userGoal || !user) return;
@@ -423,12 +419,12 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
         selectedGoalPost.userGoal.quantity,
       );
 
-      // Copy linked routines (workout type=1 and diet type=2 only)
+      // Bug 14 fix: copy all routine types including habits (type=3)
       if (linkedRoutines.length > 0) {
         const seen = new Set<string>();
         const groups = linkedRoutines.reduce<{ type: number; name?: string }[]>((acc, r) => {
           const k = `${r.type}__${r.name ?? ""}`;
-          if (!seen.has(k) && (r.type === 1 || r.type === 2)) {
+          if (!seen.has(k)) {
             seen.add(k);
             acc.push({ type: r.type, name: r.name });
           }
@@ -437,8 +433,13 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
 
         await Promise.allSettled(
           groups.map(({ type, name }) =>
-            copyRoutineToUserDb(selectedGoalPost.user_id, user.id, type as 1 | 2, name ?? null)
-          )
+            copyRoutineToUserDb(
+              selectedGoalPost.user_id,
+              user.id,
+              type as 1 | 2 | 3,
+              name ?? null,
+            ),
+          ),
         );
       }
 
@@ -446,7 +447,6 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
         title: "Meta copiada com sucesso!",
         description: "Você agora tem a mesma meta e rotinas que este usuário.",
       });
-
       setHasAlreadyCopiedGoal(true);
       setGoalModalOpen(false);
     } catch (err: any) {
@@ -460,27 +460,35 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
     }
   }, [selectedGoalPost?.userGoal, selectedGoalPost?.user_id, user, linkedRoutines]);
 
-  const handleCopyRoutine = React.useCallback(async (sourceUserId: string, routineType: number, routineName: string | undefined) => {
-    if (!user) return;
-    const key = `${sourceUserId}::${routineName ?? ""}`;
-    if (copyingRoutineKeys.has(key) || copiedRoutineKeys.has(key)) return;
+  const handleCopyRoutine = React.useCallback(
+    async (sourceUserId: string, routineType: number, routineName: string | undefined) => {
+      if (!user) return;
+      // Bug 13 fix: include type in the key to prevent name collision
+      const key = `${sourceUserId}::${routineType}::${routineName ?? ""}`;
+      if (copyingRoutineKeys.has(key) || copiedRoutineKeys.has(key)) return;
 
-    setCopyingRoutineKeys((prev) => new Set(prev).add(key));
-    try {
-      await copyRoutineToUserDb(sourceUserId, user.id, routineType as 1 | 2, routineName ?? null);
-      setCopiedRoutineKeys((prev) => new Set(prev).add(key));
-      toast({
-        title: routineType === 1 ? "Treino copiado!" : "Dieta copiada!",
-        description: `"${routineName ?? "Rotina"}" foi adicionada à sua conta.`,
-      });
-    } catch (err: any) {
-      toast({ title: "Erro ao copiar", description: err?.message || "Tente novamente.", variant: "destructive" });
-    } finally {
-      setCopyingRoutineKeys((prev) => { const s = new Set(prev); s.delete(key); return s; });
-    }
-  }, [user, copyingRoutineKeys, copiedRoutineKeys]);
+      setCopyingRoutineKeys((prev) => new Set(prev).add(key));
+      try {
+        await copyRoutineToUserDb(sourceUserId, user.id, routineType as 1 | 2 | 3, routineName ?? null);
+        setCopiedRoutineKeys((prev) => new Set(prev).add(key));
+        toast({
+          title: routineType === 1 ? "Treino copiado!" : routineType === 2 ? "Dieta copiada!" : "Hábito copiado!",
+          description: `"${routineName ?? "Rotina"}" foi adicionada à sua conta.`,
+        });
+      } catch (err: any) {
+        toast({ title: "Erro ao copiar", description: err?.message || "Tente novamente.", variant: "destructive" });
+      } finally {
+        setCopyingRoutineKeys((prev) => { const s = new Set(prev); s.delete(key); return s; });
+      }
+    },
+    [user, copyingRoutineKeys, copiedRoutineKeys],
+  );
 
-  const applyOptimisticLike = (list: PostWithStats[], postId: string, incentiveType: PostIncentiveType): PostWithStats[] =>
+  const applyOptimisticLike = (
+    list: PostWithStats[],
+    postId: string,
+    incentiveType: PostIncentiveType,
+  ): PostWithStats[] =>
     list.map((post) => {
       if (post.id !== postId) return post;
       const wasActive = post.userLikes.includes(incentiveType);
@@ -507,13 +515,15 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const handleToggleLike = React.useCallback(
     async (postId: string, incentiveType: PostIncentiveType) => {
       const key = `${postId}-${incentiveType}`;
-      if (togglingIncentives.has(key)) return;
+      // Bug 2 fix: check the ref (always current) before the state-based set
+      if (togglingIncentivesRef.current.has(key)) return;
+
       let previousPosts: PostWithStats[] = [];
       let previousDiscoverPosts: PostWithStats[] = [];
       try {
+        togglingIncentivesRef.current.add(key);
         setTogglingIncentives((prev) => new Set(prev).add(key));
 
-        // Update UI optimistically for both feeds, capturing deep copies for rollback
         setPosts((prev) => {
           previousPosts = prev.map((p) => ({ ...p, likes: { ...p.likes }, userLikes: [...p.userLikes] }));
           return applyOptimisticLike(prev, postId, incentiveType);
@@ -526,26 +536,22 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
         await togglePostLike(postId, incentiveType);
       } catch (err: any) {
         console.error("Erro ao toggle like:", err);
-        toast({
-          title: "Erro ao reagir",
-          description: err?.message || "Tente novamente.",
-        });
-        // Revert optimistic update on failure for both feeds
+        toast({ title: "Erro ao reagir", description: err?.message || "Tente novamente." });
         if (previousPosts.length > 0) setPosts(previousPosts);
         if (previousDiscoverPosts.length > 0) setDiscoverPosts(previousDiscoverPosts);
       } finally {
+        togglingIncentivesRef.current.delete(key);
         setTogglingIncentives((prev) => { const next = new Set(prev); next.delete(key); return next; });
       }
     },
-    [togglingIncentives],
+    [],
   );
 
   const handleSharePost = React.useCallback((post: PostWithStats) => {
     const text = `Confira o post de @${post.userNickname} no Linka! 💪${post.description ? `\n"${post.description}"` : ""}`;
     const appOrigin = import.meta.env.VITE_APP_URL || "https://linka.app";
-    const postUrl = `${appOrigin}/post/${post.id}`;
     setShareDrawerText(text);
-    setShareDrawerUrl(postUrl);
+    setShareDrawerUrl(`${appOrigin}/post/${post.id}`);
     setShareDrawerOpen(true);
   }, []);
 
@@ -561,33 +567,28 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
     setReportDialogOpen(true);
   }, []);
 
+  // Bug 6 fix: prevent double-clicks and show nothing opens silently
   const handleOpenLikesModal = React.useCallback(async (post: PostWithStats) => {
+    if (likesLoading) return;
+    setLikesLoading(true);
     try {
       const likes = await getPostLikeUsersDb(post.id);
       setPostLikes(likes);
-      setSelectedPostForLikes(post);
       setLikesModalOpen(true);
     } catch (err) {
       console.error("Error loading post likes:", err);
-      toast({
-        title: "Erro",
-        description: "Não foi possível carregar os incentivos.",
-        variant: "destructive",
-      });
+      toast({ title: "Erro", description: "Não foi possível carregar os incentivos.", variant: "destructive" });
+    } finally {
+      setLikesLoading(false);
     }
-  }, []);
+  }, [likesLoading]);
 
   const handleDeletePost = React.useCallback(
     (post: PostWithStats) => {
       if (!user) {
-        toast({
-          title: "Erro",
-          description: "Você precisa estar logado para deletar um post.",
-          variant: "destructive",
-        });
+        toast({ title: "Erro", description: "Você precisa estar logado para deletar um post.", variant: "destructive" });
         return;
       }
-
       showConfirm(
         "Excluir post",
         "Tem certeza que deseja excluir este post? Esta ação não pode ser desfeita.",
@@ -599,11 +600,7 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
             toast({ title: "Sucesso", description: "Post deletado com sucesso." });
           } catch (err: any) {
             console.error("Error deleting post:", err);
-            toast({
-              title: "Erro ao deletar post",
-              description: err?.message || "Não foi possível deletar o post. Tente novamente.",
-              variant: "destructive",
-            });
+            toast({ title: "Erro ao deletar post", description: err?.message || "Não foi possível deletar o post. Tente novamente.", variant: "destructive" });
           }
         },
       );
@@ -616,30 +613,32 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
     setEditPostOpen(true);
   }, []);
 
+  // Bug 7 fix: after edit, reload both feeds silently
+  const handlePostSaved = React.useCallback(async () => {
+    await loadFeed(false);
+    // Also refresh discover so edited post description updates there too
+    getDiscoverPosts()
+      .then(setDiscoverPosts)
+      .catch(console.error);
+  }, [loadFeed]);
 
-  const handleSwitchToDiscover = React.useCallback(async () => {
-    setFeedMode("discover");
-    if (discoverLoaded) return;
-    setDiscoverLoading(true);
-    try {
-      const data = await getDiscoverPosts();
-      setDiscoverPosts(data);
-      setDiscoverLoaded(true);
-    } catch (err: any) {
-      console.error("Erro ao carregar posts de descoberta:", err);
-      toast({
-        title: "Erro ao carregar posts",
-        description: err?.message || "Tente novamente.",
-      });
-    } finally {
-      setDiscoverLoading(false);
-    }
-  }, [discoverLoaded]);
+  // Shared PostCard props factory
+  const sharedCardProps = {
+    currentUserId: user?.id,
+    togglingIncentives,
+    onToggleLike: handleToggleLike,
+    onOpenLikes: handleOpenLikesModal,
+    onOpenGoal: openGoalModal,
+    onShare: handleSharePost,
+    onReportUser: handleReportUser,
+    onReportPost: handleReportPost,
+    onEdit: handleEditPost,
+    onDelete: handleDeletePost,
+  };
 
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-2xl flex flex-col">
-        {/* Placeholder para o carrossel de stories durante carregamento */}
         <div className="h-24 bg-background border-b border-border/60 animate-pulse" />
         <div className="grid w-full gap-3 p-4">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -667,494 +666,70 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
         />
       </div>
 
-      {/* Feed Mode Toggle */}
+      {/* Feed Content — Following + Discover inline */}
+      <div className="grid w-full gap-3 p-4">
+        {posts.map((post) => (
+          <PostCard key={post.id} post={post} {...sharedCardProps} />
+        ))}
 
-      {/* Feed Content */}
-      <div>
-        <div className="grid w-full gap-3 p-4">
-          {feedMode === "discover" ? (
-            discoverLoading ? (
-              <>
-                {[1, 2, 3].map((i) => (
-                  <PostSkeleton key={i} />
-                ))}
-              </>
-            ) : discoverPosts.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
-                <p className="text-sm font-medium">Nenhum post novo por aqui</p>
-                <p className="text-xs text-muted-foreground">Siga mais pessoas para ver posts aqui ou volte depois.</p>
-              </div>
-            ) : (
-              discoverPosts.map((post) => (
-                <Card
-                  key={`discover-${post.id}`}
-                  className="border-border/60 relative overflow-hidden fade-in"
-                >
-                  <CardContent className="space-y-3 p-0">
-                    {/* Image Container with User Info Overlay */}
-                    <div className="relative">
-                      {post.photos && post.photos.length > 0 ? (
-                        <PostCarousel photos={post.photos} alt="Post" />
-                      ) : (
-                        <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-lg">
-                          <ImageWithFallback
-                            src={post.photo}
-                            alt="Post"
-                            fallback="/placeholder.svg"
-                            className="max-w-full max-h-full w-auto h-auto object-contain"
-                          />
-                        </div>
-                      )}
+        {posts.length === 0 && (
+          <div className="flex flex-col items-center gap-2 text-center pt-4 pb-1">
+            <p className="text-xs text-muted-foreground">
+              Siga pessoas para ver o feed delas.
+            </p>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="rounded-full text-xs h-7 px-3"
+              onClick={() => navigate("/buscar")}
+            >
+              Encontrar pessoas
+            </Button>
+          </div>
+        )}
 
-                      {/* User Info Overlay - Bottom Left */}
-                      <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
-                        <button
-                          onClick={() => navigate(`/usuario/${post.user_id}`)}
-                          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-                        >
-                          <UserAvatar
-                            photo={post.userPhoto}
-                            gender={post.userGender}
-                            nickname={post.userNickname}
-                            size="sm"
-                            className="border border-white/30"
-                          />
-                          <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
-                            <span className="text-xs font-medium text-white leading-none">
-                              {post.userNickname}
-                            </span>
-                            <span className="inline-flex items-center" onClick={(e) => e.stopPropagation()}>
-                              <UserInsignias userId={post.user_id} />
-                            </span>
-                          </div>
-                        </button>
-                        {/* Menu Button */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-white hover:bg-white/20"
-                            >
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem onClick={() => handleSharePost(post)}>
-                              <Share2 className="h-4 w-4 mr-2" />
-                              Compartilhar
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            {user?.id === post.user_id ? (
-                              <>
-                                <DropdownMenuItem onClick={() => handleEditPost(post)}>
-                                  <Edit2 className="h-4 w-4 mr-2" />
-                                  Editar post
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => handleDeletePost(post)}
-                                  className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
-                                >
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                  Excluir post
-                                </DropdownMenuItem>
-                              </>
-                            ) : (
-                              <>
-                                <DropdownMenuItem
-                                  onClick={() => handleReportUser(post)}
-                                >
-                                  <Flag className="h-4 w-4 mr-2" />
-                                  Denunciar usuário
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => handleReportPost(post)}
-                                >
-                                  <Flag className="h-4 w-4 mr-2" />
-                                  Denunciar post
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-
-                    {/* Actions row: incentivos + comentários */}
-                    <div className="flex items-center px-2 pt-1 pb-0.5">
-                      {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                        <PostIncentiveButton
-                          key={type}
-                          type={type}
-                          isActive={post.userLikes.includes(type)}
-                          onClick={() => handleToggleLike(post.id, type)}
-                          loading={togglingIncentives.has(`${post.id}-${type}`)}
-                        />
-                      ))}
-                      <div className="ml-auto">
-                        <PostCommentsDialog
-                          postId={post.id}
-                          commentCount={post.commentCount}
-                          hasActivity={post.hasActivity}
-                          isPostOwner={post.user_id === user?.id}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Contador de incentivos + timestamp numa linha só */}
-                    <div className="flex items-center gap-2 px-3 pb-1">
-                      {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 ? (
-                        <button
-                          onClick={() => handleOpenLikesModal(post)}
-                          className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
-                        >
-                          {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} incentivos
-                        </button>
-                      ) : null}
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {formatTimeAgo(post.created_at)}
-                      </span>
-                    </div>
-
-                    {/* Descrição + Meta */}
-                    <div className="px-3 pb-3 space-y-2">
-                      {post.description && (
-                        <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                          {post.description}
-                        </p>
-                      )}
-
-                      {/* Goal Progress */}
-                      {post.userGoal && (
-                        <button
-                          onClick={() => openGoalModal(post)}
-                          className="w-full text-left group"
-                        >
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <Target className="h-3 w-3 text-brand flex-shrink-0" />
-                            <span className="text-xs font-medium text-foreground truncate flex-1">
-                              {post.userGoal.description}
-                            </span>
-                            <span className="text-xs font-bold text-brand flex-shrink-0">
-                              {Math.round(post.userGoal.perc)}%
-                            </span>
-                          </div>
-                          <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className="bg-brand h-full rounded-full transition-all duration-500"
-                              style={{ width: `${post.userGoal.perc}%` }}
-                            />
-                          </div>
-                        </button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )
-          ) : (
-            /* Following mode — posts dos seguidos + discover inline no final */
-            <>
-              {posts.map((post) => (
-                <Card
-                  key={post.id}
-                  className="border-border/60 relative overflow-hidden fade-in"
-                >
-                  <CardContent className="space-y-3 p-0">
-                    {/* Image Container with User Info Overlay */}
-                    <div className="relative">
-                      {post.photos && post.photos.length > 0 ? (
-                        <PostCarousel photos={post.photos} alt="Post" />
-                      ) : (
-                        <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-lg">
-                          <ImageWithFallback
-                            src={post.photo}
-                            alt="Post"
-                            fallback="/placeholder.svg"
-                            className="max-w-full max-h-full w-auto h-auto object-contain"
-                          />
-                        </div>
-                      )}
-
-                      {/* User Info Overlay - Bottom Left */}
-                      <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
-                        <button
-                          onClick={() => navigate(`/usuario/${post.user_id}`)}
-                          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-                        >
-                          <UserAvatar
-                            photo={post.userPhoto}
-                            gender={post.userGender}
-                            nickname={post.userNickname}
-                            size="sm"
-                            className="border border-white/30"
-                          />
-                          <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
-                            <span className="text-xs font-medium text-white leading-none">
-                              {post.userNickname}
-                            </span>
-                            <span className="inline-flex items-center" onClick={(e) => e.stopPropagation()}>
-                              <UserInsignias userId={post.user_id} />
-                            </span>
-                          </div>
-                        </button>
-                        {/* Menu Button */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-white hover:bg-white/20"
-                            >
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem onClick={() => handleSharePost(post)}>
-                              <Share2 className="h-4 w-4 mr-2" />
-                              Compartilhar
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            {user?.id === post.user_id ? (
-                              <>
-                                <DropdownMenuItem onClick={() => handleEditPost(post)}>
-                                  <Edit2 className="h-4 w-4 mr-2" />
-                                  Editar post
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => handleDeletePost(post)}
-                                  className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
-                                >
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                  Excluir post
-                                </DropdownMenuItem>
-                              </>
-                            ) : (
-                              <>
-                                <DropdownMenuItem
-                                  onClick={() => handleReportUser(post)}
-                                >
-                                  <Flag className="h-4 w-4 mr-2" />
-                                  Denunciar usuário
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => handleReportPost(post)}
-                                >
-                                  <Flag className="h-4 w-4 mr-2" />
-                                  Denunciar post
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-
-                    {/* Actions row: incentivos + comentários */}
-                    <div className="flex items-center px-2 pt-1 pb-0.5">
-                      {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                        <PostIncentiveButton
-                          key={type}
-                          type={type}
-                          isActive={post.userLikes.includes(type)}
-                          onClick={() => handleToggleLike(post.id, type)}
-                          loading={togglingIncentives.has(`${post.id}-${type}`)}
-                        />
-                      ))}
-                      <div className="ml-auto">
-                        <PostCommentsDialog
-                          postId={post.id}
-                          commentCount={post.commentCount}
-                          hasActivity={post.hasActivity}
-                          isPostOwner={post.user_id === user?.id}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Contador de incentivos + timestamp numa linha só */}
-                    <div className="flex items-center gap-2 px-3 pb-1">
-                      {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 ? (
-                        <button
-                          onClick={() => handleOpenLikesModal(post)}
-                          className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
-                        >
-                          {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} incentivos
-                        </button>
-                      ) : null}
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {formatTimeAgo(post.created_at)}
-                      </span>
-                    </div>
-
-                    {/* Descrição + Meta */}
-                    <div className="px-3 pb-3 space-y-2">
-                      {post.description && (
-                        <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                          {post.description}
-                        </p>
-                      )}
-
-                      {/* Goal Progress */}
-                      {post.userGoal && (
-                        <button
-                          onClick={() => openGoalModal(post)}
-                          className="w-full text-left group"
-                        >
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <Target className="h-3 w-3 text-brand flex-shrink-0" />
-                            <span className="text-xs font-medium text-foreground truncate flex-1">
-                              {post.userGoal.description}
-                            </span>
-                            <span className="text-xs font-bold text-brand flex-shrink-0">
-                              {Math.round(post.userGoal.perc)}%
-                            </span>
-                          </div>
-                          <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                            <div
-                              className="bg-brand h-full rounded-full transition-all duration-500"
-                              style={{ width: `${post.userGoal.perc}%` }}
-                            />
-                          </div>
-                        </button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-
-              {/* ── Divisor Descobrir ── aparece após posts dos seguidos (ou logo no topo se não houver) */}
-              {posts.length === 0 && (
-                <div className="flex flex-col items-center gap-2 text-center pt-4 pb-1">
-                  <p className="text-xs text-muted-foreground">
-                    Siga pessoas para ver o feed delas.
-                  </p>
-                  <Button size="sm" variant="ghost" className="rounded-full text-xs h-7 px-3" onClick={() => navigate("/buscar")}>
-                    Encontrar pessoas
-                  </Button>
-                </div>
-              )}
-
-              {/* Divisor visual de transição Seguindo → Descobrir */}
-              <div className="flex items-center gap-3 py-2">
-                <div className="flex-1 h-px bg-border/60" />
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest px-1">
-                  Descobrir
-                </span>
-                <div className="flex-1 h-px bg-border/60" />
-              </div>
-              {posts.length > 0 && (
-                <p className="text-xs text-muted-foreground text-center -mt-1 mb-1">
-                  Você chegou ao fim — veja o que está acontecendo na comunidade
-                </p>
-              )}
-
-              {/* Posts do Descobrir inline */}
-              {discoverLoading ? (
-                <>{[1, 2, 3].map((i) => <PostSkeleton key={i} />)}</>
-              ) : discoverPosts.length === 0 ? (
-                <div className="flex flex-col items-center py-8 gap-2 text-center">
-                  <p className="text-sm text-muted-foreground">Nenhum post novo por aqui.</p>
-                </div>
-              ) : (
-                discoverPosts.map((post) => (
-                  <Card key={`seed-${post.id}`} className="border-border/60 relative overflow-hidden fade-in">
-                    <CardContent className="space-y-3 p-0">
-                      <div className="relative">
-                        {post.photos && post.photos.length > 0 ? (
-                          <PostCarousel photos={post.photos} alt="Post" />
-                        ) : post.photo ? (
-                          <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-lg">
-                            <ImageWithFallback src={post.photo} alt="Post" fallback="/placeholder.svg" className="max-w-full max-h-full w-auto h-auto object-contain" />
-                          </div>
-                        ) : null}
-                        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
-                          <button onClick={() => navigate(`/usuario/${post.user_id}`)} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                            <UserAvatar
-                              photo={post.userPhoto}
-                              gender={post.userGender}
-                              nickname={post.userNickname}
-                              size="sm"
-                              className="border border-white/30"
-                            />
-                            <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
-                              <span className="text-xs font-medium text-white leading-none">{post.userNickname}</span>
-                              <span className="inline-flex items-center" onClick={(e) => e.stopPropagation()}>
-                                <UserInsignias userId={post.user_id} />
-                              </span>
-                            </div>
-                          </button>
-                          {post.user_id !== user?.id && (
-                            <FollowButton targetUserId={post.user_id} variant="overlay" />
-                          )}
-                        </div>
-                      </div>
-                      {/* Actions row: incentivos + comentários */}
-                      <div className="flex items-center px-2 pt-1 pb-0.5">
-                        {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                          <PostIncentiveButton
-                            key={type}
-                            type={type}
-                            isActive={post.userLikes.includes(type)}
-                            onClick={() => handleToggleLike(post.id, type)}
-                            loading={togglingIncentives.has(`${post.id}-${type}`)}
-                          />
-                        ))}
-                        <div className="ml-auto">
-                          <PostCommentsDialog postId={post.id} commentCount={post.commentCount} hasActivity={post.hasActivity} isPostOwner={post.user_id === user?.id} />
-                        </div>
-                      </div>
-
-                      {/* Contador de incentivos + timestamp */}
-                      <div className="flex items-center gap-2 px-3 pb-1">
-                        {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0) > 0 ? (
-                          <button
-                            onClick={() => handleOpenLikesModal(post)}
-                            className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
-                          >
-                            {Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0)} incentivos
-                          </button>
-                        ) : null}
-                        <span className="text-xs text-muted-foreground ml-auto">
-                          {formatTimeAgo(post.created_at)}
-                        </span>
-                      </div>
-
-                      {/* Descrição + Meta */}
-                      <div className="px-3 pb-3 space-y-2">
-                        {post.description && (
-                          <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap line-clamp-2">{post.description}</p>
-                        )}
-                        {post.userGoal && (
-                          <button onClick={() => openGoalModal(post)} className="w-full text-left">
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <Target className="h-3 w-3 text-brand flex-shrink-0" />
-                              <span className="text-xs font-medium text-foreground truncate flex-1">
-                                {post.userGoal.description}
-                              </span>
-                              <span className="text-xs font-bold text-brand flex-shrink-0">
-                                {Math.round(post.userGoal.perc)}%
-                              </span>
-                            </div>
-                            <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                              <div
-                                className="bg-brand h-full rounded-full transition-all duration-500"
-                                style={{ width: `${post.userGoal.perc}%` }}
-                              />
-                            </div>
-                          </button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </>
-          )}
+        {/* Discover section divider */}
+        <div className="flex items-center gap-3 py-2">
+          <div className="flex-1 h-px bg-border/60" />
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest px-1">
+            Descobrir
+          </span>
+          <div className="flex-1 h-px bg-border/60" />
         </div>
+        {posts.length > 0 && (
+          <p className="text-xs text-muted-foreground text-center -mt-1 mb-1">
+            Você chegou ao fim — veja o que está acontecendo na comunidade
+          </p>
+        )}
+
+        {/* Bug 10 fix: Discover inline empty state with CTA */}
+        {discoverLoading ? (
+          <>{[1, 2, 3].map((i) => <PostSkeleton key={i} />)}</>
+        ) : discoverPosts.length === 0 ? (
+          <div className="flex flex-col items-center py-8 gap-3 text-center">
+            <p className="text-sm text-muted-foreground">
+              Ainda não há posts na comunidade.
+            </p>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="rounded-full text-xs h-7 px-3"
+              onClick={() => navigate("/buscar")}
+            >
+              Encontrar pessoas para seguir
+            </Button>
+          </div>
+        ) : (
+          discoverPosts.map((post) => (
+            // Bug 17 fix: showFollowButton=true in discover sections
+            <PostCard
+              key={`seed-${post.id}`}
+              post={post}
+              {...sharedCardProps}
+              showFollowButton
+            />
+          ))
+        )}
       </div>
 
       {/* Flow Creation Dialog */}
@@ -1175,9 +750,6 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
         onPrevStory={handlePrevStory}
         onSelectStory={(s) => {
           setSelectedStory(s);
-          // Rebuild activeViewerStories around the selected story so the modal
-          // stays in sync – otherwise the timer/navigation logic sees currentIndex=-1
-          // and can jump to the wrong story (or crash with a black screen).
           const isOwner = s.user_id === user?.id;
           const storiesList = isOwner
             ? stories.filter((st) => st.user_id === user?.id)
@@ -1190,7 +762,7 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
         }}
       />
 
-      {/* Goal Progress Modal */}
+      {/* Goal Progress Drawer */}
       <Drawer open={goalModalOpen} onOpenChange={setGoalModalOpen}>
         <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
@@ -1201,47 +773,32 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
               <div className="space-y-4 flex-1">
                 {/* Goal Info */}
                 <div className="p-4 border border-border/60 rounded-lg bg-muted/30 space-y-3">
-                  <div>
-                    <p className="text-lg font-bold">
-                      {selectedGoalPost.userGoal.description}
-                    </p>
-                  </div>
+                  <p className="text-lg font-bold">{selectedGoalPost.userGoal.description}</p>
 
-                  {/* Progress Bar */}
+                  {/* Progress Bar — Bug 9 fix: clamp to 100 */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium text-foreground">
-                        Progresso
-                      </span>
+                      <span className="text-sm font-medium text-foreground">Progresso</span>
                       <span className="text-lg font-bold text-brand">
-                        {Math.round(selectedGoalPost.userGoal.perc)}%
+                        {Math.round(Math.min(100, selectedGoalPost.userGoal.perc))}%
                       </span>
                     </div>
                     <div className="w-full bg-muted rounded-full h-5 overflow-hidden">
                       <div
                         className="bg-brand h-full rounded-full transition-all duration-300"
-                        style={{
-                          width: `${selectedGoalPost.userGoal.perc}%`,
-                        }}
+                        style={{ width: `${Math.min(100, selectedGoalPost.userGoal.perc)}%` }}
                       />
                     </div>
                   </div>
 
-                  {/* Goal Details */}
                   <div className="grid grid-cols-3 gap-3 pt-2">
                     <div className="p-2 bg-background/50 rounded text-center">
                       <p className="text-xs text-muted-foreground">Duração</p>
-                      <p className="text-sm font-bold">
-                        {selectedGoalPost.userGoal.duration}d
-                      </p>
+                      <p className="text-sm font-bold">{selectedGoalPost.userGoal.duration}d</p>
                     </div>
                     <div className="p-2 bg-background/50 rounded text-center">
-                      <p className="text-xs text-muted-foreground">
-                        Quantidade
-                      </p>
-                      <p className="text-sm font-bold">
-                        {selectedGoalPost.userGoal.quantity}
-                      </p>
+                      <p className="text-xs text-muted-foreground">Quantidade</p>
+                      <p className="text-sm font-bold">{selectedGoalPost.userGoal.quantity}</p>
                     </div>
                     <div className="p-2 bg-background/50 rounded text-center">
                       <p className="text-xs text-muted-foreground">Tipo</p>
@@ -1256,199 +813,81 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
                   </div>
                 </div>
 
-                {/* Linked Routines Dropdown or Link Option */}
-                {selectedGoalPost.user_id === user?.id && (
+                {/* Bug 5 fix: loading state while routines load */}
+                {goalRoutinesLoading ? (
+                  <div className="flex items-center justify-center py-6">
+                    <p className="text-sm text-muted-foreground">Carregando rotinas...</p>
+                  </div>
+                ) : (
                   <>
-                    {linkedRoutines.length > 0 ? (
-                      <div className="border border-border/60 rounded-lg overflow-hidden">
-                        <button
-                          onClick={() => setExpandedRoutines(!expandedRoutines)}
-                          className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
-                        >
-                          <h3 className="text-sm font-medium">
-                            Rotinas Vinculadas ({new Set(linkedRoutines.map((r: any) => `${r.type}__${r.name ?? ""}`)).size})
-                          </h3>
-                          <ChevronDown
-                            className={`h-5 w-5 transform transition-transform ${expandedRoutines ? "rotate-180" : ""
-                              }`}
+                    {/* Own post — show linked routines (view only) */}
+                    {selectedGoalPost.user_id === user?.id && (
+                      <>
+                        {linkedRoutines.length > 0 ? (
+                          <RoutineAccordion
+                            linkedRoutines={linkedRoutines}
+                            expandedRoutines={expandedRoutines}
+                            setExpandedRoutines={setExpandedRoutines}
+                            expandedLinkedRoutine={expandedLinkedRoutine}
+                            linkedRoutineItems={linkedRoutineItems}
+                            targetUserId={selectedGoalPost.user_id}
+                            onToggleRoutine={handleToggleLinkedRoutine}
+                            showCopyButtons={false}
+                            copyingRoutineKeys={copyingRoutineKeys}
+                            copiedRoutineKeys={copiedRoutineKeys}
+                            onCopyRoutine={handleCopyRoutine}
+                            postUserId={selectedGoalPost.user_id}
                           />
-                        </button>
+                        ) : (
+                          <div className="border border-border/60 rounded-lg p-4 bg-muted/20 text-center space-y-3">
+                            <p className="text-sm text-muted-foreground">
+                              Nenhuma rotina vinculada a esta meta
+                            </p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full rounded-full"
+                              onClick={() => navigate("/metas?tab=rotinas")}
+                            >
+                              Vincular Rotinas
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    )}
 
-                        {expandedRoutines && (() => {
-                          // Deduplicate: group by (type + name), keep one representative per group
-                          const seen = new Set<string>();
-                          const groups = linkedRoutines.reduce<{ key: string; type: number; name?: string }[]>((acc, r) => {
-                            const k = `${r.type}__${r.name ?? ""}`;
-                            if (!seen.has(k)) { seen.add(k); acc.push({ key: k, type: r.type, name: r.name }); }
-                            return acc;
-                          }, []);
-                          return (
-                            <div className="border-t border-border/60 divide-y divide-border/40">
-                              {groups.map(({ key, type, name }) => {
-                                const typeIcon = type === 1 ? "🏋️" : type === 2 ? "🍽️" : "✅";
-                                const typeLabel = type === 1 ? "Exercícios" : type === 2 ? "Dietas" : "Hábitos";
-                                const label = name || typeLabel;
-                                const isOpen = expandedLinkedRoutine === key;
-                                const items = linkedRoutineItems[key];
-                                return (
-                                  <div key={key}>
-                                    <button
-                                      onClick={() => handleToggleLinkedRoutine(key, type, name, selectedGoalPost!.user_id)}
-                                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
-                                    >
-                                      <span className="text-base">{typeIcon}</span>
-                                      <span className="flex-1 text-sm font-medium truncate">{label}</span>
-                                      <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                                    </button>
-                                    {isOpen && (
-                                      <div className="bg-muted/20 px-4 pb-3 pt-1 space-y-1.5">
-                                        {!items ? (
-                                          <p className="text-xs text-muted-foreground py-2">Carregando...</p>
-                                        ) : items.length === 0 ? (
-                                          <p className="text-xs text-muted-foreground py-2">Nenhum item nesta rotina.</p>
-                                        ) : (
-                                          items.map((item: any) => {
-                                            const itemName = item.workoutName || item.dietName || item.habitName || "—";
-                                            return (
-                                              <div key={item.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-background/60">
-                                                <span className="text-xs text-muted-foreground">•</span>
-                                                <span className="text-sm truncate">{itemName}</span>
-                                              </div>
-                                            );
-                                          })
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    ) : (
-                      <div className="border border-border/60 rounded-lg p-4 bg-muted/20 text-center space-y-3">
-                        <p className="text-sm text-muted-foreground">
-                          Nenhuma rotina vinculada a esta meta
-                        </p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full rounded-full"
-                          onClick={() => navigate("/metas?tab=rotinas")}
-                        >
-                          Vincular Rotinas
-                        </Button>
-                      </div>
+                    {/* Other user's post — show routines with copy buttons */}
+                    {selectedGoalPost.user_id !== user?.id && linkedRoutines.length > 0 && (
+                      <RoutineAccordion
+                        linkedRoutines={linkedRoutines}
+                        expandedRoutines={expandedRoutines}
+                        setExpandedRoutines={setExpandedRoutines}
+                        expandedLinkedRoutine={expandedLinkedRoutine}
+                        linkedRoutineItems={linkedRoutineItems}
+                        targetUserId={selectedGoalPost.user_id}
+                        onToggleRoutine={handleToggleLinkedRoutine}
+                        showCopyButtons
+                        copyingRoutineKeys={copyingRoutineKeys}
+                        copiedRoutineKeys={copiedRoutineKeys}
+                        onCopyRoutine={handleCopyRoutine}
+                        postUserId={selectedGoalPost.user_id}
+                      />
                     )}
                   </>
                 )}
-                {selectedGoalPost.user_id !== user?.id && linkedRoutines.length > 0 && (
-                  <div className="border border-border/60 rounded-lg overflow-hidden">
-                    <button
-                      onClick={() => setExpandedRoutines(!expandedRoutines)}
-                      className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
-                    >
-                      <h3 className="text-sm font-medium">
-                        Rotinas Vinculadas ({new Set(linkedRoutines.map((r: any) => `${r.type}__${r.name ?? ""}`)).size})
-                      </h3>
-                      <ChevronDown
-                        className={`h-5 w-5 transform transition-transform ${expandedRoutines ? "rotate-180" : ""
-                          }`}
-                      />
-                    </button>
 
-                    {expandedRoutines && (() => {
-                      const seen = new Set<string>();
-                      const groups = linkedRoutines.reduce<{ key: string; type: number; name?: string }[]>((acc, r) => {
-                        const k = `${r.type}__${r.name ?? ""}`;
-                        if (!seen.has(k)) { seen.add(k); acc.push({ key: k, type: r.type, name: r.name }); }
-                        return acc;
-                      }, []);
-                      return (
-                        <div className="border-t border-border/60 divide-y divide-border/40">
-                          {groups.map(({ key, type, name }) => {
-                            const typeIcon = type === 1 ? "🏋️" : type === 2 ? "🍽️" : "✅";
-                            const typeLabel = type === 1 ? "Exercícios" : type === 2 ? "Dietas" : "Hábitos";
-                            const label = name || typeLabel;
-                            const isOpen = expandedLinkedRoutine === key;
-                            const items = linkedRoutineItems[key];
-                            const copyKey = `${selectedGoalPost!.user_id}::${name ?? ""}`;
-                            const isCopyingThis = copyingRoutineKeys.has(copyKey);
-                            const isCopiedThis = copiedRoutineKeys.has(copyKey);
-                            // Only show copy for workout (type 1) and diet (type 2)
-                            const canCopy = type === 1 || type === 2;
-                            return (
-                              <div key={key}>
-                                <button
-                                  onClick={() => handleToggleLinkedRoutine(key, type, name, selectedGoalPost!.user_id)}
-                                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
-                                >
-                                  <span className="text-base">{typeIcon}</span>
-                                  <span className="flex-1 text-sm font-medium truncate">{label}</span>
-                                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                                </button>
-                                {isOpen && (
-                                  <div className="bg-muted/20 px-4 pb-3 pt-1 space-y-1.5">
-                                    {!items ? (
-                                      <p className="text-xs text-muted-foreground py-2">Carregando...</p>
-                                    ) : items.length === 0 ? (
-                                      <p className="text-xs text-muted-foreground py-2">Nenhum item nesta rotina.</p>
-                                    ) : (
-                                      <>
-                                        {items.map((item: any) => {
-                                          const itemName = item.workoutName || item.dietName || item.habitName || "—";
-                                          return (
-                                            <div key={item.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-background/60">
-                                              <span className="text-xs text-muted-foreground">•</span>
-                                              <span className="text-sm truncate">{itemName}</span>
-                                            </div>
-                                          );
-                                        })}
-                                        {canCopy && (
-                                          <Button
-                                            size="sm"
-                                            variant={isCopiedThis ? "outline" : "default"}
-                                            className="w-full rounded-full mt-2"
-                                            disabled={isCopyingThis || isCopiedThis}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleCopyRoutine(selectedGoalPost!.user_id, type, name);
-                                            }}
-                                          >
-                                            {isCopyingThis ? "Copiando..." : isCopiedThis ? "✓ Copiado" : `Copiar ${type === 1 ? "Treino" : "Dieta"}`}
-                                          </Button>
-                                        )}
-                                      </>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
-
-                {/* Buttons */}
-                <div className="flex gap-2">
-                  {/* Copy Goal Button - Only show for other users' goals */}
-                  {selectedGoalPost.user_id !== user?.id && (
+                {/* Copy Goal button */}
+                {selectedGoalPost.user_id !== user?.id && (
+                  <div className="flex gap-2">
                     <Button
                       onClick={handleCopyGoal}
                       disabled={isCopyingGoal || hasAlreadyCopiedGoal}
                       className="flex-1 rounded-full gap-2 shrink-0"
                     >
-                      {isCopyingGoal
-                        ? "Copiando..."
-                        : hasAlreadyCopiedGoal
-                          ? "Já copiado"
-                          : "Copiar Meta"}
+                      {isCopyingGoal ? "Copiando..." : hasAlreadyCopiedGoal ? "Já copiado" : "Copiar Meta"}
                     </Button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1460,12 +899,16 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
         open={reportDialogOpen}
         onOpenChange={setReportDialogOpen}
         type={reportType}
-        target={reportedPost ? {
-          id: reportedPost.id,
-          userId: reportedPost.user_id,
-          userName: reportedPost.userNickname,
-          description: reportedPost.description,
-        } : null}
+        target={
+          reportedPost
+            ? {
+                id: reportedPost.id,
+                userId: reportedPost.user_id,
+                userName: reportedPost.userNickname,
+                description: reportedPost.description,
+              }
+            : null
+        }
       />
 
       <ShareDrawer
@@ -1476,14 +919,12 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
         title="Compartilhar post"
       />
 
-      {/* Post Likes Modal */}
       <PostLikesModal
         open={likesModalOpen}
         onOpenChange={setLikesModalOpen}
         likes={postLikes}
       />
 
-      {/* Centralized Confirm Dialog */}
       <AlertDialog
         open={confirmDialog.open}
         onOpenChange={(open) => setConfirmDialog((prev) => ({ ...prev, open }))}
@@ -1509,8 +950,136 @@ const [likesModalOpen, setLikesModalOpen] = React.useState(false);
         open={editPostOpen}
         onOpenChange={(v) => { if (!v) { setEditPostOpen(false); setEditingPost(null); } }}
         post={editingPost}
-        onSaved={() => loadFeed(false)}
+        onSaved={handlePostSaved}
       />
+    </div>
+  );
+}
+
+// ─── Extracted sub-component to eliminate duplication in the Goal Drawer ───
+
+interface RoutineAccordionProps {
+  linkedRoutines: any[];
+  expandedRoutines: boolean;
+  setExpandedRoutines: (v: boolean) => void;
+  expandedLinkedRoutine: string | null;
+  linkedRoutineItems: Record<string, any[]>;
+  targetUserId: string;
+  onToggleRoutine: (key: string, type: number, name: string | undefined, userId: string) => void;
+  showCopyButtons: boolean;
+  copyingRoutineKeys: Set<string>;
+  copiedRoutineKeys: Set<string>;
+  onCopyRoutine: (sourceUserId: string, routineType: number, routineName: string | undefined) => void;
+  postUserId: string;
+}
+
+function RoutineAccordion({
+  linkedRoutines,
+  expandedRoutines,
+  setExpandedRoutines,
+  expandedLinkedRoutine,
+  linkedRoutineItems,
+  targetUserId,
+  onToggleRoutine,
+  showCopyButtons,
+  copyingRoutineKeys,
+  copiedRoutineKeys,
+  onCopyRoutine,
+  postUserId,
+}: RoutineAccordionProps) {
+  const seen = new Set<string>();
+  const groups = linkedRoutines.reduce<{ key: string; type: number; name?: string }[]>((acc, r) => {
+    const k = `${r.type}__${r.name ?? ""}`;
+    if (!seen.has(k)) { seen.add(k); acc.push({ key: k, type: r.type, name: r.name }); }
+    return acc;
+  }, []);
+
+  return (
+    <div className="border border-border/60 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setExpandedRoutines(!expandedRoutines)}
+        className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+      >
+        <h3 className="text-sm font-medium">
+          Rotinas Vinculadas ({groups.length})
+        </h3>
+        <ChevronDown
+          className={`h-5 w-5 transform transition-transform ${expandedRoutines ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {expandedRoutines && (
+        <div className="border-t border-border/60 divide-y divide-border/40">
+          {groups.map(({ key, type, name }) => {
+            const typeIcon = type === 1 ? "🏋️" : type === 2 ? "🍽️" : "✅";
+            const typeLabel = type === 1 ? "Exercícios" : type === 2 ? "Dietas" : "Hábitos";
+            const label = name || typeLabel;
+            const isOpen = expandedLinkedRoutine === key;
+            const items = linkedRoutineItems[key];
+            // Bug 13 fix: key includes type to prevent name collision
+            const copyKey = `${postUserId}::${type}::${name ?? ""}`;
+            const isCopyingThis = copyingRoutineKeys.has(copyKey);
+            const isCopiedThis = copiedRoutineKeys.has(copyKey);
+
+            return (
+              <div key={key}>
+                <button
+                  onClick={() => onToggleRoutine(key, type, name, targetUserId)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                >
+                  <span className="text-base">{typeIcon}</span>
+                  <span className="flex-1 text-sm font-medium truncate">{label}</span>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {isOpen && (
+                  <div className="bg-muted/20 px-4 pb-3 pt-1 space-y-1.5">
+                    {!items ? (
+                      <p className="text-xs text-muted-foreground py-2">Carregando...</p>
+                    ) : items.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2">Nenhum item nesta rotina.</p>
+                    ) : (
+                      <>
+                        {items.map((item: any) => {
+                          const itemName = item.workoutName || item.dietName || item.habitName || "—";
+                          return (
+                            <div key={item.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-background/60">
+                              <span className="text-xs text-muted-foreground">•</span>
+                              <span className="text-sm truncate">{itemName}</span>
+                            </div>
+                          );
+                        })}
+                        {showCopyButtons && (
+                          <Button
+                            size="sm"
+                            variant={isCopiedThis ? "outline" : "default"}
+                            className="w-full rounded-full mt-2"
+                            disabled={isCopyingThis || isCopiedThis}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onCopyRoutine(postUserId, type, name);
+                            }}
+                          >
+                            {isCopyingThis
+                              ? "Copiando..."
+                              : isCopiedThis
+                                ? "✓ Copiado"
+                                : type === 1
+                                  ? "Copiar Treino"
+                                  : type === 2
+                                    ? "Copiar Dieta"
+                                    : "Copiar Hábito"}
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

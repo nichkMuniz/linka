@@ -138,7 +138,7 @@ export function ShotsLayout() {
           >
             {sidebarExpanded
               ? <img src={logoSrc} alt="LinKa" className="h-7" />
-              : <img src={logoSrc} alt="LinKa" className="h-6 w-6 object-contain" />
+              : <img src="/SIMBOLO.png" alt="LinKa" className="h-8 w-8 object-contain" />
             }
           </button>
 

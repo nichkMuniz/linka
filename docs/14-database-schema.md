@@ -31,6 +31,10 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [notifications](#notifications) | Notificações de usuários |
 | [post_complaint](#post_complaint) | Denúncias de posts |
 | [posts](#posts) | Posts do feed |
+| [promotion_comments](#promotion_comments) | Comentários em promoções da Vitrine |
+| [promotion_likes](#promotion_likes) | Curtidas em promoções |
+| [promotion_status_reports](#promotion_status_reports) | Votos de status (ativa/expirada) de promoções |
+| [promotions](#promotions) | Promoções publicadas na Vitrine |
 | [profiles](#profiles) | Perfil público dos usuários |
 | [ranking](#ranking) | Pontuação e nível dos usuários |
 | [routines](#routines) | Rotinas de treino dos usuários |
@@ -49,6 +53,110 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [user_workouts](#user_workouts) | Treinos salvos do usuário |
 | [user_workouts_hist](#user_workouts_hist) | Histórico de treinos realizados |
 | [workouts](#workouts) | Catálogo de treinos disponíveis |
+
+---
+
+## promotions
+
+Promoções publicadas pelos usuários na aba "Promoções" da Vitrine.
+
+| Coluna | Tipo | Restrições | Descrição |
+|---|---|---|---|
+| id | uuid | PK, default gen_random_uuid() | ID da promoção |
+| user_id | uuid | FK → auth.users, NOT NULL | Autor da promoção |
+| title | text | NOT NULL, max 120 chars | Título da promoção |
+| description | text | nullable, max 500 chars | Descrição opcional |
+| category | text | NOT NULL | equipamento / suplemento / alimento / vestuario / servico / outro |
+| original_price | numeric | nullable, ≥ 0 | Preço original |
+| promo_price | numeric | nullable, ≥ 0, ≤ original | Preço promocional |
+| discount_percent | numeric | nullable | % de desconto |
+| photo_url | text | nullable | URL da imagem (Storage) |
+| external_link | text | nullable | Link externo da promoção |
+| coupon_code | text | nullable, max 30 chars | Código de cupom (uppercase) |
+| expires_at | timestamptz | nullable | Data de expiração |
+| is_active | boolean | default true | Soft-delete |
+| active_reports | integer | default 0 | Votos "ativo" (legacy, substituído por promotion_status_reports) |
+| expired_reports | integer | default 0 | Votos "expirado" (legacy) |
+| created_at | timestamptz | default now() | Data de criação |
+
+**RLS:** Leitura pública (is_active=true); criação/edição/exclusão apenas pelo owner.
+
+---
+
+## promotion_likes
+
+Curtidas em promoções.
+
+| Coluna | Tipo | Restrições | Descrição |
+|---|---|---|---|
+| id | uuid | PK | ID do like |
+| promotion_id | uuid | FK → promotions | Promoção curtida |
+| user_id | uuid | FK → auth.users | Usuário que curtiu |
+| created_at | timestamptz | default now() | Data |
+
+**Unique:** (promotion_id, user_id) — um like por usuário por promoção.
+
+---
+
+## promotion_status_reports
+
+Votos de status (ativa/expirada) por usuário.
+
+| Coluna | Tipo | Restrições | Descrição |
+|---|---|---|---|
+| id | uuid | PK | ID do voto |
+| promotion_id | uuid | FK → promotions | Promoção votada |
+| user_id | uuid | FK → auth.users | Usuário que votou |
+| status | text | "active" \| "expired" | Resultado do voto |
+| created_at | timestamptz | default now() | Data |
+
+**Unique:** (promotion_id, user_id, status).
+
+---
+
+## promotion_comments
+
+Comentários da comunidade em promoções (discussão sobre validade, qualidade, experiência).
+
+| Coluna | Tipo | Restrições | Descrição |
+|---|---|---|---|
+| id | uuid | PK, default gen_random_uuid() | ID do comentário |
+| promotion_id | uuid | FK → promotions, NOT NULL | Promoção comentada |
+| user_id | uuid | FK → auth.users, NOT NULL | Autor do comentário |
+| text | text | NOT NULL, max 500 chars | Conteúdo do comentário |
+| created_at | timestamptz | default now() | Data de criação |
+| updated_at | timestamptz | nullable | Data da última edição |
+
+**RLS:** Leitura pública; inserção apenas para usuários autenticados; edição/exclusão apenas pelo owner.
+
+**SQL de criação:**
+```sql
+CREATE TABLE public.promotion_comments (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  promotion_id uuid NOT NULL REFERENCES public.promotions(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  text text NOT NULL CHECK (char_length(text) <= 500),
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz
+);
+
+ALTER TABLE public.promotion_comments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "promotion_comments_select" ON public.promotion_comments
+  FOR SELECT USING (true);
+
+CREATE POLICY "promotion_comments_insert" ON public.promotion_comments
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "promotion_comments_update" ON public.promotion_comments
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "promotion_comments_delete" ON public.promotion_comments
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE INDEX promotion_comments_promotion_id_idx ON public.promotion_comments(promotion_id);
+CREATE INDEX promotion_comments_created_at_idx ON public.promotion_comments(created_at);
+```
 
 ---
 
@@ -429,12 +537,24 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `follower_id` | uuid | — | `gen_random_uuid()` | Quem originou a notificação |
 | `type` | bigint | — | — | Tipo da notificação |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
-| `post_id` | uuid | — | — | Post relacionado (se aplicável) |
+| `post_id` | uuid | — | — | Post relacionado; também usado para `promotion_id` quando type=8 |
 | `read` | boolean | — | `false` | Notificação lida ou não |
 | `shots_id` | uuid | — | — | Shot relacionado (se aplicável) |
 | `flow_id` | uuid | — | — | Flow relacionado (se aplicável) |
 | `duel_check_in_id` | uuid | — | — | Check-in relacionado (se aplicável) |
-> **Tipos de notificação comuns:** follow, like, comment, duel invite, etc. (verificar constantes no código).
+
+**Tipos de notificação:**
+
+| type | Evento | Campos usados |
+|---|---|---|
+| 1 | Novo seguidor | `follower_id` |
+| 2 | Incentivo em post/shot/flow | `follower_id`, `post_id` ou `shots_id` ou `flow_id` |
+| 3 | Comentário em post/shot/flow | `follower_id`, `post_id` ou `shots_id` ou `flow_id` |
+| 4 | Convite para duelo | `follower_id`, `post_id` (= duel_group_id) |
+| 5 | Solicitação de entrada em duelo | `follower_id`, `post_id` (= duel_group_id) |
+| 6 | Reação em comentário | `follower_id`, `post_id` ou `shots_id` ou `flow_id` |
+| 7 | Reação em check-in de duelo | `follower_id`, `duel_check_in_id` |
+| 8 | Comentário em promoção | `follower_id`, `post_id` (= promotion_id) |
 
 ---
 
