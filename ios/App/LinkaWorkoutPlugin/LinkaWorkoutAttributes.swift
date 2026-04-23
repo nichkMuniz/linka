@@ -11,7 +11,10 @@ public struct LinkaWorkoutAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         var exerciseName: String
         var seriesLabel: String
-        var elapsedSeconds: Int
+        /// Absolute start date — used by SwiftUI Text(.timer) to auto-advance on lock screen.
+        var startDate: Date
+        /// Elapsed seconds frozen at the moment the workout was paused (used only when isPaused == true).
+        var pausedElapsedSeconds: Int
         var isPaused: Bool
     }
 

@@ -2339,11 +2339,11 @@ export default function Profile() {
                         />
                       </div>
                     ) : (
-                      <div className="relative aspect-[4/3] md:aspect-square overflow-hidden md:rounded-none bg-muted border-b border-border/40 md:border-b-0">
+                      <div className="w-full bg-black rounded-lg overflow-hidden border-b border-border/40 md:border-b-0">
                         <img
                           src={selectedPost.photo}
                           alt={selectedPost.description}
-                          className="w-full h-full object-cover"
+                          className="w-full h-auto block"
                         />
                       </div>
                     )}

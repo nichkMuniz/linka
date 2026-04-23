@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { LocalNotifications } from "@capacitor/local-notifications";
+import { PushNotifications } from "@capacitor/push-notifications";
+import { Capacitor } from "@capacitor/core";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { PageTransition } from "@/components/layout/page-transition";
@@ -274,6 +276,10 @@ export function AppLayout() {
   React.useEffect(() => {
     if (location.pathname === "/notificacoes") {
       setUnreadNotificationsCount(0);
+      // Clear iOS app icon badge and notification center
+      if (Capacitor.isNativePlatform()) {
+        PushNotifications.removeAllDeliveredNotifications().catch(() => {});
+      }
     }
     if (location.pathname === "/comunidade") {
       setUnreadCount(0);

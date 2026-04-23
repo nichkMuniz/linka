@@ -14,6 +14,27 @@ private func formatElapsed(_ secs: Int) -> String {
     return String(format: "%02d:%02d", m, s)
 }
 
+/// A timer view that auto-advances on the lock screen using ActivityKit's
+/// date-driven rendering. When paused, shows the frozen elapsed string instead.
+private struct WorkoutTimer: View {
+    let startDate: Date
+    let pausedElapsedSeconds: Int
+    let isPaused: Bool
+
+    var body: some View {
+        if isPaused {
+            Text(formatElapsed(pausedElapsedSeconds))
+                .font(.system(size: 28, weight: .bold, design: .monospaced))
+                .foregroundColor(.white.opacity(0.5))
+        } else {
+            Text(timerInterval: startDate..., pauseTime: nil)
+                .font(.system(size: 28, weight: .bold, design: .monospaced))
+                .foregroundColor(.white)
+                .monospacedDigit()
+        }
+    }
+}
+
 // Brand orange used throughout the app
 private let brandOrange = Color(red: 249/255, green: 115/255, blue: 22/255)
 
@@ -46,11 +67,13 @@ struct WorkoutLockScreenView: View {
 
             Spacer()
 
-            // Elapsed timer
+            // Elapsed timer — advances automatically on lock screen via ActivityKit
             VStack(alignment: .trailing, spacing: 2) {
-                Text(formatElapsed(context.state.elapsedSeconds))
-                    .font(.system(size: 28, weight: .bold, design: .monospaced))
-                    .foregroundColor(context.state.isPaused ? .white.opacity(0.5) : .white)
+                WorkoutTimer(
+                    startDate: context.state.startDate,
+                    pausedElapsedSeconds: context.state.pausedElapsedSeconds,
+                    isPaused: context.state.isPaused
+                )
                 if context.state.isPaused {
                     Text("pausado")
                         .font(.system(size: 10, weight: .medium))
@@ -73,9 +96,16 @@ struct WorkoutDynamicIslandCompact: View {
             Image(systemName: "figure.run")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(brandOrange)
-            Text(formatElapsed(context.state.elapsedSeconds))
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                .foregroundColor(.white)
+            if context.state.isPaused {
+                Text(formatElapsed(context.state.pausedElapsedSeconds))
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.5))
+            } else {
+                Text(timerInterval: context.state.startDate..., pauseTime: nil)
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white)
+                    .monospacedDigit()
+            }
         }
     }
 }
@@ -134,9 +164,16 @@ struct LinkaWorkoutLiveActivity: Widget {
                         .foregroundColor(brandOrange)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(formatElapsed(context.state.elapsedSeconds))
-                        .font(.system(size: 16, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white)
+                    if context.state.isPaused {
+                        Text(formatElapsed(context.state.pausedElapsedSeconds))
+                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.5))
+                    } else {
+                        Text(timerInterval: context.state.startDate..., pauseTime: nil)
+                            .font(.system(size: 16, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .monospacedDigit()
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack {
@@ -154,9 +191,16 @@ struct LinkaWorkoutLiveActivity: Widget {
                 Image(systemName: "figure.run")
                     .foregroundColor(brandOrange)
             } compactTrailing: {
-                Text(formatElapsed(context.state.elapsedSeconds))
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white)
+                if context.state.isPaused {
+                    Text(formatElapsed(context.state.pausedElapsedSeconds))
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.5))
+                } else {
+                    Text(timerInterval: context.state.startDate..., pauseTime: nil)
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white)
+                        .monospacedDigit()
+                }
             } minimal: {
                 Image(systemName: "figure.run")
                     .foregroundColor(brandOrange)

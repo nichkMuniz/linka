@@ -52,7 +52,7 @@ Cada conversa exibe:
 | Botão excluir | Ícone `Trash2` — aparece ao hover, abre AlertDialog de confirmação |
 
 Ao clicar na linha → entra na conversa (viewMode: `conversation`)
-Ao clicar no botão excluir → remove todas as mensagens da conversa (`deleteConversationDb`)
+Ao clicar no botão excluir → soft-delete do histórico apenas para o usuário logado (`deleteConversationForMeDb`); o outro participante continua vendo as mensagens normalmente
 
 ---
 
@@ -134,7 +134,11 @@ Exibe:
 
 **Long Press / Segurar Mensagem:**
 - Segurar (touch 450ms) ou clique com botão direito abre um overlay de ações no estilo Instagram
-- O overlay exibe preview da mensagem, 6 emojis rápidos (❤️ 😂 😮 😢 😡 👍) e a ação "Responder"
+- O overlay exibe preview da mensagem, 6 emojis rápidos (❤️ 😂 😮 😢 😡 👍) e as seguintes ações:
+  - **Responder** — sempre disponível para qualquer mensagem
+  - **Apagar mensagem** — visível apenas para mensagens próprias enviadas há menos de 10 minutos; hard-delete permanente que remove para ambos os participantes (`deleteMessagePermanentlyDb`)
+  - **Apagar para mim** — visível apenas para mensagens do outro usuário; soft-delete que oculta a mensagem somente para o usuário logado (`deleteMessageForMeDb`)
+  - Mensagens próprias com mais de 10 minutos não exibem nenhuma opção de deleção
 - **Responder mensagem:** seleciona a mensagem como contexto de reply; um banner aparece acima do input mostrando o texto original com botão "X" para cancelar
 - A mensagem enviada como reply é prefixada com `↩ <texto original>\n\n<nova mensagem>` no banco
 - Na renderização, mensagens com prefixo `↩` exibem uma citação visual (bloco com borda lateral) antes do texto principal
@@ -309,7 +313,9 @@ Dados carregados via `getRankingDb()`
 | Adicionar comentário em check-in | `addCheckInCommentDb(checkInId, text)` |
 | Reações de emoji em check-ins | `getCheckInReactionsDb(checkInIds[])` |
 | Adicionar/remover reação | `setCheckInReactionDb(checkInId, emoji)` |
-| Excluir conversa | `deleteConversationDb(otherUserId)` |
+| Apagar histórico (só para mim) | `deleteConversationForMeDb(otherUserId)` |
+| Apagar mensagem permanentemente (própria < 10min) | `deleteMessagePermanentlyDb(messageId)` |
+| Apagar mensagem só para mim (de outro usuário) | `deleteMessageForMeDb(messageId)` |
 | Aprovar solicitação de grupo | `approveGroupRequestDb(groupId, userId)` |
 | Recusar solicitação de grupo | `rejectGroupRequestDb(groupId, userId)` |
 | Rotinas de exercício | `getUserExerciseRoutinesDb()` |

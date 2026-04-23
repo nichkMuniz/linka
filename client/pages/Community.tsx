@@ -7,7 +7,9 @@ import {
   uploadMessageImageDb,
   uploadMessageAudioDb,
   markMessagesAsReadDb,
-  deleteConversationDb,
+  deleteMessagePermanentlyDb,
+  deleteMessageForMeDb,
+  deleteConversationForMeDb,
   getFollowingDb,
   getRankingDb,
   createDuelGroupDb,
@@ -175,6 +177,10 @@ export default function Community() {
   const [checkInPhotoFiles, setCheckInPhotoFiles] = React.useState<File[]>([]);
   const [checkInPhotoPreviewUrls, setCheckInPhotoPreviewUrls] = React.useState<string[]>([]);
   const [activePhotoPreviewIndex, setActivePhotoPreviewIndex] = React.useState(0);
+  const thumbDragState = React.useRef<{ index: number; started: boolean; startX: number; startY: number } | null>(null);
+  const thumbDragOverRef = React.useRef<number | null>(null);
+  const [draggingThumbIndex, setDraggingThumbIndex] = React.useState<number | null>(null);
+  const [dragOverThumbIndex, setDragOverThumbIndex] = React.useState<number | null>(null);
   // pendingCropSrc: data URL waiting to be cropped; pendingCropIndex: index to replace (-1 = append new)
   const [pendingCropSrc, setPendingCropSrc] = React.useState<string | null>(null);
   const [pendingCropIndex, setPendingCropIndex] = React.useState<number>(-1);
@@ -254,6 +260,7 @@ export default function Community() {
   // Message long-press / context menu state
   const [longPressedMessage, setLongPressedMessage] = React.useState<MessageWithUser | null>(null);
   const [replyingTo, setReplyingTo] = React.useState<MessageWithUser | null>(null);
+  const [deleteMessageConfirm, setDeleteMessageConfirm] = React.useState<{ message: MessageWithUser; permanent: boolean } | null>(null);
   const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const QUICK_EMOJIS = ["❤️", "😂", "😮", "😢", "😡", "👍"];
 
@@ -291,6 +298,22 @@ export default function Community() {
     setReplyingTo(message);
     setLongPressedMessage(null);
   }, []);
+
+  const handleConfirmDeleteMessage = React.useCallback(async () => {
+    if (!deleteMessageConfirm) return;
+    const { message, permanent } = deleteMessageConfirm;
+    setDeleteMessageConfirm(null);
+    try {
+      if (permanent) {
+        await deleteMessagePermanentlyDb(message.id);
+      } else {
+        await deleteMessageForMeDb(message.id);
+      }
+      setMessages((prev) => prev.filter((m) => m.id !== message.id));
+    } catch (err: any) {
+      toast({ title: "Erro ao apagar mensagem", description: err?.message || "Tente novamente.", variant: "destructive" });
+    }
+  }, [deleteMessageConfirm]);
 
   const handleSendComment = React.useCallback(async (checkInId: string) => {
     if (!commentText.trim() || isSendingComment) return;
@@ -1162,49 +1185,122 @@ export default function Community() {
         )}
 
         {/* Long-press overlay */}
-        {longPressedMessage && (
-          <div
-            className="fixed inset-0 z-[100] bg-black/40 flex items-end justify-center pb-12"
-            onClick={() => setLongPressedMessage(null)}
+        {longPressedMessage && (() => {
+          const isOwnMsg = longPressedMessage.user_id === user?.id;
+          const msgAgeMs = Date.now() - new Date(longPressedMessage.created_at).getTime();
+          const canDeletePermanently = isOwnMsg && msgAgeMs < 10 * 60 * 1000;
+          const canDeleteForMe = !isOwnMsg;
+          return (
+            <div
+              className="fixed inset-0 z-[100] bg-black/40 flex items-end justify-center pb-12"
+              onClick={() => setLongPressedMessage(null)}
+            >
+              <div
+                className="bg-background rounded-2xl w-full max-w-sm mx-4 overflow-hidden shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Preview da mensagem */}
+                <div className="px-4 py-3 border-b border-border/60">
+                  <p className="text-xs text-muted-foreground mb-1">Mensagem</p>
+                  <p className="text-sm line-clamp-2">{longPressedMessage.text.replace(/^↩ .+?\n\n/, "")}</p>
+                </div>
+
+                {/* Emoji rápido */}
+                <div className="flex items-center justify-around px-4 py-3 border-b border-border/60">
+                  {QUICK_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => handleReactToMessage(emoji)}
+                      className="text-2xl active:scale-125 transition-transform"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Ações */}
+                <button
+                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left"
+                  onClick={() => handleReplyToMessage(longPressedMessage)}
+                >
+                  <ArrowLeft className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-sm font-medium">Responder</span>
+                </button>
+                {canDeletePermanently && (
+                  <button
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left border-t border-border/40 text-destructive"
+                    onClick={() => {
+                      setDeleteMessageConfirm({ message: longPressedMessage, permanent: true });
+                      setLongPressedMessage(null);
+                    }}
+                  >
+                    <Trash2 className="h-5 w-5" />
+                    <span className="text-sm font-medium">Apagar mensagem</span>
+                  </button>
+                )}
+                {canDeleteForMe && (
+                  <button
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left border-t border-border/40 text-destructive"
+                    onClick={() => {
+                      setDeleteMessageConfirm({ message: longPressedMessage, permanent: false });
+                      setLongPressedMessage(null);
+                    }}
+                  >
+                    <Trash2 className="h-5 w-5" />
+                    <span className="text-sm font-medium">Apagar para mim</span>
+                  </button>
+                )}
+                <button
+                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left border-t border-border/40"
+                  onClick={() => setLongPressedMessage(null)}
+                >
+                  <X className="h-5 w-5 text-muted-foreground" />
+                  <span className="text-sm font-medium">Cancelar</span>
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Delete Message Confirm Dialog — inside portal so it appears above the conversation view */}
+        {deleteMessageConfirm && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40"
+            style={{
+              paddingTop: "max(1rem, env(safe-area-inset-top))",
+              paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+              paddingLeft: "max(1rem, env(safe-area-inset-left))",
+              paddingRight: "max(1rem, env(safe-area-inset-right))",
+            }}
           >
             <div
-              className="bg-background rounded-2xl w-full max-w-sm mx-4 overflow-hidden shadow-2xl"
+              className="bg-background rounded-2xl w-full max-w-sm mx-4 overflow-hidden shadow-2xl pointer-events-auto"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Preview da mensagem */}
-              <div className="px-4 py-3 border-b border-border/60">
-                <p className="text-xs text-muted-foreground mb-1">Mensagem</p>
-                <p className="text-sm line-clamp-2">{longPressedMessage.text.replace(/^↩ .+?\n\n/, "")}</p>
+              <div className="px-5 pt-5 pb-3">
+                <p className="text-base font-semibold mb-1.5">
+                  {deleteMessageConfirm.permanent ? "Apagar mensagem" : "Apagar para mim"}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {deleteMessageConfirm.permanent
+                    ? "Esta mensagem será apagada para você e para o outro usuário. Esta ação é irreversível."
+                    : "Esta mensagem será removida apenas para você. O outro usuário ainda poderá vê-la."}
+                </p>
               </div>
-
-              {/* Emoji rápido */}
-              <div className="flex items-center justify-around px-4 py-3 border-b border-border/60">
-                {QUICK_EMOJIS.map((emoji) => (
-                  <button
-                    key={emoji}
-                    onClick={() => handleReactToMessage(emoji)}
-                    className="text-2xl active:scale-125 transition-transform"
-                  >
-                    {emoji}
-                  </button>
-                ))}
+              <div className="flex border-t border-border/60">
+                <button
+                  className="flex-1 py-3.5 text-sm font-medium text-muted-foreground hover:bg-muted/40 transition-colors"
+                  onClick={() => setDeleteMessageConfirm(null)}
+                >
+                  Cancelar
+                </button>
+                <div className="w-px bg-border/60" />
+                <button
+                  className="flex-1 py-3.5 text-sm font-semibold text-destructive hover:bg-destructive/10 transition-colors"
+                  onClick={handleConfirmDeleteMessage}
+                >
+                  Apagar
+                </button>
               </div>
-
-              {/* Ações */}
-              <button
-                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left"
-                onClick={() => handleReplyToMessage(longPressedMessage)}
-              >
-                <ArrowLeft className="h-5 w-5 text-muted-foreground" />
-                <span className="text-sm font-medium">Responder</span>
-              </button>
-              <button
-                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/40 transition-colors text-left border-t border-border/40"
-                onClick={() => setLongPressedMessage(null)}
-              >
-                <X className="h-5 w-5 text-muted-foreground" />
-                <span className="text-sm font-medium">Cancelar</span>
-              </button>
             </div>
           </div>
         )}
@@ -2757,8 +2853,61 @@ export default function Community() {
                         {checkInPhotoPreviewUrls.map((url, i) => (
                           <button
                             key={i}
-                            onClick={() => setActivePhotoPreviewIndex(i)}
-                            className={`relative shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all ${i === activePhotoPreviewIndex ? "border-brand scale-95" : "border-transparent opacity-60"}`}
+                            data-thumb-index={i}
+                            onClick={() => {
+                              if (!thumbDragState.current?.started) setActivePhotoPreviewIndex(i);
+                            }}
+                            onTouchStart={(e) => {
+                              const touch = e.touches[0];
+                              thumbDragState.current = { index: i, started: false, startX: touch.clientX, startY: touch.clientY };
+                            }}
+                            onTouchMove={(e) => {
+                              if (!thumbDragState.current) return;
+                              const touch = e.touches[0];
+                              if (!thumbDragState.current.started) {
+                                const dx = Math.abs(touch.clientX - thumbDragState.current.startX);
+                                const dy = Math.abs(touch.clientY - thumbDragState.current.startY);
+                                if (dx < 8 && dy < 8) return;
+                                thumbDragState.current.started = true;
+                                setDraggingThumbIndex(thumbDragState.current.index);
+                                setDragOverThumbIndex(thumbDragState.current.index);
+                              }
+                              const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                              const thumbEl = el?.closest('[data-thumb-index]') as HTMLElement | null;
+                              if (thumbEl) {
+                                const idx = parseInt(thumbEl.dataset.thumbIndex!, 10);
+                                if (!isNaN(idx)) {
+                                  thumbDragOverRef.current = idx;
+                                  setDragOverThumbIndex(idx);
+                                }
+                              }
+                            }}
+                            onTouchEnd={() => {
+                              if (thumbDragState.current?.started) {
+                                const fromIndex = thumbDragState.current.index;
+                                const toIndex = thumbDragOverRef.current;
+                                if (toIndex !== null && fromIndex !== toIndex) {
+                                  const newFiles = [...checkInPhotoFiles];
+                                  const [removed] = newFiles.splice(fromIndex, 1);
+                                  newFiles.splice(toIndex, 0, removed);
+                                  setCheckInPhotoFiles(newFiles);
+                                  setActivePhotoPreviewIndex(toIndex);
+                                }
+                              }
+                              thumbDragState.current = null;
+                              thumbDragOverRef.current = null;
+                              setDraggingThumbIndex(null);
+                              setDragOverThumbIndex(null);
+                            }}
+                            className={`relative shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all select-none ${
+                              i === draggingThumbIndex
+                                ? "opacity-40 scale-90 border-brand"
+                                : i === dragOverThumbIndex && draggingThumbIndex !== null
+                                ? "border-brand scale-105 ring-2 ring-brand/50"
+                                : i === activePhotoPreviewIndex
+                                ? "border-brand scale-95"
+                                : "border-transparent opacity-60"
+                            }`}
                           >
                             <img src={url} alt={`Thumb ${i}`} className="w-full h-full object-cover" />
                           </button>
@@ -3853,7 +4002,7 @@ export default function Community() {
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir conversa</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir todas as mensagens com {convToDelete?.userNickname}? Esta ação é irreversível.
+              O histórico com {convToDelete?.userNickname} será removido apenas para você. O outro usuário ainda verá as mensagens.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -3865,7 +4014,7 @@ export default function Community() {
                 if (!convToDelete) return;
                 setDeleteConvConfirmOpen(false);
                 try {
-                  await deleteConversationDb(convToDelete.userId);
+                  await deleteConversationForMeDb(convToDelete.userId);
                   setConversations((prev) => prev.filter((c) => c.userId !== convToDelete.userId));
                   toast({ title: "Conversa excluída!" });
                 } catch (err: any) {

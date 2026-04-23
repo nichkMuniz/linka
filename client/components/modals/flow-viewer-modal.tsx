@@ -402,7 +402,9 @@ export function FlowViewerModal({
                 }}
                 onClick={() => handlePrev()}
               >
-                {prevStory.media_url?.includes(".mp4") || prevStory.media_url?.includes(".webm") ? (
+                {prevStory.background_color && !prevStory.media_url ? (
+                  <div className="w-full h-full" style={{ background: prevStory.background_color }} />
+                ) : prevStory.media_url?.includes(".mp4") || prevStory.media_url?.includes(".webm") ? (
                   <video src={prevStory.media_url} muted loop playsInline className="w-full h-full object-cover" />
                 ) : (
                   <img src={prevStory.media_url} className="w-full h-full object-cover" alt="" />
@@ -536,7 +538,19 @@ export function FlowViewerModal({
                         }}
                         className="absolute inset-0 flex items-center justify-center"
                       >
-                        {isVideo ? (
+                        {story.background_color && !story.media_url ? (
+                          <div
+                            className="w-full h-full flex items-center justify-center p-8"
+                            style={{ background: story.background_color }}
+                          >
+                            <p
+                              className="text-white text-center font-semibold text-xl leading-snug break-words"
+                              style={{ textShadow: "0 1px 6px rgba(0,0,0,0.5)" }}
+                            >
+                              {story.description}
+                            </p>
+                          </div>
+                        ) : isVideo ? (
                           <video ref={videoRef} src={story.media_url} className="w-full h-full object-cover" autoPlay loop muted playsInline preload="auto" />
                         ) : (
                           <img src={story.media_url} alt="Flow" className="w-full h-full object-cover" />
@@ -560,9 +574,9 @@ export function FlowViewerModal({
                       </div>
                     )}
 
-                    {/* Description Overlay */}
-                    {story.description && (
-                      <div className="absolute bottom-[100px] left-0 right-4 p-4 bg-gradient-to-t from-black/80 to-transparent z-[56] pointer-events-none">
+                    {/* Description Overlay — hidden for text-only flows (background_color) since text is already part of the background */}
+                    {story.description && !(story.background_color && !story.media_url) && (
+                      <div className="absolute bottom-0 left-0 right-0 px-4 pt-8 pb-3 bg-gradient-to-t from-black/80 to-transparent z-[56] pointer-events-none">
                         <p className="text-sm text-white drop-shadow-md leading-relaxed">{story.description}</p>
                       </div>
                     )}
@@ -663,7 +677,9 @@ export function FlowViewerModal({
                 }}
                 onClick={() => handleNext()}
               >
-                {nextStory.media_url?.includes(".mp4") || nextStory.media_url?.includes(".webm") ? (
+                {nextStory.background_color && !nextStory.media_url ? (
+                  <div className="w-full h-full" style={{ background: nextStory.background_color }} />
+                ) : nextStory.media_url?.includes(".mp4") || nextStory.media_url?.includes(".webm") ? (
                   <video src={nextStory.media_url} muted loop playsInline className="w-full h-full object-cover" />
                 ) : (
                   <img src={nextStory.media_url} className="w-full h-full object-cover" alt="" />

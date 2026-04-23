@@ -9,13 +9,26 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import { Upload, X, Camera, Image } from "lucide-react";
+import { Upload, X, Image, Type, Check } from "lucide-react";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
+
+const GRADIENT_PRESETS = [
+  { id: "pink-orange", value: "linear-gradient(135deg, #FF0080 0%, #FF8A2A 100%)", label: "Rosa" },
+  { id: "blue-purple", value: "linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 100%)", label: "Azul" },
+  { id: "green-teal", value: "linear-gradient(135deg, #00C853 0%, #00BCD4 100%)", label: "Verde" },
+  { id: "purple-pink", value: "linear-gradient(135deg, #7B3FF2 0%, #FF0080 100%)", label: "Roxo" },
+  { id: "orange-yellow", value: "linear-gradient(135deg, #FF8A2A 0%, #FFD600 100%)", label: "Laranja" },
+  { id: "dark-blue", value: "linear-gradient(135deg, #0D1B2A 0%, #1A3A5C 100%)", label: "Noite" },
+  { id: "brand", value: "linear-gradient(135deg, #3A8DFF 0%, #7B3FF2 50%, #FF8A2A 100%)", label: "Marca" },
+  { id: "sunset", value: "linear-gradient(135deg, #FF512F 0%, #F09819 100%)", label: "Pôr do sol" },
+  { id: "ocean", value: "linear-gradient(135deg, #1A237E 0%, #00BCD4 100%)", label: "Oceano" },
+  { id: "forest", value: "linear-gradient(135deg, #1B5E20 0%, #66BB6A 100%)", label: "Floresta" },
+];
 
 interface FlowCreationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreateStory: (mediaUrl: string, description: string) => Promise<void>;
+  onCreateStory: (mediaUrl: string, description: string, backgroundColor?: string | null) => Promise<void>;
   isLoading?: boolean;
 }
 
@@ -25,73 +38,21 @@ export function FlowCreationDialog({
   onCreateStory,
   isLoading = false,
 }: FlowCreationDialogProps) {
+  const [mode, setMode] = React.useState<"media" | "create">("media");
   const [mediaPreview, setMediaPreview] = React.useState<string | null>(null);
   const [description, setDescription] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [useCamera, setUseCamera] = React.useState(false);
   const [pendingCropSrc, setPendingCropSrc] = React.useState<string | null>(null);
+  const [selectedGradient, setSelectedGradient] = React.useState(GRADIENT_PRESETS[0].value);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const [cameraStream, setCameraStream] = React.useState<MediaStream | null>(null);
-
-  const startCamera = React.useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      });
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setCameraStream(stream);
-        setUseCamera(true);
-      }
-    } catch (err: any) {
-      console.error("Error accessing camera:", err);
-      toast({
-        title: "Erro ao acessar câmera",
-        description:
-          "Verifique as permissões de câmera do navegador",
-        variant: "destructive",
-      });
-    }
-  }, []);
-
-  const stopCamera = React.useCallback(() => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach((track) => track.stop());
-      setCameraStream(null);
-      setUseCamera(false);
-    }
-  }, [cameraStream]);
-
-  const capturePhoto = React.useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return;
-
-    const context = canvasRef.current.getContext("2d");
-    if (!context) return;
-
-    canvasRef.current.width = videoRef.current.videoWidth;
-    canvasRef.current.height = videoRef.current.videoHeight;
-
-    context.drawImage(videoRef.current, 0, 0);
-    const dataUrl = canvasRef.current.toDataURL("image/jpeg");
-
-    // Open cropper instead of setting directly
-    setPendingCropSrc(dataUrl);
-    stopCamera();
-  }, [stopCamera]);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
 
-    // Validate file type
     const validTypes = [
       "image/jpeg",
       "image/png",
@@ -99,7 +60,7 @@ export function FlowCreationDialog({
       "image/webp",
       "video/mp4",
       "video/webm",
-      "video/quicktime", // iPhone .mov files
+      "video/quicktime",
       "video/mov",
       "video/x-m4v",
     ];
@@ -112,7 +73,6 @@ export function FlowCreationDialog({
       return;
     }
 
-    // Validate file size (max 50MB)
     if (file.size > 50 * 1024 * 1024) {
       toast({
         title: "Arquivo muito grande",
@@ -126,17 +86,15 @@ export function FlowCreationDialog({
     reader.onload = (e) => {
       const result = e.target?.result as string;
       if (file.type.startsWith("image/")) {
-        // Open cropper for images
         setPendingCropSrc(result);
       } else {
-        // Videos go straight to preview
         setMediaPreview(result);
       }
     };
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmitMedia = async () => {
     if (!mediaPreview) {
       toast({
         title: "Erro",
@@ -148,13 +106,8 @@ export function FlowCreationDialog({
 
     setIsSubmitting(true);
     try {
-      await onCreateStory(mediaPreview, description);
-      // Reset form
-      setMediaPreview(null);
-      setDescription("");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      await onCreateStory(mediaPreview, description, null);
+      resetForm();
       onOpenChange(false);
       toast({
         title: "Flow criado!",
@@ -171,156 +124,221 @@ export function FlowCreationDialog({
     }
   };
 
-  const handleOpenChange = (newOpen: boolean) => {
-    if (!newOpen) {
-      // Reset state when closing
-      setMediaPreview(null);
-      setDescription("");
-      setUseCamera(false);
-      setPendingCropSrc(null);
-      stopCamera();
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    } else {
-      // Auto-start camera when opening drawer
-      startCamera();
+  const handleSubmitCreate = async () => {
+    if (!description.trim()) {
+      toast({
+        title: "Erro",
+        description: "Adicione uma legenda para seu flow",
+        variant: "destructive",
+      });
+      return;
     }
+
+    setIsSubmitting(true);
+    try {
+      await onCreateStory("", description, selectedGradient);
+      resetForm();
+      onOpenChange(false);
+      toast({
+        title: "Flow criado!",
+        description: "Seu flow foi compartilhado com seus seguidores",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Erro ao criar flow",
+        description: err?.message || "Tente novamente",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const resetForm = () => {
+    setMediaPreview(null);
+    setDescription("");
+    setPendingCropSrc(null);
+    setMode("media");
+    setSelectedGradient(GRADIENT_PRESETS[0].value);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) resetForm();
     onOpenChange(newOpen);
   };
 
   return (
     <>
     <Drawer open={open} onOpenChange={handleOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
-        <DrawerHeader className="text-center">
+      <DrawerContent className="max-h-[90dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerHeader className="text-center pb-2">
           <DrawerTitle>Criar novo flow</DrawerTitle>
           <DrawerDescription>
             Compartilhe um momento com seus seguidores
           </DrawerDescription>
         </DrawerHeader>
 
+        {/* Mode toggle */}
+        <div className="flex gap-2 px-4 pb-3">
+          <button
+            onClick={() => setMode("media")}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold transition-all ${
+              mode === "media"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Image className="h-4 w-4" />
+            Mídia
+          </button>
+          <button
+            onClick={() => setMode("create")}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold transition-all ${
+              mode === "create"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Type className="h-4 w-4" />
+            Criar
+          </button>
+        </div>
+
         <div className="flex-1 overflow-y-auto px-4 pb-6">
-          <div className="space-y-4">
-          {/* Media Preview or Camera Feed */}
-          {mediaPreview ? (
-            <div className="relative">
-              {mediaPreview.includes("data:video") ||
-              mediaPreview.includes(".mp4") ? (
-                <video
-                  src={mediaPreview}
-                  className="w-full rounded-lg max-h-64 object-contain bg-muted"
-                />
+          {mode === "media" ? (
+            <div className="space-y-4">
+              {/* Media Preview */}
+              {mediaPreview ? (
+                <div className="relative">
+                  {mediaPreview.includes("data:video") || mediaPreview.includes(".mp4") ? (
+                    <video
+                      src={mediaPreview}
+                      className="w-full rounded-lg max-h-64 object-contain bg-muted"
+                    />
+                  ) : (
+                    <img
+                      src={mediaPreview}
+                      alt="Preview"
+                      className="w-full rounded-lg max-h-64 object-contain bg-muted"
+                    />
+                  )}
+                  <button
+                    onClick={() => {
+                      setMediaPreview(null);
+                      if (fileInputRef.current) fileInputRef.current.value = "";
+                    }}
+                    className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               ) : (
-                <img
-                  src={mediaPreview}
-                  alt="Preview"
-                  className="w-full rounded-lg max-h-64 object-contain bg-muted"
-                />
-              )}
-              <button
-                onClick={() => {
-                  setMediaPreview(null);
-                  setUseCamera(true);
-                  startCamera();
-                  if (fileInputRef.current) {
-                    fileInputRef.current.value = "";
-                  }
-                }}
-                className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          ) : useCamera ? (
-            <div className="relative rounded-lg overflow-hidden bg-black w-full aspect-video">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-3">
-                <Button
-                  onClick={capturePhoto}
-                  className="rounded-full w-16 h-16 bg-white hover:bg-gray-200"
-                  variant="ghost"
+                <label
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-muted transition-colors"
                 >
-                  <div className="w-12 h-12 rounded-full bg-white border-2 border-gray-300" />
-                </Button>
+                  <Upload className="h-8 w-8 text-muted-foreground" />
+                  <div className="text-center">
+                    <p className="text-sm font-medium">Clique para selecionar mídia</p>
+                    <p className="text-xs text-muted-foreground">Foto ou vídeo (máx. 50MB)</p>
+                  </div>
+                </label>
+              )}
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <canvas ref={canvasRef} className="hidden" />
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">Descrição (opcional)</label>
+                <Textarea
+                  placeholder="Adicione uma descrição..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  maxLength={200}
+                  className="resize-none h-20"
+                />
+                <p className="text-xs text-muted-foreground mt-1">{description.length}/200 caracteres</p>
               </div>
-              <button
-                onClick={() => {
-                  stopCamera();
-                  setUseCamera(false);
-                }}
-                className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1"
+
+              <Button
+                onClick={handleSubmitMedia}
+                disabled={!mediaPreview || isSubmitting || isLoading}
+                className="w-full rounded-full"
               >
-                <X className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => {
-                  stopCamera();
-                  setUseCamera(false);
-                }}
-                className="absolute top-2 left-2 bg-gray-500 hover:bg-gray-600 text-white rounded-full p-2 flex items-center gap-1"
-              >
-                <Image className="h-4 w-4" />
-              </button>
+                {isSubmitting || isLoading ? "Enviando..." : "Compartilhar flow"}
+              </Button>
             </div>
           ) : (
-            <label
-              onClick={() => fileInputRef.current?.click()}
-              className="flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-muted transition-colors"
-            >
-              <Upload className="h-8 w-8 text-muted-foreground" />
-              <div className="text-center">
-                <p className="text-sm font-medium">
-                  Clique para selecionar mídia
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Foto ou vídeo (máx. 50MB)
+            <div className="space-y-4">
+              {/* Live preview */}
+              <div
+                className="w-full aspect-[9/16] rounded-2xl flex items-center justify-center p-6 relative overflow-hidden"
+                style={{ background: selectedGradient }}
+              >
+                <p
+                  className="text-white text-center font-semibold text-lg leading-snug break-words"
+                  style={{ textShadow: "0 1px 4px rgba(0,0,0,0.4)", maxWidth: "100%" }}
+                >
+                  {description.trim() || "Sua legenda aparece aqui..."}
                 </p>
               </div>
-            </label>
+
+              {/* Gradient presets */}
+              <div>
+                <label className="text-sm font-medium mb-2 block">Fundo</label>
+                <div className="grid grid-cols-5 gap-2">
+                  {GRADIENT_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      onClick={() => setSelectedGradient(preset.value)}
+                      className="relative aspect-square rounded-xl overflow-hidden border-2 transition-all"
+                      style={{
+                        background: preset.value,
+                        borderColor: selectedGradient === preset.value ? "white" : "transparent",
+                        boxShadow: selectedGradient === preset.value ? "0 0 0 2px hsl(var(--primary))" : undefined,
+                      }}
+                      title={preset.label}
+                    >
+                      {selectedGradient === preset.value && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Check className="h-4 w-4 text-white drop-shadow" />
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Caption */}
+              <div>
+                <label className="text-sm font-medium mb-2 block">Legenda</label>
+                <Textarea
+                  placeholder="O que você quer compartilhar?"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  maxLength={200}
+                  className="resize-none h-24"
+                  autoFocus
+                />
+                <p className="text-xs text-muted-foreground mt-1">{description.length}/200 caracteres</p>
+              </div>
+
+              <Button
+                onClick={handleSubmitCreate}
+                disabled={!description.trim() || isSubmitting || isLoading}
+                className="w-full rounded-full"
+              >
+                {isSubmitting || isLoading ? "Enviando..." : "Compartilhar flow"}
+              </Button>
+            </div>
           )}
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-
-          <canvas ref={canvasRef} className="hidden" />
-
-          {/* Description */}
-          <div>
-            <label className="text-sm font-medium mb-2 block">
-              Descrição (opcional)
-            </label>
-            <Textarea
-              placeholder="Adicione uma descrição..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={200}
-              className="resize-none h-20"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              {description.length}/200 caracteres
-            </p>
-          </div>
-
-            {/* Submit Button */}
-            <Button
-              onClick={handleSubmit}
-              disabled={!mediaPreview || isSubmitting || isLoading}
-              className="w-full rounded-full"
-            >
-              {isSubmitting || isLoading ? "Enviando..." : "Compartilhar flow"}
-            </Button>
-          </div>
         </div>
       </DrawerContent>
     </Drawer>
@@ -334,10 +352,6 @@ export function FlowCreationDialog({
       }}
       onCancel={() => {
         setPendingCropSrc(null);
-        // If user cancels and there's no preview yet, re-open camera options
-        if (!mediaPreview) {
-          setUseCamera(false);
-        }
       }}
     />
     </>

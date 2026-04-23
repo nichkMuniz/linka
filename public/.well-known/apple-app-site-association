@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["SEU_TEAM_ID.com.linka.meuapp"],
+        "components": [
+          { "/": "/post/*", "comment": "Deep link para post específico" },
+          { "/": "/usuario/*", "comment": "Deep link para perfil de usuário" }
+        ]
+      }
+    ]
+  }
+}

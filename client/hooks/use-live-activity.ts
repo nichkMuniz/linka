@@ -5,13 +5,15 @@ interface WorkoutActivityPlugin {
     routineName: string;
     exerciseName: string;
     seriesLabel: string;
-    elapsedSeconds: number;
+    /** Unix epoch in milliseconds (Date.now()) — drives the auto-advancing timer on lock screen. */
+    startTimeMs: number;
   }): Promise<{ id?: string; supported: boolean }>;
 
   update(options: {
     exerciseName: string;
     seriesLabel: string;
-    elapsedSeconds: number;
+    /** Elapsed seconds frozen at the moment of pause — shown only when isPaused is true. */
+    pausedElapsedSeconds: number;
     isPaused: boolean;
   }): Promise<{ updated: boolean }>;
 
@@ -32,7 +34,7 @@ export async function startWorkoutLiveActivity(options: {
   routineName: string;
   exerciseName: string;
   seriesLabel: string;
-  elapsedSeconds: number;
+  startTimeMs: number;
 }): Promise<void> {
   if (!isSupported()) return;
   try {
@@ -44,13 +46,14 @@ export async function startWorkoutLiveActivity(options: {
 }
 
 /**
- * Updates the Live Activity content (exercise name, series, timer).
- * Call this every second (or on significant state changes).
+ * Updates the Live Activity content (exercise name, series).
+ * The timer advances automatically on the lock screen — no need to call every second.
+ * Only call on meaningful state changes (exercise change, series completion, pause toggle).
  */
 export async function updateWorkoutLiveActivity(options: {
   exerciseName: string;
   seriesLabel: string;
-  elapsedSeconds: number;
+  pausedElapsedSeconds: number;
   isPaused: boolean;
 }): Promise<void> {
   if (!isSupported()) return;

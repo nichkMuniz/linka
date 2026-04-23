@@ -7,7 +7,9 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatTimeAgo(dateString: string): string {
   const now = new Date();
-  const date = new Date(dateString);
+  // Supabase timestamps come without 'Z' suffix — append it so they're parsed as UTC
+  const normalized = dateString.endsWith("Z") || dateString.includes("+") ? dateString : dateString + "Z";
+  const date = new Date(normalized);
   const diffMs = now.getTime() - date.getTime();
 
   // Clock skew or future timestamp — treat as "agora"

@@ -252,31 +252,34 @@ export default function Index() {
   }, [user?.id]);
 
   const handleCreateStory = React.useCallback(
-    async (mediaDataUrl: string, description: string) => {
+    async (mediaDataUrl: string, description: string, backgroundColor?: string | null) => {
       setIsCreatingStory(true);
       try {
         if (!user || !supabase) throw new Error("User not authenticated");
 
-        const response = await fetch(mediaDataUrl);
-        const blob = await response.blob();
+        let publicUrl = "";
 
-        const mimeType = blob.type || "image/jpeg";
-        const rawExtension = mimeType.split("/")[1] || "jpg";
-        const extension = rawExtension === "quicktime" ? "mov" : rawExtension;
-        const fileName = `${Date.now()}-story.${extension}`;
-        const filePath = `${user.id}/stories/${fileName}`;
+        if (mediaDataUrl) {
+          const response = await fetch(mediaDataUrl);
+          const blob = await response.blob();
 
-        const { error: uploadError } = await supabase.storage
-          .from("posts")
-          .upload(filePath, blob);
+          const mimeType = blob.type || "image/jpeg";
+          const rawExtension = mimeType.split("/")[1] || "jpg";
+          const extension = rawExtension === "quicktime" ? "mov" : rawExtension;
+          const fileName = `${Date.now()}-story.${extension}`;
+          const filePath = `${user.id}/stories/${fileName}`;
 
-        if (uploadError) throw uploadError;
+          const { error: uploadError } = await supabase.storage
+            .from("posts")
+            .upload(filePath, blob);
 
-        const {
-          data: { publicUrl },
-        } = supabase.storage.from("posts").getPublicUrl(filePath);
+          if (uploadError) throw uploadError;
 
-        const newStory = await createStoryDb(description, publicUrl);
+          const { data: { publicUrl: url } } = supabase.storage.from("posts").getPublicUrl(filePath);
+          publicUrl = url;
+        }
+
+        const newStory = await createStoryDb(description, publicUrl, backgroundColor);
         if (newStory && user) {
           const enrichedStory: StoryWithUser = {
             ...newStory,

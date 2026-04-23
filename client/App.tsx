@@ -11,7 +11,9 @@ import {
   Route,
   Routes,
   useLocation,
+  useNavigate,
 } from "react-router-dom";
+import { App as CapApp } from "@capacitor/app";
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { ThemeProvider } from "@/components/layout/theme-provider";
@@ -43,9 +45,83 @@ const ShotsLayout = React.lazy(() => import("@/components/layout/shots-layout").
 import Login from "@/pages/Login";
 import NotFound from "@/pages/NotFound";
 import Admin from "@/pages/Admin";
-import { AgeGate } from "@/components/shared/AgeGate";
 
 const ADMIN_USER_ID = "c954d5ab-9d72-4785-bc21-bf469a5e8052";
+const APP_STORE_URL = "https://apps.apple.com/app/id6761916728";
+
+/**
+ * Quando o link é aberto no browser (app não instalado), redireciona para a
+ * App Store no iOS ou mostra um fallback em outras plataformas.
+ * Dentro do WebView do Capacitor, window.Capacitor existe — não faz nada.
+ */
+function AppStoreRedirect() {
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    // Dentro do app Capacitor, não redireciona
+    if ((window as unknown as { Capacitor?: unknown }).Capacitor) return;
+
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (isIOS) {
+      window.location.replace(APP_STORE_URL);
+    }
+  }, []);
+
+  // Fallback para Android/desktop — mostra um link simples
+  if ((window as unknown as { Capacitor?: unknown }).Capacitor) return null;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (isIOS) return null; // redireciona via useEffect, nada a renderizar
+
+  return (
+    <div className="grid min-h-dvh place-items-center bg-background p-6 text-center">
+      <div>
+        <img src="/logo-branco.png" alt="Linka" className="h-12 mx-auto mb-6" />
+        <p className="text-lg font-semibold mb-2">Disponível no iPhone</p>
+        <p className="text-muted-foreground mb-6 text-sm">
+          O Linka é um app exclusivo para iOS. Baixe gratuitamente na App Store.
+        </p>
+        <a
+          href={APP_STORE_URL}
+          className="inline-block bg-primary text-primary-foreground rounded-xl px-6 py-3 font-medium"
+        >
+          Baixar na App Store
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function DeepLinkHandler() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
+  React.useEffect(() => {
+    const listener = CapApp.addListener("appUrlOpen", ({ url }) => {
+      try {
+        const parsed = new URL(url);
+        const path = parsed.pathname;
+
+        // Ignora callbacks de auth — tratados na página de Login
+        if (path.includes("login-callback")) return;
+
+        if (user) {
+          navigate(path, { replace: false });
+        } else {
+          // Guarda o destino para redirecionar após login
+          sessionStorage.setItem("deeplink_redirect", path);
+          navigate("/login", { replace: false });
+        }
+      } catch {
+        // URL inválida, ignora
+      }
+    });
+
+    return () => {
+      listener.then((l) => l.remove());
+    };
+  }, [navigate, user]);
+
+  return null;
+}
 
 const queryClient = new QueryClient();
 
@@ -156,11 +232,12 @@ const App = () => {
       <LanguageProvider>
         <WorkoutProvider>
           <ThemeProvider>
-            <AgeGate>
             <TooltipProvider>
+              <AppStoreRedirect />
               <Toaster />
               <Sonner />
               <BrowserRouter>
+                <DeepLinkHandler />
                 <GlobalFABContainer />
                 <Routes>
                   <Route path="/login" element={<Login />} />
@@ -198,7 +275,6 @@ const App = () => {
                 </Routes>
               </BrowserRouter>
             </TooltipProvider>
-            </AgeGate>
           </ThemeProvider>
         </WorkoutProvider>
       </LanguageProvider>

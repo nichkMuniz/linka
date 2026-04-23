@@ -14,6 +14,7 @@ import {
   createUserWorkoutsDb,
   createUserDietsDb,
   createUserHabitsDb,
+  backfillRoutineIdOnItemsDb,
   getUserRoutinesDb,
   getUserWorkoutsDb,
   getUserDietsDb,
@@ -396,9 +397,19 @@ export default function Goals() {
 
     if (isNativeGpsSupported()) {
       // Use native plugin — continues tracking with screen locked
-      GpsTracking.start().catch(() => {
-        toast({ title: "GPS não disponível", description: "Não foi possível iniciar o rastreamento nativo.", variant: "destructive" });
+      GpsTracking.start().catch((err: unknown) => {
+        const isDenied = String(err).includes("PERMISSION_DENIED");
+        if (isDenied) {
+          toast({
+            title: "Permissão de localização negada",
+            description: "Acesse Configurações > LinKa > Localização e permita o acesso.",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "GPS não disponível", description: "Não foi possível iniciar o rastreamento.", variant: "destructive" });
+        }
         setGpsActive(false);
+        stopGpsTracking();
       });
       GpsTracking.addListener("location", (data) => {
         onLocation({ lat: data.lat, lng: data.lng });
@@ -406,7 +417,16 @@ export default function Goals() {
         nativeGpsListenerRef.current = listener;
       });
       GpsTracking.addListener("error", (data) => {
-        toast({ title: "Erro de GPS", description: data.message, variant: "destructive" });
+        const isDenied = data.message === "PERMISSION_DENIED";
+        if (isDenied) {
+          toast({
+            title: "Permissão de localização negada",
+            description: "Acesse Configurações > LinKa > Localização e permita o acesso.",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "Erro de GPS", description: data.message, variant: "destructive" });
+        }
         stopGpsTracking();
       });
     } else {
@@ -593,6 +613,7 @@ export default function Goals() {
 
   // Tracks which existing routine card we're adding items to (for pre-fill name context)
   const [addToRoutineCardName, setAddToRoutineCardName] = React.useState<string | null>(null);
+  const [addToRoutineCardId, setAddToRoutineCardId] = React.useState<string | null>(null);
 
   const handleToggleSection = React.useCallback((sType: number) => {
     setCollapsedSections((prev) => {
@@ -1058,9 +1079,10 @@ export default function Goals() {
       .catch(() => setRoutineCompletedTodayStatus(false));
   }, [user]);
 
-  // Live Activity: start when workout begins, update every second, stop on close
+  // Live Activity: start when workout begins; keep alive while minimized; stop only on finish
   React.useEffect(() => {
-    if (!workoutModalOpen || workoutStartTime === null) return;
+    const isActive = workoutModalOpen || workoutMinimized;
+    if (!isActive || workoutStartTime === null) return;
 
     const firstExercise = userWorkouts[currentWorkoutIndex ?? 0];
     const exerciseName = firstExercise?.workoutName ?? selectedRoutineName ?? "Treino";
@@ -1072,31 +1094,38 @@ export default function Goals() {
       : 0;
     const seriesLabel = `Série ${completedSeries}/${totalSeries}`;
 
+    // Pass the real start timestamp so the lock-screen timer auto-advances
+    // without needing JS updates while the app is backgrounded.
     startWorkoutLiveActivity({
       routineName: selectedRoutineName ?? "Treino",
       exerciseName,
       seriesLabel,
-      elapsedSeconds: workoutDuration,
+      startTimeMs: workoutStartTime,
     });
 
-    const interval = setInterval(() => {
-      const ex = userWorkouts[currentWorkoutIndex ?? 0];
-      const exName = ex?.workoutName ?? selectedRoutineName ?? "Treino";
-      const done = ex ? (workoutSeries[ex.workout_id] ?? []).filter((s) => s.completed).length : 0;
-      const total = ex ? (workoutSeries[ex.workout_id] ?? []).length : 0;
-      updateWorkoutLiveActivity({
-        exerciseName: exName,
-        seriesLabel: `Série ${done}/${total}`,
-        elapsedSeconds: workoutStartTime ? Math.floor((Date.now() - workoutStartTime) / 1000) : 0,
-        isPaused: false,
-      });
-    }, 5000);
-
+    // Only update when exercise/series data changes — timer advances on its own.
     return () => {
-      clearInterval(interval);
-      stopWorkoutLiveActivity();
+      // Do NOT stop the Live Activity here — it should stay visible on lock screen
+      // while workout is minimized. stopWorkoutLiveActivity() is called explicitly
+      // when the workout is finished or cancelled.
     };
-  }, [workoutModalOpen, workoutStartTime]);
+  }, [workoutModalOpen, workoutMinimized, workoutStartTime]);
+
+  // Update Live Activity label when the current exercise or its series change
+  React.useEffect(() => {
+    const isActive = workoutModalOpen || workoutMinimized;
+    if (!isActive || workoutStartTime === null) return;
+    const ex = userWorkouts[currentWorkoutIndex ?? 0];
+    if (!ex) return;
+    const done  = (workoutSeries[ex.workout_id] ?? []).filter((s) => s.completed).length;
+    const total = (workoutSeries[ex.workout_id] ?? []).length;
+    updateWorkoutLiveActivity({
+      exerciseName: ex.workoutName ?? selectedRoutineName ?? "Treino",
+      seriesLabel: `Série ${done}/${total}`,
+      pausedElapsedSeconds: Math.floor((Date.now() - workoutStartTime) / 1000),
+      isPaused: false,
+    });
+  }, [currentWorkoutIndex, workoutSeries, workoutModalOpen, workoutMinimized]);
 
   // Initialize workoutSeries with one series for each exercise when modal opens
   React.useEffect(() => {
@@ -1212,6 +1241,8 @@ export default function Goals() {
     const routineLabel = selectedRoutineName && selectedRoutineName !== "__unnamed__" ? selectedRoutineName : "";
     setRoutineName(routineLabel);
     setAddToRoutineCardName(routineLabel || null);
+    const matchedRoutine = routines.find((r) => r.type === 1 && (routineLabel ? r.name === routineLabel : !r.name));
+    setAddToRoutineCardId(matchedRoutine?.id || null);
   };
 
   const handleDeleteExercise = async (userWorkoutId: string) => {
@@ -1532,6 +1563,8 @@ export default function Goals() {
     setShowMuscleFilterPanel(false);
     setRoutineName(isNamed ? displayLabel : "");
     setAddToRoutineCardName(isNamed ? displayLabel : null);
+    const matchedRoutine = routines.find((r) => r.type === typeCode && (isNamed ? r.name === displayLabel : !r.name));
+    setAddToRoutineCardId(matchedRoutine?.id || null);
   };
 
   const handleRenameRoutine = (data: { typeCode: number; oldName: string | null }, value: string) => {
@@ -1865,14 +1898,17 @@ export default function Goals() {
     setRestTimerRemaining(globalRestTimerRemaining);
   }, [globalRestTimerRemaining]);
 
-  // When rest timer finishes: show toast and reopen dialog (only when workout modal is open, not minimized)
+  // When rest timer finishes: close modal automatically if open, otherwise show toast
   React.useEffect(() => {
     if (!globalRestTimerActive && globalRestTimerTotal > 0 && globalRestTimerRemaining === 0 && workoutModalOpen) {
-      toast({
-        title: "Tempo de descanso terminou!",
-        description: "Pronto para a próxima série?",
-      });
-      setRestTimerModalOpen(true);
+      if (restTimerModalOpen) {
+        setRestTimerModalOpen(false);
+      } else {
+        toast({
+          title: "Tempo de descanso terminou!",
+          description: "Pronto para a próxima série?",
+        });
+      }
     }
   }, [globalRestTimerActive]);
 
@@ -2292,25 +2328,45 @@ export default function Goals() {
       const executeAtValue =
         executeAtOverrides && executeAtOverrides.length > 0 ? (executeAtOverrides[0] ?? null) : null;
 
+      const finalRoutineName = routineName.trim() || null;
+      // If adding to an existing routine card, we already know its ID
+      const knownRoutineId = addToRoutineCardId || null;
+
       if (selectedRoutineType === 1) {
         // Save workouts — only new ones
         if (itemIds.length > 0) {
-          await createUserWorkoutsDb(user.id, itemIds, {
-            name: routineName.trim() || undefined,
+          const inserted = await createUserWorkoutsDb(user.id, itemIds, {
+            name: finalRoutineName || undefined,
+            routine_id: knownRoutineId,
           });
+          // If no known routine_id, backfill after trigger creates the routines entry
+          if (!knownRoutineId) {
+            const insertedIds = inserted.map((w) => w.id);
+            backfillRoutineIdOnItemsDb(user.id, 1, finalRoutineName, insertedIds).catch(() => {});
+          }
         }
       } else if (selectedRoutineType === 2) {
         // Save diets — one entry only; recurrence is managed via scheduled_time notifications
-        await createUserDietsDb(user.id, itemIds, {
-          name: routineName.trim() || undefined,
+        const inserted = await createUserDietsDb(user.id, itemIds, {
+          name: finalRoutineName || undefined,
           execute_at: executeAtValue,
+          routine_id: knownRoutineId,
         });
+        if (!knownRoutineId) {
+          const insertedIds = inserted.map((d) => d.id);
+          backfillRoutineIdOnItemsDb(user.id, 2, finalRoutineName, insertedIds).catch(() => {});
+        }
       } else if (selectedRoutineType === 3) {
         // Save habits — one entry only; recurrence is managed via scheduled_time notifications
-        await createUserHabitsDb(user.id, itemIds, {
-          name: routineName.trim() || undefined,
+        const inserted = await createUserHabitsDb(user.id, itemIds, {
+          name: finalRoutineName || undefined,
           execute_at: executeAtValue,
+          routine_id: knownRoutineId,
         });
+        if (!knownRoutineId) {
+          const insertedIds = inserted.map((h) => h.id);
+          backfillRoutineIdOnItemsDb(user.id, 3, finalRoutineName, insertedIds).catch(() => {});
+        }
       }
 
       const typeLabel =
@@ -2330,6 +2386,7 @@ export default function Goals() {
       setRoutineName("");
       setSearchQuery("");
       setAddToRoutineCardName(null);
+      setAddToRoutineCardId(null);
       setShowMuscleFilterPanel(false);
       setShowExecuteAtStep(false);
 
@@ -3269,24 +3326,38 @@ export default function Goals() {
                         </div>
 
                         {/* Rest Time Selector */}
-                        <div className="flex items-center gap-2 mb-2">
-                          <Clock className="h-4 w-4 text-brand flex-shrink-0" />
-                          <span className="text-xs font-medium text-brand">{t("goals_rest")}</span>
-                          <select
-                            value={workoutExerciseRestTimes[workout.workout_id] || ""}
-                            onChange={(e) =>
-                              handleSetExerciseRestTime(workout.workout_id, parseInt(e.target.value))
-                            }
-                            className="text-xs font-medium text-foreground bg-background border border-brand/40 rounded px-2 py-1 focus:border-brand focus:outline-none cursor-pointer hover:border-brand/60 transition-colors"
-                            style={{ fontSize: '16px' }}
-                          >
-                            <option value="">{t("goals_disabled")}</option>
+                        <div className="mb-2">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                            <span className="text-xs text-muted-foreground">{t("goals_rest")}</span>
+                          </div>
+                          <div className="flex gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleSetExerciseRestTime(workout.workout_id, 0)}
+                              className={`text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors ${
+                                !workoutExerciseRestTimes[workout.workout_id]
+                                  ? "bg-brand text-white"
+                                  : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
+                              }`}
+                            >
+                              {t("goals_disabled")}
+                            </button>
                             {REST_TIME_OPTIONS.map((time) => (
-                              <option key={time} value={time}>
+                              <button
+                                key={time}
+                                type="button"
+                                onClick={() => handleSetExerciseRestTime(workout.workout_id, time)}
+                                className={`text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors ${
+                                  workoutExerciseRestTimes[workout.workout_id] === time
+                                    ? "bg-brand text-white"
+                                    : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
+                                }`}
+                              >
                                 {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
-                              </option>
+                              </button>
                             ))}
-                          </select>
+                          </div>
                         </div>
 
                         {/* Load suggestion: best kg from last session */}
@@ -3948,8 +4019,9 @@ export default function Goals() {
             );
 
             toast({ title: "Check-in no duelo! ⚔️", description: "Seu treino foi registrado no grupo." });
+            const sharedGroupId = selectedDuelGroupId;
             closeSummary();
-            navigate("/comunidade");
+            navigate(`/comunidade?group=${sharedGroupId}`);
           } catch (err: any) {
             toast({ title: "Erro ao compartilhar no duelo", description: err?.message || "Tente novamente.", variant: "destructive" });
           } finally {

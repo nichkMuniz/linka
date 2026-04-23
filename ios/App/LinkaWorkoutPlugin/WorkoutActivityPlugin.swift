@@ -28,17 +28,20 @@ public class WorkoutActivityPlugin: CAPPlugin {
             return
         }
 
-        let routineName   = call.getString("routineName")   ?? "Treino"
-        let exerciseName  = call.getString("exerciseName")  ?? ""
-        let seriesLabel   = call.getString("seriesLabel")   ?? ""
-        let elapsedSecs   = call.getInt("elapsedSeconds")   ?? 0
+        let routineName   = call.getString("routineName")  ?? "Treino"
+        let exerciseName  = call.getString("exerciseName") ?? ""
+        let seriesLabel   = call.getString("seriesLabel")  ?? ""
+        // startTimeMs is Unix epoch in milliseconds from JS Date.now()
+        let startTimeMs   = call.getDouble("startTimeMs")  ?? Double(Date().timeIntervalSince1970 * 1000)
+        let startDate     = Date(timeIntervalSince1970: startTimeMs / 1000)
 
         let attributes = LinkaWorkoutAttributes(routineName: routineName)
         let state = LinkaWorkoutAttributes.ContentState(
-            exerciseName:   exerciseName,
-            seriesLabel:    seriesLabel,
-            elapsedSeconds: elapsedSecs,
-            isPaused:       false
+            exerciseName:          exerciseName,
+            seriesLabel:           seriesLabel,
+            startDate:             startDate,
+            pausedElapsedSeconds:  0,
+            isPaused:              false
         )
         let content = ActivityContent(state: state, staleDate: nil)
 
@@ -62,16 +65,19 @@ public class WorkoutActivityPlugin: CAPPlugin {
             return
         }
 
-        let exerciseName  = call.getString("exerciseName")  ?? activity.content.state.exerciseName
-        let seriesLabel   = call.getString("seriesLabel")   ?? activity.content.state.seriesLabel
-        let elapsedSecs   = call.getInt("elapsedSeconds")   ?? activity.content.state.elapsedSeconds
-        let isPaused      = call.getBool("isPaused")        ?? activity.content.state.isPaused
+        let exerciseName       = call.getString("exerciseName")      ?? activity.content.state.exerciseName
+        let seriesLabel        = call.getString("seriesLabel")       ?? activity.content.state.seriesLabel
+        let isPaused           = call.getBool("isPaused")            ?? activity.content.state.isPaused
+        let pausedElapsedSecs  = call.getInt("pausedElapsedSeconds") ?? activity.content.state.pausedElapsedSeconds
+        // startDate never changes after the activity starts — keep existing value
+        let startDate          = activity.content.state.startDate
 
         let newState = LinkaWorkoutAttributes.ContentState(
-            exerciseName:   exerciseName,
-            seriesLabel:    seriesLabel,
-            elapsedSeconds: elapsedSecs,
-            isPaused:       isPaused
+            exerciseName:         exerciseName,
+            seriesLabel:          seriesLabel,
+            startDate:            startDate,
+            pausedElapsedSeconds: pausedElapsedSecs,
+            isPaused:             isPaused
         )
         let content = ActivityContent(state: newState, staleDate: nil)
 

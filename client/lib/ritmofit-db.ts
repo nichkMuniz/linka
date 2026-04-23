@@ -214,6 +214,7 @@ export type PostWithLikes = {
   description: string;
   photo: string;
   photos?: string[] | null;
+  background_color?: string | null;
   created_at: string;
   user_id: string;
   user_goal_id?: string | null;
@@ -1826,24 +1827,26 @@ export async function deleteRoutineDb(routineId: string, userId: string): Promis
   invalidateQueryCache("userRoutines");
 }
 
-// Get items for a specific routine (by userId + routineName + type) — works for other users via workouts/diets/habits catalog join
+// Get items for a specific routine (by routineId when available, falling back to userId + routineName + type)
 export async function getRoutineItemsForViewDb(
   userId: string,
   type: number,
   routineName: string | undefined,
+  routineId?: string | null,
 ): Promise<Array<{ id: string; workoutName?: string; dietName?: string; habitName?: string }>> {
   if (!hasSupabaseConfig || !supabase) return [];
 
   try {
     if (type === 1) {
-      // Step 1: get user_workouts rows (no join — FK points to user_workouts_hist not workouts)
-      const query = supabase
+      const baseQuery = supabase
         .from("user_workouts")
-        .select("id, workout_id, name")
+        .select("id, workout_id, name, routine_id")
         .eq("user_id", userId);
-      const { data, error } = routineName
-        ? await query.eq("name", routineName)
-        : await query.is("name", null);
+      let { data, error } = routineId
+        ? await baseQuery.eq("routine_id", Number(routineId))
+        : routineName
+          ? await baseQuery.eq("name", routineName)
+          : await baseQuery.is("name", null);
       if (error || !data || data.length === 0) return [];
 
       // Step 2: fetch workout names from workouts table
@@ -1865,13 +1868,15 @@ export async function getRoutineItemsForViewDb(
       }));
 
     } else if (type === 2) {
-      const query = supabase
+      const baseDietQuery = supabase
         .from("user_diets")
-        .select("id, diet_id, name")
+        .select("id, diet_id, name, routine_id")
         .eq("user_id", userId);
-      const { data, error } = routineName
-        ? await query.eq("name", routineName)
-        : await query.is("name", null);
+      let { data, error } = routineId
+        ? await baseDietQuery.eq("routine_id", Number(routineId))
+        : routineName
+          ? await baseDietQuery.eq("name", routineName)
+          : await baseDietQuery.is("name", null);
       if (error || !data || data.length === 0) return [];
 
       const dietIds = [...new Set(data.map((r: any) => r.diet_id).filter(Boolean))];
@@ -1892,13 +1897,15 @@ export async function getRoutineItemsForViewDb(
       }));
 
     } else {
-      const query = supabase
+      const baseHabitQuery = supabase
         .from("user_habits")
-        .select("id, habit_id, name")
+        .select("id, habit_id, name, routine_id")
         .eq("user_id", userId);
-      const { data, error } = routineName
-        ? await query.eq("name", routineName)
-        : await query.is("name", null);
+      let { data, error } = routineId
+        ? await baseHabitQuery.eq("routine_id", Number(routineId))
+        : routineName
+          ? await baseHabitQuery.eq("name", routineName)
+          : await baseHabitQuery.is("name", null);
       if (error || !data || data.length === 0) return [];
 
       const habitIds = [...new Set(data.map((r: any) => r.habit_id).filter(Boolean))];
@@ -1922,6 +1929,38 @@ export async function getRoutineItemsForViewDb(
     console.error("Error fetching routine items for view:", err);
     return [];
   }
+}
+
+// Finds a routine by user+type+name and backfills routine_id on items that are missing it.
+// Called after item insertion (trigger creates routine) to link items to their routine.
+export async function backfillRoutineIdOnItemsDb(
+  userId: string,
+  type: number,
+  routineName: string | null,
+  itemIds: string[],
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase || itemIds.length === 0) return;
+
+  const query = supabase
+    .from("routines")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("type", type)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const { data } = routineName
+    ? await query.eq("name", routineName)
+    : await query.is("name", null);
+
+  const routineId = data?.[0]?.id;
+  if (!routineId) return;
+
+  const table = type === 1 ? "user_workouts" : type === 2 ? "user_diets" : "user_habits";
+  await supabase
+    .from(table)
+    .update({ routine_id: routineId })
+    .in("id", itemIds.map(Number));
 }
 
 export async function getRoutinesByGoalIdDb(
@@ -2032,6 +2071,7 @@ export async function createUserWorkoutsDb(
   workoutIds: string[],
   options?: {
     name?: string;
+    routine_id?: string | null;
   },
 ): Promise<UserWorkout[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -2040,6 +2080,7 @@ export async function createUserWorkoutsDb(
     workout_id: workoutId,
     user_id: userId,
     name: options?.name || null,
+    routine_id: options?.routine_id ? Number(options.routine_id) : null,
   }));
 
   const { data, error } = await supabase
@@ -2192,6 +2233,7 @@ export async function createUserDietsDb(
   options?: {
     name?: string;
     execute_at?: string | null;
+    routine_id?: string | null;
   },
 ): Promise<UserDiet[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -2201,6 +2243,7 @@ export async function createUserDietsDb(
     user_id: userId,
     name: options?.name || null,
     execute_at: options?.execute_at || null,
+    routine_id: options?.routine_id ? Number(options.routine_id) : null,
   }));
 
   const { data, error } = await supabase
@@ -2399,6 +2442,7 @@ export async function createUserHabitsDb(
   options?: {
     name?: string;
     execute_at?: string | null;
+    routine_id?: string | null;
   },
 ): Promise<UserHabit[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -2408,6 +2452,7 @@ export async function createUserHabitsDb(
     user_id: userId,
     name: options?.name || null,
     execute_at: options?.execute_at || null,
+    routine_id: options?.routine_id ? Number(options.routine_id) : null,
   }));
 
   const { data, error } = await supabase
@@ -3330,6 +3375,7 @@ export type Story = {
   user_id: string;
   description: string;
   media_url: string;
+  background_color?: string | null;
   created_at: string;
 };
 
@@ -3359,7 +3405,7 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
     const [flowResult, profilesResult] = await Promise.all([
       supabase
         .from("flow")
-        .select("id, user_id, description, media_url, created_at")
+        .select("id, user_id, description, media_url, background_color, created_at")
         .in("user_id", userIdsToShow)
         .gte("created_at", twentyFourHoursAgo)
         .order("created_at", { ascending: false }),
@@ -3412,7 +3458,7 @@ export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithU
     const [flowResult, profileResult] = await Promise.all([
       supabase
         .from("flow")
-        .select("id, user_id, description, media_url, created_at")
+        .select("id, user_id, description, media_url, background_color, created_at")
         .eq("user_id", userId)
         .gte("created_at", twentyFourHoursAgo)
         .order("created_at", { ascending: true }),
@@ -3483,6 +3529,7 @@ export async function getExpiredUserFlowsDb(): Promise<StoryWithUser[]> {
 export async function createStoryDb(
   description: string,
   mediaUrl: string,
+  backgroundColor?: string | null,
 ): Promise<Story | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
@@ -3496,6 +3543,7 @@ export async function createStoryDb(
         user_id: viewer.id,
         description,
         media_url: mediaUrl,
+        background_color: backgroundColor ?? null,
       })
       .select()
       .maybeSingle();
@@ -4069,10 +4117,10 @@ export async function getConversationsDb(): Promise<Conversation[]> {
   if (!viewer) return [];
 
   try {
-    // Get recent messages to build conversation list (only needed columns)
+    // Get recent messages excluding ones soft-deleted by the viewer
     const { data: messages, error } = await supabase
       .from("messages")
-      .select("id, user_id, following_id, text, read, created_at")
+      .select("id, user_id, following_id, text, read, created_at, message_deletions!left(user_id)")
       .or(`user_id.eq.${viewer.id},following_id.eq.${viewer.id}`)
       .order("created_at", { ascending: false })
       .limit(500);
@@ -4082,9 +4130,15 @@ export async function getConversationsDb(): Promise<Conversation[]> {
       return [];
     }
 
+    // Filter out messages soft-deleted by the viewer
+    const visibleMessages = (messages ?? []).filter((msg: any) => {
+      const deletions: { user_id: string }[] = msg.message_deletions ?? [];
+      return !deletions.some((d) => d.user_id === viewer.id);
+    });
+
     // Group messages by conversation
-    const conversationMap = new Map<string, (typeof messages)[0][]>();
-    (messages ?? []).forEach((msg) => {
+    const conversationMap = new Map<string, (typeof visibleMessages)[0][]>();
+    visibleMessages.forEach((msg: any) => {
       const otherUserId =
         msg.user_id === viewer.id ? msg.following_id : msg.user_id;
       if (!conversationMap.has(otherUserId)) {
@@ -4152,10 +4206,10 @@ export async function getConversationMessagesDb(
   if (!viewer) return [];
 
   try {
-    // Get messages between current user and other user (only needed columns, capped)
+    // Get messages between current user and other user, excluding soft-deleted ones
     const { data: messages, error } = await supabase
       .from("messages")
-      .select("id, user_id, following_id, text, read, created_at, emoji")
+      .select("id, user_id, following_id, text, read, created_at, emoji, message_deletions!left(user_id)")
       .or(
         `and(user_id.eq.${viewer.id},following_id.eq.${otherUserId}),and(user_id.eq.${otherUserId},following_id.eq.${viewer.id})`,
       )
@@ -4167,6 +4221,12 @@ export async function getConversationMessagesDb(
       return [];
     }
 
+    // Filter out messages soft-deleted by the current viewer
+    const visible = (messages ?? []).filter((msg: any) => {
+      const deletions: { user_id: string }[] = msg.message_deletions ?? [];
+      return !deletions.some((d) => d.user_id === viewer.id);
+    });
+
     // Enrich with user info
     const [senderProfile, recipientProfile] = await Promise.all([
       getUserProfileDb(viewer.id),
@@ -4174,7 +4234,7 @@ export async function getConversationMessagesDb(
     ]);
 
     // Reverse to chronological order (we fetched DESC for limit to get the latest 200)
-    return (messages ?? []).reverse().map((msg) => ({
+    return visible.reverse().map((msg: any) => ({
       ...msg,
       senderNickname:
         msg.user_id === viewer.id
@@ -8447,10 +8507,12 @@ export async function deleteAllUserDataDb(userId: string): Promise<void> {
 
 // ─── Conversations ───────────────────────────────────────────────────────────
 
-/** Delete all messages in a conversation between the current user and another user */
-export async function deleteConversationDb(otherUserId: string): Promise<void> {
+/**
+ * Hard-delete a message sent by the current user (only allowed within 10 minutes of sending).
+ * Removes the record for both participants.
+ */
+export async function deleteMessagePermanentlyDb(messageId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
-  assertUUID(otherUserId, "ID do usuário");
 
   const viewer = await getViewer();
   if (!viewer) throw new Error("Não autenticado");
@@ -8458,13 +8520,73 @@ export async function deleteConversationDb(otherUserId: string): Promise<void> {
   const { error } = await supabase
     .from("messages")
     .delete()
+    .eq("id", messageId)
+    .eq("user_id", viewer.id); // only own messages
+
+  if (error) throw error;
+}
+
+/**
+ * Soft-delete a message only for the current user by inserting into message_deletions.
+ * The message remains visible for the other participant.
+ *
+ * Migration required:
+ *   CREATE TABLE message_deletions (
+ *     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+ *     message_id bigint NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+ *     user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+ *     created_at timestamptz DEFAULT now() NOT NULL,
+ *     UNIQUE(message_id, user_id)
+ *   );
+ *   ALTER TABLE message_deletions ENABLE ROW LEVEL SECURITY;
+ *   CREATE POLICY "Users manage own deletions" ON message_deletions FOR ALL USING (auth.uid() = user_id);
+ */
+export async function deleteMessageForMeDb(messageId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+
+  const { error } = await supabase
+    .from("message_deletions")
+    .upsert({ message_id: messageId, user_id: viewer.id }, { onConflict: "message_id,user_id" });
+
+  if (error) throw error;
+}
+
+/** Soft-delete the entire conversation history for the current user only. */
+export async function deleteConversationForMeDb(otherUserId: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  assertUUID(otherUserId, "ID do usuário");
+
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Não autenticado");
+
+  // Fetch all message IDs in this conversation
+  const { data: msgs, error: fetchError } = await supabase
+    .from("messages")
+    .select("id")
     .or(
       `and(user_id.eq.${viewer.id},following_id.eq.${otherUserId}),and(user_id.eq.${otherUserId},following_id.eq.${viewer.id})`
     );
 
+  if (fetchError) throw fetchError;
+  if (!msgs || msgs.length === 0) return;
+
+  const rows = msgs.map((m) => ({ message_id: m.id, user_id: viewer.id }));
+
+  const { error } = await supabase
+    .from("message_deletions")
+    .upsert(rows, { onConflict: "message_id,user_id" });
+
   if (error) throw error;
 
   invalidateQueryCache("conversations"); invalidateQueryCache("unreadMsgCount");
+}
+
+/** @deprecated Use deleteConversationForMeDb – kept for back-compat during migration */
+export async function deleteConversationDb(otherUserId: string): Promise<void> {
+  return deleteConversationForMeDb(otherUserId);
 }
 
 // ─── Group Join Requests (owner view) ────────────────────────────────────────

@@ -239,8 +239,13 @@ export default function Login() {
     if (isCompletingSignup) return;
     if (showNewPassword) return;
 
-    // Always go to feed after login
-    navigate("/", { replace: true });
+    const deeplink = sessionStorage.getItem("deeplink_redirect");
+    if (deeplink) {
+      sessionStorage.removeItem("deeplink_redirect");
+      navigate(deeplink, { replace: true });
+    } else {
+      navigate("/", { replace: true });
+    }
   }, [authLoading, user, navigate, isCompletingSignup, showNewPassword]);
 
   const submit = async (mode: "login" | "signup") => {
@@ -319,6 +324,12 @@ export default function Login() {
           title: "Login feito",
           description: "Bem-vindo de volta.",
         });
+
+        // Offer biometric registration if available and not yet registered
+        if (biometricAvailable && !hasBiometricRegistered) {
+          setShowBiometricSetup(true);
+          return;
+        }
 
         navigate("/", { replace: true });
         return;
@@ -956,11 +967,19 @@ export default function Login() {
     try {
       if (Capacitor.isNativePlatform()) {
         // iOS nativo: usa o plugin — abre a tela nativa do sistema, sem browser
+        const rawNonce = Math.random().toString(36).substring(2);
+        const encoder = new TextEncoder();
+        const data = encoder.encode(rawNonce);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+        const hashedNonce = Array.from(new Uint8Array(hashBuffer))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+
         const response: SignInWithAppleResponse = await SignInWithApple.authorize({
           clientId: "com.linka.meuapp",
           redirectURI: "https://zymkndqpashqxcvttdlc.supabase.co/auth/v1/callback",
           scopes: "name email",
-          nonce: Math.random().toString(36).substring(2),
+          nonce: hashedNonce,
         });
 
         const identityToken = response.response?.identityToken;
@@ -969,6 +988,7 @@ export default function Login() {
         const { error } = await supabase.auth.signInWithIdToken({
           provider: "apple",
           token: identityToken,
+          nonce: rawNonce,
         });
 
         if (error) {

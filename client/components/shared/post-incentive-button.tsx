@@ -20,14 +20,14 @@ type IncentiveConfig = {
 
 const incentiveConfig: Record<PostIncentiveType, IncentiveConfig> = {
   1: {
-    label: "Apoio",
+    label: "Amei",
     emoji: "❤️",
     Icon: Heart,
     iconClassName: "text-rose-400",
     activeClassName: "text-rose-500 fill-rose-500",
   },
   2: {
-    label: "Tá pegando fogo! 🔥",
+    label: "Pode mais 🔥",
     emoji: "🔥",
     Icon: Flame,
     iconClassName: "text-orange-400",
@@ -48,14 +48,14 @@ const incentiveConfig: Record<PostIncentiveType, IncentiveConfig> = {
     activeClassName: "text-emerald-500",
   },
   5: {
-    label: "Força total! 💪",
+    label: "Boa execução! 💪",
     emoji: "💪",
     Icon: Dumbbell,
     iconClassName: "text-blue-400",
     activeClassName: "text-blue-500 fill-blue-500",
   },
   6: {
-    label: "Energia máxima! ⚡",
+    label: "Intensifique! ⚡",
     emoji: "⚡",
     Icon: Zap,
     iconClassName: "text-yellow-400",

@@ -27,6 +27,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | [goals](#goals) | Catálogo de metas disponíveis |
 | [habits](#habits) | Catálogo de hábitos disponíveis |
 | [likes](#likes) | Curtidas em posts |
+| [message_deletions](#message_deletions) | Soft-delete de mensagens por usuário |
 | [messages](#messages) | Mensagens diretas entre usuários |
 | [notifications](#notifications) | Notificações de usuários |
 | [post_complaint](#post_complaint) | Denúncias de posts |
@@ -509,6 +510,36 @@ Curtidas em posts do feed.
 
 ---
 
+## message_deletions
+
+Registra quais mensagens foram soft-deletadas por um usuário específico. Quando um usuário apaga uma mensagem de outra pessoa (ou apaga o histórico inteiro), um registro é inserido aqui em vez de remover a linha da tabela `messages`. A mensagem permanece visível para o outro participante.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
+| `message_id` | bigint | ✓ | — | FK → `messages.id` (ON DELETE CASCADE) |
+| `user_id` | uuid | ✓ | — | FK → `auth.users.id` — usuário para quem a mensagem está oculta |
+| `created_at` | timestamptz | ✓ | `now()` | Data da deleção |
+
+**Constraint:** `UNIQUE(message_id, user_id)` — impede duplicatas.
+
+**RLS:** `FOR ALL USING (auth.uid() = user_id)` — usuário só gerencia seus próprios registros.
+
+**Migration SQL:**
+```sql
+CREATE TABLE message_deletions (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  message_id bigint NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  UNIQUE(message_id, user_id)
+);
+ALTER TABLE message_deletions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own deletions" ON message_deletions FOR ALL USING (auth.uid() = user_id);
+```
+
+---
+
 ## messages
 
 Mensagens diretas trocadas entre usuários.
@@ -762,6 +793,7 @@ Dietas ativas associadas a um usuário.
 | `is_completed` | boolean | — | `false` | Meta concluída |
 | `name` | text | — | — | Nome customizado (denormalizado) |
 | `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
+| `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina à qual esta dieta pertence |
 
 ---
 
@@ -850,6 +882,7 @@ Hábitos ativos associados a um usuário.
 | `is_completed` | boolean | — | `false` | Concluído hoje |
 | `name` | text | — | — | Nome customizado (denormalizado) |
 | `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
+| `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina à qual este hábito pertence |
 
 ---
 
@@ -917,6 +950,7 @@ Treinos salvos / atribuídos a um usuário.
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `name` | text | — | — | Nome customizado (denormalizado) |
 | `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
+| `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina à qual este exercício pertence |
 
 ---
 

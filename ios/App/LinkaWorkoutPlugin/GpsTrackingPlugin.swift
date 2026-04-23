@@ -2,17 +2,11 @@ import Foundation
 import Capacitor
 import CoreLocation
 
-/// Capacitor plugin that provides background-capable GPS tracking.
-///
-/// JS API:
-///   GpsTrackingPlugin.start()
-///   GpsTrackingPlugin.stop()
-///   GpsTrackingPlugin.addListener("location", handler)
-///   GpsTrackingPlugin.addListener("error", handler)
 @objc(GpsTrackingPlugin)
 public class GpsTrackingPlugin: CAPPlugin, CLLocationManagerDelegate {
 
     private var locationManager: CLLocationManager?
+    private var pendingStartCall: CAPPluginCall?
 
     // MARK: - Start
 
@@ -24,7 +18,6 @@ public class GpsTrackingPlugin: CAPPlugin, CLLocationManagerDelegate {
             manager.distanceFilter = kCLDistanceFilterNone
             manager.pausesLocationUpdatesAutomatically = false
 
-            // Required for background location (screen locked)
             if manager.responds(to: #selector(getter: CLLocationManager.allowsBackgroundLocationUpdates)) {
                 manager.allowsBackgroundLocationUpdates = true
             }
@@ -34,16 +27,17 @@ public class GpsTrackingPlugin: CAPPlugin, CLLocationManagerDelegate {
             let status = manager.authorizationStatus
             switch status {
             case .notDetermined:
+                // Store call — will resolve/reject in didChangeAuthorization
+                self.pendingStartCall = call
                 manager.requestAlwaysAuthorization()
-                // Will start updates after authorization is granted (delegate callback)
             case .authorizedAlways, .authorizedWhenInUse:
                 manager.startUpdatingLocation()
-            default:
-                call.reject("Permissão de localização negada")
-                return
+                call.resolve(["started": true])
+            case .denied, .restricted:
+                call.reject("PERMISSION_DENIED")
+            @unknown default:
+                call.reject("PERMISSION_DENIED")
             }
-
-            call.resolve(["started": true])
         }
     }
 
@@ -53,6 +47,7 @@ public class GpsTrackingPlugin: CAPPlugin, CLLocationManagerDelegate {
         DispatchQueue.main.async {
             self.locationManager?.stopUpdatingLocation()
             self.locationManager = nil
+            self.pendingStartCall = nil
             call.resolve(["stopped": true])
         }
     }
@@ -62,8 +57,12 @@ public class GpsTrackingPlugin: CAPPlugin, CLLocationManagerDelegate {
     public func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
         if status == .authorizedAlways || status == .authorizedWhenInUse {
             manager.startUpdatingLocation()
+            pendingStartCall?.resolve(["started": true])
+            pendingStartCall = nil
         } else if status == .denied || status == .restricted {
-            notifyListeners("error", data: ["message": "Permissão de localização negada"])
+            pendingStartCall?.reject("PERMISSION_DENIED")
+            pendingStartCall = nil
+            notifyListeners("error", data: ["message": "PERMISSION_DENIED"])
         }
     }
 

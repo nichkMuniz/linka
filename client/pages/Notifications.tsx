@@ -76,12 +76,12 @@ export default function Notifications() {
 
   const getIncentiveTypeName = (type: number): string => {
     const incentiveNames: { [key: number]: string } = {
-      1: "Apoio",
-      2: "Tá pegando fogo!",
+      1: "Amei",
+      2: "Pode mais!",
       3: "Vencedor!",
       4: "Evolução!",
-      5: "Força total!",
-      6: "Energia máxima!",
+      5: "Boa execução!",
+      6: "Intensifique!",
     };
     return incentiveNames[type] || "Incentivo";
   };

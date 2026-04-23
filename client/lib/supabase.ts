@@ -60,7 +60,8 @@ export const supabase: SupabaseClient | null = hasSupabaseConfig
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: true,
+      detectSessionInUrl: false,
+      flowType: "pkce",
     },
     global: {
       fetch: fetchWithRetry,
