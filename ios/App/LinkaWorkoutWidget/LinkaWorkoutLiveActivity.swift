@@ -27,7 +27,7 @@ private struct WorkoutTimer: View {
                 .font(.system(size: 28, weight: .bold, design: .monospaced))
                 .foregroundColor(.white.opacity(0.5))
         } else {
-            Text(timerInterval: startDate..., pauseTime: nil)
+            Text(timerInterval: startDate...Date.distantFuture, pauseTime: nil)
                 .font(.system(size: 28, weight: .bold, design: .monospaced))
                 .foregroundColor(.white)
                 .monospacedDigit()
@@ -101,7 +101,7 @@ struct WorkoutDynamicIslandCompact: View {
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                     .foregroundColor(.white.opacity(0.5))
             } else {
-                Text(timerInterval: context.state.startDate..., pauseTime: nil)
+                Text(timerInterval: context.state.startDate...Date.distantFuture, pauseTime: nil)
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                     .foregroundColor(.white)
                     .monospacedDigit()
@@ -169,7 +169,7 @@ struct LinkaWorkoutLiveActivity: Widget {
                             .font(.system(size: 16, weight: .bold, design: .monospaced))
                             .foregroundColor(.white.opacity(0.5))
                     } else {
-                        Text(timerInterval: context.state.startDate..., pauseTime: nil)
+                        Text(timerInterval: context.state.startDate...Date.distantFuture, pauseTime: nil)
                             .font(.system(size: 16, weight: .bold, design: .monospaced))
                             .foregroundColor(.white)
                             .monospacedDigit()
@@ -196,7 +196,7 @@ struct LinkaWorkoutLiveActivity: Widget {
                         .font(.system(size: 12, weight: .bold, design: .monospaced))
                         .foregroundColor(.white.opacity(0.5))
                 } else {
-                    Text(timerInterval: context.state.startDate..., pauseTime: nil)
+                    Text(timerInterval: context.state.startDate...Date.distantFuture, pauseTime: nil)
                         .font(.system(size: 12, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
                         .monospacedDigit()

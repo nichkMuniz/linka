@@ -17,6 +17,10 @@ public struct LinkaWorkoutAttributes: ActivityAttributes {
         var elapsedSeconds: Int
         /// Whether the workout is paused
         var isPaused: Bool
+        /// When the workout started (drives the live timer)
+        var startDate: Date
+        /// Frozen elapsed seconds used when isPaused is true
+        var pausedElapsedSeconds: Int
     }
 
     /// Fixed: the routine name shown in the header
