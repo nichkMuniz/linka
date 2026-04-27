@@ -11,6 +11,9 @@ const config: CapacitorConfig = {
     Browser: {
       presentationStyle: 'popover',
     },
+    PushNotifications: {
+      presentationOptions: ["badge", "sound", "alert"],
+    },
   },
 };
 

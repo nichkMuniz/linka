@@ -31,6 +31,8 @@ import {
   deleteStoryDb,
   createPostDb,
   updateUserPersonalDataDb,
+  deletePushTokenDb,
+  recordAccessSessionDb,
   type UserProfile,
   type UserStats,
   type CommercialProfile,
@@ -38,8 +40,11 @@ import {
   type StoryWithUser,
 } from "@/lib/ritmofit-db";
 import { supabase, resetSupabaseAuth } from "@/lib/supabase";
+import { Capacitor } from "@capacitor/core";
+import { PushNotifications } from "@capacitor/push-notifications";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import {
   Edit2,
   Upload,
@@ -81,6 +86,7 @@ export function SettingsDrawer({
   const isDark = (resolvedTheme ?? theme) === "dark";
   const { layoutMode, toggleLayoutMode } = useLayoutMode();
   const { language, setLanguage, t } = useLanguage();
+  const viewportHeight = useKeyboardAwareHeight();
 
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -379,6 +385,33 @@ export function SettingsDrawer({
   // --- Logout ---
   const handleLogout = async () => {
     try {
+      // Record session duration before signing out
+      const sessionStartRaw = sessionStorage.getItem("ritmofit_session_start");
+      if (sessionStartRaw && userId) {
+        const sessionSeconds = Math.floor((Date.now() - parseInt(sessionStartRaw, 10)) / 1000);
+        if (sessionSeconds >= 10) {
+          await recordAccessSessionDb(userId, sessionSeconds).catch(() => {});
+        }
+      }
+
+      // Record screen time for the current screen before signing out
+      const screenStartRaw = sessionStorage.getItem("ritmofit_screen_start");
+      const currentScreen = sessionStorage.getItem("ritmofit_current_screen");
+      if (screenStartRaw && currentScreen && userId) {
+        const screenSeconds = Math.floor((Date.now() - parseInt(screenStartRaw, 10)) / 1000);
+        await recordScreenTimeDb(userId, currentScreen, screenSeconds).catch(() => {});
+      }
+
+      // Remove device token before signing out so this device stops receiving
+      // push notifications for the current account
+      if (Capacitor.isNativePlatform()) {
+        const token = localStorage.getItem("linka_push_token");
+        if (token) {
+          await deletePushTokenDb(token);
+          localStorage.removeItem("linka_push_token");
+        }
+        await PushNotifications.unregister();
+      }
       await resetSupabaseAuth();
       setIsOpen(false);
       navigate("/");
@@ -422,7 +455,7 @@ export function SettingsDrawer({
                 <span>{t("settings_my_profile")}</span>
                 <User className="h-4 w-4" />
               </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+              <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0 flex items-center gap-2">
                   {subDrawerBack(setIsEditOpen)}
                   <DrawerTitle>Meu Perfil</DrawerTitle>
@@ -576,7 +609,7 @@ export function SettingsDrawer({
                 <span>{t("settings_account_security")}</span>
                 <Settings className="h-4 w-4" />
               </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+              <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0 flex items-center gap-2">
                   {subDrawerBack(setIsAccountOpen)}
                   <DrawerTitle>{t("settings_account_security")}</DrawerTitle>
@@ -801,7 +834,7 @@ export function SettingsDrawer({
                   <span className="text-lg">🏪</span>
                 </Button>
               )}
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+              <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsCommercialOpen)}
@@ -1038,7 +1071,7 @@ export function SettingsDrawer({
                 <span>{t("settings_time_management")}</span>
                 <BarChart3 className="h-4 w-4" />
               </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+              <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsTimeManagementOpen)}

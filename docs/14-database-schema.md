@@ -9,6 +9,7 @@ Documentação técnica de todas as tabelas do banco de dados público (`public`
 | Tabela | Descrição resumida |
 |---|---|
 | [access_sessions](#access_sessions) | Sessões de acesso dos usuários |
+| [screen_time_logs](#screen_time_logs) | Tempo por tela por usuário |
 | [check_ins](#check_ins) | Check-ins diários de treino |
 | [comments](#comments) | Comentários em posts |
 | [commercial_offers](#commercial_offers) | Ofertas/produtos publicados por perfis comerciais |
@@ -172,6 +173,49 @@ Registra cada sessão de acesso de um usuário ao app, com duração em segundos
 | `duration_seconds` | integer | ✓ | — | Duração da sessão em segundos |
 | `session_date` | date | ✓ | — | Data da sessão |
 | `created_at` | timestamptz | — | `now()` | Data de criação do registro |
+
+---
+
+## screen_time_logs
+
+Registra o tempo que cada usuário passou em cada tela do app. Um registro é inserido sempre que o usuário navega para outra tela ou encerra a sessão.
+
+| Coluna | Tipo | Obrigatório | Padrão | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | PK | `gen_random_uuid()` | Identificador único do log |
+| `user_id` | uuid | FK → `auth.users` | — | Usuário que navegou |
+| `screen` | text | ✓ | — | Pathname da tela (ex: `/`, `/shots`, `/metas`) |
+| `duration_seconds` | integer | ✓ | — | Segundos na tela |
+| `log_date` | date | ✓ | — | Data do log |
+| `created_at` | timestamptz | — | `now()` | Data de criação do registro |
+
+### SQL de criação
+
+```sql
+create table public.screen_time_logs (
+  id               uuid primary key default gen_random_uuid(),
+  user_id          uuid not null references auth.users(id) on delete cascade,
+  screen           text not null,
+  duration_seconds integer not null,
+  log_date         date not null,
+  created_at       timestamptz default now()
+);
+
+-- RLS
+alter table public.screen_time_logs enable row level security;
+
+create policy "Usuário insere apenas seus próprios logs"
+  on public.screen_time_logs for insert
+  with check (auth.uid() = user_id);
+
+create policy "Usuário lê apenas seus próprios logs"
+  on public.screen_time_logs for select
+  using (auth.uid() = user_id);
+
+-- Índice para queries analíticas por usuário e data
+create index screen_time_logs_user_date_idx
+  on public.screen_time_logs (user_id, log_date desc);
+```
 
 ---
 
@@ -639,6 +683,7 @@ Perfil público dos usuários da plataforma.
 | `weight` | float[] | — | — | peso do usuario |
 | `age` | bigint[] | — | — | idade do usuario |
 | `handle` | text[] | — | — | handle do usuario |
+| `is_verified` | boolean | ✓ | `false` | Indica conta oficial verificada (badge dourado). Só pode ser alterado via service_role (admin). |
 
 ---
 
@@ -831,6 +876,8 @@ Metas ativas vinculadas a um usuário.
 | `perc` | real | ✓ | `0` | Percentual de conclusão (calculado a partir de days_completed / quantity) |
 | `days_completed` | smallint | — | `0` | Dias completados. Incrementado a cada check-in. **Fonte de verdade para o progresso.** |
 
+> RLS: o próprio usuário tem acesso total. Qualquer usuário autenticado pode **ler** metas com `visibility = 1` (política "Anyone can read public goals"). Migration: `20260427-user-goals-public-read.sql`.
+
 ---
 
 ## badges
@@ -840,13 +887,32 @@ Catálogo de insígnias disponíveis na plataforma.
 | Coluna | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
 | `id` | uuid | PK | `gen_random_uuid()` | Identificador único |
-| `key` | text | ✓ UNIQUE | — | Chave única (ex: `iniciante`, `sequencia`, `campeao`, `lendario`) |
+| `key` | text | ✓ UNIQUE | — | Chave única (ex: `iniciante`, `noturno`, `streak_7`) |
 | `name` | text | ✓ | — | Nome da insígnia |
 | `emoji` | text | ✓ | — | Emoji representativo |
 | `description` | text | ✓ | — | Descrição do critério |
-| `required_checkins` | int | ✓ | `0` | Check-ins semanais necessários para ganhar |
+| `required_checkins` | int | ✓ | `0` | Valor numérico do critério (contagem, streak, etc.) |
 | `sort_order` | int | ✓ | `0` | Ordenação (menor = mais básico) |
+| `condition_type` | text | ✓ | `checkin_total` | Tipo de condição para concessão (ver tabela abaixo) |
+| `condition_metadata` | jsonb | — | `null` | Parâmetros extras da condição (ex: `{"hour": 9}`, `{"type": "cardio"}`) |
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
+
+### Tipos de condição (`condition_type`)
+
+| Valor | Critério | Exemplo |
+|---|---|---|
+| `checkin_total` | Total acumulado de check-ins ≥ `required_checkins` | `total_10`, `total_100` |
+| `checkin_week` | Check-ins na semana atual (Dom–Sáb) ≥ `required_checkins` | `iniciante`, `lendario` |
+| `checkin_streak` | Dias consecutivos de check-in ≥ `required_checkins` | `streak_7`, `streak_30` |
+| `checkin_after_midnight` | Check-in realizado entre 00:00 e 05:59 | `noturno` |
+| `checkin_before_time` | Check-in antes da hora em `condition_metadata.hour` | `treino_manha` (antes das 9h) |
+| `checkin_comeback` | Primeiro check-in após ≥ 7 dias sem atividade | `comeback` |
+| `workout_week` | Treinos realizados na semana atual ≥ `required_checkins` | `treino_3_semana` |
+| `workout_type` | Treinos do tipo `condition_metadata.type` ≥ `required_checkins` | `treino_forca_10`, `treino_cardio_10` |
+| `nutrition_*` | Condições nutricionais — concedidas por `awardNutritionBadgesDb` | `hidratacao_7dias`, `semana_nutritiva` |
+| `habit_*` | Hábitos de lifestyle — precisam de tracking dedicado | `sono_7d`, `meditacao_5d` |
+| `app_usage` | Dias de uso do app ≥ `required_checkins` | `app_7dias`, `app_30dias` |
+| `challenge_count` | Desafios completados ≥ `required_checkins` | `desafio_3x` |
 
 ---
 
@@ -951,6 +1017,7 @@ Treinos salvos / atribuídos a um usuário.
 | `name` | text | — | — | Nome customizado (denormalizado) |
 | `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
 | `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina à qual este exercício pertence |
+| `notes` | text | — | — | Notas livres do usuário para este exercício |
 
 ---
 

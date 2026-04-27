@@ -163,6 +163,212 @@ function categoryLabel(cat: string) {
   return PROMOTION_CATEGORIES.find((c) => c.value === cat)?.label ?? cat;
 }
 
+// ─── Promotion Detail Drawer ─────────────────────────────────────────────────
+
+type PromotionDetailDrawerProps = {
+  promo: Promotion | null;
+  open: boolean;
+  onClose: () => void;
+  viewerUserId: string | null;
+  viewerLoading: boolean;
+  onLike: (id: string) => void;
+  onStatusVote: (id: string, status: "active" | "expired") => void;
+};
+
+function PromotionDetailDrawer({
+  promo,
+  open,
+  onClose,
+  viewerUserId,
+  viewerLoading,
+  onLike,
+  onStatusVote,
+}: PromotionDetailDrawerProps) {
+  const [couponCopied, setCouponCopied] = React.useState(false);
+
+  if (!promo) return null;
+
+  const isOwner = !viewerLoading && viewerUserId === promo.user_id;
+  const isLoggedIn = !viewerLoading && !!viewerUserId;
+
+  const expiredReports = promo.expired_reports ?? 0;
+  const activeReports = promo.active_reports ?? 0;
+  const totalVotes = expiredReports + activeReports;
+  const majorityExpired = totalVotes >= 3 && expiredReports / totalVotes > 0.5;
+
+  const discountDisplay = (() => {
+    if (promo.discount_percent) return `${promo.discount_percent}% OFF`;
+    if (promo.original_price && promo.promo_price) {
+      const pct = Math.round(
+        ((promo.original_price - promo.promo_price) / promo.original_price) * 100,
+      );
+      if (pct > 0) return `${pct}% OFF`;
+    }
+    return null;
+  })();
+
+  return (
+    <Drawer open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DrawerContent onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerHeader className="pb-2">
+          <DrawerTitle className="text-base font-semibold leading-snug pr-4">
+            {promo.title}
+          </DrawerTitle>
+        </DrawerHeader>
+
+        <div className="overflow-y-auto max-h-[70vh] px-4 pb-4 space-y-4">
+          {/* Imagem ampliada */}
+          {promo.photo_url && (
+            <div className="relative w-full aspect-square bg-muted rounded-xl overflow-hidden">
+              <ImageWithFallback
+                src={promo.photo_url}
+                alt={promo.title}
+                className={`w-full h-full object-contain ${majorityExpired ? "opacity-60" : ""}`}
+                fallback="/placeholder.svg"
+              />
+              {discountDisplay && (
+                <span className="absolute top-3 left-3 bg-brand text-white text-sm font-bold px-3 py-1 rounded-full">
+                  {discountDisplay}
+                </span>
+              )}
+              {majorityExpired && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="bg-background/80 text-destructive text-sm font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-destructive/30">
+                    <AlertTriangle className="h-4 w-4" />
+                    Pode ter expirado
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Categoria */}
+          <span
+            className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${CATEGORY_COLORS[promo.category] ?? CATEGORY_COLORS.outro}`}
+          >
+            {CATEGORY_ICONS[promo.category] ?? CATEGORY_ICONS.outro}
+            {categoryLabel(promo.category)}
+          </span>
+
+          {/* Preço */}
+          {(promo.promo_price != null || promo.original_price != null) && (
+            <div className="flex items-baseline gap-2">
+              {promo.promo_price != null && (
+                <span className="text-2xl font-bold text-brand">
+                  R$ {promo.promo_price.toFixed(2).replace(".", ",")}
+                </span>
+              )}
+              {promo.original_price != null && promo.promo_price != null && (
+                <span className="text-sm text-muted-foreground line-through">
+                  R$ {promo.original_price.toFixed(2).replace(".", ",")}
+                </span>
+              )}
+              {promo.original_price != null && promo.promo_price == null && (
+                <span className="text-2xl font-bold">
+                  R$ {promo.original_price.toFixed(2).replace(".", ",")}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Descrição completa */}
+          {promo.description && (
+            <p className="text-sm text-muted-foreground leading-relaxed">{promo.description}</p>
+          )}
+
+          {/* Validade */}
+          {promo.expires_at && (
+            <p className="text-xs text-muted-foreground">
+              Válido até {new Date(promo.expires_at).toLocaleDateString("pt-BR")}
+            </p>
+          )}
+
+          {/* Cupom */}
+          {promo.coupon_code && (
+            <button
+              onClick={() => {
+                copyToClipboard(promo.coupon_code!);
+                toast({ title: "Cupom copiado!", description: promo.coupon_code });
+                setCouponCopied(true);
+                setTimeout(() => setCouponCopied(false), 2000);
+              }}
+              className="flex items-center gap-2 w-full rounded-xl border border-dashed border-brand/50 bg-brand/5 px-4 py-3 hover:bg-brand/10 transition-colors"
+            >
+              <Ticket className="h-4 w-4 text-brand flex-shrink-0" />
+              <span className="font-mono text-sm font-bold text-brand tracking-wider flex-1 text-left">
+                {promo.coupon_code}
+              </span>
+              {couponCopied ? (
+                <Check className="h-4 w-4 text-green-500 flex-shrink-0" />
+              ) : (
+                <Copy className="h-4 w-4 text-brand/60 flex-shrink-0" />
+              )}
+            </button>
+          )}
+
+          {/* Votos de status */}
+          {!isOwner && isLoggedIn && (
+            <div className="flex items-center gap-2 pt-1 border-t border-border/40">
+              <span className="text-xs text-muted-foreground flex-shrink-0">Ainda ativo?</span>
+              <button
+                onClick={() => onStatusVote(promo.id, "active")}
+                aria-label="Marcar como ativo"
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  promo.user_status_vote === "active"
+                    ? "bg-green-500/20 text-green-500"
+                    : "text-muted-foreground hover:text-green-500 hover:bg-green-500/10"
+                }`}
+              >
+                <ThumbsUp className="h-3.5 w-3.5" />
+                Sim {(promo.active_reports ?? 0) > 0 && `(${promo.active_reports})`}
+              </button>
+              <button
+                onClick={() => onStatusVote(promo.id, "expired")}
+                aria-label="Marcar como expirada"
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  promo.user_status_vote === "expired"
+                    ? "bg-destructive/20 text-destructive"
+                    : "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                }`}
+              >
+                <ThumbsDown className="h-3.5 w-3.5" />
+                Expirou {(promo.expired_reports ?? 0) > 0 && `(${promo.expired_reports})`}
+              </button>
+            </div>
+          )}
+
+          {/* Botão principal */}
+          {promo.external_link && (
+            <Button
+              className="w-full gap-2 h-12 text-base"
+              onClick={() => Browser.open({ url: promo.external_link! })}
+            >
+              <ExternalLink className="h-5 w-5" />
+              Ir para a promoção
+            </Button>
+          )}
+
+          {/* Like */}
+          <button
+            onClick={() => onLike(promo.id)}
+            className={`flex items-center gap-2 w-full justify-center py-2 rounded-lg text-sm transition-colors ${
+              promo.user_liked
+                ? "text-red-500"
+                : "text-muted-foreground hover:text-red-500"
+            }`}
+          >
+            <Heart className={`h-4 w-4 ${promo.user_liked ? "fill-red-500" : ""}`} />
+            {promo.user_liked ? "Curtido" : "Curtir"}
+            {(promo.likes_count ?? 0) > 0 && (
+              <span className="text-xs">· {promo.likes_count}</span>
+            )}
+          </button>
+        </div>
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
 // ─── Promotion Card ──────────────────────────────────────────────────────────
 
 type PromotionCardProps = {
@@ -175,6 +381,7 @@ type PromotionCardProps = {
   onInactivate: (id: string) => void;
   onDelete: (id: string) => void;
   onUserClick: (userId: string) => void;
+  onOpenDetail: (promo: Promotion) => void;
 };
 
 function PromotionCard({
@@ -187,6 +394,7 @@ function PromotionCard({
   onInactivate,
   onDelete,
   onUserClick,
+  onOpenDetail,
 }: PromotionCardProps) {
   const isOwner = !viewerLoading && viewerUserId === promo.user_id;
   const isLoggedIn = !viewerLoading && !!viewerUserId;
@@ -209,18 +417,29 @@ function PromotionCard({
   })();
 
   return (
-    <Card className="border-border/60 overflow-hidden flex flex-col">
-      {/* Image */}
-      {promo.photo_url && (
+    <Card className="border-border/60 overflow-hidden flex flex-col h-full">
+      {/* Área clicável: imagem + conteúdo principal */}
+      <button
+        className="flex flex-col flex-1 text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+        onClick={() => onOpenDetail(promo)}
+        aria-label={`Ver detalhes de ${promo.title}`}
+      >
+        {/* Image */}
         <div className="relative w-full aspect-[4/3] bg-muted overflow-hidden flex-shrink-0">
-          <ImageWithFallback
-            src={promo.photo_url}
-            alt={promo.title}
-            className={`w-full h-full object-contain transition-opacity ${majorityExpired ? "opacity-50" : ""}`}
-            fallback="/placeholder.svg"
-          />
+          {promo.photo_url ? (
+            <ImageWithFallback
+              src={promo.photo_url}
+              alt={promo.title}
+              className={`w-full h-full object-contain transition-opacity ${majorityExpired ? "opacity-50" : ""}`}
+              fallback="/placeholder.svg"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              {CATEGORY_ICONS[promo.category] ?? CATEGORY_ICONS.outro}
+            </div>
+          )}
           {discountDisplay && (
-            <span className="absolute top-2 left-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+            <span className="absolute top-2 left-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">
               {discountDisplay}
             </span>
           )}
@@ -228,28 +447,81 @@ function PromotionCard({
             <div className="absolute inset-0 flex items-center justify-center">
               <span className="bg-background/80 text-destructive text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1 border border-destructive/30">
                 <AlertTriangle className="h-3 w-3" />
-                Pode ter expirado
+                Expirada?
               </span>
             </div>
           )}
         </div>
-      )}
 
-      <CardContent className="p-3 flex flex-col flex-1 gap-2">
-        {/* Header row: category badge + menu */}
-        <div className="flex items-center justify-between gap-2">
+        <div className="p-3 flex flex-col flex-1 gap-1.5">
+          {/* Categoria badge */}
           <span
-            className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${CATEGORY_COLORS[promo.category] ?? CATEGORY_COLORS.outro}`}
+            className={`self-start inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${CATEGORY_COLORS[promo.category] ?? CATEGORY_COLORS.outro}`}
           >
             {CATEGORY_ICONS[promo.category] ?? CATEGORY_ICONS.outro}
             {categoryLabel(promo.category)}
           </span>
 
+          {/* Título */}
+          <p className="font-semibold text-sm leading-tight line-clamp-2">{promo.title}</p>
+
+          {/* Descrição — área de altura fixa, sempre ocupa o mesmo espaço */}
+          <div className="flex-1 min-h-[2.5rem]">
+            {promo.description ? (
+              <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                {promo.description}
+              </p>
+            ) : null}
+          </div>
+
+          {/* Preço */}
+          {(promo.promo_price != null || promo.original_price != null) && (
+            <div className="flex items-baseline gap-1.5 flex-wrap">
+              {promo.promo_price != null && (
+                <span className="text-sm font-bold text-brand">
+                  R$ {promo.promo_price.toFixed(2).replace(".", ",")}
+                </span>
+              )}
+              {promo.original_price != null && promo.promo_price != null && (
+                <span className="text-[10px] text-muted-foreground line-through">
+                  R$ {promo.original_price.toFixed(2).replace(".", ",")}
+                </span>
+              )}
+              {promo.original_price != null && promo.promo_price == null && (
+                <span className="text-sm font-semibold">
+                  R$ {promo.original_price.toFixed(2).replace(".", ",")}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </button>
+
+      {/* Footer — fora do botão, ações independentes */}
+      <div className="px-3 pb-3 flex items-center justify-between border-t border-border/40 pt-2">
+        <div className="flex items-center gap-1 min-w-0">
+          <button
+            onClick={() => onUserClick(promo.user_id)}
+            className="flex items-center gap-1.5 min-w-0"
+          >
+            <UserAvatar
+              photo={promo.user_photo}
+              gender={promo.user_gender}
+              nickname={promo.user_nickname}
+              className="h-5 w-5 flex-shrink-0"
+            />
+            <span className="text-xs text-muted-foreground truncate max-w-[60px]">
+              {promo.user_nickname}
+            </span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-0.5 flex-shrink-0">
           {isOwner && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-7 w-7 -mr-1">
-                  <MoreVertical className="h-4 w-4" />
+                <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <MoreVertical className="h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -271,189 +543,23 @@ function PromotionCard({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-        </div>
-
-        {/* Title */}
-        <p className="font-semibold text-sm leading-tight">{promo.title}</p>
-
-        {/* Description — grows to fill space, pushing footer down */}
-        {promo.description && (
-          <p className="text-xs text-muted-foreground line-clamp-3 flex-1">{promo.description}</p>
-        )}
-
-        {/* Spacer when no description */}
-        {!promo.description && <div className="flex-1" />}
-
-        {/* Expires */}
-        {promo.expires_at && (
-          <p className="text-xs text-muted-foreground">
-            Válido até {new Date(promo.expires_at).toLocaleDateString("pt-BR")}
-          </p>
-        )}
-
-        {/* Coupon */}
-        {promo.coupon_code && (
+          <PromotionCommentsDrawer
+            promotionId={promo.id}
+            commentsCount={promo.comments_count ?? 0}
+          />
           <button
-            onClick={() => {
-              copyToClipboard(promo.coupon_code!);
-              toast({ title: "Cupom copiado!", description: promo.coupon_code });
-              setCouponCopied(true);
-              setTimeout(() => setCouponCopied(false), 2000);
-            }}
-            className="flex items-center gap-2 w-full rounded-lg border border-dashed border-brand/50 bg-brand/5 px-2.5 py-1.5 hover:bg-brand/10 transition-colors"
+            onClick={() => onLike(promo.id)}
+            className="flex items-center gap-1 px-1.5 py-1 text-xs text-muted-foreground hover:text-red-500 transition-colors"
           >
-            <Ticket className="h-3.5 w-3.5 text-brand flex-shrink-0" />
-            <span className="font-mono text-xs font-bold text-brand tracking-wider flex-1 text-left">
-              {promo.coupon_code}
-            </span>
-            {couponCopied ? (
-              <Check className="h-3 w-3 text-green-500 flex-shrink-0" />
-            ) : (
-              <Copy className="h-3 w-3 text-brand/60 flex-shrink-0" />
+            <Heart
+              className={`h-3.5 w-3.5 transition-colors ${promo.user_liked ? "fill-red-500 text-red-500" : ""}`}
+            />
+            {(promo.likes_count ?? 0) > 0 && (
+              <span>{promo.likes_count}</span>
             )}
           </button>
-        )}
-
-        {/* Pricing */}
-        {(promo.promo_price != null || promo.original_price != null) && (
-          <div className="flex items-baseline gap-2">
-            {promo.promo_price != null && (
-              <span className="text-base font-bold text-brand">
-                R$ {promo.promo_price.toFixed(2).replace(".", ",")}
-              </span>
-            )}
-            {promo.original_price != null && promo.promo_price != null && (
-              <span className="text-xs text-muted-foreground line-through">
-                R$ {promo.original_price.toFixed(2).replace(".", ",")}
-              </span>
-            )}
-            {promo.original_price != null && promo.promo_price == null && (
-              <span className="text-base font-semibold">
-                R$ {promo.original_price.toFixed(2).replace(".", ",")}
-              </span>
-            )}
-          </div>
-        )}
-
-
-        {/* Status vote — only for non-owners when logged in */}
-        {!isOwner && isLoggedIn && (
-          <div className="flex items-center gap-1.5 pt-1.5 border-t border-border/40 mt-1">
-            <span className="text-[10px] text-muted-foreground flex-shrink-0">Ainda ativo?</span>
-            <button
-              onClick={() => onStatusVote(promo.id, "active")}
-              aria-label="Marcar como ativo"
-              className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
-                promo.user_status_vote === "active"
-                  ? "bg-green-500/20 text-green-500"
-                  : "text-muted-foreground hover:text-green-500 hover:bg-green-500/10"
-              }`}
-            >
-              <ThumbsUp className="h-3 w-3" />
-              {(promo.active_reports ?? 0) > 0 && <span>{promo.active_reports}</span>}
-            </button>
-            <button
-              onClick={() => onStatusVote(promo.id, "expired")}
-              aria-label="Marcar como expirada"
-              className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
-                promo.user_status_vote === "expired"
-                  ? "bg-destructive/20 text-destructive"
-                  : "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-              }`}
-            >
-              <ThumbsDown className="h-3 w-3" />
-              {(promo.expired_reports ?? 0) > 0 && <span>{promo.expired_reports}</span>}
-            </button>
-          </div>
-        )}
-
-        {/* Owner-only: status signal from the community */}
-        {isOwner && (promo.active_reports ?? 0) + (promo.expired_reports ?? 0) > 0 && (() => {
-          const total = (promo.active_reports ?? 0) + (promo.expired_reports ?? 0);
-          const expiredPct = Math.round(((promo.expired_reports ?? 0) / total) * 100);
-          const activePct = 100 - expiredPct;
-          const alertExpired = majorityExpired;
-          return (
-            <div className={`flex flex-col gap-1 pt-1.5 border-t border-border/40 mt-1 ${alertExpired ? "rounded-md bg-destructive/5 px-1.5 py-1 -mx-1.5" : ""}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-muted-foreground">
-                  {alertExpired
-                    ? "⚠️ Comunidade sinaliza expirada"
-                    : "Opinião da comunidade"}
-                </span>
-                <span className="text-[10px] text-muted-foreground">{total} {total === 1 ? "voto" : "votos"}</span>
-              </div>
-              {/* Progress bar */}
-              <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted/50">
-                <div
-                  className="h-full bg-green-500 transition-all"
-                  style={{ width: `${activePct}%` }}
-                />
-                <div
-                  className="h-full bg-destructive transition-all"
-                  style={{ width: `${expiredPct}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-0.5 text-[10px] text-green-500">
-                  <ThumbsUp className="h-2.5 w-2.5" />
-                  {promo.active_reports ?? 0} ativo
-                </span>
-                <span className="flex items-center gap-0.5 text-[10px] text-destructive">
-                  <ThumbsDown className="h-2.5 w-2.5" />
-                  {promo.expired_reports ?? 0} expirada
-                </span>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Footer — always at bottom */}
-        <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-1">
-          <button
-            onClick={() => onUserClick(promo.user_id)}
-            className="flex items-center gap-1.5 min-w-0"
-          >
-            <UserAvatar
-              photo={promo.user_photo}
-              gender={promo.user_gender}
-              nickname={promo.user_nickname}
-              className="h-5 w-5 flex-shrink-0"
-            />
-            <span className="text-xs text-muted-foreground truncate max-w-[100px]">
-              {promo.user_nickname}
-            </span>
-          </button>
-
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {promo.external_link && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => Browser.open({ url: promo.external_link! })}
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-              </Button>
-            )}
-            <PromotionCommentsDrawer
-              promotionId={promo.id}
-              commentsCount={promo.comments_count ?? 0}
-            />
-            <button
-              onClick={() => onLike(promo.id)}
-              className="flex items-center gap-1 px-1.5 py-1 text-xs text-muted-foreground hover:text-red-500 transition-colors"
-            >
-              <Heart
-                className={`h-3.5 w-3.5 transition-colors ${promo.user_liked ? "fill-red-500 text-red-500" : ""}`}
-              />
-              {(promo.likes_count ?? 0) > 0 && (
-                <span>{promo.likes_count}</span>
-              )}
-            </button>
-          </div>
         </div>
-      </CardContent>
+      </div>
     </Card>
   );
 }
@@ -1468,6 +1574,7 @@ export default function Store() {
   const [search, setSearch] = React.useState("");
   const [newPromoOpen, setNewPromoOpen] = React.useState(false);
   const [editingPromo, setEditingPromo] = React.useState<Promotion | null>(null);
+  const [detailPromo, setDetailPromo] = React.useState<Promotion | null>(null);
   const [inactivateTargetId, setInactivateTargetId] = React.useState<string | null>(null);
   const [deleteTargetId, setDeleteTargetId] = React.useState<string | null>(null);
   const [viewerUserId, setViewerUserId] = React.useState<string | null>(null);
@@ -1855,6 +1962,7 @@ export default function Store() {
                   onInactivate={(id) => setInactivateTargetId(id)}
                   onDelete={(id) => setDeleteTargetId(id)}
                   onUserClick={(userId) => navigate(`/usuario/${userId}`)}
+                  onOpenDetail={(promo) => setDetailPromo(promo)}
                 />
               ))}
             </div>
@@ -1909,6 +2017,17 @@ export default function Store() {
           )
         )}
       </div>
+
+      {/* Promotion Detail Drawer */}
+      <PromotionDetailDrawer
+        promo={detailPromo ? (filtered.find((p) => p.id === detailPromo.id) ?? detailPromo) : null}
+        open={!!detailPromo}
+        onClose={() => setDetailPromo(null)}
+        viewerUserId={viewerUserId}
+        viewerLoading={viewerLoading}
+        onLike={handleLike}
+        onStatusVote={handleStatusVote}
+      />
 
       {/* New Promo Drawer */}
       <NewPromoDrawer

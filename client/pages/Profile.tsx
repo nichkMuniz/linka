@@ -58,6 +58,9 @@ import {
   saveCommercialPlansDb,
   type StoryWithUser,
   type PostIncentiveType,
+  getRoutinesByGoalIdDb,
+  getRoutineItemsForViewDb,
+  copyRoutineToUserDb,
 } from "@/lib/ritmofit-db";
 import { formatTimeAgo } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -79,6 +82,7 @@ import { UserAvatar } from "@/components/shared/user-avatar";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
 import { UserInsignias } from "@/components/profile/user-insignias";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { PostCarousel } from "@/components/post/post-carousel";
 import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
@@ -104,6 +108,7 @@ import {
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
+  DrawerDescription,
 } from "@/components/ui/drawer";
 import {
   Collapsible,
@@ -144,14 +149,17 @@ import {
   Phone,
   Briefcase,
   ListChecks,
+  Target,
 } from "lucide-react";
 import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
+import { useLanguage } from "@/lib/language-context";
 
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { userId } = useParams<{ userId?: string }>();
+  const { t } = useLanguage();
 
 
   // Centralized confirmation dialog state (replaces native confirm())
@@ -269,6 +277,13 @@ export default function Profile() {
   const [followerFollowStatus, setFollowerFollowStatus] = React.useState<Record<string, boolean>>({});
   const [followingFollowStatus, setFollowingFollowStatus] = React.useState<Record<string, boolean>>({});
 
+  // Goal detail drawer state
+  const [goalDrawerOpen, setGoalDrawerOpen] = React.useState(false);
+  const [selectedGoalForDrawer, setSelectedGoalForDrawer] = React.useState<UserGoal | null>(null);
+  const [goalDrawerRoutines, setGoalDrawerRoutines] = React.useState<Array<{ routine: Routine; items: Array<{ id: string; workoutName?: string; dietName?: string; habitName?: string }> }>>([]);
+  const [isLoadingGoalDrawer, setIsLoadingGoalDrawer] = React.useState(false);
+  const [copyingRoutineId, setCopyingRoutineId] = React.useState<string | null>(null);
+
   // Edit form state
 
   const [profileOffers, setProfileOffers] = React.useState<CommercialOffer[]>([]);
@@ -353,8 +368,8 @@ export default function Profile() {
     } catch (err: any) {
       console.error("Error loading profile:", err);
       toast({
-        title: "Erro ao carregar perfil",
-        description: "Tente novamente mais tarde.",
+        title: t("profile_toast_load_error"),
+        description: t("retry"),
         variant: "destructive",
       });
       setProfileError(true);
@@ -381,7 +396,7 @@ export default function Profile() {
       setPostUserLikes(userLikes);
     } catch (err) {
       console.error("Error loading post data:", err);
-      toast({ title: "Erro ao carregar dados do post", description: "Tente novamente.", variant: "destructive" });
+      toast({ title: t("profile_toast_post_data_error"), description: t("retry"), variant: "destructive" });
     } finally {
       setIsLoadingPostData(false);
     }
@@ -405,14 +420,14 @@ export default function Profile() {
 
       setIsEditingPost(false);
       toast({
-        title: "Sucesso!",
-        description: "Post atualizado com sucesso.",
+        title: t("newpost_success"),
+        description: t("profile_toast_post_updated"),
       });
     } catch (err: any) {
       console.error("Error updating post:", err);
       toast({
-        title: "Erro ao atualizar",
-        description: err?.message || "Tente novamente.",
+        title: t("profile_toast_post_update_error"),
+        description: err?.message || t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -428,9 +443,9 @@ export default function Profile() {
       const updatedPost = { ...selectedPost, photos: updatedPhotos };
       setSelectedPost(updatedPost);
       setPosts((prev) => prev.map((p) => p.id === selectedPost.id ? updatedPost : p));
-      toast({ title: "Foto removida!" });
+      toast({ title: t("profile_toast_photo_removed") });
     } catch (err: any) {
-      toast({ title: "Erro ao remover foto", description: err?.message, variant: "destructive" });
+      toast({ title: t("profile_toast_photo_remove_error"), description: err?.message, variant: "destructive" });
     } finally {
       setRemovingPhoto(false);
     }
@@ -446,12 +461,12 @@ export default function Profile() {
     const wasActive = previousLikes.includes(type);
     setPostUserLikes(wasActive ? previousLikes.filter((t) => t !== type) : [...previousLikes, type]);
     try {
-      await togglePostLike(selectedPost.id, type);
+      togglePostLike(selectedPost.id, type, !wasActive);
       const updatedLikes = await getPostLikeUsersDb(selectedPost.id);
       setPostLikes(updatedLikes);
     } catch (err) {
       setPostUserLikes(previousLikes);
-      toast({ title: "Erro ao registrar incentivo", description: "Tente novamente.", variant: "destructive" });
+      toast({ title: t("profile_toast_incentive_error"), description: t("retry"), variant: "destructive" });
     } finally {
       setIsTogglingPostLike(false);
     }
@@ -460,8 +475,8 @@ export default function Profile() {
   const handleDeletePost = React.useCallback(() => {
     if (!selectedPost) return;
     showConfirm(
-      "Deletar post",
-      "Tem certeza que deseja deletar este post? Esta ação não pode ser desfeita.",
+      t("post_delete_title"),
+      t("post_delete_desc"),
       async () => {
         setIsUpdatingPost(true);
         try {
@@ -469,10 +484,10 @@ export default function Profile() {
           setPosts((prevPosts) => prevPosts.filter((p) => p.id !== selectedPost.id));
           setIsPostViewerOpen(false);
           setSelectedPost(null);
-          toast({ title: "Sucesso!", description: "Post deletado com sucesso." });
+          toast({ title: t("newpost_success"), description: t("post_deleted_success") });
         } catch (err: any) {
           console.error("Error deleting post:", err);
-          toast({ title: "Erro ao deletar", description: err?.message || "Tente novamente.", variant: "destructive" });
+          toast({ title: t("post_delete_error"), description: err?.message || t("retry"), variant: "destructive" });
         } finally {
           setIsUpdatingPost(false);
         }
@@ -495,8 +510,8 @@ export default function Profile() {
     } catch (err: any) {
       console.error("Error loading followers:", err);
       toast({
-        title: "Erro ao carregar seguidores",
-        description: err?.message || "Tente novamente.",
+        title: t("profile_toast_followers_error"),
+        description: err?.message || t("retry"),
       });
     } finally {
       setIsLoadingFollowers(false);
@@ -516,8 +531,8 @@ export default function Profile() {
     } catch (err: any) {
       console.error("Error loading following:", err);
       toast({
-        title: "Erro ao carregar seguindo",
-        description: err?.message || "Tente novamente.",
+        title: t("profile_toast_following_error"),
+        description: err?.message || t("retry"),
       });
     } finally {
       setIsLoadingFollowers(false);
@@ -601,15 +616,15 @@ export default function Profile() {
         setLinkedGoal(goal);
 
         toast({
-          title: "Meta vinculada!",
-          description: "A meta foi vinculada à rotina com sucesso.",
+          title: t("profile_toast_goal_linked"),
+          description: t("profile_toast_goal_linked_desc"),
         });
       }
     } catch (err: any) {
       console.error("Error linking goal:", err);
       toast({
-        title: "Erro ao vincular meta",
-        description: err.message || "Tente novamente mais tarde.",
+        title: t("profile_toast_goal_link_error"),
+        description: err.message || t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -636,19 +651,53 @@ export default function Profile() {
         setLinkedGoal(null);
 
         toast({
-          title: "Meta desvinculada!",
-          description: "A meta foi desvinculada da rotina.",
+          title: t("profile_toast_goal_unlinked"),
+          description: t("profile_toast_goal_unlinked_desc"),
         });
       }
     } catch (err: any) {
       console.error("Error unlinking goal:", err);
       toast({
-        title: "Erro ao desvincular meta",
-        description: err.message || "Tente novamente mais tarde.",
+        title: t("profile_toast_goal_unlink_error"),
+        description: err.message || t("retry"),
         variant: "destructive",
       });
     } finally {
       setIsUpdatingGoal(false);
+    }
+  };
+
+  const handleOpenGoalDrawer = async (goal: UserGoal) => {
+    setSelectedGoalForDrawer(goal);
+    setGoalDrawerOpen(true);
+    setGoalDrawerRoutines([]);
+    setIsLoadingGoalDrawer(true);
+    try {
+      const routines = await getRoutinesByGoalIdDb(goal.goal_id);
+      const withItems = await Promise.all(
+        routines.map(async (routine) => {
+          const items = await getRoutineItemsForViewDb(routine.user_id, routine.type, routine.name, routine.id);
+          return { routine, items };
+        })
+      );
+      setGoalDrawerRoutines(withItems.filter((r) => r.items.length > 0));
+    } catch (err) {
+      console.error("Error loading goal routines:", err);
+    } finally {
+      setIsLoadingGoalDrawer(false);
+    }
+  };
+
+  const handleCopyRoutine = async (routine: Routine) => {
+    if (!user || !profileUserId) return;
+    setCopyingRoutineId(routine.id);
+    try {
+      await copyRoutineToUserDb(profileUserId, user.id, routine.type as 1 | 2, routine.name ?? null);
+      toast({ title: t("profile_toast_routine_copied"), description: t("profile_toast_routine_copied_desc") });
+    } catch (err: any) {
+      toast({ title: t("profile_toast_routine_copy_error"), description: err.message || t("retry"), variant: "destructive" });
+    } finally {
+      setCopyingRoutineId(null);
     }
   };
 
@@ -668,8 +717,8 @@ export default function Profile() {
       const errorMsg = err?.message || String(err);
       console.error("Error loading workout history:", errorMsg);
       toast({
-        title: "Erro ao carregar histórico",
-        description: errorMsg || "Não foi possível carregar o histórico do exercício.",
+        title: t("profile_toast_history_error"),
+        description: errorMsg || t("retry"),
         variant: "destructive",
       });
       setWorkoutHistory([]);
@@ -690,14 +739,14 @@ export default function Profile() {
       setDeleteRoutineId(null);
 
       toast({
-        title: "Rotina removida!",
-        description: "A rotina foi deletada com sucesso.",
+        title: t("profile_toast_routine_removed"),
+        description: t("profile_toast_routine_removed_desc"),
       });
     } catch (err: any) {
-      const errorMsg = err?.message || "Tente novamente mais tarde.";
+      const errorMsg = err?.message || t("retry");
       console.error("Error deleting routine:", errorMsg);
       toast({
-        title: "Erro ao deletar rotina",
+        title: t("profile_toast_routine_delete_error"),
         description: errorMsg,
         variant: "destructive",
       });
@@ -722,8 +771,8 @@ export default function Profile() {
       } catch (err: any) {
         console.error("Error loading workouts:", err);
         toast({
-          title: "Erro ao carregar exercícios",
-          description: "Tente novamente mais tarde.",
+          title: t("profile_toast_exercises_load_error"),
+          description: t("retry"),
           variant: "destructive",
         });
         setSelectedRoutineType(null);
@@ -743,8 +792,8 @@ export default function Profile() {
       } catch (err: any) {
         console.error("Error loading diets:", err);
         toast({
-          title: "Erro ao carregar dietas",
-          description: "Tente novamente mais tarde.",
+          title: t("profile_toast_diets_load_error"),
+          description: t("retry"),
           variant: "destructive",
         });
         setSelectedRoutineType(null);
@@ -760,8 +809,8 @@ export default function Profile() {
       } catch (err: any) {
         console.error("Error loading habits:", err);
         toast({
-          title: "Erro ao carregar hábitos",
-          description: "Tente novamente mais tarde.",
+          title: t("profile_toast_habits_load_error"),
+          description: t("retry"),
           variant: "destructive",
         });
         setSelectedRoutineType(null);
@@ -793,8 +842,8 @@ export default function Profile() {
       if (newRoutine) {
         setRoutines([newRoutine, ...routines]);
         toast({
-          title: "Rotina criada!",
-          description: `Nova rotina de "${getRoutineTypeName(selectedRoutineType)}" foi criada.`,
+          title: t("profile_toast_routine_created"),
+          description: `"${getRoutineTypeName(selectedRoutineType)}"`,
         });
         setIsCreateRoutineOpen(false);
         setSelectedRoutineType(null);
@@ -803,8 +852,8 @@ export default function Profile() {
     } catch (err: any) {
       console.error("Error creating routine:", err);
       toast({
-        title: "Erro ao criar rotina",
-        description: err.message || "Tente novamente mais tarde.",
+        title: t("profile_toast_routine_create_error"),
+        description: err.message || t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -821,8 +870,7 @@ export default function Profile() {
       await createUserWorkoutsDb(user.id, workoutIdsArray);
 
       toast({
-        title: "Exercícios salvos!",
-        description: `${workoutIdsArray.length} exercício${workoutIdsArray.length > 1 ? "s" : ""} foi${workoutIdsArray.length > 1 ? "ram" : ""} adicionado${workoutIdsArray.length > 1 ? "s" : ""} com sucesso.`,
+        title: t("profile_toast_exercises_saved"),
       });
 
       setIsCreateRoutineOpen(false);
@@ -842,8 +890,8 @@ export default function Profile() {
     } catch (err: any) {
       console.error("Error saving workouts:", err);
       toast({
-        title: "Erro ao salvar exercícios",
-        description: err.message || "Tente novamente mais tarde.",
+        title: t("profile_toast_exercises_save_error"),
+        description: err.message || t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -860,8 +908,7 @@ export default function Profile() {
       await createUserDietsDb(user.id, dietIdsArray);
 
       toast({
-        title: "Dietas salvas!",
-        description: `${dietIdsArray.length} dieta${dietIdsArray.length > 1 ? "s" : ""} foi${dietIdsArray.length > 1 ? "ram" : ""} adicionada${dietIdsArray.length > 1 ? "s" : ""} com sucesso.`,
+        title: t("profile_toast_diets_saved"),
       });
 
       setIsCreateRoutineOpen(false);
@@ -881,8 +928,8 @@ export default function Profile() {
     } catch (err: any) {
       console.error("Error saving diets:", err);
       toast({
-        title: "Erro ao salvar dietas",
-        description: err.message || "Tente novamente mais tarde.",
+        title: t("profile_toast_diets_save_error"),
+        description: err.message || t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -899,8 +946,7 @@ export default function Profile() {
       await createUserHabitsDb(user.id, habitIdsArray);
 
       toast({
-        title: "Hábitos salvos!",
-        description: `${habitIdsArray.length} hábito${habitIdsArray.length > 1 ? "s" : ""} foi${habitIdsArray.length > 1 ? "ram" : ""} adicionado${habitIdsArray.length > 1 ? "s" : ""} com sucesso.`,
+        title: t("profile_toast_habits_saved"),
       });
 
       setIsCreateRoutineOpen(false);
@@ -920,8 +966,8 @@ export default function Profile() {
     } catch (err: any) {
       console.error("Error saving habits:", err);
       toast({
-        title: "Erro ao salvar hábitos",
-        description: err.message || "Tente novamente mais tarde.",
+        title: t("profile_toast_habits_save_error"),
+        description: err.message || t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -933,10 +979,10 @@ export default function Profile() {
 
   const handleDeleteAccount = async () => {
     if (!user) return;
-    if (deleteConfirmText !== "DELETAR CONTA") {
+    if (deleteConfirmText !== t("profile_close_account_confirm_word")) {
       toast({
-        title: "Confirmação incorreta",
-        description: "Digite 'DELETAR CONTA' para confirmar a exclusão.",
+        title: t("profile_toast_delete_confirm_error"),
+        description: t("profile_toast_delete_confirm_error_desc"),
         variant: "destructive",
       });
       return;
@@ -952,8 +998,8 @@ export default function Profile() {
       setDeleteConfirmText("");
 
       toast({
-        title: "Conta deletada",
-        description: "Sua conta foi permanentemente removida.",
+        title: t("profile_toast_account_deleted"),
+        description: t("profile_toast_account_deleted_desc"),
       });
 
       // Redirect to login after a short delay
@@ -963,8 +1009,8 @@ export default function Profile() {
     } catch (err: any) {
       console.error("Error deleting account:", err);
       toast({
-        title: "Erro ao deletar conta",
-        description: err?.message || "Tente novamente mais tarde.",
+        title: t("profile_toast_account_delete_error"),
+        description: err?.message || t("retry"),
         variant: "destructive",
       });
     } finally {
@@ -976,7 +1022,7 @@ export default function Profile() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
         <LoadingSpinner className="h-12 w-12" />
-        <p className="text-sm text-muted-foreground">Carregando perfil...</p>
+        <p className="text-sm text-muted-foreground">{t("profile_loading")}</p>
       </div>
     );
   }
@@ -984,9 +1030,9 @@ export default function Profile() {
   if (!loading && profileError) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3">
-        <p className="text-muted-foreground text-sm">Não foi possível carregar o perfil</p>
+        <p className="text-muted-foreground text-sm">{t("profile_load_error")}</p>
         <Button variant="outline" size="sm" onClick={() => { setProfileError(false); loadProfile(); }}>
-          Tentar novamente
+          {t("profile_retry")}
         </Button>
       </div>
     );
@@ -995,7 +1041,7 @@ export default function Profile() {
   if (!profile) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        Perfil não encontrado.
+        {t("profile_not_found")}
       </div>
     );
   }
@@ -1032,7 +1078,7 @@ export default function Profile() {
                       setIsStoryViewerOpen(true);
                     }}
                     className="rounded-full p-[3px] bg-brand-gradient ring-0 cursor-pointer hover:opacity-90 transition-opacity block"
-                    title="Ver flow"
+                    title={t("profile_view_flow")}
                   >
                     <UserAvatar
                       photo={profile.photo}
@@ -1053,6 +1099,7 @@ export default function Profile() {
 
               {/* Nome + insignias */}
               <div className="flex items-center gap-2 flex-wrap justify-center">
+                {profile.is_verified && <VerifiedBadge size="md" />}
                 <h1 className="text-xl font-bold tracking-tight">
                   {profile.nickname}
                 </h1>
@@ -1082,12 +1129,12 @@ export default function Profile() {
                 <span className="text-muted-foreground/40">·</span>
                 <button onClick={() => setShowFollowersModal(true)} className="flex items-center gap-1.5 hover:opacity-70 transition-opacity">
                   <span className="font-semibold">{stats.followersCount}</span>
-                  <span className="text-muted-foreground">seguidores</span>
+                  <span className="text-muted-foreground">{t("profile_stat_followers")}</span>
                 </button>
                 <span className="text-muted-foreground/40">·</span>
                 <button onClick={() => setShowFollowingModal(true)} className="flex items-center gap-1.5 hover:opacity-70 transition-opacity">
                   <span className="font-semibold">{stats.followingCount}</span>
-                  <span className="text-muted-foreground">seguindo</span>
+                  <span className="text-muted-foreground">{t("profile_stat_following")}</span>
                 </button>
               </div>
 
@@ -1101,7 +1148,7 @@ export default function Profile() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-sm font-medium text-brand hover:underline flex items-center gap-1"
-                        title="Entrar em contato via WhatsApp"
+                        title={t("profile_contact_btn")}
                       >
                         <span>💬</span>
                         {commercialProfile.business_name}
@@ -1113,13 +1160,13 @@ export default function Profile() {
                     )}
                     {commercialProfile.business_segment && (
                       <div className="text-xs px-2 py-0.5 rounded bg-brand/20 text-brand font-medium">
-                        {commercialProfile.business_segment === "academia" && "Academia / Fitness"}
-                        {commercialProfile.business_segment === "personal_trainer" && "Personal Trainer"}
-                        {commercialProfile.business_segment === "nutricionista" && "Nutricionista"}
-                        {commercialProfile.business_segment === "psicologo" && "Psicólogo"}
-                        {commercialProfile.business_segment === "fisioterapeuta" && "Fisioterapeuta"}
-                        {commercialProfile.business_segment === "coach" && "Coach"}
-                        {commercialProfile.business_segment === "outros" && "Outros"}
+                        {commercialProfile.business_segment === "academia" && t("seg_academia")}
+                        {commercialProfile.business_segment === "personal_trainer" && t("seg_personal_trainer")}
+                        {commercialProfile.business_segment === "nutricionista" && t("seg_nutricionista")}
+                        {commercialProfile.business_segment === "psicologo" && t("seg_psicologo")}
+                        {commercialProfile.business_segment === "fisioterapeuta" && t("seg_fisioterapeuta")}
+                        {commercialProfile.business_segment === "coach" && t("seg_coach")}
+                        {commercialProfile.business_segment === "outros" && t("seg_outros")}
                       </div>
                     )}
                     {servicePlans.length > 0 && (
@@ -1129,7 +1176,7 @@ export default function Profile() {
                         title="Ver planos e preços"
                       >
                         <ListChecks className="h-3.5 w-3.5" />
-                        <span>{servicePlans.length} {servicePlans.length === 1 ? "plano" : "planos"}</span>
+                        <span>{servicePlans.length} {servicePlans.length === 1 ? t("profile_plan_singular") : t("profile_plan_plural")}</span>
                       </button>
                     )}
                   </div>
@@ -1154,7 +1201,7 @@ export default function Profile() {
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <ListChecks className="h-5 w-5 text-brand" />
-                  Planos e Preços
+                  {t("profile_plans_title")}
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-3 pt-1">
@@ -1175,7 +1222,7 @@ export default function Profile() {
                   </div>
                 ))}
                 {servicePlans.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">Nenhum plano cadastrado.</p>
+                  <p className="text-sm text-muted-foreground text-center py-4">{t("profile_no_plans")}</p>
                 )}
               </div>
             </DialogContent>
@@ -1200,7 +1247,7 @@ export default function Profile() {
                 className="rounded-full gap-2"
               >
                 <MessageSquare className="h-4 w-4" />
-                Mensagem
+                {t("profile_message_btn")}
               </Button>
 
               {/* Share Profile Button */}
@@ -1209,7 +1256,7 @@ export default function Profile() {
                 size="sm"
                 className="rounded-full gap-2"
                 onClick={() => {
-                  const text = `Confira o perfil de @${profile?.nickname} no Linka! 💪`;
+                  const text = t("profile_share_other").replace("{handle}", profile?.nickname ?? "");
                   const profileUrl = `${window.location.origin}/usuario/${profileUserId}`;
                   setShareDrawerText(text);
                   setShareDrawerUrl(profileUrl);
@@ -1229,8 +1276,9 @@ export default function Profile() {
                 size="sm"
                 className="rounded-full gap-2 text-muted-foreground text-xs h-8"
                 onClick={() => {
-                  const tier = stats.points >= 1000 ? "Elite" : stats.points >= 500 ? "Ouro" : stats.points >= 200 ? "Prata" : "Bronze";
-                  const text = `Estou no Linka no nível ${stats.level} (${tier}) com ${stats.points} pontos! 🏋️ Junte-se a mim: @${profile.nickname}`;
+                  const tierKey = stats.points >= 1000 ? "profile_tier_elite" : stats.points >= 500 ? "profile_tier_gold" : stats.points >= 200 ? "profile_tier_silver" : "profile_tier_bronze";
+                  const tier = t(tierKey as any);
+                  const text = t("profile_share_text").replace("{level}", String(stats.level)).replace("{tier}", tier).replace("{points}", String(stats.points)).replace("{handle}", profile.nickname ?? "");
                   const profileUrl = `${window.location.origin}/usuario/${profileUserId}`;
                   setShareDrawerText(text);
                   setShareDrawerUrl(profileUrl);
@@ -1238,28 +1286,145 @@ export default function Profile() {
                 }}
               >
                 <Share2 className="h-3.5 w-3.5" />
-                Compartilhar perfil
+                {t("profile_share")}
               </Button>
             </div>
           )}
         </CardContent>
       </Card>
 
+      {/* Public Goals Strip */}
+      {userGoals.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5 px-1">
+            <Target className="h-3.5 w-3.5 text-brand" />
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {t("profile_goals_section")}
+            </span>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {userGoals.map((goal) => (
+              <button
+                key={goal.id}
+                onClick={() => handleOpenGoalDrawer(goal)}
+                className="flex-shrink-0 w-44 rounded-xl border border-border/60 bg-card p-3 space-y-2 text-left active:scale-95 transition-transform"
+              >
+                <p className="text-xs font-medium leading-snug line-clamp-2">
+                  {goal.description}
+                </p>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{t("goals_progress")}</span>
+                    <span className="text-xs font-semibold text-brand">{goal.perc}%</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-brand transition-all"
+                      style={{ width: `${Math.min(goal.perc, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Goal Detail Drawer */}
+      <Drawer open={goalDrawerOpen} onOpenChange={setGoalDrawerOpen}>
+        <DrawerContent className="max-h-[85vh]">
+          <DrawerHeader className="pb-2">
+            <div className="flex items-center gap-2">
+              <Target className="h-4 w-4 text-brand shrink-0" />
+              <DrawerTitle className="text-base leading-snug text-left">
+                {selectedGoalForDrawer?.description}
+              </DrawerTitle>
+            </div>
+            {selectedGoalForDrawer && (
+              <DrawerDescription className="text-left">
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-brand"
+                      style={{ width: `${Math.min(selectedGoalForDrawer.perc, 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-semibold text-brand shrink-0">
+                    {selectedGoalForDrawer.perc}%
+                  </span>
+                </div>
+              </DrawerDescription>
+            )}
+          </DrawerHeader>
+
+          <div className="px-4 pb-6 overflow-y-auto space-y-4" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+            {isLoadingGoalDrawer ? (
+              <div className="space-y-3 pt-2">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-16 rounded-xl bg-muted/40 animate-pulse" />
+                ))}
+              </div>
+            ) : goalDrawerRoutines.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-8 text-center">
+                <span className="text-2xl">📋</span>
+                <p className="text-sm text-muted-foreground">{t("goals_no_linked_routines")}</p>
+              </div>
+            ) : (
+              <div className="space-y-3 pt-1">
+                {goalDrawerRoutines.map(({ routine, items }) => (
+                  <div key={routine.id} className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold">
+                          {routine.name || (routine.type === 1 ? t("profile_routine_workout") : routine.type === 2 ? t("profile_routine_diet") : t("profile_routine_habit"))}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {routine.type === 1 ? t("profile_routine_workout") : routine.type === 2 ? t("profile_routine_diet") : t("profile_routine_habit")} · {items.length} {items.length === 1 ? t("profile_item_singular") : t("profile_items_plural")}
+                        </p>
+                      </div>
+                      {isViewingOtherProfile && routine.type !== 3 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="rounded-full shrink-0 text-xs h-8 gap-1.5"
+                          disabled={copyingRoutineId === routine.id}
+                          onClick={() => handleCopyRoutine(routine)}
+                        >
+                          {copyingRoutineId === routine.id ? t("profile_copying_routine") : t("profile_copy_routine")}
+                        </Button>
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      {items.map((item) => (
+                        <div key={item.id} className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <div className="h-1.5 w-1.5 rounded-full bg-brand/60 shrink-0" />
+                          <span>{item.workoutName || item.dietName || item.habitName || "Item"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+
       {/* Posts, Shots, Routines and Store Tabs */}
       <Tabs defaultValue="posts" className="w-full">
         <TabsList className={`grid w-full ${profileOffers.length > 0 ? "grid-cols-3" : "grid-cols-2"}`}>
           <TabsTrigger value="posts" className="flex items-center gap-1.5">
             <Grid3X3 className="h-4 w-4" />
-            Posts ({stats.postsCount})
+            {t("profile_posts")} ({stats.postsCount})
           </TabsTrigger>
           <TabsTrigger value="shots" className="flex items-center gap-1.5">
             <Film className="h-4 w-4" />
-            Shots ({shots.length})
+            {t("nav_clips")} ({shots.length})
           </TabsTrigger>
           {profileOffers.length > 0 && (
             <TabsTrigger value="vitrine" className="flex items-center gap-1.5">
               {commercialProfile ? <Briefcase className="h-4 w-4" /> : <ShoppingBag className="h-4 w-4" />}
-              {commercialProfile ? `Serviços (${profileOffers.length})` : `Vitrine (${profileOffers.length})`}
+              {commercialProfile ? `${t("settings_section_business")} (${profileOffers.length})` : `${t("nav_store")} (${profileOffers.length})`}
             </TabsTrigger>
           )}
         </TabsList>
@@ -1293,7 +1458,7 @@ export default function Profile() {
           ) : (
             <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
               <p className="text-sm text-muted-foreground">
-                Nenhum post ainda.
+                {t("profile_no_posts")}
               </p>
             </div>
           )}
@@ -1337,7 +1502,7 @@ export default function Profile() {
           ) : (
             <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
               <p className="text-sm text-muted-foreground">
-                Nenhum shot ainda.
+                {t("profile_no_shots")}
               </p>
             </div>
           )}
@@ -1916,8 +2081,8 @@ export default function Profile() {
                             }`}
                           title={
                             routinesOfType[0]?.goal_id
-                              ? "Meta vinculada"
-                              : "Vincular meta"
+                              ? t("profile_linked_goal_label")
+                              : t("goals_link_goal")
                           }
                         >
                           <Tag className="h-5 w-5" />
@@ -1926,7 +2091,7 @@ export default function Profile() {
                         <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
                           <DrawerHeader className="shrink-0">
                             <DrawerTitle>
-                              {linkedGoal ? "Meta Vinculada" : "Vincular Meta"}
+                              {linkedGoal ? t("profile_linked_goal_label") : t("goals_link_goal")}
                             </DrawerTitle>
                           </DrawerHeader>
 
@@ -1940,15 +2105,15 @@ export default function Profile() {
                                   <div className="grid grid-cols-2 gap-2 text-xs">
                                     <div>
                                       <span className="text-muted-foreground">
-                                        Duração:
+                                        {t("goals_duration")}:
                                       </span>
                                       <p className="font-medium">
-                                        {linkedGoal.duration} dias
+                                        {linkedGoal.duration} {t("goals_streak_days")}
                                       </p>
                                     </div>
                                     <div>
                                       <span className="text-muted-foreground">
-                                        Quantidade:
+                                        {t("goals_quantity")}:
                                       </span>
                                       <p className="font-medium">
                                         {linkedGoal.quantity}
@@ -1964,8 +2129,8 @@ export default function Profile() {
                                   className="w-full rounded-full"
                                 >
                                   {isUpdatingGoal
-                                    ? "Desvinculando..."
-                                    : "Desvincular Meta"}
+                                    ? t("profile_unlinking_goal")
+                                    : t("profile_unlink_goal_btn")}
                                 </Button>
                               </div>
                             ) : (
@@ -1982,14 +2147,14 @@ export default function Profile() {
                                         {goal.description}
                                       </p>
                                       <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
-                                        <span>Duração: {goal.duration} dias</span>
-                                        <span>Quantidade: {goal.quantity}</span>
+                                        <span>{t("goals_duration")}: {goal.duration} {t("goals_streak_days")}</span>
+                                        <span>{t("goals_quantity")}: {goal.quantity}</span>
                                       </div>
                                     </button>
                                   ))
                                 ) : (
                                   <p className="text-sm text-muted-foreground text-center py-6">
-                                    Você ainda não tem metas vinculadas.
+                                    {t("profile_no_linked_goals")}
                                   </p>
                                 )}
                               </div>
@@ -2182,7 +2347,7 @@ export default function Profile() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <p className="text-sm font-black tracking-tight">{commercialProfile.business_name}</p>
-                      <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-brand/10 text-brand border border-brand/20">Parceiro</span>
+                      <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-brand/10 text-brand border border-brand/20">{t("profile_partner")}</span>
                     </div>
                     {commercialProfile.business_segment && (
                       <p className="text-[11px] text-muted-foreground font-semibold mt-0.5">{commercialProfile.business_segment}</p>
@@ -2256,7 +2421,7 @@ export default function Profile() {
                         <div className="mt-auto pt-1 flex items-center justify-between gap-2 flex-wrap">
                           {offer.price && (
                             <span className="text-xs text-muted-foreground font-medium">
-                              {isService ? "A partir de " : ""}
+                              {isService ? t("profile_from_price") : ""}
                               <span className="text-base font-black text-foreground tracking-tighter">R$ {offer.price}</span>
                             </span>
                           )}
@@ -2268,8 +2433,8 @@ export default function Profile() {
                             className="flex items-center gap-1.5 h-9 px-4 rounded-xl bg-brand text-white text-xs font-bold hover:bg-brand/90 transition-colors shrink-0"
                           >
                             {isService
-                              ? <><Phone className="h-3.5 w-3.5" /> Entrar em contato</>
-                              : <><ArrowRight className="h-3.5 w-3.5" /> Ver oferta</>
+                              ? <><Phone className="h-3.5 w-3.5" /> {t("profile_contact_btn")}</>
+                              : <><ArrowRight className="h-3.5 w-3.5" /> {t("profile_view_offer")}</>
                             }
                           </a>
                         </div>
@@ -2289,8 +2454,8 @@ export default function Profile() {
         onOpenChange={(open) => {
           if (!open && isEditingPost && editPostDescription !== (selectedPost?.description ?? "")) {
             showConfirm(
-              "Descartar alterações?",
-              "Você tem alterações não salvas. Deseja sair sem salvar?",
+              t("profile_discard_title"),
+              t("profile_discard_desc"),
               () => { setIsPostViewerOpen(false); setIsEditingPost(false); }
             );
           } else {
@@ -2303,7 +2468,7 @@ export default function Profile() {
           <DrawerHeader className="shrink-0 pb-2">
             <div className="flex items-center justify-between">
               <DrawerTitle className="text-base">
-                {isEditingPost ? "Editar Post" : "Post"}
+                {isEditingPost ? t("profile_edit_post") : t("profile_post_label")}
               </DrawerTitle>
               {selectedPost && (
                 <div className="flex items-center gap-2">
@@ -2362,7 +2527,7 @@ export default function Profile() {
                     {/* Description */}
                     {isEditingPost ? (
                       <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Descrição</label>
+                        <label className="text-sm font-medium">{t("profile_description_label")}</label>
                         <Textarea
                           value={editPostDescription}
                           onChange={(e) => setEditPostDescription(e.target.value)}
@@ -2381,12 +2546,12 @@ export default function Profile() {
                     {/* Goal */}
                     {isEditingPost ? (
                       <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Meta Vinculada</label>
+                        <label className="text-sm font-medium">{t("profile_linked_goal_label")}</label>
                         {userGoals.length > 0 ? (
                           <div className="space-y-2">
                             <Select value={editPostGoalId} onValueChange={setEditPostGoalId}>
                               <SelectTrigger className="rounded-lg">
-                                <SelectValue placeholder="Selecione uma meta ou deixe em branco" />
+                                <SelectValue placeholder={t("profile_select_goal_ph")} />
                               </SelectTrigger>
                               <SelectContent className="z-[200]">
                                 {userGoals.map((goal) => (
@@ -2403,19 +2568,19 @@ export default function Profile() {
                                 onClick={() => setEditPostGoalId("")}
                                 className="h-8 text-xs"
                               >
-                                Remover meta
+                                {t("profile_remove_goal_btn")}
                               </Button>
                             )}
                           </div>
                         ) : (
-                          <p className="text-sm text-muted-foreground">Nenhuma meta criada</p>
+                          <p className="text-sm text-muted-foreground">{t("profile_no_goals_created")}</p>
                         )}
                       </div>
                     ) : selectedPost.user_goal_id ? (
                       <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/40 border border-border/40">
-                        <span className="text-xs text-muted-foreground">Meta:</span>
+                        <span className="text-xs text-muted-foreground">{t("profile_goal_label")}</span>
                         <span className="text-xs font-medium truncate">
-                          {userGoals.find((g) => g.id === selectedPost.user_goal_id)?.description || "Meta removida"}
+                          {userGoals.find((g) => g.id === selectedPost.user_goal_id)?.description || t("profile_goal_removed_label")}
                         </span>
                       </div>
                     ) : null}
@@ -2455,7 +2620,7 @@ export default function Profile() {
                             onClick={() => setIsLikesModalOpen(true)}
                             className="text-xs font-semibold text-foreground hover:text-primary transition-colors px-1"
                           >
-                            {postLikes.length} incentivos
+                            {t("profile_incentives_label").replace("{n}", String(postLikes.length))}
                           </button>
                         )}
                       </div>
@@ -2472,7 +2637,7 @@ export default function Profile() {
                               onClick={() => setIsEditingPost(true)}
                             >
                               <Edit2 className="h-4 w-4 mr-2" />
-                              Editar
+                              {t("edit")}
                             </Button>
                             <Button
                               variant="destructive"
@@ -2481,7 +2646,7 @@ export default function Profile() {
                               disabled={isUpdatingPost}
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
-                              Deletar
+                              {t("delete")}
                             </Button>
                           </>
                         ) : (
@@ -2492,14 +2657,14 @@ export default function Profile() {
                               onClick={() => setIsEditingPost(false)}
                               disabled={isUpdatingPost}
                             >
-                              Cancelar
+                              {t("cancel")}
                             </Button>
                             <Button
                               className="flex-1 rounded-full"
                               onClick={handleUpdatePost}
                               disabled={isUpdatingPost}
                             >
-                              {isUpdatingPost ? "Salvando..." : "Salvar"}
+                              {isUpdatingPost ? t("saving") : t("save")}
                             </Button>
                           </>
                         )}
@@ -2562,16 +2727,16 @@ export default function Profile() {
         onOpenChange={setShareDrawerOpen}
         text={shareDrawerText}
         url={shareDrawerUrl}
-        title="Compartilhar perfil"
+        title={t("profile_share_title")}
       />
 
       {/* Delete Routine Confirmation Dialog */}
       <Dialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
         <DialogContent className="max-w-sm" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader>
-            <DialogTitle>Deletar Rotina</DialogTitle>
+            <DialogTitle>{t("profile_delete_routine_title")}</DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja deletar esta rotina? Esta ação não pode ser desfeita.
+              {t("profile_delete_routine_desc")}
             </DialogDescription>
           </DialogHeader>
 
@@ -2582,7 +2747,7 @@ export default function Profile() {
               onClick={() => setIsDeleteConfirmOpen(false)}
               disabled={isDeletingRoutine}
             >
-              Cancelar
+              {t("cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -2590,7 +2755,7 @@ export default function Profile() {
               onClick={handleDeleteRoutine}
               disabled={isDeletingRoutine}
             >
-              {isDeletingRoutine ? "Deletando..." : "Deletar"}
+              {isDeletingRoutine ? t("profile_deleting") : t("delete")}
             </Button>
           </div>
         </DialogContent>
@@ -2635,27 +2800,27 @@ export default function Profile() {
       <AlertDialog open={isDeleteAccountOpen} onOpenChange={(open) => { setIsDeleteAccountOpen(open); if (!open) setDeleteConfirmText(""); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-destructive">⚠️ Encerrar Conta</AlertDialogTitle>
+            <AlertDialogTitle className="text-destructive">{t("profile_close_account_title")}</AlertDialogTitle>
             <AlertDialogDescription className="space-y-3">
-              <span className="block">Esta ação é <strong>permanente e irreversível</strong>. Todos os seus dados, treinos, histórico e publicações serão deletados.</span>
-              <span className="block">Para confirmar, digite <strong>DELETAR CONTA</strong> no campo abaixo:</span>
+              <span className="block">{t("profile_close_account_desc1")}</span>
+              <span className="block">{t("profile_close_account_desc2")}</span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <input
             type="text"
             value={deleteConfirmText}
             onChange={(e) => setDeleteConfirmText(e.target.value)}
-            placeholder="DELETAR CONTA"
+            placeholder={t("profile_close_account_placeholder")}
             className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:border-destructive focus:outline-none bg-background"
           />
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setDeleteConfirmText("")}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setDeleteConfirmText("")}>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={handleDeleteAccount}
-              disabled={isDeleting || deleteConfirmText !== "DELETAR CONTA"}
+              disabled={isDeleting || deleteConfirmText !== t("profile_close_account_confirm_word")}
             >
-              {isDeleting ? "Deletando..." : "Encerrar Conta"}
+              {isDeleting ? t("profile_deleting") : t("profile_close_account_action")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2679,14 +2844,14 @@ export default function Profile() {
                 setConfirmDialog((prev) => ({ ...prev, open: false }));
               }}
             >
-              Confirmar
+              {t("confirm")}
             </Button>
             <Button
               variant="outline"
               className="w-full rounded-full"
               onClick={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
             >
-              Cancelar
+              {t("cancel")}
             </Button>
           </div>
         </DrawerContent>

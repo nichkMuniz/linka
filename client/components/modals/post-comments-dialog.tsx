@@ -24,7 +24,9 @@ import {
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 // Module-level flag: survives StrictMode remount cycles, resets when postId changes
 let _commentsAutoOpenConsumed = false;
@@ -48,6 +50,24 @@ export function PostCommentsDialog({
   const { user } = useAuth();
   const { t } = useLanguage();
   const [open, setOpen] = React.useState(false);
+  const viewportHeight = useKeyboardAwareHeight();
+  const savedScrollY = React.useRef(0);
+
+  // Vaul resets window.scrollY when locking scroll — capture and restore it
+  const handleOpenChange = React.useCallback((nextOpen: boolean) => {
+    if (nextOpen) {
+      savedScrollY.current = window.scrollY;
+    }
+    setOpen(nextOpen);
+  }, []);
+
+  React.useEffect(() => {
+    if (open) {
+      requestAnimationFrame(() => {
+        window.scrollTo(0, savedScrollY.current);
+      });
+    }
+  }, [open]);
 
   // Open automatically once when defaultOpen=true (e.g. navigated from notification)
   // Module-level flag survives StrictMode remounts; resets on different postId
@@ -71,6 +91,20 @@ export function PostCommentsDialog({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editDraft, setEditDraft] = React.useState("");
   const [savingEditId, setSavingEditId] = React.useState<string | null>(null);
+
+  // Fix for iOS WebView (Capacitor): vaul can leave scroll-lock attributes/styles
+  // stuck on the body after a drawer closes, blocking all touch interaction on
+  // subsequently opened drawers. Force-clean on every close.
+  React.useEffect(() => {
+    if (!open) {
+      document.body.removeAttribute("data-scroll-locked");
+      document.body.style.overflow = "";
+      document.body.style.pointerEvents = "";
+      setDraft("");
+      setEditingId(null);
+      setEditDraft("");
+    }
+  }, [open]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -211,7 +245,11 @@ export function PostCommentsDialog({
   );
 
   const drawerContent = (
-    <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+    <DrawerContent
+      className="flex flex-col"
+      style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }}
+      onOpenAutoFocus={(e) => e.preventDefault()}
+    >
       <DrawerHeader className="shrink-0">
         <DrawerTitle>{t("comments_title")}</DrawerTitle>
         <DrawerDescription className="sr-only">{t("comments_list_desc")}</DrawerDescription>
@@ -242,8 +280,10 @@ export function PostCommentsDialog({
                     />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <div className="text-xs font-medium">
-                        {comment.userName}{comment.userHandle ? <span className="font-normal text-muted-foreground"> | @{comment.userHandle.replace(/^@/, "")}</span> : null}
+                      <div className="flex items-center gap-1 text-xs font-medium">
+                        {comment.isVerified && <VerifiedBadge size="sm" />}
+                        {comment.userName}
+                        {comment.userHandle ? <span className="font-normal text-muted-foreground"> | @{comment.userHandle.replace(/^@/, "")}</span> : null}
                       </div>
                     </div>
                     {editingId === comment.id ? (
@@ -373,7 +413,7 @@ export function PostCommentsDialog({
       <>
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => handleOpenChange(true)}
           className={cn(
             "inline-flex shrink-0 items-center justify-center transition-colors",
             isPostOwner && hasUnreadComments && "text-blue-500",
@@ -389,7 +429,7 @@ export function PostCommentsDialog({
             )}
           />
         </button>
-        <Drawer open={open} onOpenChange={setOpen} noBodyStyles shouldScaleBackground={false}>
+        <Drawer open={open} onOpenChange={handleOpenChange} noBodyStyles shouldScaleBackground={false}>
           {drawerContent}
         </Drawer>
       </>
@@ -397,7 +437,7 @@ export function PostCommentsDialog({
   }
 
   return (
-    <Drawer open={open} onOpenChange={setOpen} noBodyStyles shouldScaleBackground={false}>
+    <Drawer open={open} onOpenChange={handleOpenChange} noBodyStyles shouldScaleBackground={false}>
       <DrawerTrigger asChild>
         {triggerButton}
       </DrawerTrigger>

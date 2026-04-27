@@ -48,6 +48,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
 
 export default function Shots({ footerHeight = 0, isDesktop = false }: { footerHeight?: number; isDesktop?: boolean }) {
@@ -613,9 +614,17 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     className="border-2 border-white/30 shadow-lg"
                   />
                   <div>
-                    <p className="text-sm font-bold text-white drop-shadow-md">
-                      {shot.userNickname || "Usuário"}
-                    </p>
+                    <div className="flex items-center gap-1">
+                      {shot.isVerified && <VerifiedBadge size="sm" />}
+                      <p className="text-sm font-bold text-white drop-shadow-md">
+                        {shot.userNickname || "Usuário"}
+                      </p>
+                    </div>
+                    {shot.userHandle && (
+                      <p className="text-xs text-white/70 drop-shadow-md">
+                        {shot.userHandle.startsWith("@") ? shot.userHandle : `@${shot.userHandle}`}
+                      </p>
+                    )}
                   </div>
                 </button>
                 {user && user.id !== shot.user_id && (

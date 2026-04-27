@@ -5,7 +5,9 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { getMoodHistoryDb, type MoodLog, type MoodValue } from "@/lib/ritmofit-db";
+import { getMoodHistoryDb, saveMoodForDateDb, type MoodLog, type MoodValue } from "@/lib/ritmofit-db";
+import { toast } from "@/components/ui/use-toast";
+import { Pencil, Check, X } from "lucide-react";
 
 const MOODS: Record<MoodValue, { emoji: string; label: string; color: string }> = {
   muito_triste: { emoji: "😢", label: "Muito triste", color: "text-blue-400" },
@@ -14,6 +16,8 @@ const MOODS: Record<MoodValue, { emoji: string; label: string; color: string }> 
   feliz:        { emoji: "😊", label: "Feliz",        color: "text-green-400" },
   muito_feliz:  { emoji: "😄", label: "Muito feliz",  color: "text-green-500" },
 };
+
+const MOOD_VALUES: MoodValue[] = ["muito_triste", "triste", "neutro", "feliz", "muito_feliz"];
 
 const MOOD_SCORE: Record<MoodValue, number> = {
   muito_triste: 1,
@@ -39,22 +43,26 @@ interface MoodHistoryDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: string;
+  onMoodUpdated?: (date: string, mood: MoodValue) => void;
 }
 
-export function MoodHistoryDrawer({ open, onOpenChange, userId }: MoodHistoryDrawerProps) {
+export function MoodHistoryDrawer({ open, onOpenChange, userId, onMoodUpdated }: MoodHistoryDrawerProps) {
   const [logs, setLogs] = React.useState<MoodLog[]>([]);
   const [loading, setLoading] = React.useState(false);
+  const [editingDate, setEditingDate] = React.useState<string | null>(null);
+  const [savingDate, setSavingDate] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (!open) return;
+    if (!open) { setEditingDate(null); return; }
     setLoading(true);
     getMoodHistoryDb(userId, 30)
       .then(setLogs)
       .finally(() => setLoading(false));
   }, [open, userId]);
 
-  // Build last-7-days mini-calendar
   const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+
   const last7 = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(today);
     d.setDate(today.getDate() - (6 - i));
@@ -71,6 +79,23 @@ export function MoodHistoryDrawer({ open, onOpenChange, userId }: MoodHistoryDra
       ? moodValues.reduce((s, v) => s + MOOD_SCORE[v], 0) / moodValues.length
       : null;
   const dominantMood = moodValues.length > 0 ? getModeValue(moodValues) : null;
+
+  async function handleUpdateMood(date: string, newMood: MoodValue) {
+    setSavingDate(date);
+    try {
+      await saveMoodForDateDb(userId, newMood, date);
+      setLogs((prev) =>
+        prev.map((l) => (l.log_date === date ? { ...l, mood: newMood } : l)),
+      );
+      setEditingDate(null);
+      onMoodUpdated?.(date, newMood);
+      toast({ title: "Humor atualizado!", description: `${MOODS[newMood].emoji} ${MOODS[newMood].label}` });
+    } catch {
+      toast({ title: "Erro ao atualizar humor", variant: "destructive" });
+    } finally {
+      setSavingDate(null);
+    }
+  }
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -91,7 +116,7 @@ export function MoodHistoryDrawer({ open, onOpenChange, userId }: MoodHistoryDra
             <div className="grid grid-cols-7 gap-1">
               {last7.map((date) => {
                 const mood = logByDate[date] as MoodValue | undefined;
-                const isToday = date === today.toISOString().slice(0, 10);
+                const isToday = date === todayStr;
                 return (
                   <div
                     key={date}
@@ -158,30 +183,72 @@ export function MoodHistoryDrawer({ open, onOpenChange, userId }: MoodHistoryDra
             {!loading &&
               logs.map((log) => {
                 const m = MOODS[log.mood];
+                const isEditing = editingDate === log.log_date;
+                const isSaving = savingDate === log.log_date;
+
                 return (
-                  <div
-                    key={log.log_date}
-                    className="flex items-center gap-3 bg-muted/30 rounded-xl px-4 py-3"
-                  >
-                    <span className="text-2xl leading-none">{m.emoji}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium ${m.color}`}>{m.label}</p>
-                      <p className="text-xs text-muted-foreground capitalize">
-                        {formatDate(log.log_date)}
-                      </p>
+                  <div key={log.log_date} className="bg-muted/30 rounded-xl overflow-hidden">
+                    {/* Row principal */}
+                    <div className="flex items-center gap-3 px-4 py-3">
+                      <span className="text-2xl leading-none">{m.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-medium ${m.color}`}>{m.label}</p>
+                        <p className="text-xs text-muted-foreground capitalize">
+                          {formatDate(log.log_date)}
+                          {log.log_date === todayStr && (
+                            <span className="ml-1 text-brand font-medium">• hoje</span>
+                          )}
+                        </p>
+                      </div>
+                      {/* score bar */}
+                      <div className="flex gap-0.5 mr-2">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className={[
+                              "w-1.5 h-4 rounded-full",
+                              i < MOOD_SCORE[log.mood] ? "bg-brand" : "bg-muted",
+                            ].join(" ")}
+                          />
+                        ))}
+                      </div>
+                      {/* botão editar / cancelar */}
+                      <button
+                        onClick={() => setEditingDate(isEditing ? null : log.log_date)}
+                        disabled={isSaving}
+                        className="p-1.5 rounded-lg hover:bg-muted/60 active:scale-95 transition-all text-muted-foreground"
+                        title={isEditing ? "Cancelar" : "Editar humor"}
+                      >
+                        {isEditing ? <X className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
+                      </button>
                     </div>
-                    {/* score bar */}
-                    <div className="flex gap-0.5">
-                      {Array.from({ length: 5 }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={[
-                            "w-1.5 h-4 rounded-full",
-                            i < MOOD_SCORE[log.mood] ? "bg-brand" : "bg-muted",
-                          ].join(" ")}
-                        />
-                      ))}
-                    </div>
+
+                    {/* Seletor inline de humor */}
+                    {isEditing && (
+                      <div className="border-t border-border/40 px-4 py-3">
+                        <p className="text-xs text-muted-foreground mb-2">Selecione o novo humor:</p>
+                        <div className="flex justify-between gap-1">
+                          {MOOD_VALUES.map((v) => (
+                            <button
+                              key={v}
+                              disabled={isSaving}
+                              onClick={() => handleUpdateMood(log.log_date, v)}
+                              className={[
+                                "flex-1 flex flex-col items-center gap-0.5 py-2 rounded-xl transition-all",
+                                "hover:bg-muted/60 active:scale-95",
+                                log.mood === v ? "bg-brand/10 ring-1 ring-brand/40" : "",
+                                isSaving ? "opacity-50 pointer-events-none" : "",
+                              ].join(" ")}
+                            >
+                              <span className="text-2xl leading-none">{MOODS[v].emoji}</span>
+                              <span className="text-[9px] text-muted-foreground text-center leading-tight">
+                                {MOODS[v].label}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

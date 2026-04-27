@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { getPostByIdDb, getPostLikeUsersDb, getUserGoalByIdDb, deletePostDb, type PostWithUser, type UserGoal } from "@/lib/ritmofit-db";
+import { getPostByIdDb, getPostLikeUsersDb, getPostLikesDb, getUserPostLikesDb, togglePostIncentiveDb, getUserGoalByIdDb, deletePostDb, type PostWithUser, type PostLikeStats, type PostIncentiveType, type UserGoal } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
@@ -28,9 +28,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-// Module-level flag: survives StrictMode remount cycles, resets on navigation
-let _likesAutoOpenConsumed = false;
-
 export default function PostDetail() {
   const { postId } = useParams<{ postId?: string }>();
   const navigate = useNavigate();
@@ -42,6 +39,9 @@ export default function PostDetail() {
   const [loading, setLoading] = React.useState(true);
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [postLikes, setPostLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; userGender: string | null; type: number }>>([]);
+  const [likeStats, setLikeStats] = React.useState<PostLikeStats>({ apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 });
+  const [userLikes, setUserLikes] = React.useState<PostIncentiveType[]>([]);
+  const [togglingIncentives, setTogglingIncentives] = React.useState<Set<number>>(new Set());
 
   // Edit post state
   const [editDialogOpen, setEditDialogOpen] = React.useState(false);
@@ -50,18 +50,17 @@ export default function PostDetail() {
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
 
-  // Consume nav state synchronously before any render — clear history so back-navigation doesn't re-trigger
-  const navState = React.useRef((() => {
-    const state = location.state as { openComments?: boolean; openLikes?: boolean } | null;
-    if (state?.openLikes || state?.openComments) {
-      window.history.replaceState({}, "");
-    }
-    return state;
-  })()).current;
+  // Capture nav state once — use a ref so it survives re-renders without re-reading location
+  const navStateRef = React.useRef(location.state as { openComments?: boolean; openLikes?: boolean } | null);
+  const navState = navStateRef.current;
 
-  // Reset the module-level flag whenever we arrive at a new postId
+  // Track whether we've already consumed the openLikes intent for this mount
+  const openLikesConsumedRef = React.useRef(false);
+
+  // Reset consumption flag when postId changes (new navigation)
   React.useEffect(() => {
-    _likesAutoOpenConsumed = false;
+    openLikesConsumedRef.current = false;
+    navStateRef.current = location.state as { openComments?: boolean; openLikes?: boolean } | null;
   }, [postId]);
 
   React.useEffect(() => {
@@ -73,13 +72,22 @@ export default function PostDetail() {
 
         if (foundPost) {
           setPost(foundPost);
+          // Load likes data in parallel
+          const [stats, myLikes] = await Promise.all([
+            getPostLikesDb(postId),
+            getUserPostLikesDb(postId),
+          ]);
+          setLikeStats(stats);
+          setUserLikes(myLikes);
           // Load linked goal if present
           if (foundPost.user_goal_id) {
             getUserGoalByIdDb(String(foundPost.user_goal_id)).then(setPostGoal).catch(() => {});
           }
-          // Open likes modal only once — module-level flag survives StrictMode remounts
-          if (navState?.openLikes && !_likesAutoOpenConsumed) {
-            _likesAutoOpenConsumed = true;
+          // Auto-open likes modal when coming from incentive notification
+          if (navStateRef.current?.openLikes && !openLikesConsumedRef.current) {
+            openLikesConsumedRef.current = true;
+            // Clear nav state so back-navigation doesn't re-trigger
+            navigate(location.pathname, { replace: true, state: {} });
             const likes = await getPostLikeUsersDb(postId);
             setPostLikes(likes);
             setLikesModalOpen(true);
@@ -103,6 +111,29 @@ export default function PostDetail() {
       }
     })();
   }, [postId]);
+
+  const totalLikes = likeStats.apoio + likeStats.continua + likeStats.ganhador + likeStats.consegueMais + likeStats.limiteMaior + likeStats.maisAlgum;
+
+  const handleOpenLikesModal = async () => {
+    const likes = await getPostLikeUsersDb(post!.id);
+    setPostLikes(likes);
+    setLikesModalOpen(true);
+  };
+
+  const handleToggleIncentive = (type: PostIncentiveType) => {
+    if (!post) return;
+    const wasActive = userLikes.includes(type);
+    setUserLikes((prev) => wasActive ? prev.filter((t) => t !== type) : [...prev, type]);
+    setLikeStats((prev) => {
+      const key = (["apoio", "continua", "ganhador", "consegueMais", "limiteMaior", "maisAlgum"] as const)[type - 1];
+      return { ...prev, [key]: prev[key] + (wasActive ? -1 : 1) };
+    });
+    togglePostIncentiveDb(post.id, type, !wasActive);
+    setTogglingIncentives((prev) => new Set(prev).add(type));
+    setTimeout(() => {
+      setTogglingIncentives((prev) => { const s = new Set(prev); s.delete(type); return s; });
+    }, 300);
+  };
 
   const handleEditOpen = () => {
     if (!post) return;
@@ -221,25 +252,35 @@ export default function PostDetail() {
               )}
 
               {/* Incentive Buttons and Comments */}
-              <div className="flex items-center justify-between gap-4 pt-3 border-t border-border/60">
-                <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                  {[1, 2, 3, 4, 5, 6].map((type) => (
-                    <PostIncentiveButton
-                      key={type}
-                      type={type as any}
-                      isActive={false}
-                      onClick={() => {}}
-                      loading={false}
-                    />
-                  ))}
+              <div className="pt-3 border-t border-border/60 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1">
+                    {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                      <PostIncentiveButton
+                        key={type}
+                        type={type}
+                        isActive={userLikes.includes(type)}
+                        onClick={() => handleToggleIncentive(type)}
+                        loading={togglingIncentives.has(type)}
+                      />
+                    ))}
+                  </div>
+                  <PostCommentsDialog
+                    postId={post.id}
+                    commentCount={0}
+                    hasActivity={false}
+                    isPostOwner={post.user_id === user?.id}
+                    defaultOpen={navState?.openComments === true}
+                  />
                 </div>
-                <PostCommentsDialog
-                  postId={post.id}
-                  commentCount={0}
-                  hasActivity={false}
-                  isPostOwner={post.user_id === user?.id}
-                  defaultOpen={navState?.openComments === true}
-                />
+                {totalLikes > 0 && (
+                  <button
+                    onClick={handleOpenLikesModal}
+                    className="text-xs font-semibold text-foreground hover:text-brand transition-colors px-1"
+                  >
+                    {totalLikes} {totalLikes === 1 ? "incentivo" : "incentivos"}
+                  </button>
+                )}
               </div>
             </div>
           </CardContent>

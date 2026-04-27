@@ -22,6 +22,7 @@ import {
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 export function PromotionCommentsDrawer({
   promotionId,
@@ -32,6 +33,7 @@ export function PromotionCommentsDrawer({
 }) {
   const { user } = useAuth();
   const [open, setOpen] = React.useState(false);
+  const viewportHeight = useKeyboardAwareHeight();
   const [comments, setComments] = React.useState<PromotionComment[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [draft, setDraft] = React.useState("");
@@ -40,6 +42,17 @@ export function PromotionCommentsDrawer({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editDraft, setEditDraft] = React.useState("");
   const [savingEditId, setSavingEditId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!open) {
+      document.body.removeAttribute("data-scroll-locked");
+      document.body.style.overflow = "";
+      document.body.style.pointerEvents = "";
+      setDraft("");
+      setEditingId(null);
+      setEditDraft("");
+    }
+  }, [open]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -138,9 +151,9 @@ export function PromotionCommentsDrawer({
     <Drawer open={open} onOpenChange={setOpen} noBodyStyles shouldScaleBackground={false}>
       <DrawerTrigger asChild>{triggerButton}</DrawerTrigger>
       <DrawerContent
-        className="max-h-[85dvh] flex flex-col"
+        className="flex flex-col"
         onOpenAutoFocus={(e) => e.preventDefault()}
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        style={{ maxHeight: `min(85dvh, ${viewportHeight - 8}px)`, paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <DrawerHeader className="shrink-0 pb-2">
           <DrawerTitle className="text-base">Comentários da promoção</DrawerTitle>

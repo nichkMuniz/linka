@@ -516,36 +516,30 @@ export default function Index() {
     });
 
   const handleToggleLike = React.useCallback(
-    async (postId: string, incentiveType: PostIncentiveType) => {
+    (postId: string, incentiveType: PostIncentiveType) => {
       const key = `${postId}-${incentiveType}`;
-      // Bug 2 fix: check the ref (always current) before the state-based set
       if (togglingIncentivesRef.current.has(key)) return;
 
-      let previousPosts: PostWithStats[] = [];
-      let previousDiscoverPosts: PostWithStats[] = [];
-      try {
-        togglingIncentivesRef.current.add(key);
-        setTogglingIncentives((prev) => new Set(prev).add(key));
+      // Determine desired state from current post list before optimistic update
+      const currentPost =
+        posts.find((p) => p.id === postId) ??
+        discoverPosts.find((p) => p.id === postId);
+      const wasActive = currentPost?.userLikes.includes(incentiveType) ?? false;
+      const wantActive = !wasActive;
 
-        setPosts((prev) => {
-          previousPosts = prev.map((p) => ({ ...p, likes: { ...p.likes }, userLikes: [...p.userLikes] }));
-          return applyOptimisticLike(prev, postId, incentiveType);
-        });
-        setDiscoverPosts((prev) => {
-          previousDiscoverPosts = prev.map((p) => ({ ...p, likes: { ...p.likes }, userLikes: [...p.userLikes] }));
-          return applyOptimisticLike(prev, postId, incentiveType);
-        });
+      togglingIncentivesRef.current.add(key);
+      setTogglingIncentives((prev) => new Set(prev).add(key));
 
-        await togglePostLike(postId, incentiveType);
-      } catch (err: any) {
-        console.error("Erro ao toggle like:", err);
-        toast({ title: "Erro ao reagir", description: err?.message || "Tente novamente." });
-        if (previousPosts.length > 0) setPosts(previousPosts);
-        if (previousDiscoverPosts.length > 0) setDiscoverPosts(previousDiscoverPosts);
-      } finally {
+      setPosts((prev) => applyOptimisticLike(prev, postId, incentiveType));
+      setDiscoverPosts((prev) => applyOptimisticLike(prev, postId, incentiveType));
+
+      togglePostLike(postId, incentiveType, wantActive);
+
+      // Release the toggling lock after a short delay so rapid double-clicks are prevented
+      setTimeout(() => {
         togglingIncentivesRef.current.delete(key);
         setTogglingIncentives((prev) => { const next = new Set(prev); next.delete(key); return next; });
-      }
+      }, 300);
     },
     [],
   );

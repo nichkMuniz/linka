@@ -23,6 +23,8 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 │  [Seguir] [Mensagem] [Editar]    │
 │  Insignias / Badges              │
 ├──────────────────────────────────┤
+│  🎯 Metas (scroll horizontal)    │  ← condicional: só aparece se há metas públicas
+├──────────────────────────────────┤
 │  Tabs: [Posts][Shots][Rotinas]   │
 ├──────────────────────────────────┤
 │  Conteúdo da Tab ativa           │
@@ -40,10 +42,17 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 ### Informações do Usuário
 | Campo | Descrição |
 |---|---|
-| Nome / Nickname | Nome de exibição |
+| Nome / Nickname | Nome de exibição. Exibe `VerifiedBadge` (badge dourado) ao lado se `is_verified = true` |
 | Bio | Descrição pessoal |
 | Segmentos | Interesses fitness selecionados no onboarding |
 | Data de criação | "Membro desde..." |
+
+### Badge de Conta Verificada
+- Componente: `client/components/shared/VerifiedBadge.tsx`
+- Aparece ao lado do nome no header do perfil quando `profile.is_verified === true`
+- Também aparece em: post-card (overlay do autor), comentários, shots (overlay do criador), notificações (sobre o avatar)
+- Gerenciado pelo admin via tela Admin → seção "Contas Verificadas"
+- Coluna no banco: `profiles.is_verified` (boolean, default false)
 
 ### Frame de Perfil Comercial (se `commercialProfile` existe)
 - Nome do negócio (clicável via WhatsApp se tiver telefone)
@@ -272,6 +281,18 @@ Aberto ao clicar nas estatísticas:
 | Comentários do post | `getPostCommentsDb(postId)` |
 | Incentivos do usuário no post | `getUserPostLikesDb(postId)` |
 | Flows expirados (arquivo) | `getExpiredUserFlowsDb()` |
+
+---
+
+## Strip de Metas Públicas
+
+Exibida entre o card de perfil e as tabs, **apenas quando o usuário tem metas**.
+
+- Scroll horizontal de cards compactos (largura fixa 176px cada)
+- Cada card mostra: nome da meta (até 2 linhas) + barra de progresso + percentual
+- **Filtragem:** no perfil de outro usuário, apenas metas com `visibility === 1` são exibidas; no próprio perfil, todas as metas aparecem
+- Ícone `Target` (Lucide) com label "Metas" como cabeçalho da seção
+- Seção completamente oculta se `userGoals.length === 0`
 
 ---
 

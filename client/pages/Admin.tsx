@@ -13,6 +13,19 @@ import {
   UserX,
   ExternalLink,
   UserCircle,
+  TrendingUp,
+  Clock,
+  Heart,
+  MessageCircle,
+  Activity,
+  Dumbbell,
+  Monitor,
+  UserPlus,
+  BarChart3,
+  Zap,
+  BadgeCheck,
+  Search,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,12 +44,20 @@ import {
 import {
   getAdminComplaintsDb,
   getAdminStatsDb,
+  getAdminAnalyticsDb,
   adminDismissComplaintDb,
   adminDeleteContentDb,
   adminBanUserDb,
+  setUserVerifiedDb,
+  getVerifiedAccountsDb,
   type AdminComplaint,
   type AdminStats,
+  type AdminAnalytics,
+  type AdminTopScreen,
+  type AdminDayCount,
 } from "@/lib/ritmofit-db";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
+import { Input } from "@/components/ui/input";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,18 +86,39 @@ function formatDate(iso: string) {
   });
 }
 
-/** Retorna a rota interna para visualizar o conteúdo denunciado, ou null se não houver rota direta. */
+function formatSeconds(s: number) {
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem > 0 ? `${h}h ${rem}min` : `${h}h`;
+}
+
+function screenLabel(screen: string) {
+  const map: Record<string, string> = {
+    "/": "Feed",
+    "/shots": "Shots",
+    "/metas": "Metas",
+    "/comunidade": "Comunidade",
+    "/perfil": "Perfil",
+    "/buscar": "Buscar",
+    "/notificacoes": "Notificações",
+    "/vitrine": "Vitrine",
+    "/novo-post": "Novo Post",
+  };
+  return map[screen] ?? screen;
+}
+
 function contentRoute(complaint: AdminComplaint): string | null {
   if (complaint.tipo === "post") return `/post/${complaint.conteudo_id}`;
-  if (complaint.tipo === "shot") return `/shots`; // sem deep-link por shot
-  if (complaint.tipo === "flow") return `/`;       // flows aparecem no feed
+  if (complaint.tipo === "shot") return `/shots`;
+  if (complaint.tipo === "flow") return `/`;
   if (complaint.tipo === "usuario") return `/usuario/${complaint.conteudo_id}`;
   return null;
 }
 
-/** Retorna o user_id do autor do conteúdo (ou do usuário denunciado). */
 function authorId(complaint: AdminComplaint): string | null {
-  // para denúncias de usuário o autor é o próprio conteudo_id
   if (complaint.tipo === "usuario") return complaint.conteudo_id;
   return complaint.autor_id ?? null;
 }
@@ -92,21 +134,100 @@ type PendingAction =
 function StatCard({
   label,
   value,
+  sub,
   icon: Icon,
+  accent,
   className = "",
 }: {
   label: string;
-  value: number;
+  value: string | number;
+  sub?: string;
   icon: React.ElementType;
+  accent?: string;
   className?: string;
 }) {
   return (
     <div className={`rounded-xl border border-border bg-card p-4 ${className}`}>
       <div className="flex items-center gap-2 mb-1">
-        <Icon className="w-4 h-4 text-muted-foreground" />
+        <Icon className={`w-4 h-4 ${accent ?? "text-muted-foreground"}`} />
         <span className="text-xs text-muted-foreground">{label}</span>
       </div>
       <p className="text-2xl font-bold text-foreground">{value}</p>
+      {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+// ─── mini bar chart ────────────────────────────────────────────────────────────
+
+function MiniBar({ days, valueKey }: { days: AdminDayCount[]; valueKey: "total" | "usuarios_ativos" }) {
+  if (!days.length) return null;
+  const values = days.map((d) => (valueKey === "total" ? d.total ?? 0 : d.usuarios_ativos ?? 0));
+  const max = Math.max(...values, 1);
+  const dayLabels = days.map((d) => {
+    const dateStr = d.dia ?? d.session_date ?? "";
+    if (!dateStr) return "";
+    const date = new Date(dateStr + "T12:00:00");
+    return date.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "");
+  });
+
+  return (
+    <div className="flex items-end gap-1 h-10 w-full">
+      {values.map((v, i) => (
+        <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+          <div
+            className="w-full rounded-sm bg-primary/60 min-h-[2px] transition-all"
+            style={{ height: `${Math.max(2, (v / max) * 40)}px` }}
+          />
+          <span className="text-[9px] text-muted-foreground leading-none">{dayLabels[i]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── top screens ──────────────────────────────────────────────────────────────
+
+function TopScreensList({ screens }: { screens: AdminTopScreen[] }) {
+  if (!screens.length) {
+    return <p className="text-xs text-muted-foreground italic">Sem dados de navegação ainda</p>;
+  }
+  const max = Math.max(...screens.map((s) => s.total_seconds), 1);
+
+  return (
+    <div className="space-y-2">
+      {screens.map((s) => (
+        <div key={s.screen}>
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-xs font-medium text-foreground">{screenLabel(s.screen)}</span>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>{formatSeconds(s.total_seconds)}</span>
+              <span>·</span>
+              <span>{s.usuarios_unicos} usuários</span>
+            </div>
+          </div>
+          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary/70 rounded-full transition-all"
+              style={{ width: `${(s.total_seconds / max) * 100}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── section header ────────────────────────────────────────────────────────────
+
+function SectionHeader({ icon: Icon, label, badge }: { icon: React.ElementType; label: string; badge?: number }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <Icon className="w-4 h-4 text-muted-foreground" />
+      <h2 className="text-sm font-semibold text-foreground">{label}</h2>
+      {badge != null && badge > 0 && (
+        <Badge variant="destructive" className="text-xs px-1.5 py-0">{badge}</Badge>
+      )}
     </div>
   );
 }
@@ -127,7 +248,6 @@ function ComplaintRow({
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-      {/* Header: tipo + data */}
       <div className="flex items-center gap-2 flex-wrap">
         <span
           className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${tipoBadgeClass(complaint.tipo)}`}
@@ -137,7 +257,6 @@ function ComplaintRow({
         <span className="text-xs text-muted-foreground">{formatDate(complaint.created_at)}</span>
       </div>
 
-      {/* Motivo */}
       {complaint.reason ? (
         <p className="text-sm text-foreground bg-muted/40 rounded-lg px-3 py-2 border border-border">
           "{complaint.reason}"
@@ -146,7 +265,6 @@ function ComplaintRow({
         <p className="text-xs text-muted-foreground italic">Sem motivo informado</p>
       )}
 
-      {/* IDs */}
       <div className="grid grid-cols-1 gap-0.5 text-xs text-muted-foreground">
         <span>
           <span className="font-medium text-foreground/60">Denunciante:</span>{" "}
@@ -166,7 +284,6 @@ function ComplaintRow({
         )}
       </div>
 
-      {/* Navegação: ver conteúdo + ver perfil do autor */}
       <div className="flex gap-2">
         {contRoute && (
           <Button
@@ -192,12 +309,9 @@ function ComplaintRow({
         )}
       </div>
 
-      {/* Separador */}
       <div className="border-t border-border" />
 
-      {/* Ações de moderação */}
       <div className="flex flex-col gap-2">
-        {/* Ignorar — sempre disponível */}
         <Button
           size="sm"
           variant="outline"
@@ -208,7 +322,6 @@ function ComplaintRow({
           Ignorar denúncia
         </Button>
 
-        {/* Remover conteúdo — só para post / shot / flow */}
         {!isUserReport && (
           <Button
             size="sm"
@@ -221,7 +334,6 @@ function ComplaintRow({
           </Button>
         )}
 
-        {/* Banir autor — disponível para qualquer tipo */}
         {authorUserId && (
           <Button
             size="sm"
@@ -234,7 +346,6 @@ function ComplaintRow({
           </Button>
         )}
 
-        {/* Remover conteúdo + banir — ação combinada para post/shot/flow */}
         {!isUserReport && authorUserId && (
           <Button
             size="sm"
@@ -253,36 +364,20 @@ function ComplaintRow({
   );
 }
 
-// ─── confirm dialog content ───────────────────────────────────────────────────
+// ─── confirm dialog ───────────────────────────────────────────────────────────
 
 function confirmTexts(action: PendingAction | null) {
   if (!action) return { title: "", desc: "", label: "" };
   const tipo = tipoLabel(action.complaint.tipo).toLowerCase();
   switch (action.type) {
     case "dismiss":
-      return {
-        title: "Ignorar denúncia?",
-        desc: "A denúncia será descartada sem nenhuma ação sobre o conteúdo.",
-        label: "Ignorar",
-      };
+      return { title: "Ignorar denúncia?", desc: "A denúncia será descartada sem nenhuma ação sobre o conteúdo.", label: "Ignorar" };
     case "delete":
-      return {
-        title: `Remover ${tipo}?`,
-        desc: `O ${tipo} será permanentemente removido do app. Esta ação não pode ser desfeita.`,
-        label: "Remover",
-      };
+      return { title: `Remover ${tipo}?`, desc: `O ${tipo} será permanentemente removido do app. Esta ação não pode ser desfeita.`, label: "Remover" };
     case "ban":
-      return {
-        title: "Banir usuário?",
-        desc: "O usuário será marcado como banido e não poderá mais usar o app.",
-        label: "Banir",
-      };
+      return { title: "Banir usuário?", desc: "O usuário será marcado como banido e não poderá mais usar o app.", label: "Banir" };
     case "delete_and_ban":
-      return {
-        title: "Remover conteúdo e banir usuário?",
-        desc: `O ${tipo} será removido permanentemente e o autor será banido do app. Esta ação não pode ser desfeita.`,
-        label: "Remover e banir",
-      };
+      return { title: "Remover conteúdo e banir usuário?", desc: `O ${tipo} será removido permanentemente e o autor será banido do app. Esta ação não pode ser desfeita.`, label: "Remover e banir" };
   }
 }
 
@@ -291,18 +386,69 @@ function confirmTexts(action: PendingAction | null) {
 export default function Admin() {
   const [complaints, setComplaints] = React.useState<AdminComplaint[]>([]);
   const [stats, setStats] = React.useState<AdminStats | null>(null);
+  const [analytics, setAnalytics] = React.useState<AdminAnalytics | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
   const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null);
   const [acting, setActing] = React.useState(false);
 
+  // ── Verified accounts ──────────────────────────────────────────────────────
+  const [verifiedAccounts, setVerifiedAccounts] = React.useState<{ userId: string; nickname: string; handle: string; photo: string | null }[]>([]);
+  const [verifyHandle, setVerifyHandle] = React.useState("");
+  const [verifyingHandle, setVerifyingHandle] = React.useState(false);
+
+  async function handleVerifyByHandle() {
+    const raw = verifyHandle.trim().replace(/^@/, "");
+    if (!raw) return;
+    setVerifyingHandle(true);
+    try {
+      const { supabase } = await import("@/lib/supabase");
+      if (!supabase) throw new Error("Supabase não configurado");
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("user_id, nickname, handle, photo")
+        .ilike("handle", raw)
+        .maybeSingle();
+      if (error || !data) { toast({ title: "Usuário não encontrado", variant: "destructive" }); return; }
+      const ok = await setUserVerifiedDb(String(data.user_id), true);
+      if (ok) {
+        toast({ title: `@${data.handle} verificado com sucesso` });
+        setVerifyHandle("");
+        setVerifiedAccounts(await getVerifiedAccountsDb());
+      } else {
+        toast({ title: "Erro ao verificar conta", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
+    } finally {
+      setVerifyingHandle(false);
+    }
+  }
+
+  async function handleRemoveVerified(userId: string, nickname: string) {
+    const ok = await setUserVerifiedDb(userId, false);
+    if (ok) {
+      toast({ title: `Verificação de ${nickname} removida` });
+      setVerifiedAccounts((prev) => prev.filter((a) => a.userId !== userId));
+    } else {
+      toast({ title: "Erro ao remover verificação", variant: "destructive" });
+    }
+  }
+
   const load = React.useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const [c, s] = await Promise.all([getAdminComplaintsDb(), getAdminStatsDb()]);
+      const [c, s, a, v] = await Promise.all([
+        getAdminComplaintsDb(),
+        getAdminStatsDb(),
+        getAdminAnalyticsDb(),
+        getVerifiedAccountsDb(),
+      ]);
       setComplaints(c);
       setStats(s);
+      setAnalytics(a);
+      setVerifiedAccounts(v);
     } catch (err: any) {
       toast({ title: "Erro ao carregar dados", description: err.message, variant: "destructive" });
     } finally {
@@ -324,19 +470,16 @@ export default function Admin() {
           await adminDismissComplaintDb(complaint.tipo, complaint.id);
           toast({ title: "Denúncia ignorada" });
           break;
-
         case "delete":
           await adminDeleteContentDb(complaint.tipo, complaint.conteudo_id);
           await adminDismissComplaintDb(complaint.tipo, complaint.id);
           toast({ title: "Conteúdo removido" });
           break;
-
         case "ban":
           await adminBanUserDb(pendingAction.userId);
           await adminDismissComplaintDb(complaint.tipo, complaint.id);
           toast({ title: "Usuário banido" });
           break;
-
         case "delete_and_ban":
           await Promise.all([
             adminDeleteContentDb(complaint.tipo, complaint.conteudo_id),
@@ -373,8 +516,12 @@ export default function Admin() {
     );
   }
 
+  const dauDelta = analytics
+    ? analytics.dau_hoje - analytics.dau_ontem
+    : null;
+
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-2xl mx-auto px-4 py-6 space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -393,32 +540,131 @@ export default function Admin() {
         </Button>
       </div>
 
-      {/* Stats */}
-      {stats && (
+      {/* ── Usuários ───────────────────────────────────────────────────────── */}
+      <section>
+        <SectionHeader icon={Users} label="Usuários" />
         <div className="grid grid-cols-2 gap-3">
-          <StatCard label="Usuários total" value={stats.totalUsers} icon={Users} />
           <StatCard
-            label="Denúncias abertas"
-            value={stats.complaintsTotal}
-            icon={Flag}
-            className={stats.complaintsTotal > 0 ? "border-rose-500/40" : ""}
+            label="Cadastros hoje"
+            value={analytics?.usuarios_hoje ?? 0}
+            icon={UserPlus}
+            accent="text-emerald-400"
           />
-          <StatCard label="Posts hoje" value={stats.postsHoje} icon={FileText} />
-          <StatCard label="Shots hoje" value={stats.shotsHoje} icon={Video} />
+          <StatCard
+            label="Total de usuários"
+            value={analytics?.total_usuarios ?? stats?.totalUsers ?? 0}
+            icon={Users}
+          />
+          <StatCard
+            label="Novos esta semana"
+            value={analytics?.usuarios_semana ?? 0}
+            icon={TrendingUp}
+            accent="text-blue-400"
+          />
+          <StatCard
+            label="Novos este mês"
+            value={analytics?.usuarios_mes ?? 0}
+            icon={BarChart3}
+            accent="text-purple-400"
+          />
         </div>
+
+        {analytics && analytics.novos_usuarios_7d.length > 0 && (
+          <div className="mt-3 rounded-xl border border-border bg-card p-4">
+            <p className="text-xs text-muted-foreground mb-2">Novos cadastros — últimos 7 dias</p>
+            <MiniBar days={analytics.novos_usuarios_7d} valueKey="total" />
+          </div>
+        )}
+      </section>
+
+      {/* ── Engajamento / Sessões ──────────────────────────────────────────── */}
+      <section>
+        <SectionHeader icon={Activity} label="Engajamento" />
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            label="Usuários ativos hoje"
+            value={analytics?.dau_hoje ?? 0}
+            sub={
+              dauDelta != null
+                ? dauDelta >= 0
+                  ? `+${dauDelta} vs ontem`
+                  : `${dauDelta} vs ontem`
+                : undefined
+            }
+            icon={Zap}
+            accent="text-amber-400"
+          />
+          <StatCard
+            label="Sessões hoje"
+            value={analytics?.total_sessoes_hoje ?? 0}
+            icon={Monitor}
+          />
+          <StatCard
+            label="Duração média de sessão"
+            value={analytics ? formatSeconds(analytics.avg_sessao_segundos_7d) : "—"}
+            sub="últimos 7 dias"
+            icon={Clock}
+            accent="text-sky-400"
+          />
+          <StatCard
+            label="Total de horas hoje"
+            value={analytics ? `${analytics.total_horas_hoje}h` : "—"}
+            icon={Clock}
+          />
+        </div>
+
+        {analytics && analytics.dau_7d.length > 0 && (
+          <div className="mt-3 rounded-xl border border-border bg-card p-4">
+            <p className="text-xs text-muted-foreground mb-2">Usuários ativos por dia — últimos 7 dias</p>
+            <MiniBar days={analytics.dau_7d} valueKey="usuarios_ativos" />
+          </div>
+        )}
+      </section>
+
+      {/* ── Telas mais acessadas ───────────────────────────────────────────── */}
+      {analytics && (
+        <section>
+          <SectionHeader icon={Monitor} label="Telas mais acessadas (7 dias)" />
+          <div className="rounded-xl border border-border bg-card p-4">
+            <TopScreensList screens={analytics.top_screens} />
+          </div>
+        </section>
       )}
 
-      {/* Moderation queue */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <Flag className="w-4 h-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold text-foreground">Fila de Moderação</h2>
-          {complaints.length > 0 && (
-            <Badge variant="destructive" className="text-xs px-1.5 py-0">
-              {complaints.length}
-            </Badge>
-          )}
+      {/* ── Conteúdo de hoje ───────────────────────────────────────────────── */}
+      <section>
+        <SectionHeader icon={FileText} label="Conteúdo de hoje" />
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard label="Posts hoje" value={analytics?.posts_hoje ?? stats?.postsHoje ?? 0} icon={FileText} />
+          <StatCard label="Shots hoje" value={analytics?.shots_hoje ?? stats?.shotsHoje ?? 0} icon={Video} />
+          <StatCard label="Comentários hoje" value={analytics?.comments_hoje ?? 0} icon={MessageCircle} />
+          <StatCard label="Curtidas hoje" value={analytics?.likes_hoje ?? 0} icon={Heart} accent="text-rose-400" />
+          <StatCard label="Check-ins hoje" value={analytics?.check_ins_hoje ?? 0} icon={Dumbbell} accent="text-emerald-400" />
+          <StatCard
+            label="Denúncias abertas"
+            value={stats?.complaintsTotal ?? 0}
+            icon={Flag}
+            accent={stats && stats.complaintsTotal > 0 ? "text-rose-400" : undefined}
+            className={stats && stats.complaintsTotal > 0 ? "border-rose-500/40" : ""}
+          />
         </div>
+      </section>
+
+      {/* ── Totais gerais ──────────────────────────────────────────────────── */}
+      {analytics && (
+        <section>
+          <SectionHeader icon={BarChart3} label="Totais gerais" />
+          <div className="grid grid-cols-3 gap-3">
+            <StatCard label="Total posts" value={analytics.total_posts} icon={FileText} />
+            <StatCard label="Total shots" value={analytics.total_shots} icon={Video} />
+            <StatCard label="Total check-ins" value={analytics.total_check_ins} icon={Dumbbell} />
+          </div>
+        </section>
+      )}
+
+      {/* ── Fila de moderação ─────────────────────────────────────────────── */}
+      <section>
+        <SectionHeader icon={Flag} label="Fila de Moderação" badge={complaints.length} />
 
         {complaints.length === 0 ? (
           <div className="rounded-xl border border-border bg-card p-8 text-center">
@@ -436,7 +682,75 @@ export default function Admin() {
             ))}
           </div>
         )}
-      </div>
+      </section>
+
+      {/* Contas Verificadas */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <BadgeCheck className="w-4 h-4 text-yellow-500" />
+          <h2 className="text-base font-semibold">Contas Verificadas</h2>
+        </div>
+
+        {/* Adicionar verificação */}
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              placeholder="@handle ou nome do usuário"
+              value={verifyHandle}
+              onChange={(e) => setVerifyHandle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleVerifyByHandle()}
+              className="pl-9 h-9 text-sm"
+            />
+          </div>
+          <Button
+            size="sm"
+            onClick={handleVerifyByHandle}
+            disabled={verifyingHandle || !verifyHandle.trim()}
+            className="h-9 px-3 text-xs bg-yellow-500 hover:bg-yellow-400 text-black font-semibold"
+          >
+            {verifyingHandle ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : "Verificar"}
+          </Button>
+        </div>
+
+        {/* Lista de contas verificadas */}
+        {verifiedAccounts.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">Nenhuma conta verificada ainda.</p>
+        ) : (
+          <div className="space-y-2">
+            {verifiedAccounts.map((acc) => (
+              <div key={acc.userId} className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-muted/20 px-3 py-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
+                    {acc.photo ? (
+                      <img src={acc.photo} alt={acc.nickname} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <UserCircle className="w-5 h-5 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm font-medium truncate">{acc.nickname}</span>
+                      <VerifiedBadge size="sm" />
+                    </div>
+                    {acc.handle && <p className="text-xs text-muted-foreground truncate">@{acc.handle}</p>}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleRemoveVerified(acc.userId, acc.nickname)}
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Confirm dialog */}
       <AlertDialog
@@ -460,9 +774,7 @@ export default function Admin() {
             <AlertDialogAction
               onClick={handleConfirm}
               disabled={acting}
-              className={
-                isDestructive ? "bg-destructive hover:bg-destructive/90" : ""
-              }
+              className={isDestructive ? "bg-destructive hover:bg-destructive/90" : ""}
             >
               {acting ? "Processando…" : label}
             </AlertDialogAction>

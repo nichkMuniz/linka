@@ -128,9 +128,12 @@ struct WorkoutDynamicIslandExpanded: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(brandOrange)
                 Spacer()
-                Text(formatElapsed(context.state.elapsedSeconds))
-                    .font(.system(size: 18, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white)
+                WorkoutTimer(
+                    startDate: context.state.startDate,
+                    pausedElapsedSeconds: context.state.pausedElapsedSeconds,
+                    isPaused: context.state.isPaused
+                )
+                .font(.system(size: 18, weight: .bold, design: .monospaced))
             }
             HStack {
                 Text(context.state.exerciseName)

@@ -28,6 +28,8 @@ interface WorkoutContextValue {
   setSelectedRoutineName: (v: string | null) => void;
   workoutExerciseRestTimes: Record<string, number>;
   setWorkoutExerciseRestTimes: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  workoutExerciseNotes: Record<string, string>;
+  setWorkoutExerciseNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   currentWorkoutIndex: number;
   setCurrentWorkoutIndex: (v: number) => void;
   // Reset all workout state
@@ -60,6 +62,8 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   setSelectedRoutineName: () => {},
   workoutExerciseRestTimes: {},
   setWorkoutExerciseRestTimes: () => {},
+  workoutExerciseNotes: {},
+  setWorkoutExerciseNotes: () => {},
   currentWorkoutIndex: 0,
   setCurrentWorkoutIndex: () => {},
   resetWorkoutState: () => {},
@@ -84,6 +88,7 @@ function loadPersistedWorkout() {
       workoutStartTime: number;
       selectedRoutineName: string | null;
       workoutExerciseRestTimes: Record<string, number>;
+      workoutExerciseNotes: Record<string, string>;
     };
   } catch {
     return null;
@@ -112,6 +117,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [workoutExerciseRestTimes, setWorkoutExerciseRestTimes] = React.useState<Record<string, number>>(
     () => persisted?.workoutExerciseRestTimes ?? {}
   );
+  const [workoutExerciseNotes, setWorkoutExerciseNotes] = React.useState<Record<string, string>>(
+    () => persisted?.workoutExerciseNotes ?? {}
+  );
   const [currentWorkoutIndex, setCurrentWorkoutIndex] = React.useState(0);
   const [globalRestTimerRemaining, setGlobalRestTimerRemaining] = React.useState(0);
   const [globalRestTimerActive, setGlobalRestTimerActive] = React.useState(false);
@@ -126,9 +134,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
         workoutStartTime,
         selectedRoutineName,
         workoutExerciseRestTimes,
+        workoutExerciseNotes,
       }));
     }
-  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutModalOpen, workoutMinimized]);
+  }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutModalOpen, workoutMinimized]);
 
   // Workout duration timer — keeps running even when modal is minimized
   React.useEffect(() => {
@@ -233,6 +242,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     setWorkoutStartTime(null);
     setSelectedRoutineName(null);
     setWorkoutExerciseRestTimes({});
+    setWorkoutExerciseNotes({});
     setCurrentWorkoutIndex(0);
     setWorkoutMinimized(false);
     setWorkoutModalOpen(false);
@@ -251,6 +261,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       workoutStartTime, setWorkoutStartTime,
       selectedRoutineName, setSelectedRoutineName,
       workoutExerciseRestTimes, setWorkoutExerciseRestTimes,
+      workoutExerciseNotes, setWorkoutExerciseNotes,
       currentWorkoutIndex, setCurrentWorkoutIndex,
       resetWorkoutState,
       globalRestTimerRemaining, setGlobalRestTimerRemaining,

@@ -16,13 +16,14 @@ import * as React from "react";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { Capacitor } from "@capacitor/core";
+import { App as CapApp } from "@capacitor/app";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { PageTransition } from "@/components/layout/page-transition";
 
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/shared/user-avatar";
-import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb } from "@/lib/ritmofit-db";
+import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, recordScreenTimeDb } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
@@ -117,6 +118,25 @@ export function AppLayout() {
   // Daily usage timer
   const [usageSecondsElapsed, setUsageSecondsElapsed] = React.useState(0);
   const sessionStartRef = React.useRef<number>(Date.now());
+
+  // Screen time tracking
+  const screenEnteredAtRef = React.useRef<number>(Date.now());
+  const currentScreenRef = React.useRef<string>(location.pathname);
+
+  React.useEffect(() => {
+    const prev = currentScreenRef.current;
+    const enteredAt = screenEnteredAtRef.current;
+    const durationSeconds = Math.floor((Date.now() - enteredAt) / 1000);
+
+    if (user && durationSeconds >= 3) {
+      recordScreenTimeDb(user.id, prev, durationSeconds).catch(() => {});
+    }
+
+    currentScreenRef.current = location.pathname;
+    screenEnteredAtRef.current = Date.now();
+    sessionStorage.setItem("ritmofit_screen_start", String(screenEnteredAtRef.current));
+    sessionStorage.setItem("ritmofit_current_screen", location.pathname);
+  }, [location.pathname]);
   const [timerBlockVisible, setTimerBlockVisible] = React.useState(false);
   const [timerSnoozeSeconds, setTimerSnoozeSeconds] = React.useState(0); // extra snooze time added
   const [limitIgnoredToday, setLimitIgnoredToday] = React.useState(() => {
@@ -153,6 +173,41 @@ export function AppLayout() {
     return () => { window.removeEventListener("storage", handleStorage); clearInterval(poll); };
   }, []);
 
+  // Always record access session on app background/close — independent of daily limit
+  React.useEffect(() => {
+    if (!user) return;
+    sessionStartRef.current = Date.now();
+    sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
+
+    const flush = () => {
+      const sessionSeconds = Math.floor((Date.now() - sessionStartRef.current) / 1000);
+      if (sessionSeconds >= 10) {
+        recordAccessSessionDb(user.id, sessionSeconds).catch(() => {});
+      }
+      sessionStartRef.current = Date.now();
+      sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
+    };
+
+    let capListener: { remove: () => void } | null = null;
+    if (Capacitor.isNativePlatform()) {
+      CapApp.addListener("appStateChange", ({ isActive }) => {
+        if (!isActive) flush();
+        else {
+          sessionStartRef.current = Date.now();
+          sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
+        }
+      }).then((l) => { capListener = l; });
+    } else {
+      const onVisibility = () => { if (document.hidden) flush(); else { sessionStartRef.current = Date.now(); sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current)); } };
+      const onUnload = () => flush();
+      window.addEventListener("visibilitychange", onVisibility);
+      window.addEventListener("beforeunload", onUnload);
+      return () => { window.removeEventListener("visibilitychange", onVisibility); window.removeEventListener("beforeunload", onUnload); };
+    }
+
+    return () => { capListener?.remove(); };
+  }, [user?.id]);
+
   React.useEffect(() => {
     if (!dailyLimitMinutes) return;
     // Restore seconds from today's session
@@ -162,26 +217,14 @@ export function AppLayout() {
       setUsageSecondsElapsed(parseInt(stored, 10));
     }
     sessionStartRef.current = Date.now();
+    sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
     const interval = setInterval(() => {
       const sessionSeconds = Math.floor((Date.now() - sessionStartRef.current) / 1000);
       const base = parseInt(sessionStorage.getItem("ritmofit_usage_seconds_today") || "0", 10);
       const total = base + sessionSeconds;
       setUsageSecondsElapsed(total);
     }, 1000);
-    // Save on unload
-    const onUnload = () => {
-      const sessionSeconds = Math.floor((Date.now() - sessionStartRef.current) / 1000);
-      const base = parseInt(sessionStorage.getItem("ritmofit_usage_seconds_today") || "0", 10);
-      sessionStorage.setItem("ritmofit_usage_seconds_today", String(base + sessionSeconds));
-      // Record to DB if session was at least 10 seconds
-      if (sessionSeconds >= 10 && user) {
-        recordAccessSessionDb(user.id, sessionSeconds).catch(() => { });
-      }
-      sessionStartRef.current = Date.now();
-    };
-    window.addEventListener("beforeunload", onUnload);
-    window.addEventListener("visibilitychange", () => { if (document.hidden) onUnload(); else sessionStartRef.current = Date.now(); });
-    return () => { clearInterval(interval); window.removeEventListener("beforeunload", onUnload); };
+    return () => { clearInterval(interval); };
   }, [dailyLimitMinutes]);
 
   React.useEffect(() => {

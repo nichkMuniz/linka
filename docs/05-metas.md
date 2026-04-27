@@ -234,10 +234,11 @@ Drawer que sobe do bottom com histórico dos últimos 30 dias:
 - **Mini-calendário semanal (7 dias):** grade de 7 colunas mostrando o emoji de cada dia; dia atual com destaque (`ring-brand`); dias sem registro exibem `·`
 - **Resumo do período:** humor predominante (moda) + média numérica (1–5) dos últimos 30 dias
 - **Lista cronológica:** cada entrada com emoji, label colorido, data formatada e barra de score visual (5 barrinhas preenchidas proporcionalmente)
+- **Editar humor:** cada registro tem um botão com ícone de lápis (`Pencil`); ao tocar, um seletor inline com os 5 humores é exibido abaixo da linha; selecionar um novo humor chama `saveMoodForDateDb` e atualiza o estado local; se for o dia de hoje, sincroniza `todayMood` na tela via `onMoodUpdated`
 - **Empty state:** ícone 🌱 + mensagem orientando o usuário
 - **Skeleton loader** durante carregamento
 
-Dados: `getMoodHistoryDb(userId, 30)` — tabela `mood_logs`
+Dados: `getMoodHistoryDb(userId, 30)`, `saveMoodForDateDb(userId, mood, date)` — tabela `mood_logs`
 
 Componente: `MoodHistoryDrawer` em `client/components/goals/mood-history-drawer.tsx`
 

@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import {
   AlertDialog,
@@ -47,7 +48,11 @@ export default function Notifications() {
 
     loadNotifications();
 
-    // Subscribe to new notifications via Realtime instead of polling every 30s
+    // Subscribe to new notifications via Realtime instead of polling every 30s.
+    // The re-fetch is debounced by 1 s so that several rapid inserts (e.g. multiple
+    // incentives flushed together after the 5-second debounce) are coalesced into
+    // a single query — ensuring collapseIncentives sees them all at once.
+    let realtimeDebounce: ReturnType<typeof setTimeout> | null = null;
     const channelName = `notifications-page-${Date.now()}`;
     const channel = supabase
       ?.channel(channelName)
@@ -59,17 +64,21 @@ export default function Notifications() {
           table: "notifications",
           filter: `user_id=eq.${user.id}`,
         },
-        async () => {
+        () => {
           if (!isMounted) return;
-          // Re-fetch the full list to stay in sync with read-state
-          const data = await getNotificationsDb();
-          if (isMounted) setNotifications(data);
+          if (realtimeDebounce) clearTimeout(realtimeDebounce);
+          realtimeDebounce = setTimeout(async () => {
+            if (!isMounted) return;
+            const data = await getNotificationsDb();
+            if (isMounted) setNotifications(data);
+          }, 1000);
         },
       )
       .subscribe();
 
     return () => {
       isMounted = false;
+      if (realtimeDebounce) clearTimeout(realtimeDebounce);
       if (channel) supabase?.removeChannel(channel);
     };
   }, [user]);
@@ -116,7 +125,7 @@ export default function Notifications() {
           ? getIncentiveIcon(notification.incentiveType)
           : null;
         const IncentiveIconComponent = incentiveIconData?.Icon;
-        const context = notification.shotId ? "no seu reels" : (notification.flowId ? "no seu flow" : "na sua postagem");
+        const context = notification.shotId ? "no seu shots" : (notification.flowId ? "no seu flow" : "na sua postagem");
         return {
           icon: IncentiveIconComponent
             ? <IncentiveIconComponent className={`h-5 w-5 ${incentiveIconData!.color}`} />
@@ -128,7 +137,7 @@ export default function Notifications() {
         };
       }
       case 3: {
-        const commentContext = notification.shotId ? "no seu reels" : (notification.flowId ? "no seu flow" : "na sua postagem");
+        const commentContext = notification.shotId ? "no seu shots" : (notification.flowId ? "no seu flow" : "na sua postagem");
         return {
           icon: <MessageCircle className="h-5 w-5 text-purple-500" />,
           title: "Novo comentário",
@@ -455,144 +464,147 @@ export default function Notifications() {
             </div>
 
             <div className="space-y-4">
-            {(() => {
-              const groups = groupNotificationsByDate(notifications);
-              const groupKeys = ["Hoje", "Ontem", "Esta semana", "Mais antigas"] as const;
-              return groupKeys.map((label) => {
-                const groupNotifs = collapseIncentives(groups[label]);
-                if (groupNotifs.length === 0) return null;
-                return (
-                  <div key={label}>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 mb-2 sticky top-0 bg-background/80 backdrop-blur py-1">
-                      {label}
-                    </p>
-                    <div className="space-y-2">
-                      {groupNotifs.map((notification) => {
-                        const grouped = (notification as any);
-                        const groupedCount: number = grouped.groupedCount ?? 1;
-                        const groupedNicknames: string[] = grouped.groupedNicknames ?? [notification.userNickname];
-                        const groupedIncentiveTypes: number[] = grouped.groupedIncentiveTypes ?? (notification.incentiveType ? [notification.incentiveType] : []);
-                        const groupedUsers: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }> = grouped.groupedUsers ?? [];
-                        const rawContent = getNotificationContent(notification);
-                        const context = notification.shotId ? "no seu reels" : (notification.flowId ? "no seu flow" : "na sua postagem");
+              {(() => {
+                const groups = groupNotificationsByDate(notifications);
+                const groupKeys = ["Hoje", "Ontem", "Esta semana", "Mais antigas"] as const;
+                return groupKeys.map((label) => {
+                  const groupNotifs = collapseIncentives(groups[label]);
+                  if (groupNotifs.length === 0) return null;
+                  return (
+                    <div key={label}>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 mb-2 sticky top-0 bg-background/80 backdrop-blur py-1">
+                        {label}
+                      </p>
+                      <div className="space-y-2">
+                        {groupNotifs.map((notification) => {
+                          const grouped = (notification as any);
+                          const groupedCount: number = grouped.groupedCount ?? 1;
+                          const groupedNicknames: string[] = grouped.groupedNicknames ?? [notification.userNickname];
+                          const groupedIncentiveTypes: number[] = grouped.groupedIncentiveTypes ?? (notification.incentiveType ? [notification.incentiveType] : []);
+                          const groupedUsers: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }> = grouped.groupedUsers ?? [];
+                          const rawContent = getNotificationContent(notification);
+                          const context = notification.shotId ? "no seu shots" : (notification.flowId ? "no seu flow" : "na sua postagem");
 
-                        // Build description for grouped incentives
-                        let groupedDescription = rawContent.description;
-                        if (notification.type === 2) {
-                          const totalReactions = groupedUsers.reduce((sum, u) => sum + u.incentiveTypes.length, 0);
-                          const firstUser = groupedUsers[0];
-                          const firstName = firstUser?.userNickname ?? notification.userNickname;
-                          const firstIncentiveName = firstUser?.incentiveTypes[0]
-                            ? `"${getIncentiveTypeName(firstUser.incentiveTypes[0])}"`
-                            : `"${getIncentiveTypeName(notification.incentiveType ?? 1)}"`;
+                          // Build description for grouped incentives
+                          let groupedDescription = rawContent.description;
+                          if (notification.type === 2) {
+                            const totalReactions = groupedUsers.reduce((sum, u) => sum + u.incentiveTypes.length, 0);
+                            const firstUser = groupedUsers[0];
+                            const firstName = firstUser?.userNickname ?? notification.userNickname;
+                            const firstIncentiveName = firstUser?.incentiveTypes[0]
+                              ? `"${getIncentiveTypeName(firstUser.incentiveTypes[0])}"`
+                              : `"${getIncentiveTypeName(notification.incentiveType ?? 1)}"`;
 
-                          if (totalReactions === 1) {
-                            // Single reaction — use default description
-                          } else {
-                            const othersCount = totalReactions - 1;
-                            groupedDescription = `${firstName} te deu ${firstIncentiveName} e outras ${othersCount} ${othersCount === 1 ? "reação" : "reações"} ${context}`;
+                            if (totalReactions > 1) {
+                              const othersCount = totalReactions - 1;
+                              groupedDescription = `${firstName} te deu ${firstIncentiveName} e outras ${othersCount} ${othersCount === 1 ? "reação" : "reações"} ${context}`;
+                            }
                           }
-                        }
 
-                        const content = notification.type === 2
-                          ? { ...rawContent, description: groupedDescription }
-                          : rawContent;
-                        const isRead = notification.read === true;
+                          const content = notification.type === 2
+                            ? { ...rawContent, description: groupedDescription }
+                            : rawContent;
+                          const isRead = notification.read === true;
 
-                        return (
-                          <button
-                            key={notification.id}
-                            onClick={() => handleNotificationClick(notification)}
-                            className={`w-full text-left transition-all hover:shadow-md rounded-lg p-4 border ${
-                              isRead
-                                ? "border-transparent bg-transparent hover:bg-muted/30"
-                                : `border ${content.borderColor} ${content.bgColor}`
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              {/* User Avatar — stacked for grouped incentives */}
-                              <div className="flex-shrink-0 relative" style={{ width: groupedCount > 1 ? "52px" : "48px", height: "48px" }}>
-                                {groupedCount > 1 ? (
-                                  <>
-                                    {/* Back avatar (second user or same user repeated) */}
-                                    <UserAvatar
-                                      photo={groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto}
-                                      gender={groupedUsers[1]?.userGender ?? groupedUsers[0]?.userGender}
-                                      nickname={groupedUsers[1]?.userNickname ?? groupedUsers[0]?.userNickname}
-                                      className={`absolute top-0 right-0 h-9 w-9 border-2 ${isRead ? "border-background/60 opacity-50" : "border-background"}`}
-                                    />
-                                    {/* Front avatar (first user) */}
-                                    <UserAvatar
-                                      photo={groupedUsers[0]?.userPhoto}
-                                      gender={groupedUsers[0]?.userGender}
-                                      nickname={groupedUsers[0]?.userNickname}
-                                      className={`absolute bottom-0 left-0 h-9 w-9 border-2 ${isRead ? "border-background/60 opacity-60" : "border-background"}`}
-                                    />
-                                  </>
-                                ) : (
-                                  <UserAvatar
-                                    photo={notification.userPhoto}
-                                    gender={notification.userGender}
-                                    nickname={notification.userNickname}
-                                    className={`h-12 w-12 border ${isRead ? "border-border/20 opacity-60" : "border-border/40"}`}
-                                  />
-                                )}
-                              </div>
-
-                              {/* Content */}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between gap-2 mb-1">
-                                  <div className="flex items-start gap-2 flex-1 min-w-0">
-                                    <div className="flex-shrink-0 mt-0.5">
-                                      {content.icon}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p className={`text-xs font-semibold ${isRead ? "text-foreground/50" : "text-foreground/70"}`}>
-                                        {content.title}
-                                      </p>
-                                      <p className={`text-sm font-medium mt-0.5 ${isRead ? "text-foreground/60" : "text-foreground"}`}>
-                                        {content.description}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <p className={`text-xs flex-shrink-0 whitespace-nowrap ml-2 ${isRead ? "text-muted-foreground/50" : "text-muted-foreground"}`}>
-                                    {formatTimeAgo(notification.createdAt)}
-                                  </p>
-                                </div>
-
-                                {/* Post Thumbnail - only for incentive and comment notifications */}
-                                {notification.postPhoto && (notification.type === 2 || notification.type === 3) && (() => {
-                                  const isVideo = /\.(mp4|webm|mov|avi)(\?|$)/i.test(notification.postPhoto);
-                                  return (
-                                    <div className="mt-3 ml-7">
-                                      {isVideo ? (
-                                        <div className={`h-16 w-16 rounded-md border flex items-center justify-center bg-muted ${isRead ? "border-border/20 opacity-50" : "border-border/40"}`}>
-                                          <Video className="h-6 w-6 text-muted-foreground/60" />
-                                        </div>
-                                      ) : (
-                                        <img
-                                          src={notification.postPhoto}
-                                          alt="Post"
-                                          className={`h-16 w-16 rounded-md object-cover border ${
-                                            isRead
-                                              ? "border-border/20 opacity-50"
-                                              : "border-border/40"
-                                          }`}
-                                        />
+                          return (
+                            <button
+                              key={notification.id}
+                              onClick={() => handleNotificationClick(notification)}
+                              className={`w-full text-left transition-all hover:shadow-md rounded-lg p-4 border ${isRead
+                                  ? "border-transparent bg-transparent hover:bg-muted/30"
+                                  : `border ${content.borderColor} ${content.bgColor}`
+                                }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                {/* User Avatar — stacked for grouped incentives */}
+                                <div className="flex-shrink-0 relative" style={{ width: groupedCount > 1 ? "52px" : "48px", height: "48px" }}>
+                                  {groupedCount > 1 ? (
+                                    <>
+                                      {/* Back avatar (second user or same user repeated) */}
+                                      <UserAvatar
+                                        photo={groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto}
+                                        gender={groupedUsers[1]?.userGender ?? groupedUsers[0]?.userGender}
+                                        nickname={groupedUsers[1]?.userNickname ?? groupedUsers[0]?.userNickname}
+                                        className={`absolute top-0 right-0 h-9 w-9 border-2 ${isRead ? "border-background/60 opacity-50" : "border-background"}`}
+                                      />
+                                      {/* Front avatar (first user) */}
+                                      <UserAvatar
+                                        photo={groupedUsers[0]?.userPhoto}
+                                        gender={groupedUsers[0]?.userGender}
+                                        nickname={groupedUsers[0]?.userNickname}
+                                        className={`absolute bottom-0 left-0 h-9 w-9 border-2 ${isRead ? "border-background/60 opacity-60" : "border-background"}`}
+                                      />
+                                    </>
+                                  ) : (
+                                    <div className="relative">
+                                      <UserAvatar
+                                        photo={notification.userPhoto}
+                                        gender={notification.userGender}
+                                        nickname={notification.userNickname}
+                                        className={`h-12 w-12 border ${isRead ? "border-border/20 opacity-60" : "border-border/40"}`}
+                                      />
+                                      {notification.isVerified && (
+                                        <span className="absolute -bottom-0.5 -right-0.5">
+                                          <VerifiedBadge size="sm" />
+                                        </span>
                                       )}
                                     </div>
-                                  );
-                                })()}
+                                  )}
+                                </div>
+
+                                {/* Content */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between gap-2 mb-1">
+                                    <div className="flex items-start gap-2 flex-1 min-w-0">
+                                      <div className="flex-shrink-0 mt-0.5">
+                                        {content.icon}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className={`text-xs font-semibold ${isRead ? "text-foreground/50" : "text-foreground/70"}`}>
+                                          {content.title}
+                                        </p>
+                                        <p className={`text-sm font-medium mt-0.5 ${isRead ? "text-foreground/60" : "text-foreground"}`}>
+                                          {content.description}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <p className={`text-xs flex-shrink-0 whitespace-nowrap ml-2 ${isRead ? "text-muted-foreground/50" : "text-muted-foreground"}`}>
+                                      {formatTimeAgo(notification.createdAt)}
+                                    </p>
+                                  </div>
+
+                                  {/* Post Thumbnail - only for incentive and comment notifications */}
+                                  {notification.postPhoto && (notification.type === 2 || notification.type === 3) && (() => {
+                                    const isVideo = /\.(mp4|webm|mov|avi)(\?|$)/i.test(notification.postPhoto);
+                                    return (
+                                      <div className="mt-3 ml-7">
+                                        {isVideo ? (
+                                          <div className={`h-16 w-16 rounded-md border flex items-center justify-center bg-muted ${isRead ? "border-border/20 opacity-50" : "border-border/40"}`}>
+                                            <Video className="h-6 w-6 text-muted-foreground/60" />
+                                          </div>
+                                        ) : (
+                                          <img
+                                            src={notification.postPhoto}
+                                            alt="Post"
+                                            className={`h-16 w-16 rounded-md object-cover border ${isRead
+                                                ? "border-border/20 opacity-50"
+                                                : "border-border/40"
+                                              }`}
+                                          />
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
                               </div>
-                            </div>
-                          </button>
-                        );
-                      })}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                );
-              });
-            })()}
+                  );
+                });
+              })()}
             </div>
           </div>
         )}

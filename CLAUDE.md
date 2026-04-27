@@ -257,6 +257,39 @@ style={{
 
 ---
 
+## 11. Internacionalização / Traduções (Obrigatório)
+
+O app suporta PT e EN via `client/lib/i18n.ts` + `client/lib/language-context.tsx`. **Toda string visível ao usuário deve usar o sistema de tradução** — nunca texto hardcoded em português ou inglês diretamente no JSX ou em chamadas de `toast()`.
+
+### Como funciona
+
+- Todas as chaves ficam em `client/lib/i18n.ts`, nos objetos `translations.pt` e `translations.en`
+- Nos componentes: `const { t } = useLanguage()` → `t("chave")`
+- Nos toasts: `toast({ title: t("chave"), description: t("outra_chave") })`
+
+### Regras obrigatórias
+
+1. **Nova tela ou feature** → adicionar todas as strings novas em `i18n.ts` nas duas línguas (pt e en) antes de implementar
+2. **Tela existente sem tradução** → ao tocar na tela por qualquer motivo, verificar se há strings hardcoded e traduzi-las na mesma tarefa
+3. **Nunca** escrever texto em PT ou EN diretamente em JSX — qualquer string que o usuário veja deve ter uma chave em `i18n.ts`
+4. **Nomes de chaves**: usar prefixo da tela/contexto (ex: `profile_`, `goals_`, `feed_`, `shots_`, `settings_`, `community_`)
+5. **Strings com variáveis**: usar `{placeholder}` na chave e `.replace("{x}", valor)` no código (ex: `t("profile_incentives_label").replace("{n}", String(count))`)
+
+### Checklist ao implementar qualquer coisa
+
+```
+- [ ] Todos os textos visíveis ao usuário usam t("chave")?
+- [ ] As chaves foram adicionadas tanto em translations.pt quanto em translations.en?
+- [ ] Toasts de sucesso e erro usam t()?
+- [ ] Placeholders de inputs usam t()?
+- [ ] Títulos de dialogs/drawers usam t()?
+- [ ] Mensagens de estado vazio usam t()?
+```
+
+> **Regra:** Ao encontrar qualquer string hardcoded em português em qualquer tela que você tocar durante uma tarefa, traduza na mesma entrega. Não deixe para depois.
+
+---
+
 ## 10. Database Schema (Obrigatório)
 
 **Sempre que uma nova tabela for criada, sugerida ou alterada**, atualizar `docs/14-database-schema.md`.

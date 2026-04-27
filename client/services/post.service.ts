@@ -16,6 +16,7 @@ export type PostWithStats = PostWithLikes & {
   userNickname: string;
   userPhoto: string | null;
   userGender?: string | null;
+  isVerified?: boolean;
   userGoal?: {
     id: string;
     goal_id: string;
@@ -118,6 +119,7 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
       userNickname: profile?.nickname || "Usuário",
       userPhoto: profile?.photo || null,
       userGender: profile?.gender || null,
+      isVerified: profile?.is_verified === true,
       userGoal,
     };
   });
@@ -206,6 +208,7 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
       userNickname: profile?.nickname || "Usuário",
       userPhoto: profile?.photo || null,
       userGender: profile?.gender || null,
+      isVerified: profile?.is_verified === true,
       userGoal,
     };
   });
@@ -251,9 +254,10 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
   return posts;
 };
 
-export const togglePostLike = async (
+export const togglePostLike = (
   postId: string,
   incentiveType: PostIncentiveType,
+  wantActive: boolean,
 ) => {
-  await togglePostIncentiveDb(postId, incentiveType);
+  togglePostIncentiveDb(postId, incentiveType, wantActive);
 };

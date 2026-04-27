@@ -222,41 +222,53 @@ export type PostWithLikes = {
   userLikes: PostIncentiveType[]; // Types the current user has liked with
 };
 
-export async function togglePostIncentiveDb(
+// Debounce store: key = `${postId}:${type}` → { timer, wantActive }
+// Delays DB writes by 5 s so that multiple incentives given quickly
+// are flushed together, resulting in a single burst of DB inserts and
+// therefore a single grouped notification on the recipient's side.
+const _incentivePending = new Map<string, { timer: ReturnType<typeof setTimeout>; wantActive: boolean }>();
+
+export function togglePostIncentiveDb(
   postId: string,
   incentiveType: PostIncentiveType,
-) {
+  wantActive: boolean,
+): void {
   if (!hasSupabaseConfig || !supabase) return;
 
-  const viewer = await getViewer();
-  if (!viewer) return;
+  const key = `${postId}:${incentiveType}`;
 
-  const { data: existing } = await supabase
-    .from("likes")
-    .select("id")
-    .eq("post_id", postId)
-    .eq("user_id", viewer.id)
-    .eq("type", incentiveType)
-    .maybeSingle();
+  const prev = _incentivePending.get(key);
+  if (prev) clearTimeout(prev.timer);
 
-  if (existing?.id) {
-    // Remove the like
-    const { error: deleteError } = await supabase
+  const timer = setTimeout(async () => {
+    _incentivePending.delete(key);
+    const viewer = await getViewer();
+    if (!viewer) return;
+
+    const { data: existing } = await supabase
       .from("likes")
-      .delete()
-      .eq("id", existing.id);
-    if (deleteError) throw deleteError;
-  } else {
-    // Add the like
-    const { error: insertError } = await supabase.from("likes").insert({
-      post_id: postId,
-      user_id: viewer.id,
-      type: incentiveType,
-    });
-    if (insertError) throw insertError;
-  }
+      .select("id")
+      .eq("post_id", postId)
+      .eq("user_id", viewer.id)
+      .eq("type", incentiveType)
+      .maybeSingle();
 
-  invalidateQueryCache("postLikes");
+    if (wantActive && !existing?.id) {
+      const { error } = await supabase.from("likes").insert({
+        post_id: postId,
+        user_id: viewer.id,
+        type: incentiveType,
+      });
+      if (error) console.error("Error inserting incentive:", error);
+    } else if (!wantActive && existing?.id) {
+      const { error } = await supabase.from("likes").delete().eq("id", existing.id);
+      if (error) console.error("Error deleting incentive:", error);
+    }
+
+    invalidateQueryCache("postLikes");
+  }, 5000);
+
+  _incentivePending.set(key, { timer, wantActive });
 }
 
 export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {
@@ -470,14 +482,14 @@ export async function getCommentCountsBatchDb(
  */
 export async function getProfilesBatchDb(
   userIds: string[],
-): Promise<Map<string, { nickname: string; photo: string | null; gender: string | null }>> {
-  const result = new Map<string, { nickname: string; photo: string | null; gender: string | null }>();
+): Promise<Map<string, { nickname: string; photo: string | null; gender: string | null; is_verified: boolean }>> {
+  const result = new Map<string, { nickname: string; photo: string | null; gender: string | null; is_verified: boolean }>();
   if (!userIds.length || !hasSupabaseConfig || !supabase) return result;
 
   const uniqueIds = [...new Set(userIds)];
   const { data } = await supabase
     .from("profiles")
-    .select("user_id, nickname, photo, gender")
+    .select("user_id, nickname, photo, gender, is_verified")
     .in("user_id", uniqueIds);
 
   for (const row of data ?? []) {
@@ -485,6 +497,7 @@ export async function getProfilesBatchDb(
       nickname: row.nickname ?? "Usuário",
       photo: row.photo ?? null,
       gender: row.gender ?? null,
+      is_verified: row.is_verified === true,
     });
   }
 
@@ -513,6 +526,7 @@ export type PostComment = {
   userGender: string | null;
   text: string;
   createdAt: string;
+  isVerified?: boolean;
 };
 
 export async function addPostCommentDb(postId: string, text: string) {
@@ -563,11 +577,11 @@ export async function getPostCommentsDb(
   const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("user_id, nickname, handle, photo, gender")
+    .select("user_id, nickname, handle, photo, gender, is_verified")
     .in("user_id", userIds);
 
   const profileMap = new Map(
-    (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo ?? null, gender: p.gender ?? null }]),
+    (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo ?? null, gender: p.gender ?? null, is_verified: p.is_verified === true }]),
   );
 
   return rows.map(
@@ -583,6 +597,7 @@ export async function getPostCommentsDb(
         userGender: profile?.gender ?? null,
         text: String(row.text ?? ""),
         createdAt: String(row.created_at ?? new Date().toISOString()),
+        isVerified: profile?.is_verified ?? false,
       } satisfies PostComment;
     },
   );
@@ -1086,6 +1101,7 @@ export type UserProfile = {
   height?: string | null;
   weight?: string | null;
   age?: string | null;
+  is_verified?: boolean;
 };
 
 export async function getUserProfileDb(
@@ -1100,7 +1116,7 @@ export async function getUserProfileDb(
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, nickname, bio, photo, objectives, gender, height, weight, age, handle")
+    .select("id, nickname, bio, photo, objectives, gender, height, weight, age, handle, is_verified")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -1127,6 +1143,7 @@ export async function getUserProfileDb(
     height: data.height != null ? String(data.height) : null,
     weight: data.weight != null ? String(data.weight) : null,
     age: data.age != null ? String(data.age) : null,
+    is_verified: data.is_verified === true,
   };
 
   _profileCache.set(userId, { data: profile, expiry: Date.now() + PROFILE_CACHE_TTL_MS });
@@ -1214,6 +1231,7 @@ export type PostWithUser = {
   userNickname: string;
   userPhoto: string | null;
   userGender?: string | null;
+  isVerified?: boolean;
 };
 
 export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
@@ -1237,6 +1255,7 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   const userNickname = userProfile?.nickname || "Usuário";
   const userPhoto = userProfile?.photo || null;
   const userGender = userProfile?.gender || null;
+  const isVerified = userProfile?.is_verified === true;
 
   return (data ?? []).map((row: any) => ({
     id: String(row.id ?? ""),
@@ -1248,6 +1267,7 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     userNickname,
     userPhoto,
     userGender,
+    isVerified,
   }));
 
   });
@@ -1278,6 +1298,7 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
     userNickname: userProfile?.nickname || "Usuário",
     userPhoto: userProfile?.photo || null,
     userGender: userProfile?.gender || null,
+    isVerified: userProfile?.is_verified === true,
   };
 
   });
@@ -2117,6 +2138,7 @@ export type UserWorkoutWithDetails = {
   muscle_group?: string | null;
   created_at?: string | null;
   scheduled_time?: string | null;
+  notes?: string | null;
 };
 
 export async function getUserWorkoutsDb(
@@ -2127,7 +2149,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, name, created_at, scheduled_time, workouts(name, photo, description, muscle_group)",
+      "id, workout_id, user_id, name, created_at, scheduled_time, notes, workouts(name, photo, description, muscle_group)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -2188,6 +2210,7 @@ export async function getUserWorkoutsDb(
             muscle_group: workoutDetails?.muscle_group || null,
             created_at: row.created_at ? String(row.created_at) : null,
             scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
+            notes: row.notes ? String(row.notes) : null,
           };
         });
       } else if (errorFallback) {
@@ -2215,6 +2238,7 @@ export async function getUserWorkoutsDb(
     muscle_group: (row.workouts as any)?.muscle_group || null,
     created_at: row.created_at ? String(row.created_at) : null,
     scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
+    notes: row.notes ? String(row.notes) : null,
   }));
 
   });
@@ -4039,6 +4063,7 @@ export type Conversation = {
   lastMessage: string;
   lastMessageTime: string;
   unreadCount: number;
+  isVerified?: boolean;
 };
 
 export async function uploadMessageAudioDb(blob: Blob): Promise<string> {
@@ -4149,12 +4174,12 @@ export async function getConversationsDb(): Promise<Conversation[]> {
 
     // Batch-fetch all conversation partner profiles in a single query
     const otherUserIds = Array.from(conversationMap.keys()).filter(Boolean);
-    const profileMap = new Map<string, { nickname: string; photo: string | null; gender: string | null; bio: string | null }>();
+    const profileMap = new Map<string, { nickname: string; photo: string | null; gender: string | null; bio: string | null; is_verified: boolean }>();
 
     if (otherUserIds.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender, bio")
+        .select("user_id, nickname, photo, gender, bio, is_verified")
         .in("user_id", otherUserIds);
 
       (profiles ?? []).forEach((p: any) => {
@@ -4163,6 +4188,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
           photo: p.photo ? String(p.photo) : null,
           gender: p.gender ? String(p.gender) : null,
           bio: p.bio ? String(p.bio) : null,
+          is_verified: p.is_verified === true,
         });
       });
     }
@@ -4171,7 +4197,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     const conversations: Conversation[] = [];
 
     for (const [userId, msgs] of conversationMap.entries()) {
-      const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null, gender: null, bio: null };
+      const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null, gender: null, bio: null, is_verified: false };
       const unreadCount = msgs.filter(
         (msg) => msg.following_id === viewer.id && msg.read === 0,
       ).length;
@@ -4182,6 +4208,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
         userPhoto: profile.photo,
         userGender: profile.gender,
         userBio: profile.bio,
+        isVerified: profile.is_verified,
         lastMessage: msgs[0]?.text || "",
         lastMessageTime: msgs[0]?.created_at || new Date().toISOString(),
         unreadCount,
@@ -4653,9 +4680,11 @@ export type Shot = {
 
 export type ShotWithUser = Shot & {
   userNickname: string;
+  userHandle?: string | null;
   userPhoto: string | null;
   userGender?: string | null;
   commentCount?: number;
+  isVerified?: boolean;
 };
 
 export async function getShotsDb(): Promise<ShotWithUser[]> {
@@ -4689,7 +4718,7 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
     const [profilesResult, likesResult, commentsResult] = await Promise.all([
       supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender")
+        .select("user_id, nickname, handle, photo, gender, is_verified")
         .in("user_id", uniqueUserIds),
       supabase
         .from("shots_likes")
@@ -4714,7 +4743,7 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
     const profileMap = new Map(
       profiles.map((p: any) => [
         p.user_id,
-        { nickname: p.nickname, photo: p.photo, gender: p.gender },
+        { nickname: p.nickname, handle: p.handle, photo: p.photo, gender: p.gender, is_verified: p.is_verified === true },
       ]),
     );
 
@@ -4762,8 +4791,10 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
       (shot: any) => {
         const userProfile = profileMap.get(String(shot.user_id)) || {
           nickname: "Usuário",
+          handle: null,
           photo: null,
           gender: null,
+          is_verified: false,
         };
         const likeData = likesMap.get(String(shot.id)) || {
           likes: { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 },
@@ -4780,8 +4811,10 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
           userLikes: likeData.userLikes,
           commentCount: commentCountMap.get(String(shot.id)) ?? 0,
           userNickname: String(userProfile.nickname ?? "Usuário"),
+          userHandle: userProfile.handle ? String(userProfile.handle) : null,
           userPhoto: userProfile.photo ? String(userProfile.photo) : null,
           userGender: userProfile.gender ? String(userProfile.gender) : null,
+          isVerified: (userProfile as any).is_verified === true,
         };
       },
     );
@@ -5100,16 +5133,16 @@ export async function getShotCommentsDb(
     // Batch-fetch all commenter profiles in a single query
     const commentList = data ?? [];
     const uniqueUserIds = [...new Set(commentList.map((r: any) => r.user_id).filter(Boolean))];
-    const profileMap = new Map<string, { nickname: string; photo: string | null; gender: string | null }>();
+    const profileMap = new Map<string, { nickname: string; handle: string | null; photo: string | null; gender: string | null }>();
 
     if (uniqueUserIds.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender")
+        .select("user_id, nickname, handle, photo, gender")
         .in("user_id", uniqueUserIds);
 
       (profiles ?? []).forEach((p: any) => {
-        profileMap.set(String(p.user_id), { nickname: p.nickname ?? "Usuário", photo: p.photo ?? null, gender: p.gender ?? null });
+        profileMap.set(String(p.user_id), { nickname: p.nickname ?? "Usuário", handle: p.handle ?? null, photo: p.photo ?? null, gender: p.gender ?? null });
       });
     }
 
@@ -5120,7 +5153,7 @@ export async function getShotCommentsDb(
         shotId: String(row.shots_id),
         userId: String(row.user_id),
         userName: profile?.nickname ?? String(row.user_name ?? "Usuário"),
-        userHandle: String(row.user_handle ?? "user"),
+        userHandle: profile?.handle ?? String(row.user_handle ?? "user"),
         userPhoto: profile?.photo ?? null,
         userGender: profile?.gender ?? null,
         text: String(row.text ?? ""),
@@ -5348,6 +5381,21 @@ export async function toggleUserHabitCompletionDb(
   invalidateQueryCache("userHabits");
 }
 
+export async function updateWorkoutNotesDb(
+  notes: Array<{ userWorkoutId: string; note: string }>,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase || notes.length === 0) return;
+  await Promise.all(
+    notes.map(({ userWorkoutId, note }) =>
+      supabase
+        .from("user_workouts")
+        .update({ notes: note || null })
+        .eq("id", userWorkoutId),
+    ),
+  );
+  invalidateQueryCache("userWorkouts");
+}
+
 // Update existing workout records instead of creating duplicates
 export async function updateWorkoutSeriesDb(
   workoutRecords: Array<{
@@ -5451,6 +5499,7 @@ export type NotificationItem = {
   userNickname: string;
   userPhoto: string | null;
   userGender?: string | null;
+  isVerified?: boolean;
   postId?: string;
   shotId?: string; // Present when notification relates to a shot (from shots_id column in notifications)
   flowId?: string; // Present when type=6 and reaction was on a flow comment (decoded from shots_id "flow:<id>")
@@ -5516,7 +5565,7 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     const [profilesResult, postsResult, shotNotifResult, groupsResult, flowsResult] = await Promise.all([
       safeQuery(supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender")
+        .select("user_id, nickname, photo, gender, is_verified")
         .in("user_id", followerIds)),
       postIds.length > 0
         ? safeQuery(supabase
@@ -5689,6 +5738,7 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           userNickname: profile.nickname,
           userPhoto: profile.photo,
           userGender: profile.gender ?? null,
+          isVerified: profile.is_verified === true,
           createdAt: notif.created_at,
           read: notif.read ?? false,
         };
@@ -6170,7 +6220,7 @@ export async function getUserShotsDb(userId: string): Promise<ShotWithUser[]> {
     // Get user profile
     const { data: profileData, error: profileError } = await supabase
       .from("profiles")
-      .select("user_id, nickname, photo, gender")
+      .select("user_id, nickname, handle, photo, gender")
       .eq("user_id", userId)
       .single();
 
@@ -6243,6 +6293,7 @@ export async function getUserShotsDb(userId: string): Promise<ShotWithUser[]> {
       return {
         ...shot,
         userNickname: profileData?.nickname || "Usuário",
+        userHandle: profileData?.handle || null,
         userPhoto: profileData?.photo || null,
         userGender: profileData?.gender || null,
         likes,
@@ -7015,6 +7066,59 @@ export async function getWorkoutHistoriesBatchDb(
 }
 
 /**
+ * For each workout_id, returns the series from the most recent completed session.
+ * Each series is returned as { kg, reps } in the order they were saved.
+ * Used to pre-populate the workout modal with the user's last performance.
+ */
+export async function getLastWorkoutSessionSeriesDb(
+  userId: string,
+  workoutIds: string[],
+): Promise<Record<string, Array<{ kg: number; reps: number }>>> {
+  if (!hasSupabaseConfig || !supabase || workoutIds.length === 0) return {};
+
+  try {
+    const { data, error } = await supabase
+      .from("user_workouts_hist")
+      .select("id, workout_id, kilos, volume, date_completed")
+      .eq("user_id", userId)
+      .in("workout_id", workoutIds)
+      .order("date_completed", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(workoutIds.length * 20);
+
+    if (error || !data) return {};
+
+    // Group rows by workout_id, then pick the most recent session
+    // A "session" = rows whose date_completed is within 2 hours of the first (latest) row for that workout
+    const result: Record<string, Array<{ kg: number; reps: number }>> = {};
+
+    for (const workoutId of workoutIds) {
+      const rows = (data as any[]).filter((r) => String(r.workout_id) === workoutId);
+      if (rows.length === 0) continue;
+
+      const latestTime = new Date(rows[0].date_completed).getTime();
+      const sessionRows = rows.filter(
+        (r) => latestTime - new Date(r.date_completed).getTime() < 2 * 60 * 60 * 1000,
+      );
+
+      // Sort by id ascending to restore the original insertion order
+      sessionRows.sort((a, b) => Number(a.id) - Number(b.id));
+
+      result[workoutId] = sessionRows.map((r) => {
+        const kg = r.kilos != null ? Number(r.kilos) : 0;
+        const repsRaw = r.volume ? String(r.volume).replace(/[^0-9.]/g, "") : "0";
+        const reps = repsRaw ? Number(repsRaw) : 0;
+        return { kg, reps };
+      });
+    }
+
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Returns the most recent date_completed for each user_workout_id (routine).
  * Used to display "last executed" date on exercise routine cards.
  * Returns a map of user_workout_id → ISO date string of last execution.
@@ -7196,6 +7300,24 @@ export async function hasCompletedRoutineToday(userId: string): Promise<boolean>
 }
 
 // Group and Check-in Types
+export type DuelScoringType =
+  | "active_days"
+  | "hustle_points"
+  | "check_in_count"
+  | "duration"
+  | "distance"
+  | "steps"
+  | "calories"
+  | "memes";
+
+export type DuelCheckInVoteType = "classify" | "disqualify";
+
+export type DuelCheckInVote = {
+  checkInId: string;
+  userId: string;
+  voteType: DuelCheckInVoteType;
+};
+
 export type DuelGroup = {
   id: string;
   createdBy: string;
@@ -7207,6 +7329,8 @@ export type DuelGroup = {
   createdAt: string;
   updatedAt?: string;
   endDate?: string;
+  scoringType: DuelScoringType;
+  memeRule?: string | null;
 };
 
 export type CompletedRoutineExercise = {
@@ -7359,6 +7483,10 @@ export type GroupCheckIn = {
   exercises: CompletedRoutineExercise[];
   series: number;
   volume: number;
+  durationMinutes?: number | null;
+  distanceKm?: number | null;
+  steps?: number | null;
+  calories?: number | null;
   createdAt: string;
 };
 
@@ -7369,7 +7497,9 @@ export async function createDuelGroupDb(
   location: string,
   goal: string,
   members: string[],
-  endDate?: string
+  endDate?: string,
+  scoringType: DuelScoringType = "check_in_count",
+  memeRule?: string
 ): Promise<DuelGroup> {
   if (!supabase) throw new Error("Supabase not configured");
 
@@ -7384,6 +7514,8 @@ export async function createDuelGroupDb(
         goal,
         end_date: endDate || null,
         icon: "⚔️",
+        scoring_type: scoringType,
+        meme_rule: memeRule || null,
       })
       .select()
       .single();
@@ -7430,6 +7562,8 @@ export async function createDuelGroupDb(
       createdAt: groupData.created_at,
       updatedAt: groupData.updated_at,
       endDate: groupData.end_date,
+      scoringType: (groupData.scoring_type as DuelScoringType) || "check_in_count",
+      memeRule: groupData.meme_rule || null,
     };
   } catch (error: any) {
     const errorMsg = error?.message || JSON.stringify(error);
@@ -7465,6 +7599,8 @@ export async function getDuelGroupDb(groupId: string): Promise<DuelGroup | null>
       createdAt: data.created_at,
       updatedAt: data.updated_at,
       endDate: data.end_date,
+      scoringType: (data.scoring_type as DuelScoringType) || "check_in_count",
+      memeRule: data.meme_rule || null,
     };
   } catch (error) {
     console.error("Error getting duel group:", error);
@@ -7496,6 +7632,8 @@ export async function getUserCreatedDuelGroupsDb(userId: string): Promise<DuelGr
       createdAt: group.created_at,
       updatedAt: group.updated_at,
       endDate: group.end_date,
+      scoringType: (group.scoring_type as DuelScoringType) || "check_in_count",
+      memeRule: group.meme_rule || null,
     }));
   } catch (error) {
     console.error("Error getting user created groups:", error);
@@ -7527,6 +7665,8 @@ export async function getAvailableDuelGroupsDb(userId: string): Promise<DuelGrou
       createdAt: group.created_at,
       updatedAt: group.updated_at,
       endDate: group.end_date,
+      scoringType: (group.scoring_type as DuelScoringType) || "check_in_count",
+      memeRule: group.meme_rule || null,
     }));
   } catch (error) {
     console.error("Error getting available groups:", error);
@@ -7557,14 +7697,14 @@ export async function getEnrichedDuelGroupsDb(
       // My created groups
       supabase
         .from("duel_groups")
-        .select("id, created_by, name, location, goal, icon, photo, created_at, updated_at, end_date")
+        .select("id, created_by, name, location, goal, icon, photo, created_at, updated_at, end_date, scoring_type")
         .eq("created_by", userId)
         .order("created_at", { ascending: false }),
 
       // Available groups (not created by me)
       supabase
         .from("duel_groups")
-        .select("id, created_by, name, location, goal, icon, photo, created_at, updated_at, end_date")
+        .select("id, created_by, name, location, goal, icon, photo, created_at, updated_at, end_date, scoring_type")
         .neq("created_by", userId)
         .order("created_at", { ascending: false }),
 
@@ -7622,6 +7762,8 @@ export async function getEnrichedDuelGroupsDb(
       createdAt: g.created_at,
       updatedAt: g.updated_at,
       endDate: g.end_date,
+      scoringType: (g.scoring_type as DuelScoringType) || "check_in_count",
+      memeRule: g.meme_rule || null,
     });
 
     // Groups where user is a participant (accepted, not created by user)
@@ -7635,7 +7777,7 @@ export async function getEnrichedDuelGroupsDb(
     if (participantOnlyGroupIds.length > 0) {
       const { data: pgData } = await supabase
         .from("duel_groups")
-        .select("id, created_by, name, location, goal, icon, photo, created_at, updated_at, end_date")
+        .select("id, created_by, name, location, goal, icon, photo, created_at, updated_at, end_date, scoring_type")
         .in("id", participantOnlyGroupIds);
       participantGroups = pgData ?? [];
     }
@@ -7746,6 +7888,8 @@ export async function getFollowingGroupsDb(): Promise<DuelGroup[]> {
       createdAt: group.created_at,
       updatedAt: group.updated_at,
       endDate: group.end_date,
+      scoringType: (group.scoring_type as DuelScoringType) || "check_in_count",
+      memeRule: group.meme_rule || null,
     }));
   } catch (error) {
     console.error("Error getting following groups:", error);
@@ -7784,6 +7928,8 @@ export async function getUserDuelGroupsDb(userId: string): Promise<DuelGroup[]> 
       createdAt: group.created_at,
       updatedAt: group.updated_at,
       endDate: group.end_date,
+      scoringType: (group.scoring_type as DuelScoringType) || "check_in_count",
+      memeRule: group.meme_rule || null,
     }));
   } catch (error) {
     console.error("Error getting user groups:", error);
@@ -7835,6 +7981,10 @@ export async function addGroupCheckInDb(
   muscleGroup: string | null = null,
   exercises: CompletedRoutineExercise[] = [],
   photos: string[] = [],
+  durationMinutes: number | null = null,
+  distanceKm: number | null = null,
+  steps: number | null = null,
+  calories: number | null = null,
 ): Promise<GroupCheckIn> {
   if (!supabase) throw new Error("Supabase not configured");
 
@@ -7862,6 +8012,10 @@ export async function addGroupCheckInDb(
         volume,
         muscle_group: muscleGroup,
         exercises: JSON.stringify(exercises),
+        duration_minutes: durationMinutes,
+        distance_km: distanceKm,
+        steps,
+        calories,
       })
       .select()
       .single();
@@ -7884,6 +8038,10 @@ export async function addGroupCheckInDb(
       exercises,
       series: data.series || 0,
       volume: data.volume || 0,
+      durationMinutes: data.duration_minutes ?? null,
+      distanceKm: data.distance_km ?? null,
+      steps: data.steps ?? null,
+      calories: data.calories ?? null,
       createdAt: data.created_at,
     };
   } catch (error) {
@@ -7901,7 +8059,7 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
   try {
     const { data, error } = await supabase
       .from("duel_check_ins")
-      .select("id, group_id, user_id, user_name, photo, description, workout_info, muscle_group, created_at")
+      .select("id, group_id, user_id, user_name, photo, description, workout_info, muscle_group, series, volume, duration_minutes, distance_km, steps, calories, created_at")
       .eq("group_id", groupId)
       .order("created_at", { ascending: false })
       .limit(50);
@@ -7941,8 +8099,12 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
         workoutInfo: checkIn.workout_info || "",
         muscleGroup: checkIn.muscle_group || null,
         exercises: [],
-        series: 0,
-        volume: 0,
+        series: checkIn.series || 0,
+        volume: checkIn.volume || 0,
+        durationMinutes: checkIn.duration_minutes ?? null,
+        distanceKm: checkIn.distance_km ?? null,
+        steps: checkIn.steps ?? null,
+        calories: checkIn.calories ?? null,
         createdAt: checkIn.created_at,
       };
     });
@@ -8084,6 +8246,51 @@ export async function deleteGroupCheckInDb(checkInId: string): Promise<void> {
   }
 
   invalidateQueryCache("groupCheckIns");
+}
+
+// Fetch all votes for check-ins in a group (for "memes" scoring mode)
+export async function getCheckInVotesDb(groupId: string): Promise<DuelCheckInVote[]> {
+  if (!supabase) return [];
+  try {
+    // Join through duel_check_ins to filter by group
+    const { data, error } = await supabase
+      .from("duel_check_in_votes")
+      .select("check_in_id, user_id, vote_type, duel_check_ins!inner(group_id)")
+      .eq("duel_check_ins.group_id", groupId);
+
+    if (error || !data) return [];
+    return (data as any[]).map((v) => ({
+      checkInId: v.check_in_id,
+      userId: v.user_id,
+      voteType: v.vote_type as DuelCheckInVoteType,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// Set (or remove) a vote on a check-in. Pass null to remove.
+export async function setCheckInVoteDb(
+  checkInId: string,
+  voteType: DuelCheckInVoteType | null
+): Promise<void> {
+  if (!supabase) throw new Error("Supabase not configured");
+  const viewer = await getViewer();
+  if (!viewer) throw new Error("Not authenticated");
+
+  if (voteType === null) {
+    const { error } = await supabase
+      .from("duel_check_in_votes")
+      .delete()
+      .eq("check_in_id", checkInId)
+      .eq("user_id", viewer.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from("duel_check_in_votes")
+      .upsert({ check_in_id: checkInId, user_id: viewer.id, vote_type: voteType }, { onConflict: "check_in_id,user_id" });
+    if (error) throw error;
+  }
 }
 
 // Add members to a duel group
@@ -8398,6 +8605,25 @@ export async function deleteGroupDb(groupId: string): Promise<void> {
 
 // ─── Access Session Tracking ────────────────────────────────────────────────
 
+export async function recordScreenTimeDb(
+  userId: string,
+  screen: string,
+  durationSeconds: number
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  if (durationSeconds < 3) return;
+  try {
+    await supabase.from("screen_time_logs").insert({
+      user_id: userId,
+      screen,
+      duration_seconds: durationSeconds,
+      log_date: new Date().toISOString().split("T")[0],
+    });
+  } catch (err) {
+    console.error("Error recording screen time:", err);
+  }
+}
+
 export async function recordAccessSessionDb(userId: string, durationSeconds: number): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
   try {
@@ -8430,6 +8656,7 @@ export async function deleteAllUserDataDb(userId: string): Promise<void> {
   // ── Batch 1: leaf tables with no children ───────────────────────────────
   await Promise.all([
     del("access_sessions", "user_id", userId),
+    del("screen_time_logs", "user_id", userId),
     del("check_ins", "user_id", userId),
     del("flow_complaint", "user_id", userId),
     del("flow_user_viewed", "user_id", userId),
@@ -8786,6 +9013,8 @@ export type CheckInReaction = {
   checkInId: string;
   userId: string;
   emoji: string;
+  userName?: string;
+  userPhoto?: string | null;
 };
 
 export async function getCheckInReactionsDb(checkInIds: string[]): Promise<Record<string, CheckInReaction[]>> {
@@ -8808,6 +9037,45 @@ export async function getCheckInReactionsDb(checkInIds: string[]): Promise<Recor
   }
 
   });
+}
+
+export type CheckInReactionWithUser = {
+  userId: string;
+  emoji: string;
+  userName: string;
+  userPhoto: string | null;
+};
+
+export async function getCheckInReactionUsersDb(checkInId: string): Promise<CheckInReactionWithUser[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+  try {
+    const { data: reactions } = await supabase
+      .from("duel_check_in_reactions")
+      .select("user_id, emoji")
+      .eq("check_in_id", checkInId);
+
+    if (!reactions || reactions.length === 0) return [];
+
+    const userIds = reactions.map((r) => r.user_id);
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, photo")
+      .in("user_id", userIds);
+
+    const profileMap: Record<string, { nickname: string; photo: string | null }> = {};
+    for (const p of profiles ?? []) {
+      profileMap[p.user_id] = { nickname: p.nickname, photo: p.photo };
+    }
+
+    return reactions.map((r) => ({
+      userId: r.user_id,
+      emoji: r.emoji,
+      userName: profileMap[r.user_id]?.nickname ?? "Usuário",
+      userPhoto: profileMap[r.user_id]?.photo ?? null,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export async function setCheckInReactionDb(checkInId: string, emoji: string | null): Promise<void> {
@@ -8966,6 +9234,32 @@ export async function getAccessSessionsDb(userId: string, days: number = 30): Pr
 // Badge / Insígnia Functions
 // ============================================================
 
+export type BadgeConditionType =
+  | 'checkin_total'         // total acumulado de check-ins
+  | 'checkin_week'          // check-ins na semana atual (Dom–Sáb)
+  | 'checkin_streak'        // dias consecutivos de check-in
+  | 'checkin_after_midnight'// check-in realizado entre 00:00 e 05:59
+  | 'checkin_before_time'   // check-in antes de hora X (condition_metadata.hour)
+  | 'checkin_comeback'      // primeiro check-in após ≥7 dias sem atividade
+  | 'workout_week'          // treinos realizados na semana atual
+  | 'workout_type'          // treinos de tipo específico (condition_metadata.type)
+  | 'nutrition_hydration'   // meta de hidratação (awardNutritionBadgesDb)
+  | 'nutrition_week'        // semana nutritiva (awardNutritionBadgesDb)
+  | 'nutrition_no_ultra'    // sem ultraprocessados (awardNutritionBadgesDb)
+  | 'nutrition_no_sugar'    // sem açúcar
+  | 'nutrition_protein'     // meta de proteína
+  | 'nutrition_home_food'   // comida caseira
+  | 'nutrition_fruits'      // consumo de frutas
+  | 'habit_sleep'           // sono regulado
+  | 'habit_no_alcohol'      // sem álcool
+  | 'habit_meditation'      // meditação
+  | 'habit_steps'           // 10k passos
+  | 'habit_perfect_week'    // semana perfeita de hábitos
+  | 'habit_perfect_day'     // dia perfeito de hábitos
+  | 'habit_perfect_30d'     // 30 dias perfeitos
+  | 'app_usage'             // dias de uso do app
+  | 'challenge_count';      // desafios completados
+
 export type Badge = {
   id: string;
   key: string;
@@ -8974,6 +9268,8 @@ export type Badge = {
   description: string;
   required_checkins: number;
   sort_order: number;
+  condition_type: BadgeConditionType;
+  condition_metadata: Record<string, any> | null;
 };
 
 export type UserBadge = {
@@ -9004,7 +9300,7 @@ export async function getAllBadgesDb(): Promise<Badge[]> {
   return cached("allBadges", CACHE_TTL_LONG, async () => {  try {
     const { data, error } = await supabase
       .from("badges")
-      .select("id, key, name, emoji, description, required_checkins, sort_order")
+      .select("id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata")
       .order("sort_order", { ascending: true });
     if (error) throw error;
     return (data ?? []) as Badge[];
@@ -9022,7 +9318,7 @@ export async function getUserBadgesDb(userId: string): Promise<UserBadge[]> {
   return cached(`userBadges:${userId}`, CACHE_TTL_SHORT, async () => {  try {
     const { data, error } = await supabase
       .from("user_badges")
-      .select("badge_id, earned_at, badges(id, key, name, emoji, description, required_checkins, sort_order)")
+      .select("badge_id, earned_at, badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata)")
       .eq("user_id", userId)
       .order("earned_at", { ascending: false });
     if (error) throw error;
@@ -9081,29 +9377,230 @@ export async function setSelectedBadgeDb(badgeId: string): Promise<void> {
  * caso ele ainda não tenha nenhum. Não substitui badges escolhidos manualmente
  * se o usuário já possuir um.
  */
+// ─── Helpers para condições de insígnias ─────────────────────────────────────
+
+/** Conta check-ins na semana atual (Domingo a Sábado, usando data local). */
+async function _getWeekCheckinCountDb(userId: string): Promise<number> {
+  if (!supabase) return 0;
+  const today = new Date();
+  const dow = today.getDay(); // 0=Dom
+  const sunday = new Date(today);
+  sunday.setDate(today.getDate() - dow);
+  const saturday = new Date(sunday);
+  saturday.setDate(sunday.getDate() + 6);
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const { count } = await supabase
+    .from("check_ins")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("check_in_date", fmt(sunday))
+    .lte("check_in_date", fmt(saturday));
+  return count ?? 0;
+}
+
+/** Calcula a sequência atual de dias consecutivos de check-in (streak). */
+async function _getCheckinStreakDb(userId: string): Promise<number> {
+  if (!supabase) return 0;
+  // Busca os últimos 100 dias para cobrir streaks longos
+  const since = new Date();
+  since.setDate(since.getDate() - 100);
+  const { data } = await supabase
+    .from("check_ins")
+    .select("check_in_date")
+    .eq("user_id", userId)
+    .gte("check_in_date", since.toISOString().slice(0, 10))
+    .order("check_in_date", { ascending: false });
+
+  if (!data || data.length === 0) return 0;
+
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  const today = fmt(new Date());
+  const yesterday = fmt(new Date(Date.now() - 86400000));
+  const mostRecent = data[0].check_in_date;
+
+  // Streak só conta se o check-in mais recente foi hoje ou ontem
+  if (mostRecent !== today && mostRecent !== yesterday) return 0;
+
+  const dateSet = new Set(data.map((r: any) => String(r.check_in_date)));
+  let streak = 0;
+  const cursor = new Date();
+  if (mostRecent === yesterday) cursor.setDate(cursor.getDate() - 1);
+
+  while (dateSet.has(fmt(cursor))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
 /**
- * Avalia o total de check-ins do usuário, concede todas as insígnias recém-desbloqueadas
- * e retorna as insígnias que acabaram de ser ganhas (para exibir popup).
+ * Retorna a data do check-in anterior ao mais recente (o penúltimo).
+ * Usado para detectar "comeback" (retorno após longa ausência).
  */
-export async function awardBadgesForCheckInsDb(userId: string): Promise<Badge[]> {
+async function _getPreviousCheckinDateDb(userId: string): Promise<Date | null> {
+  if (!supabase) return null;
+  const { data } = await supabase
+    .from("check_ins")
+    .select("check_in_date")
+    .eq("user_id", userId)
+    .order("check_in_date", { ascending: false })
+    .limit(2);
+  if (!data || data.length < 2) return null;
+  return new Date(data[1].check_in_date + "T12:00:00");
+}
+
+/** Conta treinos na semana atual (usando workout_histories). */
+async function _getWeekWorkoutCountDb(userId: string): Promise<number> {
+  if (!supabase) return 0;
+  const today = new Date();
+  const dow = today.getDay();
+  const sunday = new Date(today);
+  sunday.setDate(today.getDate() - dow);
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const { count } = await supabase
+    .from("workout_histories")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", sunday.toISOString());
+  return count ?? 0;
+}
+
+/** Conta treinos de um tipo específico ('forca' | 'cardio' | …) no total. */
+async function _getWorkoutTypeCountDb(userId: string, type: string): Promise<number> {
+  if (!supabase) return 0;
+  const { count } = await supabase
+    .from("workout_histories")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("workout_type", type);
+  return count ?? 0;
+}
+
+/** Avalia se uma insígnia foi desbloqueada dado o contexto do check-in atual. */
+async function _evaluateBadgeCondition(
+  badge: Badge,
+  userId: string,
+  checkinAt: Date,
+  context: {
+    totalCheckIns: number;
+    weekCount?: number;
+    streak?: number;
+    prevCheckinDate?: Date | null;
+    weekWorkouts?: number;
+  }
+): Promise<boolean> {
+  const { condition_type, condition_metadata, required_checkins } = badge;
+  const threshold = required_checkins;
+
+  switch (condition_type) {
+    case "checkin_total":
+      return context.totalCheckIns >= threshold;
+
+    case "checkin_week": {
+      const weekCount = context.weekCount ?? 0;
+      return weekCount >= threshold;
+    }
+
+    case "checkin_streak": {
+      const streak = context.streak ?? 0;
+      return streak >= threshold;
+    }
+
+    case "checkin_after_midnight": {
+      const h = checkinAt.getHours();
+      return h >= 0 && h < 6; // 00:00–05:59
+    }
+
+    case "checkin_before_time": {
+      const limitHour: number = condition_metadata?.hour ?? 9;
+      return checkinAt.getHours() < limitHour;
+    }
+
+    case "checkin_comeback": {
+      const prev = context.prevCheckinDate ?? null;
+      if (!prev) return false;
+      const daysDiff = Math.floor(
+        (checkinAt.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      return daysDiff >= 7;
+    }
+
+    case "workout_week": {
+      const weekWorkouts = context.weekWorkouts ?? 0;
+      return weekWorkouts >= threshold;
+    }
+
+    case "workout_type": {
+      const wType: string = condition_metadata?.type ?? "";
+      if (!wType) return false;
+      const typeCount = await _getWorkoutTypeCountDb(userId, wType);
+      return typeCount >= threshold;
+    }
+
+    // Nutrição e hábitos são avaliados por suas próprias funções (awardNutritionBadgesDb etc.)
+    default:
+      return false;
+  }
+}
+
+/**
+ * Avalia as condições de cada insígnia no momento de um check-in,
+ * concede as que foram desbloqueadas e retorna as recém-ganhas (para exibir popup).
+ *
+ * @param userId - ID do usuário
+ * @param checkinAt - Timestamp do check-in (default: agora)
+ */
+export async function awardBadgesForCheckInsDb(
+  userId: string,
+  checkinAt: Date = new Date()
+): Promise<Badge[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   try {
-    const [totalCheckIns, allBadges] = await Promise.all([
-      getTotalCheckInsDb(userId),
-      getAllBadgesDb(),
-    ]);
+    // Buscar dados em paralelo para minimizar latência
+    const [totalCheckIns, allBadges, existingRows, weekCount, streak, prevCheckinDate, weekWorkouts] =
+      await Promise.all([
+        getTotalCheckInsDb(userId),
+        getAllBadgesDb(),
+        supabase.from("user_badges").select("badge_id").eq("user_id", userId),
+        _getWeekCheckinCountDb(userId),
+        _getCheckinStreakDb(userId),
+        _getPreviousCheckinDateDb(userId),
+        _getWeekWorkoutCountDb(userId),
+      ]);
 
-    const reachableBadges = allBadges.filter((b) => b.required_checkins <= totalCheckIns);
-    if (reachableBadges.length === 0) return [];
+    const alreadyEarnedIds = new Set(
+      ((existingRows.data ?? []) as any[]).map((r) => String(r.badge_id))
+    );
 
-    const { data: existingRows } = await supabase
-      .from("user_badges")
-      .select("badge_id")
-      .eq("user_id", userId);
+    // Badges que o usuário ainda não tem e cujo condition_type é elegível neste check-in
+    const CHECKIN_CONDITIONS: BadgeConditionType[] = [
+      "checkin_total",
+      "checkin_week",
+      "checkin_streak",
+      "checkin_after_midnight",
+      "checkin_before_time",
+      "checkin_comeback",
+      "workout_week",
+      "workout_type",
+    ];
 
-    const alreadyEarnedIds = new Set((existingRows ?? []).map((r: any) => String(r.badge_id)));
+    const candidates = allBadges.filter(
+      (b) =>
+        !alreadyEarnedIds.has(String(b.id)) &&
+        CHECKIN_CONDITIONS.includes(b.condition_type)
+    );
 
-    const newBadges = reachableBadges.filter((b) => !alreadyEarnedIds.has(String(b.id)));
+    const context = { totalCheckIns, weekCount, streak, prevCheckinDate, weekWorkouts };
+
+    const newBadges: Badge[] = [];
+    for (const badge of candidates) {
+      const earned = await _evaluateBadgeCondition(badge, userId, checkinAt, context);
+      if (earned) newBadges.push(badge);
+    }
 
     if (newBadges.length > 0) {
       await supabase
@@ -9112,14 +9609,11 @@ export async function awardBadgesForCheckInsDb(userId: string): Promise<Badge[]>
           newBadges.map((b) => ({ user_id: userId, badge_id: b.id })),
           { onConflict: "user_id,badge_id", ignoreDuplicates: true }
         );
-      invalidateQueryCache("userBadges");
+      invalidateQueryCache(`userBadges:${userId}`);
+      invalidateQueryCache("allBadges");
     }
 
-    // Only surface badges whose threshold was reached by THIS specific check-in.
-    // All earned badges are still persisted above (backfill), but we avoid
-    // showing historic badges as "new" when the DB had no prior records.
-    const justUnlocked = newBadges.filter((b) => b.required_checkins > totalCheckIns - 1);
-    return justUnlocked;
+    return newBadges;
   } catch (err) {
     console.error("Error in awardBadgesForCheckInsDb:", err);
     return [];
@@ -9138,7 +9632,7 @@ export async function getTopUserBadgeDb(userId: string): Promise<Badge | null> {
   try {
     const { data, error } = await supabase
       .from("user_badges")
-      .select("badges(id, key, name, emoji, description, required_checkins, sort_order)")
+      .select("badges(id, key, name, emoji, description, required_checkins, sort_order, condition_type, condition_metadata)")
       .eq("user_id", userId);
     if (error) throw error;
     if (!data || data.length === 0) return null;
@@ -9472,6 +9966,27 @@ export async function saveTodayMoodDb(userId: string, mood: MoodValue): Promise<
   }
 
   invalidateQueryCache("todayMood");
+}
+
+/** Atualiza o humor de qualquer data passada (upsert por user_id + log_date). */
+export async function saveMoodForDateDb(userId: string, mood: MoodValue, date: string): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+  assertUUID(userId, "userId");
+
+  const { error } = await supabase
+    .from("mood_logs")
+    .upsert(
+      { user_id: userId, mood, log_date: date },
+      { onConflict: "user_id,log_date" },
+    );
+
+  if (error) {
+    console.error("Error saving mood for date:", error);
+    throw error;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (date === today) invalidateQueryCache("todayMood");
 }
 
 /** Retorna o histórico de humor dos últimos N dias. */
@@ -10062,6 +10577,55 @@ export type AdminStats = {
   complaintsTotal: number;
 };
 
+export type AdminTopScreen = {
+  screen: string;
+  total_seconds: number;
+  acessos: number;
+  usuarios_unicos: number;
+};
+
+export type AdminDayCount = {
+  dia?: string;
+  session_date?: string;
+  total?: number;
+  usuarios_ativos?: number;
+};
+
+export type AdminAnalytics = {
+  // Usuários
+  usuarios_hoje: number;
+  usuarios_semana: number;
+  usuarios_mes: number;
+  total_usuarios: number;
+  // Sessões
+  dau_hoje: number;
+  dau_ontem: number;
+  total_sessoes_hoje: number;
+  avg_sessao_segundos_7d: number;
+  total_horas_hoje: number;
+  // Conteúdo hoje
+  posts_hoje: number;
+  shots_hoje: number;
+  comments_hoje: number;
+  likes_hoje: number;
+  check_ins_hoje: number;
+  // Totais
+  total_posts: number;
+  total_shots: number;
+  total_check_ins: number;
+  // Séries temporais
+  top_screens: AdminTopScreen[];
+  novos_usuarios_7d: AdminDayCount[];
+  dau_7d: AdminDayCount[];
+};
+
+export async function getAdminAnalyticsDb(): Promise<AdminAnalytics | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc("get_admin_analytics");
+  if (error) throw new Error(error.message);
+  return data as AdminAnalytics;
+}
+
 export async function getAdminComplaintsDb(): Promise<AdminComplaint[]> {
   if (!supabase) return [];
   const { data, error } = await supabase
@@ -10166,5 +10730,47 @@ export async function deletePushTokenDb(token: string): Promise<void> {
     .delete()
     .eq("user_id", viewer.id)
     .eq("token", token);
+}
+
+// ─── Admin: verified accounts ─────────────────────────────────────────────────
+
+export async function setUserVerifiedDb(userId: string, verified: boolean): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+  assertUUID(userId, "ID do usuário");
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ is_verified: verified })
+    .eq("user_id", userId);
+
+  if (error) {
+    console.error("Error setting verified status:", error);
+    return false;
+  }
+
+  invalidateProfileCache(userId);
+  return true;
+}
+
+export async function getVerifiedAccountsDb(): Promise<{ userId: string; nickname: string; handle: string; photo: string | null }[]> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("user_id, nickname, handle, photo")
+    .eq("is_verified", true)
+    .order("nickname");
+
+  if (error) {
+    console.error("Error fetching verified accounts:", error);
+    return [];
+  }
+
+  return (data ?? []).map((p: any) => ({
+    userId: String(p.user_id),
+    nickname: String(p.nickname ?? ""),
+    handle: String(p.handle ?? ""),
+    photo: p.photo ? String(p.photo) : null,
+  }));
 }
 

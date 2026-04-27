@@ -14,8 +14,10 @@ import {
   PanelLeftClose,
 } from "lucide-react";
 import { UserAvatar } from "@/components/shared/user-avatar";
-import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb } from "@/lib/ritmofit-db";
+import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordScreenTimeDb, recordAccessSessionDb } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
+import { Capacitor } from "@capacitor/core";
+import { App as CapApp } from "@capacitor/app";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
 import { cn } from "@/lib/utils";
@@ -68,6 +70,53 @@ export function ShotsLayout() {
   const logoSrc = resolvedTheme === "dark" ? "/logo-branco.png" : "/logo.png";
   const footerRef = React.useRef<HTMLDivElement>(null);
   const [footerHeight, setFooterHeight] = React.useState(0);
+
+  // Screen time tracking for /shots
+  const screenEnteredAtRef = React.useRef<number>(Date.now());
+  const sessionStartRef = React.useRef<number>(Date.now());
+  React.useEffect(() => {
+    screenEnteredAtRef.current = Date.now();
+    sessionStorage.setItem("ritmofit_screen_start", String(screenEnteredAtRef.current));
+    sessionStorage.setItem("ritmofit_current_screen", "/shots");
+    return () => {
+      const durationSeconds = Math.floor((Date.now() - screenEnteredAtRef.current) / 1000);
+      if (user && durationSeconds >= 3) {
+        recordScreenTimeDb(user.id, "/shots", durationSeconds).catch(() => {});
+      }
+    };
+  }, [user?.id]);
+
+  // Access session recording on app background/close while on /shots
+  React.useEffect(() => {
+    if (!user) return;
+    sessionStartRef.current = Date.now();
+    sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
+
+    const flush = () => {
+      const sessionSeconds = Math.floor((Date.now() - sessionStartRef.current) / 1000);
+      if (sessionSeconds >= 10) {
+        recordAccessSessionDb(user.id, sessionSeconds).catch(() => {});
+      }
+      sessionStartRef.current = Date.now();
+      sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current));
+    };
+
+    let capListener: { remove: () => void } | null = null;
+    if (Capacitor.isNativePlatform()) {
+      CapApp.addListener("appStateChange", ({ isActive }) => {
+        if (!isActive) flush();
+        else { sessionStartRef.current = Date.now(); sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current)); }
+      }).then((l) => { capListener = l; });
+    } else {
+      const onVisibility = () => { if (document.hidden) flush(); else { sessionStartRef.current = Date.now(); sessionStorage.setItem("ritmofit_session_start", String(sessionStartRef.current)); } };
+      const onUnload = () => flush();
+      window.addEventListener("visibilitychange", onVisibility);
+      window.addEventListener("beforeunload", onUnload);
+      return () => { window.removeEventListener("visibilitychange", onVisibility); window.removeEventListener("beforeunload", onUnload); };
+    }
+
+    return () => { capListener?.remove(); };
+  }, [user?.id]);
 
   React.useEffect(() => {
     const load = async () => {

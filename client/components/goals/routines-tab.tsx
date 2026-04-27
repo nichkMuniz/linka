@@ -99,6 +99,7 @@ interface RoutinesTabProps {
   onSetExpandedRoutineId: (id: string | null) => void;
 
   // Actions / modal triggers
+  activeWorkoutRoutineName: string | null;
   onAddRoutineClick: () => void;
   onAddToRoutineCard: (typeCode: number, displayLabel: string, isNamed: boolean) => void;
   onStartWorkout: (routineName: string) => void;
@@ -143,6 +144,7 @@ export function RoutinesTab({
   onToggleSection,
   expandedRoutineId,
   onSetExpandedRoutineId,
+  activeWorkoutRoutineName,
   onAddRoutineClick,
   onAddToRoutineCard,
   onStartWorkout,
@@ -561,10 +563,19 @@ export function RoutinesTab({
                     typeCode === 2 ? completedDietIds.has(item.id) : completedHabitIds.has(item.id)
                   );
 
+                const routineKey = isNamed ? displayLabel : "__unnamed__";
+                const isActiveWorkout = typeCode === 1 && activeWorkoutRoutineName === routineKey;
+
                 return (
                   <Card
                     key={key}
-                    className={`overflow-hidden min-w-0 transition-colors ${isAllCompleted ? "border-emerald-500/50 bg-emerald-500/5" : "border-border/60"}`}
+                    className={`overflow-hidden min-w-0 transition-colors ${
+                      isActiveWorkout
+                        ? "border-brand/60 bg-brand/5"
+                        : isAllCompleted
+                        ? "border-emerald-500/50 bg-emerald-500/5"
+                        : "border-border/60"
+                    }`}
                   >
                     <div className="w-full p-3 flex items-center gap-1 hover:bg-muted/30 transition-colors text-left min-w-0">
                       <button
@@ -573,7 +584,12 @@ export function RoutinesTab({
                       >
                         <p className={`text-sm font-medium truncate w-full ${isAllCompleted ? "text-emerald-500" : ""}`}>{displayLabel}</p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {isAllCompleted ? (
+                          {isActiveWorkout ? (
+                            <span className="text-brand flex items-center gap-1">
+                              <span className="inline-block w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+                              Em treino
+                            </span>
+                          ) : isAllCompleted ? (
                             <span className="text-emerald-500 flex items-center gap-1">
                               <CheckCircle2 className="h-3 w-3 inline" /> Todas concluídas
                             </span>

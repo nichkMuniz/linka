@@ -10,40 +10,145 @@ interface PostCarouselProps {
   objectFit?: "cover" | "contain";
 }
 
-export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPhoto, objectFit = "cover" }: PostCarouselProps) {
+function getPinchDist(touches: React.TouchList | TouchList) {
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function getPinchOrigin(touches: React.TouchList | TouchList, rect: DOMRect) {
+  const mx = (touches[0].clientX + touches[1].clientX) / 2;
+  const my = (touches[0].clientY + touches[1].clientY) / 2;
+  return {
+    x: ((mx - rect.left) / rect.width) * 100,
+    y: ((my - rect.top) / rect.height) * 100,
+  };
+}
+
+function ZoomableImage({
+  src,
+  alt,
+  className,
+  loading,
+}: {
+  src: string;
+  alt: string;
+  className: string;
+  loading?: "eager" | "lazy";
+}) {
+  const [scale, setScale] = React.useState(1);
+  const [origin, setOrigin] = React.useState({ x: 50, y: 50 });
+  const pinch = React.useRef({ active: false, startDist: 0, baseScale: 1 });
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const transitioning = React.useRef(false);
+
+  // Non-passive touchmove so we can preventDefault during pinch
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onMove = (e: TouchEvent) => {
+      if (pinch.current.active && e.touches.length === 2) {
+        e.preventDefault();
+        const newDist = getPinchDist(e.touches as unknown as React.TouchList);
+        const newScale = Math.min(
+          5,
+          Math.max(1, pinch.current.baseScale * (newDist / pinch.current.startDist))
+        );
+        setScale(newScale);
+      }
+    };
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onMove);
+  }, []);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      pinch.current = {
+        active: true,
+        startDist: getPinchDist(e.touches),
+        baseScale: scale,
+      };
+      setOrigin(getPinchOrigin(e.touches, rect));
+      transitioning.current = false;
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (pinch.current.active && e.touches.length < 2) {
+      pinch.current.active = false;
+      transitioning.current = true;
+      setScale(1);
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className="w-full h-full overflow-hidden"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        loading={loading}
+        decoding="async"
+        draggable={false}
+        style={{
+          transform: `scale(${scale})`,
+          transformOrigin: `${origin.x}% ${origin.y}%`,
+          transition: scale === 1 ? "transform 0.25s ease-out" : "none",
+          userSelect: "none",
+          touchAction: "none",
+          willChange: "transform",
+        }}
+      />
+    </div>
+  );
+}
+
+export function PostCarousel({
+  photos,
+  alt,
+  editMode,
+  onRemovePhoto,
+  removingPhoto,
+  objectFit = "cover",
+}: PostCarouselProps) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const touchStartX = React.useRef<number | null>(null);
   const touchStartY = React.useRef<number | null>(null);
+  const touchCount = React.useRef(0);
 
   const isContain = objectFit === "contain";
-  // contain: image flows at natural size; cover: fixed aspect-ratio box
   const imgClass = isContain ? "w-full h-auto block" : "w-full h-full object-cover";
-  const coverBox = "relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 overflow-hidden rounded-lg";
+  const coverBox =
+    "relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 overflow-hidden rounded-lg";
 
-  // Final safety check for non-array photos
   if (!Array.isArray(photos)) {
     return photos ? (
       isContain ? (
         <div className="w-full bg-black rounded-lg overflow-hidden">
-          <img src={String(photos)} alt={alt} className={imgClass} />
+          <ZoomableImage src={String(photos)} alt={alt} className={imgClass} loading="eager" />
         </div>
       ) : (
         <div className={coverBox}>
-          <img src={String(photos)} alt={alt} className={imgClass} />
+          <ZoomableImage src={String(photos)} alt={alt} className={imgClass} loading="eager" />
         </div>
       )
     ) : null;
   }
 
-  // Single photo — no carousel needed
   if (photos.length === 1) {
     return isContain ? (
-      <div className="w-full bg-black rounded-lg">
-        <img src={photos[0]} alt={alt} className={imgClass} loading="lazy" />
+      <div className="w-full bg-black rounded-lg overflow-hidden">
+        <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading="lazy" />
       </div>
     ) : (
       <div className={coverBox}>
-        <img src={photos[0]} alt={alt} className={imgClass} loading="lazy" />
+        <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading="lazy" />
       </div>
     );
   }
@@ -53,20 +158,31 @@ export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPho
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
+    touchCount.current = e.touches.length;
+    if (e.touches.length === 1) {
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+    } else {
+      touchStartX.current = null;
+      touchStartY.current = null;
+    }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
+    // Don't swipe if a pinch was in progress
+    if (touchCount.current >= 2) {
+      touchCount.current = 0;
+      return;
+    }
     if (touchStartX.current === null || touchStartY.current === null) return;
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     const dy = e.changedTouches[0].clientY - touchStartY.current;
-    // Only swipe if horizontal movement dominates
     if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
       goTo(dx < 0 ? currentIndex + 1 : currentIndex - 1);
     }
     touchStartX.current = null;
     touchStartY.current = null;
+    touchCount.current = 0;
   };
 
   return (
@@ -75,25 +191,26 @@ export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPho
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
-      {/* All images rendered side-by-side; CSS translate moves them instantly */}
       <div
         className="flex transition-transform duration-200 ease-out will-change-transform"
         style={{ transform: `translateX(-${currentIndex * 100}%)` }}
       >
         {photos.map((src, i) => (
-          <div key={i} className={`flex-shrink-0 ${isContain ? "w-full" : "w-full aspect-square md:aspect-auto md:h-[450px] overflow-hidden"}`} style={{ minWidth: "100%" }}>
-            <img
+          <div
+            key={i}
+            className={`flex-shrink-0 ${isContain ? "w-full" : "w-full aspect-square md:aspect-auto md:h-[450px] overflow-hidden"}`}
+            style={{ minWidth: "100%" }}
+          >
+            <ZoomableImage
               src={src}
               alt={`${alt} - ${i + 1}`}
               className={imgClass}
               loading={i === 0 ? "eager" : "lazy"}
-              decoding="async"
             />
           </div>
         ))}
       </div>
 
-      {/* Navigation Buttons */}
       {currentIndex > 0 && (
         <button
           onClick={() => goTo(currentIndex - 1)}
@@ -113,7 +230,6 @@ export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPho
         </button>
       )}
 
-      {/* Remove photo button (edit mode only) */}
       {editMode && onRemovePhoto && photos.length > 1 && (
         <button
           type="button"
@@ -126,7 +242,6 @@ export function PostCarousel({ photos, alt, editMode, onRemovePhoto, removingPho
         </button>
       )}
 
-      {/* Dots + Counter */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none">
         <div className="flex gap-1">
           {photos.map((_, index) => (

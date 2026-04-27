@@ -172,12 +172,15 @@ export default function Login() {
   }, []);
 
   const biometricAutoTriggeredRef = React.useRef(false);
+  // Ref to avoid stale-closure issues when auto-triggering from useEffect
+  const biometricAvailableRef = React.useRef(false);
 
   React.useEffect(() => {
     const checkBiometric = async () => {
       try {
         const result = await NativeBiometric.isAvailable({ useFallback: false });
         setBiometricAvailable(result.isAvailable);
+        biometricAvailableRef.current = result.isAvailable;
         if (result.isAvailable) {
           // Check Keychain directly instead of relying on localStorage (survives reinstalls)
           try {
@@ -187,8 +190,8 @@ export default function Login() {
             // Auto-trigger Face ID on app open if credentials exist
             if (!biometricAutoTriggeredRef.current) {
               biometricAutoTriggeredRef.current = true;
-              // Small delay to let the UI render first
-              setTimeout(() => handleBiometricLogin(), 600);
+              // Small delay to let the UI render first, then trigger Face ID prompt directly
+              setTimeout(() => triggerBiometricLogin(), 600);
             }
           } catch {
             // No credentials in Keychain — reset localStorage flag
@@ -198,6 +201,7 @@ export default function Login() {
         }
       } catch {
         setBiometricAvailable(false);
+        biometricAvailableRef.current = false;
       }
     };
     checkBiometric();
@@ -798,14 +802,20 @@ export default function Login() {
     }
   };
 
-  const handleBiometricLogin = async () => {
-    if (!biometricAvailable) {
-      toast({ title: "Biometria não disponível", description: "Seu dispositivo não suporta autenticação biométrica." });
-      return;
-    }
+  // Core biometric login logic — called both from button click and auto-trigger on app open.
+  // Uses ref for biometricAvailable to avoid stale-closure issues when called from setTimeout.
+  const triggerBiometricLogin = async () => {
+    if (!biometricAvailableRef.current) return;
     setBusy(true);
     try {
-      // getCredentials triggers Face ID automatically, then returns stored credentials from Keychain
+      // Step 1: show Face ID / Touch ID prompt to authenticate the user
+      await NativeBiometric.verifyIdentity({
+        reason: "Autentique-se para acessar sua conta",
+        title: "Face ID",
+        useFallback: true,
+      });
+
+      // Step 2: retrieve stored credentials from Keychain (only reached if step 1 succeeded)
       const credentials = await NativeBiometric.getCredentials({ server: BIOMETRIC_SERVER });
 
       if (!supabase) throw new Error("Supabase não configurado");
@@ -831,13 +841,22 @@ export default function Login() {
       navigate("/", { replace: true });
     } catch (err: any) {
       console.error("Biometric login error:", err);
-      // User cancelled (code 16) — silent
-      if (err?.code !== 16 && err?.message !== "User cancelled") {
+      // User cancelled (code -2 / LAError.userCancel) — silent
+      const code = err?.code ?? err?.errorCode;
+      if (code !== -2 && code !== 16 && err?.message !== "User cancelled") {
         toast({ title: "Erro na autenticação biométrica", description: err?.message || "Tente novamente." });
       }
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleBiometricLogin = async () => {
+    if (!biometricAvailableRef.current) {
+      toast({ title: "Biometria não disponível", description: "Seu dispositivo não suporta autenticação biométrica." });
+      return;
+    }
+    await triggerBiometricLogin();
   };
 
   // Deep link handler para callback do OAuth (Google)

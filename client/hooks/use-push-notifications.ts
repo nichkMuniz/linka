@@ -53,9 +53,8 @@ export function usePushNotifications(userId: string | null) {
       const fgListener = await PushNotifications.addListener(
         "pushNotificationReceived",
         (_notification) => {
-          // The notification banner is shown by iOS automatically.
-          // No extra action needed here — the badge update in app-layout
-          // already handles the in-app count via Supabase Realtime.
+          // iOS shows the banner via presentationOptions in capacitor.config.ts.
+          // Badge count is handled separately via Supabase Realtime in app-layout.
         }
       );
 

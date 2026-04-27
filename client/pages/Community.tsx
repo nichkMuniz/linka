@@ -40,8 +40,12 @@ import {
   deleteCheckInCommentDb,
   updateCheckInCommentDb,
   getCheckInReactionsDb,
+  getCheckInReactionUsersDb,
+  type CheckInReactionWithUser,
   setCheckInReactionDb,
   sendCheckInReactionNotificationDb,
+  getCheckInVotesDb,
+  setCheckInVoteDb,
   type Conversation,
   type MessageWithUser,
   type SearchUser,
@@ -51,6 +55,8 @@ import {
   type GroupJoinRequest,
   type CheckInComment,
   type CheckInReaction,
+  type DuelCheckInVote,
+  type DuelCheckInVoteType,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -58,7 +64,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Pencil, Camera, Image, Mic, Smile, Crop } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Pencil, Camera, Image, Mic, Smile, Crop, CheckCircle2, XCircle } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
@@ -136,7 +142,7 @@ export default function Community() {
 
   // Group creation state
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = React.useState(false);
-  const [groupStep, setGroupStep] = React.useState<1 | 2 | 3 | 4>(1);
+  const [groupStep, setGroupStep] = React.useState<1 | 2 | 3 | 4 | 5>(1);
   const [isCreatingGroup, setIsCreatingGroup] = React.useState(false);
   const [groupConfig, setGroupConfig] = React.useState({
     name: "",
@@ -144,7 +150,11 @@ export default function Community() {
     goal: "",
     durationDays: "",
     photo: "",
+    scoringType: "check_in_count" as import("@/lib/ritmofit-db").DuelScoringType,
+    memeRule: "",
   });
+  const [checkInMetricValue, setCheckInMetricValue] = React.useState("");
+  const [checkInVotes, setCheckInVotes] = React.useState<DuelCheckInVote[]>([]);
   const [groupPhotoFile, setGroupPhotoFile] = React.useState<File | null>(null);
   const editCoverInputRef = React.useRef<HTMLInputElement>(null);
   const [selectedInvitees, setSelectedInvitees] = React.useState<Set<string>>(new Set());
@@ -235,6 +245,7 @@ export default function Community() {
   // Check-in emoji reactions state
   const [checkInReactions, setCheckInReactions] = React.useState<Record<string, CheckInReaction[]>>({});
   const CHECKIN_QUICK_EMOJIS = ["❤️", "🔥", "💪", "😮", "👏", "🏆"];
+  const [reactionViewerState, setReactionViewerState] = React.useState<{ checkInId: string; emoji: string; users: CheckInReactionWithUser[]; loading: boolean } | null>(null);
 
   // Check-in long-press (emoji overlay) state
   const [longPressedCheckIn, setLongPressedCheckIn] = React.useState<GroupCheckIn | null>(null);
@@ -403,6 +414,12 @@ export default function Community() {
         // Load reactions for check-ins
         if (checkIns.length > 0) {
           getCheckInReactionsDb(checkIns.map((c) => c.id)).then(setCheckInReactions).catch(() => { });
+        }
+        // Load votes for memes scoring mode
+        if (group.scoringType === "memes") {
+          getCheckInVotesDb(group.id).then(setCheckInVotes).catch(() => { });
+        } else {
+          setCheckInVotes([]);
         }
       })
       .catch((err: any) => console.error("Error loading group data:", err))
@@ -741,7 +758,7 @@ export default function Community() {
   }, [selectedConversation]);
 
   const startRecording = React.useCallback(async () => {
-    if (!selectedConversation) return;
+    if (!selectedConversation || isRecording) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -757,11 +774,12 @@ export default function Community() {
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
       setRecordingSeconds(0);
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
     } catch {
       toast({ title: "Sem acesso ao microfone", description: "Permita o uso do microfone nas configurações.", variant: "destructive" });
     }
-  }, [selectedConversation]);
+  }, [selectedConversation, isRecording]);
 
   const stopRecordingAndSend = React.useCallback(async () => {
     const recorder = mediaRecorderRef.current;
@@ -1319,7 +1337,7 @@ export default function Community() {
   );
 
   return (
-    <div className="w-full h-[calc(100dvh-68px)] md:h-[calc(100dvh-48px)] flex flex-col overflow-hidden">
+    <div className={`w-full flex flex-col ${activeTab !== "ranking" && activeTab !== "requests" ? "h-[calc(100dvh-68px)] md:h-[calc(100dvh-48px)] overflow-hidden" : ""}`}>
       {/* Tabs — segmented control style (igual à tela de Loja) */}
       <div className="flex-shrink-0 border-b border-border/60 px-4 pt-5 pb-3 md:pt-4">
         <div className="flex items-center gap-3">
@@ -1595,35 +1613,30 @@ export default function Community() {
               {/* Stats Section */}
               <div className="px-4 py-4 space-y-2">
                 {(() => {
-                  // Calculate leader stats
-                  const leaderStats = groupCheckIns.length > 0
-                    ? Object.entries(
-                      groupCheckIns.reduce((acc: { [key: string]: { userName: string; count: number } }, checkIn) => {
-                        if (!acc[checkIn.userId]) {
-                          acc[checkIn.userId] = { userName: checkIn.userName, count: 0 };
-                        }
-                        acc[checkIn.userId].count++;
-                        return acc;
-                      }, {})
-                    )
-                      .sort((a, b) => b[1].count - a[1].count)
-                      .map(([userId, data]) => ({ userId, ...data }))[0]
-                    : null;
-
-                  // Calculate user ranking position
-                  const userRanking = groupCheckIns.length > 0
-                    ? Object.entries(
-                      groupCheckIns.reduce((acc: { [key: string]: { userName: string; count: number } }, checkIn) => {
-                        if (!acc[checkIn.userId]) {
-                          acc[checkIn.userId] = { userName: checkIn.userName, count: 0 };
-                        }
-                        acc[checkIn.userId].count++;
-                        return acc;
-                      }, {})
-                    )
-                      .sort((a, b) => b[1].count - a[1].count)
-                      .findIndex(([userId]) => userId === user?.id) + 1
-                    : 0;
+                  // Calculate scores respecting scoring type
+                  const scoringType = selectedGroupForView.scoringType || "check_in_count";
+                  const scoreMap: Record<string, { userName: string; score: number; dates?: Set<string> }> = {};
+                  for (const c of groupCheckIns) {
+                    if (!scoreMap[c.userId]) scoreMap[c.userId] = { userName: c.userName, score: 0, dates: new Set() };
+                    const e = scoreMap[c.userId];
+                    // For memes: skip disqualified check-ins
+                    if (scoringType === "memes") {
+                      const votes = checkInVotes.filter((v) => v.checkInId === c.id);
+                      const dq = votes.filter((v) => v.voteType === "disqualify").length;
+                      const cl = votes.filter((v) => v.voteType === "classify").length;
+                      if (dq > cl && dq > 0) continue;
+                      e.score += 1;
+                    } else if (scoringType === "check_in_count") e.score += 1;
+                    else if (scoringType === "active_days") { e.dates!.add(c.createdAt.slice(0, 10)); e.score = e.dates!.size; }
+                    else if (scoringType === "hustle_points") e.score += c.volume || 0;
+                    else if (scoringType === "duration") e.score += c.durationMinutes || 0;
+                    else if (scoringType === "distance") e.score += c.distanceKm || 0;
+                    else if (scoringType === "steps") e.score += c.steps || 0;
+                    else if (scoringType === "calories") e.score += c.calories || 0;
+                  }
+                  const sorted = Object.entries(scoreMap).sort((a, b) => b[1].score - a[1].score);
+                  const leaderStats = sorted.length > 0 ? { userId: sorted[0][0], ...sorted[0][1] } : null;
+                  const userRanking = sorted.findIndex(([uid]) => uid === user?.id) + 1;
 
                   // Calculate days remaining
                   const daysRemaining = selectedGroupForView.endDate
@@ -1640,7 +1653,7 @@ export default function Community() {
                         className="p-3 rounded-lg bg-muted/30 border border-border/40 text-center flex flex-col items-center hover:bg-muted/50 active:scale-95 transition-all"
                       >
                         <div className="text-lg font-bold text-brand mb-1">
-                          {leaderStats?.count || 0}
+                          {leaderStats ? Math.round(leaderStats.score) : 0}
                         </div>
                         {leaderStats?.userName && (
                           <div className="text-xs text-muted-foreground truncate w-full">
@@ -1738,7 +1751,13 @@ export default function Community() {
                             return (
                               <div
                                 key={checkIn.id}
-                                className="relative"
+                                className={`relative ${(() => {
+                                  if (selectedGroupForView?.scoringType !== "memes") return "";
+                                  const votes = checkInVotes.filter((v) => v.checkInId === checkIn.id);
+                                  const dq = votes.filter((v) => v.voteType === "disqualify").length;
+                                  const cl = votes.filter((v) => v.voteType === "classify").length;
+                                  return dq > cl && dq > 0 ? "opacity-50" : "";
+                                })()}`}
                               >
                                 <div
                                   className="flex items-center gap-3 px-1 py-2 rounded-lg hover:bg-muted/40 active:bg-muted/60 transition-colors cursor-pointer select-none"
@@ -1797,12 +1816,90 @@ export default function Community() {
                                 {groupedReactions.length > 0 && (
                                   <div className="flex items-center gap-1 flex-wrap pt-1 pl-11">
                                     {groupedReactions.map(({ emoji, count }) => (
-                                      <span key={emoji} className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs bg-muted/50 border border-border/40 leading-none">
+                                      <button
+                                        key={emoji}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setReactionViewerState({ checkInId: checkIn.id, emoji, users: [], loading: true });
+                                          getCheckInReactionUsersDb(checkIn.id).then((users) => {
+                                            setReactionViewerState((prev) => prev ? { ...prev, users, loading: false } : null);
+                                          }).catch(() => {
+                                            setReactionViewerState((prev) => prev ? { ...prev, loading: false } : null);
+                                          });
+                                        }}
+                                        className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs bg-muted/50 border border-border/40 leading-none active:bg-muted/80 transition-colors"
+                                      >
                                         {emoji} {count > 1 && <span className="font-medium">{count}</span>}
-                                      </span>
+                                      </button>
                                     ))}
                                   </div>
                                 )}
+                                {/* Memes — evaluation bar, visually separated from emoji reactions */}
+                                {selectedGroupForView?.scoringType === "memes" && (() => {
+                                  const votes = checkInVotes.filter((v) => v.checkInId === checkIn.id);
+                                  const classifyCount = votes.filter((v) => v.voteType === "classify").length;
+                                  const disqualifyCount = votes.filter((v) => v.voteType === "disqualify").length;
+                                  const userVote = votes.find((v) => v.userId === user?.id)?.voteType ?? null;
+                                  const disqualified = disqualifyCount > classifyCount && disqualifyCount > 0;
+                                  const isOwn = checkIn.userId === user?.id;
+                                  return (
+                                    <div className="ml-11 mt-1.5 flex items-center gap-2 border-t border-border/30 pt-1.5">
+                                      <span className="text-[10px] font-medium text-muted-foreground/70 shrink-0 tracking-wide">🎭 avaliar</span>
+                                      <div className="flex items-center gap-1.5 flex-1">
+                                        {!isOwn ? (
+                                          <>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const next: DuelCheckInVoteType | null = userVote === "classify" ? null : "classify";
+                                                setCheckInVotes((prev) => {
+                                                  const filtered = prev.filter((v) => !(v.checkInId === checkIn.id && v.userId === user!.id));
+                                                  return next ? [...filtered, { checkInId: checkIn.id, userId: user!.id, voteType: next }] : filtered;
+                                                });
+                                                setCheckInVoteDb(checkIn.id, next).catch(() => {
+                                                  getCheckInVotesDb(selectedGroupForView.id).then(setCheckInVotes).catch(() => {});
+                                                });
+                                              }}
+                                              aria-label="Classificar check-in"
+                                              className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border transition-colors min-h-[28px] ${userVote === "classify" ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400" : "bg-transparent border-border/40 text-muted-foreground hover:border-emerald-500/40 hover:text-emerald-600"}`}
+                                            >
+                                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                                              {classifyCount > 0 && <span>{classifyCount}</span>}
+                                            </button>
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const next: DuelCheckInVoteType | null = userVote === "disqualify" ? null : "disqualify";
+                                                setCheckInVotes((prev) => {
+                                                  const filtered = prev.filter((v) => !(v.checkInId === checkIn.id && v.userId === user!.id));
+                                                  return next ? [...filtered, { checkInId: checkIn.id, userId: user!.id, voteType: next }] : filtered;
+                                                });
+                                                setCheckInVoteDb(checkIn.id, next).catch(() => {
+                                                  getCheckInVotesDb(selectedGroupForView.id).then(setCheckInVotes).catch(() => {});
+                                                });
+                                              }}
+                                              aria-label="Desclassificar check-in"
+                                              className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border transition-colors min-h-[28px] ${userVote === "disqualify" ? "bg-destructive/15 border-destructive/40 text-destructive" : "bg-transparent border-border/40 text-muted-foreground hover:border-destructive/40 hover:text-destructive"}`}
+                                            >
+                                              <XCircle className="h-3.5 w-3.5 shrink-0" />
+                                              {disqualifyCount > 0 && <span>{disqualifyCount}</span>}
+                                            </button>
+                                          </>
+                                        ) : (classifyCount > 0 || disqualifyCount > 0) ? (
+                                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                            <span className="flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-emerald-500" />{classifyCount}</span>
+                                            <span className="flex items-center gap-1"><XCircle className="h-3 w-3 text-destructive" />{disqualifyCount}</span>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                      {disqualified && (
+                                        <span className="text-[9px] font-bold uppercase tracking-wider text-destructive bg-destructive/10 border border-destructive/20 px-1.5 py-0.5 rounded shrink-0">
+                                          Anulado
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           })}
@@ -2135,7 +2232,7 @@ export default function Community() {
             <button
               onClick={() => {
                 setGroupStep(1);
-                setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "" });
+                setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "", scoringType: "check_in_count", memeRule: "" });
                 setSelectedInvitees(new Set());
                 setIsCreateGroupModalOpen(true);
               }}
@@ -2151,16 +2248,15 @@ export default function Community() {
       {/* Ranking Tab */}
       {activeTab === "ranking" && (
         <>
-          {/* Header */}
-          <div className="flex-shrink-0 px-4 pt-4 pb-0">
-            <h1 className="text-2xl font-bold tracking-tight">{t("community_ranking")}</h1>
-          </div>
-
-          {/* Ranking List */}
+          {/* Single scrollable container */}
           <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3 pt-4">
+            <h1 className="text-2xl font-bold tracking-tight pb-1">{t("community_ranking")}</h1>
             {ranking.length > 0 ? (
               <div className="space-y-2">
-                {ranking.map((rankUser, index) => {
+                {ranking.filter((rankUser) => {
+                  if (rankUser.userId === user?.id) return true;
+                  return followers.some((f) => f.id === rankUser.userId);
+                }).map((rankUser, index) => {
                   const medalEmoji =
                     index === 0
                       ? "🥇"
@@ -2396,6 +2492,8 @@ export default function Community() {
               goal: "",
               durationDays: "",
               photo: "",
+              scoringType: "check_in_count",
+              memeRule: "",
             });
             setGroupPhotoFile(null);
             setSelectedInvitees(new Set());
@@ -2408,7 +2506,7 @@ export default function Community() {
           <DrawerHeader className="shrink-0">
             {/* Progress indicator */}
             <div className="flex items-center gap-2 mb-2">
-              {[1, 2, 3, 4].map((s) => (
+              {[1, 2, 3, 4, 5].map((s) => (
                 <div
                   key={s}
                   className={`h-1.5 flex-1 rounded-full transition-colors ${s <= groupStep ? "bg-brand" : "bg-muted"
@@ -2420,14 +2518,16 @@ export default function Community() {
               {groupStep === 1 && "Passo 1 — Identidade do grupo"}
               {groupStep === 2 && "Passo 2 — Localização"}
               {groupStep === 3 && "Passo 3 — Duração"}
-              {groupStep === 4 && "Passo 4 — Convidar participantes"}
+              {groupStep === 4 && "Passo 4 — Sistema de pontuação"}
+              {groupStep === 5 && "Passo 5 — Convidar participantes"}
             </DrawerTitle>
             <DrawerDescription className="sr-only">Criação de grupo de desafio</DrawerDescription>
             <p className="text-xs text-muted-foreground mt-0.5">
               {groupStep === 1 && "Nome, meta e capa do grupo"}
               {groupStep === 2 && "Estado onde o desafio acontece"}
               {groupStep === 3 && "Por quanto tempo o desafio vai durar"}
-              {groupStep === 4 && "Selecione quem vai participar"}
+              {groupStep === 4 && "Como será calculado o ranking do grupo"}
+              {groupStep === 5 && "Selecione quem vai participar"}
             </p>
           </DrawerHeader>
 
@@ -2615,8 +2715,81 @@ export default function Community() {
               </div>
             )}
 
-            {/* Step 4 — Convidar Participantes */}
+            {/* Step 4 — Sistema de Pontuação */}
             {groupStep === 4 && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  {([
+                    { value: "check_in_count", icon: "#",  title: "Contagem de check-in",   desc: "Maior número de check-ins" },
+                    { value: "active_days",     icon: "📅", title: "Dias ativos",            desc: "A maioria dos dias com pelo menos um check-in" },
+                    { value: "hustle_points",   icon: "⭐", title: "Pontos de hustle",       desc: "Sistema de pontuação baseado em volume de treino" },
+                    { value: "duration",        icon: "⏱", title: "Duração",                desc: "A maior parte do tempo gasto ativo" },
+                    { value: "distance",        icon: "🗺", title: "Distância",              desc: "Maior distância percorrida" },
+                    { value: "steps",           icon: "👟", title: "Passos",                 desc: "A maioria dos passos dados" },
+                    { value: "calories",        icon: "🔥", title: "Calorias",               desc: "Mais calorias queimadas" },
+                    { value: "memes",           icon: "🎭", title: "Memes",                  desc: "O líder define a regra — a galera vota para classificar ou desclassificar" },
+                  ] as { value: import("@/lib/ritmofit-db").DuelScoringType; icon: string; title: string; desc: string }[]).map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setGroupConfig({ ...groupConfig, scoringType: opt.value })}
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
+                        groupConfig.scoringType === opt.value
+                          ? "border-brand bg-brand/8"
+                          : "border-border/60 hover:border-brand/40"
+                      }`}
+                    >
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-xl shrink-0 ${
+                        groupConfig.scoringType === opt.value ? "bg-brand/15" : "bg-muted/50"
+                      }`}>
+                        {opt.icon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold">{opt.title}</p>
+                        <p className="text-xs text-muted-foreground">{opt.desc}</p>
+                      </div>
+                      <div className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
+                        groupConfig.scoringType === opt.value ? "border-brand bg-brand" : "border-muted-foreground"
+                      }`}>
+                        {groupConfig.scoringType === opt.value && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Meme rule input — shown only when memes is selected */}
+                {groupConfig.scoringType === "memes" && (
+                  <div className="space-y-2 pt-1">
+                    <label className="text-sm font-medium">Regra do desafio *</label>
+                    <Input
+                      placeholder="Ex: Todos devem postar foto fazendo pose de vitória"
+                      value={groupConfig.memeRule}
+                      onChange={(e) => setGroupConfig({ ...groupConfig, memeRule: e.target.value })}
+                      maxLength={200}
+                    />
+                    <p className="text-xs text-muted-foreground">Esta regra aparece para todos os membros. Check-ins que não seguirem podem ser desclassificados.</p>
+                  </div>
+                )}
+
+                <div className="flex gap-2 mt-4">
+                  <Button onClick={() => setGroupStep(3)} variant="outline" className="flex-1 rounded-full">Voltar</Button>
+                  <Button
+                    onClick={() => {
+                      if (groupConfig.scoringType === "memes" && !groupConfig.memeRule.trim()) {
+                        toast({ title: "Campo obrigatório", description: "Defina a regra do desafio para o modo Memes", variant: "destructive" });
+                        return;
+                      }
+                      setGroupStep(5);
+                    }}
+                    className="flex-1 rounded-full"
+                  >
+                    Próximo <ChevronRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 5 — Convidar Participantes */}
+            {groupStep === 5 && (
               <div className="space-y-4">
                 {/* Summary */}
                 <div className="p-4 rounded-xl bg-muted/20 border border-brand/20 space-y-1">
@@ -2698,7 +2871,7 @@ export default function Community() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button onClick={() => setGroupStep(3)} variant="outline" className="flex-1 rounded-full">Voltar</Button>
+                  <Button onClick={() => setGroupStep(4)} variant="outline" className="flex-1 rounded-full">Voltar</Button>
                   <Button
                     onClick={async () => {
                       if (!user || isCreatingGroup) return;
@@ -2717,7 +2890,9 @@ export default function Community() {
                           groupConfig.location,
                           groupConfig.goal,
                           Array.from(selectedInvitees),
-                          endDate
+                          endDate,
+                          groupConfig.scoringType,
+                          groupConfig.memeRule || undefined
                         );
 
                         // Upload group photo if provided — after group ID is known
@@ -2742,7 +2917,7 @@ export default function Community() {
 
                         // Reset form
                         setIsCreateGroupModalOpen(false);
-                        setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "" });
+                        setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "", scoringType: "check_in_count", memeRule: "" });
                         setGroupPhotoFile(null);
                         setSelectedInvitees(new Set());
                         setGroupStep(1);
@@ -3057,11 +3232,42 @@ export default function Community() {
                 )}
               </div>
 
+              {/* Metric input for scoring types that need manual value */}
+              {selectedGroupForView?.scoringType && ["duration", "distance", "steps", "calories"].includes(selectedGroupForView.scoringType) && (() => {
+                const metricConfig = {
+                  duration:  { label: "Duração do treino *",   placeholder: "Ex: 45",  unit: "min",    type: "number" },
+                  distance:  { label: "Distância percorrida *", placeholder: "Ex: 5.2", unit: "km",     type: "number" },
+                  steps:     { label: "Passos dados *",         placeholder: "Ex: 8000", unit: "passos", type: "number" },
+                  calories:  { label: "Calorias queimadas *",   placeholder: "Ex: 350", unit: "kcal",   type: "number" },
+                }[selectedGroupForView.scoringType as "duration" | "distance" | "steps" | "calories"];
+                return (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">{metricConfig?.label}</label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder={metricConfig?.placeholder}
+                        value={checkInMetricValue}
+                        onChange={(e) => setCheckInMetricValue(e.target.value)}
+                        className="flex-1"
+                      />
+                      <span className="text-sm text-muted-foreground shrink-0">{metricConfig?.unit}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <Button
                 onClick={async () => {
                   if (!user || !selectedGroupForView || isSubmittingCheckIn) return;
                   if (!selectedRoutineKey) {
                     toast({ title: "Selecione um treino", description: "Escolha o treino que você realizou", variant: "destructive" });
+                    return;
+                  }
+                  const needsMetric = ["duration", "distance", "steps", "calories"].includes(selectedGroupForView.scoringType || "");
+                  if (needsMetric && !checkInMetricValue) {
+                    toast({ title: "Campo obrigatório", description: "Informe o valor da métrica para este desafio", variant: "destructive" });
                     return;
                   }
                   setIsSubmittingCheckIn(true);
@@ -3092,6 +3298,8 @@ export default function Community() {
                       }
                     }
 
+                    const metricVal = checkInMetricValue ? parseFloat(checkInMetricValue) : null;
+                    const scoringType = selectedGroupForView.scoringType || "check_in_count";
                     const checkIn = await addGroupCheckInDb(
                       selectedGroupForView.id,
                       user.id,
@@ -3103,6 +3311,10 @@ export default function Community() {
                       selectedRoutine?.primaryMuscleGroup || null,
                       selectedRoutine?.exercises || [],
                       uploadedUrls,
+                      scoringType === "duration" ? metricVal : null,
+                      scoringType === "distance" ? metricVal : null,
+                      scoringType === "steps" ? metricVal : null,
+                      scoringType === "calories" ? metricVal : null,
                     );
 
                     setGroupCheckIns((prev) => [checkIn, ...prev]);
@@ -3112,6 +3324,7 @@ export default function Community() {
                     setCheckInPhotoPreviewUrls([]);
                     setActivePhotoPreviewIndex(0);
                     setSelectedRoutineKey(null);
+                    setCheckInMetricValue("");
 
                     toast({
                       title: "Check-in adicionado!",
@@ -3175,6 +3388,51 @@ export default function Community() {
           setViewMode("conversation");
         }}
       />
+
+      {/* Reaction Viewer — who reacted with a specific emoji */}
+      <Drawer open={!!reactionViewerState} onOpenChange={(open) => { if (!open) setReactionViewerState(null); }}>
+        <DrawerContent className="max-h-[60dvh] flex flex-col z-[110]" onOpenAutoFocus={(e) => e.preventDefault()}>
+          {reactionViewerState && (
+            <>
+              <DrawerHeader className="shrink-0">
+                <DrawerTitle className="text-base flex items-center gap-2">
+                  <span className="text-xl">{reactionViewerState.emoji}</span>
+                  {!reactionViewerState.loading && (
+                    <span>{reactionViewerState.users.filter(u => u.emoji === reactionViewerState.emoji).length} {reactionViewerState.users.filter(u => u.emoji === reactionViewerState.emoji).length === 1 ? "reação" : "reações"}</span>
+                  )}
+                </DrawerTitle>
+                <DrawerDescription className="sr-only">Pessoas que reagiram</DrawerDescription>
+              </DrawerHeader>
+              <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
+                {reactionViewerState.loading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="flex items-center gap-3 animate-pulse">
+                        <div className="w-9 h-9 rounded-full bg-muted flex-shrink-0" />
+                        <div className="h-3 bg-muted rounded w-28" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  reactionViewerState.users
+                    .filter(u => u.emoji === reactionViewerState.emoji)
+                    .map((u) => (
+                      <div key={u.userId} className="flex items-center gap-3">
+                        <UserAvatar
+                          photo={u.userPhoto}
+                          gender={undefined}
+                          nickname={u.userName}
+                          className="w-9 h-9 flex-shrink-0"
+                        />
+                        <span className="text-sm font-medium">{u.userName}</span>
+                      </div>
+                    ))
+                )}
+              </div>
+            </>
+          )}
+        </DrawerContent>
+      </Drawer>
 
       {/* Check-in Detail Modal */}
       <Drawer open={isCheckInDetailOpen} onOpenChange={setIsCheckInDetailOpen}>
@@ -3305,6 +3563,84 @@ export default function Community() {
                           )}
                         </div>
                       ))}
+                    </div>
+                  );
+                })()}
+
+                {/* Memes voting section — shown in detail view */}
+                {selectedGroupForView?.scoringType === "memes" && selectedCheckInForDetail && (() => {
+                  const votes = checkInVotes.filter((v) => v.checkInId === selectedCheckInForDetail.id);
+                  const classifyCount = votes.filter((v) => v.voteType === "classify").length;
+                  const disqualifyCount = votes.filter((v) => v.voteType === "disqualify").length;
+                  const userVote = votes.find((v) => v.userId === user?.id)?.voteType ?? null;
+                  const disqualified = disqualifyCount > classifyCount && disqualifyCount > 0;
+                  const isOwn = selectedCheckInForDetail.userId === user?.id;
+                  return (
+                    <div className="py-3 border-t border-border/40 space-y-2">
+                      {selectedGroupForView.memeRule && (
+                        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/40">
+                          <span className="text-base shrink-0">🎭</span>
+                          <p className="text-xs text-muted-foreground">{selectedGroupForView.memeRule}</p>
+                        </div>
+                      )}
+                      {disqualified && (
+                        <div className="flex items-center gap-2.5 p-3 rounded-lg bg-destructive/8 border border-destructive/20">
+                          <XCircle className="h-4 w-4 text-destructive shrink-0" />
+                          <p className="text-xs font-semibold text-destructive">Check-in anulado — {disqualifyCount} anulação{disqualifyCount !== 1 ? "ões" : ""} vs {classifyCount} aprovação{classifyCount !== 1 ? "ões" : ""}</p>
+                        </div>
+                      )}
+                      {!isOwn && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              const next: DuelCheckInVoteType | null = userVote === "classify" ? null : "classify";
+                              setCheckInVotes((prev) => {
+                                const filtered = prev.filter((v) => !(v.checkInId === selectedCheckInForDetail.id && v.userId === user!.id));
+                                return next ? [...filtered, { checkInId: selectedCheckInForDetail.id, userId: user!.id, voteType: next }] : filtered;
+                              });
+                              setCheckInVoteDb(selectedCheckInForDetail.id, next).catch(() => {
+                                getCheckInVotesDb(selectedGroupForView.id).then(setCheckInVotes).catch(() => {});
+                              });
+                            }}
+                            aria-label="Aprovar check-in"
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${userVote === "classify" ? "bg-emerald-500/15 border-emerald-500/50 text-emerald-600 dark:text-emerald-400" : "bg-muted/20 border-border/50 text-muted-foreground hover:border-emerald-500/40 hover:text-emerald-600"}`}
+                          >
+                            <CheckCircle2 className="h-4 w-4 shrink-0" />
+                            Aprovar
+                            {classifyCount > 0 && <span className="text-xs opacity-70">({classifyCount})</span>}
+                          </button>
+                          <button
+                            onClick={() => {
+                              const next: DuelCheckInVoteType | null = userVote === "disqualify" ? null : "disqualify";
+                              setCheckInVotes((prev) => {
+                                const filtered = prev.filter((v) => !(v.checkInId === selectedCheckInForDetail.id && v.userId === user!.id));
+                                return next ? [...filtered, { checkInId: selectedCheckInForDetail.id, userId: user!.id, voteType: next }] : filtered;
+                              });
+                              setCheckInVoteDb(selectedCheckInForDetail.id, next).catch(() => {
+                                getCheckInVotesDb(selectedGroupForView.id).then(setCheckInVotes).catch(() => {});
+                              });
+                            }}
+                            aria-label="Anular check-in"
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${userVote === "disqualify" ? "bg-destructive/15 border-destructive/50 text-destructive" : "bg-muted/20 border-border/50 text-muted-foreground hover:border-destructive/40 hover:text-destructive"}`}
+                          >
+                            <XCircle className="h-4 w-4 shrink-0" />
+                            Anular
+                            {disqualifyCount > 0 && <span className="text-xs opacity-70">({disqualifyCount})</span>}
+                          </button>
+                        </div>
+                      )}
+                      {isOwn && (
+                        <div className="flex gap-4 text-sm text-muted-foreground">
+                          <span className="flex items-center gap-1.5">
+                            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                            {classifyCount} aprovação{classifyCount !== 1 ? "ões" : ""}
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <XCircle className="h-4 w-4 text-destructive" />
+                            {disqualifyCount} anulação{disqualifyCount !== 1 ? "ões" : ""}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -3516,6 +3852,16 @@ export default function Community() {
                   )}
                 </div>
 
+                {/* Meme Rule — shown when scoring is memes */}
+                {selectedGroupForView?.scoringType === "memes" && selectedGroupForView?.memeRule && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">🎭 Regra do desafio</label>
+                    <div className="p-3 rounded-lg bg-brand/5 border border-brand/20">
+                      <p className="text-sm">{selectedGroupForView.memeRule}</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Dates */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -3693,6 +4039,9 @@ export default function Community() {
         open={isClassificationsOpen}
         onOpenChange={setIsClassificationsOpen}
         groupCheckIns={groupCheckIns}
+        scoringType={selectedGroupForView?.scoringType}
+        checkInVotes={checkInVotes}
+        memeRule={selectedGroupForView?.memeRule}
       />
 
       {/* Participants Modal */}
@@ -3753,7 +4102,6 @@ export default function Community() {
                             photo={topReactionUser.userPhoto}
                             nickname={topReactionUser.userName}
                             className="h-6 w-6 border border-border/40"
-                            title={topReactionUser.userName}
                           />
                         </div>
                         <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Mais Reações</span>

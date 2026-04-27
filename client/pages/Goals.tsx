@@ -33,6 +33,8 @@ import {
   getWorkoutHistoriesBatchDb,
   getRoutineLastDatesBatchDb,
   saveWorkoutHistoryDb,
+  updateWorkoutNotesDb,
+  getLastWorkoutSessionSeriesDb,
   getWorkoutHistoryDb,
   toggleUserDietCompletionDb,
   toggleUserHabitCompletionDb,
@@ -170,7 +172,7 @@ import { ExecuteAtDrawer } from "@/components/goals/execute-at-drawer";
 import { ScheduledTimeDrawer } from "@/components/goals/scheduled-time-drawer";
 import { useRoutineNotifications, requestNotificationPermission, formatScheduledTime } from "@/hooks/use-routine-notifications";
 import { startWorkoutLiveActivity, updateWorkoutLiveActivity, stopWorkoutLiveActivity } from "@/hooks/use-live-activity";
-import { GpsTracking, isNativeGpsSupported } from "@/hooks/use-native-gps";
+import { GpsTracking, isNativeGpsSupported, requestLocationPermission } from "@/hooks/use-native-gps";
 import {
   updateRoutineScheduledTimeDb,
   type RoutineType,
@@ -194,6 +196,7 @@ export default function Goals() {
     workoutStartTime, setWorkoutStartTime,
     selectedRoutineName, setSelectedRoutineName,
     workoutExerciseRestTimes, setWorkoutExerciseRestTimes,
+    workoutExerciseNotes, setWorkoutExerciseNotes,
     currentWorkoutIndex, setCurrentWorkoutIndex,
     resetWorkoutState,
     globalRestTimerRemaining, setGlobalRestTimerRemaining,
@@ -260,6 +263,7 @@ export default function Goals() {
   >(null); // Start with all routines closed
 
   const [restTimerModalOpen, setRestTimerModalOpen] = React.useState(false);
+  const [restBannerVisible, setRestBannerVisible] = React.useState(false);
   const [restTimerExerciseId, setRestTimerExerciseId] = React.useState<
     string | null
   >(null);
@@ -278,12 +282,15 @@ export default function Goals() {
     exerciseNames: string[];
     exercises: CompletedRoutineExercise[];
     routineName: string | null;
-    prs: Array<{ exerciseName: string; kg: number; reps: number }>;
+    prs: Array<{ exerciseName: string; kg: number; reps: number; isCardio?: boolean }>;
     isAllCardio: boolean;
     totalKm: number;
     totalCardioTimeSecs: number;
-    gpsRoute?: Array<{ lat: number; lng: number }>;
+    gpsRoute?: Array<{ lat: number; lng: number; alt?: number | null }>;
     gpsPace?: number | null;
+    gpsElevationGain?: number;
+    gpsSteps?: number;
+    machinePlatedExercises?: Array<{ name: string; kg: number }>;
   } | null>(null);
 
   const [isDuelShareModalOpen, setIsDuelShareModalOpen] = React.useState(false);
@@ -311,6 +318,8 @@ export default function Goals() {
     kg: number;
     reps: number;
   } | null>(null);
+  const [machinePlated, setMachinePlated] = React.useState<Record<string, boolean>>({});
+  const [showMachinePlatedFor, setShowMachinePlatedFor] = React.useState<string | null>(null);
   const [isSharingWorkout, setIsSharingWorkout] = React.useState(false);
   const [workoutCoverFiles, setWorkoutCoverFiles] = React.useState<File[]>([]);
   const [workoutCoverPreviews, setWorkoutCoverPreviews] = React.useState<string[]>([]);
@@ -321,8 +330,12 @@ export default function Goals() {
   const pendingCoverQueueRef = React.useRef<File[]>([]);
   const [canvasPreviewUrl, setCanvasPreviewUrl] = React.useState<string | null>(null);
   const [prCanvasPreviewUrl, setPrCanvasPreviewUrl] = React.useState<string | null>(null);
+  const [machinePlatedCanvasPreviewUrl, setMachinePlatedCanvasPreviewUrl] = React.useState<string | null>(null);
+  const [gpsRouteCanvasPreviewUrl, setGpsRouteCanvasPreviewUrl] = React.useState<string | null>(null);
   const workoutCanvasRef = React.useRef<HTMLCanvasElement>(null);
   const prCanvasRef = React.useRef<HTMLCanvasElement>(null);
+  const machinePlatedCanvasRef = React.useRef<HTMLCanvasElement>(null);
+  const gpsRouteCanvasRef = React.useRef<HTMLCanvasElement>(null);
 
   // GPS tracking state (Corrida Externa)
   const CORRIDA_EXTERNA_ID = "451eea08-8a29-4c8c-b7b3-5ce93bcca08f";
@@ -330,8 +343,8 @@ export default function Goals() {
   const [gpsDistance, setGpsDistance] = React.useState(0); // km
   const [gpsPace, setGpsPace] = React.useState<number | null>(null); // secs per km
   const [gpsElapsedSecs, setGpsElapsedSecs] = React.useState(0);
-  const [gpsRoute, setGpsRoute] = React.useState<Array<{ lat: number; lng: number }>>([]);
-  const gpsRouteRef = React.useRef<Array<{ lat: number; lng: number }>>([]);
+  const [gpsRoute, setGpsRoute] = React.useState<Array<{ lat: number; lng: number; alt?: number | null }>>([]);
+  const gpsRouteRef = React.useRef<Array<{ lat: number; lng: number; alt?: number | null }>>([]);
   const gpsWatchIdRef = React.useRef<number | null>(null);
   const gpsLastPosRef = React.useRef<GeolocationPosition | null>(null);
   const gpsLastNativePosRef = React.useRef<{ lat: number; lng: number } | null>(null);
@@ -339,6 +352,9 @@ export default function Goals() {
   const gpsElapsedIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const nativeGpsListenerRef = React.useRef<{ remove: () => void } | null>(null);
   const nativeGpsAccumRef = React.useRef(0);
+  const gpsLastAltRef = React.useRef<number | null>(null);
+  const gpsElevationGainRef = React.useRef(0);
+  const [gpsElevationGain, setGpsElevationGain] = React.useState(0);
 
   const gpsHaversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371;
@@ -353,7 +369,20 @@ export default function Goals() {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
-  const startGpsTracking = (workoutId: string) => {
+  const startGpsTracking = async (workoutId: string) => {
+    // Request location permission first — on iOS this triggers the system dialog
+    if (isNativeGpsSupported()) {
+      const granted = await requestLocationPermission();
+      if (!granted) {
+        toast({
+          title: "Permissão de localização negada",
+          description: "Acesse Configurações > LinKa > Localização e permita o acesso.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     setGpsActive(true);
     setGpsDistance(0);
     setGpsPace(null);
@@ -363,6 +392,9 @@ export default function Goals() {
     gpsLastPosRef.current = null;
     gpsLastNativePosRef.current = null;
     nativeGpsAccumRef.current = 0;
+    gpsLastAltRef.current = null;
+    gpsElevationGainRef.current = 0;
+    setGpsElevationGain(0);
     gpsStartTimeRef.current = Date.now();
 
     if (gpsElapsedIntervalRef.current) clearInterval(gpsElapsedIntervalRef.current);
@@ -370,8 +402,20 @@ export default function Goals() {
       setGpsElapsedSecs((prev) => prev + 1);
     }, 1000);
 
-    const onLocation = (point: { lat: number; lng: number }) => {
+    const onLocation = (point: { lat: number; lng: number; alt?: number | null }) => {
       const prev = gpsLastNativePosRef.current;
+      // Accumulate elevation gain
+      if (point.alt != null) {
+        const lastAlt = gpsLastAltRef.current;
+        if (lastAlt != null) {
+          const diff = point.alt - lastAlt;
+          if (diff > 0.5) {
+            gpsElevationGainRef.current += diff;
+            setGpsElevationGain(Math.round(gpsElevationGainRef.current));
+          }
+        }
+        gpsLastAltRef.current = point.alt;
+      }
       if (!prev) {
         gpsRouteRef.current = [point];
         setGpsRoute([point]);
@@ -412,7 +456,7 @@ export default function Goals() {
         stopGpsTracking();
       });
       GpsTracking.addListener("location", (data) => {
-        onLocation({ lat: data.lat, lng: data.lng });
+        onLocation({ lat: data.lat, lng: data.lng, alt: data.altitude });
       }).then((listener) => {
         nativeGpsListenerRef.current = listener;
       });
@@ -438,7 +482,7 @@ export default function Goals() {
       }
       gpsWatchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
-          onLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          onLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, alt: pos.coords.altitude });
           gpsLastPosRef.current = pos;
         },
         (err) => {
@@ -490,7 +534,6 @@ export default function Goals() {
   const [allBadges, setAllBadges] = React.useState<Badge[]>([]);
   const [totalCheckIns, setTotalCheckIns] = React.useState<number>(0);
   const [hasNewBadge, setHasNewBadge] = React.useState(false);
-  const lastSeenBadgeCountRef = React.useRef<number | null>(null);
   // Mutex ref to prevent concurrent check-ins from parallel calls (diet/habit toggles, workout finish)
   const checkInInProgressRef = React.useRef(false);
 
@@ -523,26 +566,15 @@ export default function Goals() {
   const [showPostWorkoutNutrition, setShowPostWorkoutNutrition] = React.useState(false);
   const [nutritionExpanded, setNutritionExpanded] = React.useState(true);
 
-  const getBadgeCount = (size: number) =>
-    [1, 3, 5, 7].filter((t) => size >= t).length;
-
   React.useEffect(() => {
-    if (!user) return;
+    if (!user || userBadges.length === 0) return;
     const storageKey = `ritmofit_badges_seen_${user.id}`;
-    const currentBadgeCount = getBadgeCount(weekCheckIns.size);
-
-    if (lastSeenBadgeCountRef.current === null) {
-      const stored = localStorage.getItem(storageKey);
-      const storedCount = stored ? parseInt(stored, 10) : 0;
-      lastSeenBadgeCountRef.current = currentBadgeCount;
-      if (currentBadgeCount > storedCount) {
-        setHasNewBadge(true);
-      }
-    } else if (currentBadgeCount > lastSeenBadgeCountRef.current) {
+    const stored = localStorage.getItem(storageKey);
+    const storedCount = stored ? parseInt(stored, 10) : 0;
+    if (userBadges.length > storedCount) {
       setHasNewBadge(true);
-      lastSeenBadgeCountRef.current = currentBadgeCount;
     }
-  }, [weekCheckIns.size, user?.id]);
+  }, [userBadges.length, user?.id]);
 
   // Available goals accordion state
   const [availableGoalsOpen, setAvailableGoalsOpen] = React.useState(false);
@@ -681,9 +713,18 @@ export default function Goals() {
     ctx.strokeStyle = "rgba(34,197,94,0.3)"; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(100, 420); ctx.lineTo(700, 420); ctx.stroke();
     // Stats
+    const hasMixedCardio = !isAllCardio && (totalKm > 0 || totalCardioTimeSecs > 0);
     const statsData = isAllCardio
       ? [
           { label: "Tempo", value: totalCardioTimeSecs > 0 ? fmtCardioSecs(totalCardioTimeSecs) : durationStr },
+          { label: "Distância", value: totalKm > 0 ? `${totalKm} km` : "—" },
+          { label: "Séries", value: String(totalSeries) },
+          { label: "Exercícios", value: String(exerciseNames.length) },
+        ]
+      : hasMixedCardio
+      ? [
+          { label: "Duração", value: durationStr },
+          { label: "Volume", value: totalVolume > 0 ? `${totalVolume} kg` : "—" },
           { label: "Distância", value: totalKm > 0 ? `${totalKm} km` : "—" },
           { label: "Séries", value: String(totalSeries) },
         ]
@@ -691,11 +732,12 @@ export default function Goals() {
           { label: "Duração", value: durationStr },
           { label: "Volume", value: totalVolume > 0 ? `${totalVolume} kg` : "—" },
           { label: "Séries", value: String(totalSeries) },
+          { label: "Exercícios", value: String(exerciseNames.length) },
         ];
     statsData.forEach((s, i) => {
-      const x = 170 + i * 230;
-      ctx.fillStyle = "#86efac"; ctx.font = "bold 44px system-ui, sans-serif"; ctx.fillText(s.value, x, 510);
-      ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = "24px system-ui, sans-serif"; ctx.fillText(s.label, x, 548);
+      const x = 100 + i * 200;
+      ctx.fillStyle = "#86efac"; ctx.font = "bold 40px system-ui, sans-serif"; ctx.fillText(s.value, x, 510);
+      ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = "22px system-ui, sans-serif"; ctx.fillText(s.label, x, 548);
     });
     // Exercises
     if (exerciseNames.length > 0) {
@@ -773,7 +815,7 @@ export default function Goals() {
       ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.font = "30px system-ui, sans-serif";
       ctx.fillText(nameText, 400, y);
       // value line
-      const valueText = isAllCardio
+      const valueText = pr.isCardio
         ? [pr.kg > 0 ? `${Math.round(pr.kg * 10) / 10} km` : "", pr.reps > 0 ? fmtCardioTime(pr.reps) : ""].filter(Boolean).join("  ·  ")
         : `${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`;
       ctx.fillStyle = "#fbbf24"; ctx.font = "bold 38px system-ui, sans-serif";
@@ -785,6 +827,214 @@ export default function Goals() {
     ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.font = "22px system-ui, sans-serif"; ctx.fillText("#PR #RecordePessoal #Fitness", 400, 766);
     // Capture PR canvas preview URL for carousel
     setPrCanvasPreviewUrl(canvas.toDataURL("image/png"));
+  }, [workoutSummaryOpen, workoutSummaryData]);
+
+  // Draw "Zerou a Máquina" canvas when summary opens and user confirmed it
+  React.useEffect(() => {
+    const exercises = workoutSummaryData?.machinePlatedExercises;
+    if (!workoutSummaryOpen || !exercises?.length) {
+      setMachinePlatedCanvasPreviewUrl(null);
+      return;
+    }
+    const canvas = machinePlatedCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Background: deep dark red → charcoal, aggressive energy
+    const grad = ctx.createLinearGradient(0, 0, 800, 800);
+    grad.addColorStop(0, "#1a0000");
+    grad.addColorStop(0.5, "#2d0a0a");
+    grad.addColorStop(1, "#1a0d00");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 800, 800);
+
+    // Glow circles (red/orange tones)
+    ctx.beginPath(); ctx.arc(680, 110, 280, 0, Math.PI * 2); ctx.fillStyle = "rgba(239,68,68,0.08)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(120, 690, 220, 0, Math.PI * 2); ctx.fillStyle = "rgba(251,146,60,0.06)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(400, 400, 360, 0, Math.PI * 2); ctx.fillStyle = "rgba(239,68,68,0.03)"; ctx.fill();
+
+    // Top & bottom accent bars
+    const barGrad = ctx.createLinearGradient(0, 0, 800, 0);
+    barGrad.addColorStop(0, "rgba(239,68,68,0)");
+    barGrad.addColorStop(0.5, "rgba(239,68,68,0.9)");
+    barGrad.addColorStop(1, "rgba(239,68,68,0)");
+    ctx.fillStyle = barGrad;
+    ctx.fillRect(0, 0, 800, 6);
+    ctx.fillRect(0, 794, 800, 6);
+
+    // Main emoji
+    ctx.font = "110px serif"; ctx.textAlign = "center";
+    ctx.fillText("🔥", 400, 195);
+
+    // "ZEROU A MÁQUINA" badge
+    const badgeGrad = ctx.createLinearGradient(180, 218, 620, 270);
+    badgeGrad.addColorStop(0, "#ef4444");
+    badgeGrad.addColorStop(1, "#f97316");
+    ctx.fillStyle = badgeGrad;
+    ctx.beginPath();
+    ctx.roundRect(160, 218, 480, 56, 28);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 27px system-ui, sans-serif";
+    ctx.fillText("ZEROU A MÁQUINA! 💀", 400, 254);
+
+    // Divider
+    ctx.strokeStyle = "rgba(239,68,68,0.35)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(80, 308); ctx.lineTo(720, 308); ctx.stroke();
+
+    // Exercise list
+    const maxItems = Math.min(exercises.length, 4);
+    const startY = exercises.length === 1 ? 440 : 360;
+    const lineH = exercises.length === 1 ? 0 : Math.min(96, (620 - startY) / Math.max(1, maxItems - 1));
+
+    for (let i = 0; i < maxItems; i++) {
+      const ex = exercises[i];
+      const y = startY + i * lineH;
+      const nameText = ex.name.length > 28 ? ex.name.slice(0, 26) + "…" : ex.name;
+      ctx.fillStyle = "rgba(255,255,255,0.80)"; ctx.font = "30px system-ui, sans-serif";
+      ctx.fillText(nameText, 400, y);
+      if (ex.kg > 0) {
+        ctx.fillStyle = "#f97316"; ctx.font = "bold 40px system-ui, sans-serif";
+        ctx.fillText(`${ex.kg} kg`, 400, y + 48);
+      }
+    }
+
+    // Branding
+    ctx.fillStyle = "rgba(239,68,68,0.65)"; ctx.font = "bold 28px system-ui, sans-serif"; ctx.fillText("Linka", 400, 730);
+    ctx.fillStyle = "rgba(255,255,255,0.3)"; ctx.font = "22px system-ui, sans-serif"; ctx.fillText("#ZerouAMáquina #Força #Fitness", 400, 766);
+
+    setMachinePlatedCanvasPreviewUrl(canvas.toDataURL("image/png"));
+  }, [workoutSummaryOpen, workoutSummaryData]);
+
+  // Draw GPS route canvas card when summary opens (Corrida ao Ar Livre)
+  React.useEffect(() => {
+    const route = workoutSummaryData?.gpsRoute;
+    if (!workoutSummaryOpen || !route || route.length < 2) {
+      setGpsRouteCanvasPreviewUrl(null);
+      return;
+    }
+    const canvas = gpsRouteCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const W = 800, H = 800;
+    ctx.clearRect(0, 0, W, H);
+
+    // Dark background
+    ctx.fillStyle = "#0d1117";
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle grid
+    ctx.strokeStyle = "rgba(255,255,255,0.04)";
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      ctx.beginPath(); ctx.moveTo(W * i / 4, 0); ctx.lineTo(W * i / 4, H); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, H * i / 4); ctx.lineTo(W, H * i / 4); ctx.stroke();
+    }
+
+    // Project route to canvas coords
+    const lats = route.map((p) => p.lat);
+    const lngs = route.map((p) => p.lng);
+    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+    const PAD = 80;
+    const toX = (lng: number) => PAD + ((lng - minLng) / (maxLng - minLng || 1)) * (W - PAD * 2);
+    // Reserve bottom 220px for stats panel
+    const mapH = H - 220;
+    const toY = (lat: number) => PAD + ((maxLat - lat) / (maxLat - minLat || 1)) * (mapH - PAD * 2);
+
+    // Route shadow
+    ctx.beginPath();
+    ctx.moveTo(toX(route[0].lng), toY(route[0].lat));
+    for (const p of route) ctx.lineTo(toX(p.lng), toY(p.lat));
+    ctx.strokeStyle = "rgba(251,146,60,0.25)";
+    ctx.lineWidth = 18;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.stroke();
+
+    // Route line (orange gradient feel)
+    ctx.beginPath();
+    ctx.moveTo(toX(route[0].lng), toY(route[0].lat));
+    for (const p of route) ctx.lineTo(toX(p.lng), toY(p.lat));
+    ctx.strokeStyle = "#f97316";
+    ctx.lineWidth = 6;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.stroke();
+
+    // Start dot (green)
+    const sx = toX(route[0].lng), sy = toY(route[0].lat);
+    ctx.beginPath(); ctx.arc(sx, sy, 12, 0, Math.PI * 2);
+    ctx.fillStyle = "#22c55e"; ctx.fill();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+
+    // End dot (red)
+    const ex = toX(route[route.length - 1].lng), ey = toY(route[route.length - 1].lat);
+    ctx.beginPath(); ctx.arc(ex, ey, 12, 0, Math.PI * 2);
+    ctx.fillStyle = "#ef4444"; ctx.fill();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+
+    // Stats panel background
+    ctx.fillStyle = "#161b22";
+    ctx.fillRect(0, mapH, W, H - mapH);
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, mapH); ctx.lineTo(W, mapH); ctx.stroke();
+
+    // Stats data
+    const km = workoutSummaryData?.totalKm ?? 0;
+    const pace = workoutSummaryData?.gpsPace;
+    const paceStr = pace ? `${Math.floor(pace / 60)}:${String(pace % 60).padStart(2, "0")}` : "—";
+    const cardioSecs = workoutSummaryData?.totalCardioTimeSecs ?? 0;
+    const ch = Math.floor(cardioSecs / 3600);
+    const cm = Math.floor((cardioSecs % 3600) / 60);
+    const cs = cardioSecs % 60;
+    const timeStr = cardioSecs > 0
+      ? ch > 0 ? `${ch}h ${String(cm).padStart(2, "0")}min` : cs > 0 ? `${cm}min ${String(cs).padStart(2,"0")}s` : `${cm}min`
+      : "—";
+    const elevStr = workoutSummaryData?.gpsElevationGain != null ? `${workoutSummaryData.gpsElevationGain} m` : "—";
+    const stepsStr = workoutSummaryData?.gpsSteps != null ? workoutSummaryData.gpsSteps.toLocaleString("pt-BR") : "—";
+
+    const stats = [
+      { label: "DISTÂNCIA", value: km > 0 ? `${km} km` : "—", color: "#f97316" },
+      { label: "RITMO MÉD.", value: `${paceStr} /km`, color: "#fff" },
+      { label: "TEMPO", value: timeStr, color: "#fff" },
+      { label: "ELEVAÇÃO", value: elevStr, color: "#fff" },
+      { label: "PASSOS", value: stepsStr, color: "#fff" },
+    ];
+
+    const colW = W / stats.length;
+    stats.forEach((s, i) => {
+      const cx = colW * i + colW / 2;
+      // Divider
+      if (i > 0) {
+        ctx.strokeStyle = "rgba(255,255,255,0.08)";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(colW * i, mapH + 16); ctx.lineTo(colW * i, H - 16); ctx.stroke();
+      }
+      // Value
+      ctx.fillStyle = s.color;
+      ctx.font = "bold 36px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(s.value, cx, mapH + 70);
+      // Label
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.font = "22px system-ui, sans-serif";
+      ctx.fillText(s.label, cx, mapH + 110);
+    });
+
+    // Linka watermark
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    ctx.font = "bold 24px system-ui, sans-serif";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("Linka", W - 24, mapH - 16);
+
+    setGpsRouteCanvasPreviewUrl(canvas.toDataURL("image/png"));
   }, [workoutSummaryOpen, workoutSummaryData]);
 
   // Draw goal completion celebration canvas
@@ -1593,7 +1843,12 @@ export default function Goals() {
         setWorkoutSummaryData(parsed);
         setWorkoutPostDescription("");
         setWorkoutSummaryOpen(true);
-        setShowPostWorkoutNutrition(false);
+        setShowPostWorkoutNutrition(true);
+        if (user?.id) {
+          getEnrichedDuelGroupsDb(user.id).then(({ myGroups }) => {
+            setDuelGroups(myGroups.map((g) => ({ id: g.id, name: g.name, goal: g.goal })));
+          }).catch(() => setDuelGroups([]));
+        }
         return;
       }
     } catch (_) {}
@@ -1645,7 +1900,12 @@ export default function Goals() {
     });
     setWorkoutPostDescription("");
     setWorkoutSummaryOpen(true);
-    setShowPostWorkoutNutrition(false);
+    setShowPostWorkoutNutrition(true);
+    if (user?.id) {
+      getEnrichedDuelGroupsDb(user.id).then(({ myGroups }) => {
+        setDuelGroups(myGroups.map((g) => ({ id: g.id, name: g.name, goal: g.goal })));
+      }).catch(() => setDuelGroups([]));
+    }
   };
 
   // Unified exercise list: local workouts + catalog (deduped by name)
@@ -1812,12 +2072,28 @@ export default function Goals() {
       ...workoutSeries,
       [workoutId]: updated,
     });
+
+    // Show machine-plated prompt when kg exceeds 120
+    if (field === "kg" && numValue > 120) {
+      setShowMachinePlatedFor(workoutId);
+    } else if (field === "kg" && numValue <= 120) {
+      // Hide if user reduced below threshold and no other series > 120
+      const stillAbove = updated.some((s, i) => i !== seriesIndex ? (s.kg > 120) : false);
+      if (!stillAbove) setShowMachinePlatedFor(null);
+    }
   };
 
   const handleSetExerciseRestTime = (workoutId: string, seconds: number) => {
     setWorkoutExerciseRestTimes({
       ...workoutExerciseRestTimes,
       [workoutId]: seconds,
+    });
+  };
+
+  const handleSetExerciseNote = (workoutId: string, note: string) => {
+    setWorkoutExerciseNotes({
+      ...workoutExerciseNotes,
+      [workoutId]: note,
     });
   };
 
@@ -1837,6 +2113,14 @@ export default function Goals() {
       ...workoutSeries,
       [workoutId]: updated,
     });
+
+    // Machine plated: show prompt when completing a series with kg > 120
+    if (isMarking) {
+      const serie = updated[seriesIndex];
+      if (serie.kg > 120) {
+        setShowMachinePlatedFor(workoutId);
+      }
+    }
 
     // PR detection: check if this series beats the historical record
     if (isMarking) {
@@ -1859,12 +2143,17 @@ export default function Goals() {
     if (isMarking) {
       const restSeconds = workoutExerciseRestTimes[workoutId] || 0;
       if (restSeconds > 0) {
+        // Close modal first to ensure clean state before resetting the timer.
+        // This prevents the timer-complete effect from seeing a stale active=false
+        // and auto-closing the modal that was just reopened by the setTimeout below.
+        setRestTimerModalOpen(false);
         setRestTimerExerciseId(workoutId);
         setRestTimerRemaining(restSeconds);
         setGlobalRestTimerRemaining(restSeconds);
         setGlobalRestTimerTotal(restSeconds);
         setGlobalRestTimerActive(true);
         setGlobalRestTimerKey((prev) => prev + 1);
+        setRestBannerVisible(true);
         setTimeout(() => setRestTimerModalOpen(true), 50);
       }
     }
@@ -1901,6 +2190,7 @@ export default function Goals() {
   // When rest timer finishes: close modal automatically if open, otherwise show toast
   React.useEffect(() => {
     if (!globalRestTimerActive && globalRestTimerTotal > 0 && globalRestTimerRemaining === 0 && workoutModalOpen) {
+      setRestBannerVisible(false);
       if (restTimerModalOpen) {
         setRestTimerModalOpen(false);
       } else {
@@ -1911,6 +2201,7 @@ export default function Goals() {
       }
     }
   }, [globalRestTimerActive]);
+
 
 
   const handleFinishWorkout = () => {
@@ -1947,7 +2238,7 @@ export default function Goals() {
 
       // Award new badges and refresh badge state
       try {
-        const newBadges = await awardBadgesForCheckInsDb(user.id);
+        const newBadges = await awardBadgesForCheckInsDb(user.id, new Date());
         const [earned, catalog, total] = await Promise.all([
           getUserBadgesDb(user.id),
           getAllBadgesDb(),
@@ -2083,6 +2374,18 @@ export default function Goals() {
         return;
       }
 
+      // Persist notes for each exercise that has notes set
+      const notesToSave = userWorkouts
+        .filter((w) => workoutExerciseNotes[w.workout_id])
+        .map((w) => ({ userWorkoutId: String(w.id), note: workoutExerciseNotes[w.workout_id] }));
+      if (notesToSave.length > 0) {
+        try {
+          await updateWorkoutNotesDb(notesToSave);
+        } catch (notesErr) {
+          console.error("Error saving workout notes:", notesErr);
+        }
+      }
+
       // Save workout history for each exercise with completed series
       for (const [workoutId, series] of Object.entries(workoutSeries)) {
         const completedSeries = series.filter((s) => s.completed);
@@ -2157,9 +2460,20 @@ export default function Goals() {
           const bestHistoricalKg = history.length > 0 ? Math.max(...history.map((h) => h.kilos || 0)) : 0;
           if (bestSessionKg > 0 && bestSessionKg > bestHistoricalKg && match?.workoutName) {
             const bestSet = completed.find((s) => s.kg === bestSessionKg)!;
-            prs.push({ exerciseName: match.workoutName, kg: bestSessionKg, reps: bestSet.reps || 0 });
+            prs.push({ exerciseName: match.workoutName, kg: bestSessionKg, reps: bestSet.reps || 0, isCardio: isCardioExercise });
           }
         }
+      }
+
+      // Collect machine-plated exercises (user confirmed they maxed the machine)
+      const machinePlatedExercises: Array<{ name: string; kg: number }> = [];
+      for (const [workoutId, confirmed] of Object.entries(machinePlated)) {
+        if (!confirmed) continue;
+        const match = userWorkouts.find((w) => w.workout_id === workoutId);
+        if (!match?.workoutName) continue;
+        const series = workoutSeries[workoutId] || [];
+        const bestKg = Math.max(0, ...series.filter((s) => s.completed).map((s) => s.kg || 0));
+        machinePlatedExercises.push({ name: match.workoutName, kg: bestKg });
       }
 
       // Show summary screen instead of closing immediately
@@ -2176,6 +2490,9 @@ export default function Goals() {
         totalCardioTimeSecs,
         gpsRoute: gpsRouteRef.current.length >= 2 ? [...gpsRouteRef.current] : undefined,
         gpsPace: gpsPace,
+        gpsElevationGain: gpsElevationGainRef.current > 0 ? Math.round(gpsElevationGainRef.current) : undefined,
+        gpsSteps: nativeGpsAccumRef.current > 0 ? Math.round((nativeGpsAccumRef.current * 1000) / 0.75) : undefined,
+        machinePlatedExercises: machinePlatedExercises.length > 0 ? machinePlatedExercises : undefined,
       };
 
       // Persist last completed workout summary so the bar chart icon can retrieve it
@@ -2235,6 +2552,9 @@ export default function Goals() {
       }
 
       // Reset workout state
+      setRestBannerVisible(false);
+      setMachinePlated({});
+      setShowMachinePlatedFor(null);
       resetWorkoutState();
 
       // Refresh data in background
@@ -2480,7 +2800,7 @@ export default function Goals() {
               if (user) {
                 localStorage.setItem(
                   `ritmofit_badges_seen_${user.id}`,
-                  String(getBadgeCount(weekCheckIns.size)),
+                  String(userBadges.length),
                 );
               }
             }}
@@ -2572,7 +2892,47 @@ export default function Goals() {
             onSetExpandedRoutineId={setExpandedRoutineId}
             onAddRoutineClick={handleAddRoutineClick}
             onAddToRoutineCard={handleAddToRoutineCard}
-            onStartWorkout={(routineName) => { setSelectedRoutineName(routineName); setWorkoutModalOpen(true); }}
+            activeWorkoutRoutineName={(workoutModalOpen || workoutMinimized) ? selectedRoutineName : null}
+            onStartWorkout={async (routineName) => {
+              setSelectedRoutineName(routineName);
+              // Pre-populate notes and series only when no active workout
+              if (workoutStartTime === null && user) {
+                const routineWorkouts = userWorkouts.filter((w) => {
+                  if (routineName === "__unnamed__") return !w.name;
+                  return w.name === routineName;
+                });
+
+                // Notes from last saved values
+                const initialNotes: Record<string, string> = {};
+                routineWorkouts.forEach((w) => {
+                  if (w.notes) initialNotes[w.workout_id] = w.notes;
+                });
+                setWorkoutExerciseNotes(initialNotes);
+
+                // Series from last completed session
+                const workoutIds = routineWorkouts.map((w) => w.workout_id);
+                try {
+                  const lastSeries = await getLastWorkoutSessionSeriesDb(user.id, workoutIds);
+                  const initialSeries: Record<string, Array<{ series: number; kg: number; reps: number; completed: boolean }>> = {};
+                  for (const [workoutId, entries] of Object.entries(lastSeries)) {
+                    if (entries.length > 0) {
+                      initialSeries[workoutId] = entries.map((e, i) => ({
+                        series: i + 1,
+                        kg: e.kg,
+                        reps: e.reps,
+                        completed: false,
+                      }));
+                    }
+                  }
+                  if (Object.keys(initialSeries).length > 0) {
+                    setWorkoutSeries(initialSeries);
+                  }
+                } catch {
+                  // fail silently, user starts with empty series
+                }
+              }
+              setWorkoutModalOpen(true);
+            }}
             onScheduleNotification={handleScheduleNotification}
             onRenameRoutine={handleRenameRoutine}
             onLinkGoal={handleLinkGoalFromRoutine}
@@ -3197,6 +3557,7 @@ export default function Goals() {
                               return total + series.filter(s => s.completed).reduce((sum, s) => sum + (s.kg || 0), 0);
                             }, 0) * 10) / 10} km`
                             : `${Math.round(activeWorkouts.reduce((total, workout) => {
+                              if ((workout.muscle_group || "").toLowerCase() === "cardio") return total;
                               const series = workoutSeries[workout.workout_id] || [];
                               return total + series.filter(s => s.completed).reduce((sum, s) => sum + (s.kg || 0) * (s.reps || 0), 0);
                             }, 0) * 10) / 10} kg`
@@ -3207,6 +3568,12 @@ export default function Goals() {
                         <p className="text-xs text-muted-foreground mb-0.5">{t("goals_series")}</p>
                         <p className="text-base font-bold text-foreground">
                           {activeWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).filter((s) => s.completed).length, 0)}
+                        </p>
+                      </div>
+                      <div className="flex flex-col">
+                        <p className="text-xs text-muted-foreground mb-0.5">{t("goals_exercises")}</p>
+                        <p className="text-base font-bold text-foreground">
+                          {activeWorkouts.filter((workout) => (workoutSeries[workout.workout_id] || []).some((s) => s.completed)).length}
                         </p>
                       </div>
                     </>
@@ -3220,6 +3587,29 @@ export default function Goals() {
                 >
                   <Pause className="h-5 w-5" />
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Rest Timer Banner */}
+          {restBannerVisible && (
+            <div className="shrink-0 mx-4 mt-3 mb-1 flex items-center gap-3 rounded-xl bg-brand/10 border border-brand/30 px-4 py-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-brand/20 shrink-0">
+                <svg className="h-5 w-5 text-brand" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-brand font-medium">Descansando</p>
+                <p className="text-sm text-muted-foreground">Próxima série em breve</p>
+              </div>
+              <div className="shrink-0 text-right">
+                <span className="text-2xl font-bold tabular-nums text-brand">
+                  {Math.floor(globalRestTimerRemaining / 60) > 0
+                    ? `${Math.floor(globalRestTimerRemaining / 60)}:${String(globalRestTimerRemaining % 60).padStart(2, "0")}`
+                    : `${globalRestTimerRemaining}s`}
+                </span>
               </div>
             </div>
           )}
@@ -3248,9 +3638,10 @@ export default function Goals() {
                 })
                 .map(({ workout, originalIndex }, filteredIndex, filteredArr) => {
                   const series = workoutSeries[workout.workout_id] || [];
+                  const isMachinePlated = !!machinePlated[workout.workout_id];
                   return (
                     <div key={workout.id} className="px-4 py-3">
-                      <div className="bg-card border border-brand/20 rounded-lg p-3 mb-3">
+                      <div className={`rounded-lg p-3 mb-3 transition-colors ${isMachinePlated ? "bg-gradient-to-br from-orange-500/20 via-red-500/15 to-orange-600/10 border border-orange-400/70" : "bg-card border border-brand/20"}`}>
                         {/* Exercise Header */}
                         <div className="flex items-center gap-3 mb-2">
                           <button
@@ -3320,6 +3711,8 @@ export default function Goals() {
                           <input
                             type="text"
                             placeholder="Adicionar notas aqui..."
+                            value={workoutExerciseNotes[workout.workout_id] ?? ""}
+                            onChange={(e) => handleSetExerciseNote(workout.workout_id, e.target.value)}
                             className="w-full text-xs text-muted-foreground bg-transparent border-0 placeholder:text-muted-foreground/60 focus:outline-none"
                             style={{ fontSize: '16px' }}
                           />
@@ -3503,8 +3896,8 @@ export default function Goals() {
                                     };
 
                                     const TimeUnit = ({
-                                      label, value, onInc, onDec,
-                                    }: { label: string; value: number; onInc: () => void; onDec: () => void }) => (
+                                      label, value, onInc, onDec, onChange,
+                                    }: { label: string; value: number; onInc: () => void; onDec: () => void; onChange: (v: number) => void }) => (
                                       <div className="flex flex-col items-center gap-0.5 flex-1">
                                         <button
                                           type="button"
@@ -3514,9 +3907,19 @@ export default function Goals() {
                                         >
                                           <ChevronUp className="h-4 w-4 text-muted-foreground" />
                                         </button>
-                                        <div className="w-full h-12 flex items-center justify-center rounded-xl border-2 border-border/60 bg-background">
-                                          <span className="text-2xl font-bold tabular-nums leading-none">{String(value).padStart(2, "0")}</span>
-                                        </div>
+                                        <input
+                                          type="number"
+                                          inputMode="numeric"
+                                          pattern="[0-9]*"
+                                          min={0}
+                                          max={label === "hora" ? 99 : 59}
+                                          value={String(value).padStart(2, "0")}
+                                          onChange={(e) => {
+                                            const n = parseInt(e.target.value.replace(/\D/g, ""), 10);
+                                            onChange(isNaN(n) ? 0 : Math.max(0, Math.min(label === "hora" ? 99 : 59, n)));
+                                          }}
+                                          className="w-full h-12 text-center text-2xl font-bold tabular-nums leading-none rounded-xl border-2 border-border/60 bg-background focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        />
                                         <button
                                           type="button"
                                           onPointerDown={onDec}
@@ -3541,6 +3944,7 @@ export default function Goals() {
                                             value={hh}
                                             onInc={() => updateTime(hh + 1, mm, ss)}
                                             onDec={() => updateTime(Math.max(0, hh - 1), mm, ss)}
+                                            onChange={(v) => updateTime(v, mm, ss)}
                                           />
                                           <div className="text-2xl font-bold text-muted-foreground self-center pb-6">:</div>
                                           <TimeUnit
@@ -3548,6 +3952,7 @@ export default function Goals() {
                                             value={mm}
                                             onInc={() => updateTime(hh, mm === 59 ? 0 : mm + 1, ss)}
                                             onDec={() => updateTime(hh, mm === 0 ? 59 : mm - 1, ss)}
+                                            onChange={(v) => updateTime(hh, v, ss)}
                                           />
                                           <div className="text-2xl font-bold text-muted-foreground self-center pb-6">:</div>
                                           <TimeUnit
@@ -3555,6 +3960,7 @@ export default function Goals() {
                                             value={ss}
                                             onInc={() => updateTime(hh, mm, ss === 59 ? 0 : ss + 1)}
                                             onDec={() => updateTime(hh, mm, ss === 0 ? 59 : ss - 1)}
+                                            onChange={(v) => updateTime(hh, mm, v)}
                                           />
                                         </div>
                                       </div>
@@ -3689,6 +4095,60 @@ export default function Goals() {
                           );
                         })()}
 
+                        {/* Machine Plated nudge — triggered when kg > 120 is entered or series is completed */}
+                        {showMachinePlatedFor === workout.workout_id && (
+                          <div className="mt-2 flex items-center gap-3 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                            <span className="text-base leading-none select-none">🏋️</span>
+                            <span className="flex-1 text-xs font-medium text-amber-400/90 leading-snug">
+                              Zerou a máquina?
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onPointerDown={(e) => {
+                                  e.preventDefault();
+                                  setMachinePlated((prev) => ({ ...prev, [workout.workout_id]: true }));
+                                  setShowMachinePlatedFor(null);
+                                }}
+                                className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500 text-white active:scale-95 transition-transform"
+                                aria-label="Sim, zerei a máquina"
+                              >
+                                Sim
+                              </button>
+                              <button
+                                type="button"
+                                onPointerDown={(e) => {
+                                  e.preventDefault();
+                                  setMachinePlated((prev) => ({ ...prev, [workout.workout_id]: false }));
+                                  setShowMachinePlatedFor(null);
+                                }}
+                                className="px-3 py-1 rounded-full text-xs font-semibold bg-muted/60 text-muted-foreground active:scale-95 transition-transform"
+                                aria-label="Não"
+                              >
+                                Não
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Confirmed machine plated badge */}
+                        {machinePlated[workout.workout_id] && showMachinePlatedFor !== workout.workout_id && (
+                          <div className="mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                            <span className="text-xs font-medium text-amber-400/80 flex-1">Máquina zerada!</span>
+                            <button
+                              type="button"
+                              onPointerDown={(e) => {
+                                e.preventDefault();
+                                setMachinePlated((prev) => ({ ...prev, [workout.workout_id]: false }));
+                              }}
+                              className="text-[10px] text-muted-foreground underline"
+                            >
+                              desfazer
+                            </button>
+                          </div>
+                        )}
+
                         {/* Add Series Button — hidden for cardio */}
                         {(workout.muscle_group || "").toLowerCase() !== "cardio" && (
                         <button
@@ -3793,6 +4253,7 @@ export default function Goals() {
                 <Button
                   onClick={() => {
                     setRestTimerModalOpen(false);
+                    setRestBannerVisible(false);
                     setGlobalRestTimerActive(false);
                     setGlobalRestTimerRemaining(0);
                     setGlobalRestTimerTotal(0);
@@ -3817,6 +4278,7 @@ export default function Goals() {
                   onClick={() => {
                     if (restTimerRemaining === 0) {
                       setRestTimerModalOpen(false);
+                      setRestBannerVisible(false);
                       setGlobalRestTimerActive(false);
                       setGlobalRestTimerRemaining(0);
                       setGlobalRestTimerTotal(0);
@@ -3911,6 +4373,8 @@ export default function Goals() {
           dragPhotoIndexRef.current = -1;
           setCanvasPreviewUrl(null);
           setPrCanvasPreviewUrl(null);
+          setMachinePlatedCanvasPreviewUrl(null);
+          setGpsRouteCanvasPreviewUrl(null);
           setWorkoutRating(0);
           setIsDuelShareModalOpen(false);
           setSelectedDuelGroupId(null);
@@ -4109,7 +4573,23 @@ export default function Goals() {
               photoUrls.push(urlData.publicUrl);
             }
 
-            // 2. Upload the PR canvas card after user photos (if there's a PR)
+            // 2. Upload "Zerou a Máquina" canvas card (if any)
+            const mpCanvas = machinePlatedCanvasRef.current;
+            if (mpCanvas && workoutSummaryData.machinePlatedExercises?.length) {
+              const blob = await new Promise<Blob | null>((res) => mpCanvas.toBlob(res, "image/png"));
+              if (blob) {
+                const filePath = `${user.id}/${Date.now()}-machine-plated.png`;
+                const { error: uploadError } = await supabase.storage
+                  .from("posts")
+                  .upload(filePath, blob, { contentType: "image/png", upsert: false });
+                if (!uploadError) {
+                  const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                  photoUrls.push(urlData.publicUrl);
+                }
+              }
+            }
+
+            // 3. Upload the PR canvas card after user photos (if there's a PR)
             const prCanvas = prCanvasRef.current;
             if (prCanvas && workoutSummaryData.prs.length > 0) {
               const blob = await new Promise<Blob | null>((res) => prCanvas.toBlob(res, "image/png"));
@@ -4219,6 +4699,8 @@ export default function Goals() {
               {/* Hidden canvases for cover generation */}
               <canvas ref={workoutCanvasRef} width={800} height={800} className="hidden" />
               <canvas ref={prCanvasRef} width={800} height={800} className="hidden" />
+              <canvas ref={machinePlatedCanvasRef} width={800} height={800} className="hidden" />
+              <canvas ref={gpsRouteCanvasRef} width={800} height={800} className="hidden" />
 
               {/* Header */}
               <div className="flex items-center justify-between px-4 pt-12 pb-4 flex-shrink-0">
@@ -4234,6 +4716,8 @@ export default function Goals() {
                 // Slides: [user photos...], [PR card (if any)], [workout summary card]
                 // User photos come first so the feed carousel order matches what's shown here
                 const canvasSlides: { src: string; isCanvas: boolean }[] = [
+                  ...(gpsRouteCanvasPreviewUrl ? [{ src: gpsRouteCanvasPreviewUrl, isCanvas: true }] : []),
+                  ...(machinePlatedCanvasPreviewUrl ? [{ src: machinePlatedCanvasPreviewUrl, isCanvas: true }] : []),
                   ...(prCanvasPreviewUrl ? [{ src: prCanvasPreviewUrl, isCanvas: true }] : []),
                   ...(canvasPreviewUrl ? [{ src: canvasPreviewUrl, isCanvas: true }] : []),
                 ];
@@ -4370,7 +4854,7 @@ export default function Goals() {
               })()}
 
               {/* Stats row */}
-              <div className="mx-4 grid grid-cols-3 gap-2 mb-4">
+              <div className="mx-4 grid grid-cols-4 gap-2 mb-4">
                 <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3 md:py-2">
                   <Timer className="h-4 w-4 text-brand" />
                   <p className="text-[11px] text-muted-foreground">{t("goals_duration")}</p>
@@ -4389,6 +4873,11 @@ export default function Goals() {
                   <Flame className="h-4 w-4 text-brand" />
                   <p className="text-[11px] text-muted-foreground">{t("goals_series")}</p>
                   <p className="text-sm font-bold">{workoutSummaryData.totalSeries}</p>
+                </div>
+                <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3 md:py-2">
+                  <Dumbbell className="h-4 w-4 text-brand" />
+                  <p className="text-[11px] text-muted-foreground">{t("goals_exercises")}</p>
+                  <p className="text-sm font-bold">{workoutSummaryData.exerciseNames.length}</p>
                 </div>
               </div>
 
@@ -4461,25 +4950,33 @@ export default function Goals() {
                         <span className="flex items-center gap-1 text-red-400"><span className="w-2 h-2 rounded-full bg-red-400 inline-block" />Fim</span>
                       </div>
                     </div>
-                    {/* Stats bar */}
-                    <div className="flex items-center divide-x divide-white/10 bg-[#161b22] border-t border-white/10">
-                      <div className="flex-1 flex flex-col items-center py-2.5 px-2">
+                    {/* Stats grid */}
+                    <div className="grid grid-cols-3 divide-x divide-white/10 bg-[#161b22] border-t border-white/10">
+                      <div className="flex flex-col items-center py-3 px-2">
                         <span className="text-base font-bold text-orange-400">{workoutSummaryData.totalKm > 0 ? `${workoutSummaryData.totalKm} km` : "—"}</span>
                         <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Distância</span>
                       </div>
-                      {timeStr && (
-                        <div className="flex-1 flex flex-col items-center py-2.5 px-2">
-                          <span className="text-base font-bold text-white">{timeStr}</span>
-                          <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Tempo</span>
-                        </div>
-                      )}
-                      {paceStr && (
-                        <div className="flex-1 flex flex-col items-center py-2.5 px-2">
-                          <span className="text-base font-bold text-white">{paceStr}</span>
-                          <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Ritmo</span>
-                        </div>
-                      )}
-                      <div className="flex-1 flex flex-col items-center py-2.5 px-2">
+                      <div className="flex flex-col items-center py-3 px-2">
+                        <span className="text-base font-bold text-white">{paceStr ?? "—"}</span>
+                        <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Ritmo médio</span>
+                      </div>
+                      <div className="flex flex-col items-center py-3 px-2">
+                        <span className="text-base font-bold text-white">{timeStr ?? "—"}</span>
+                        <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Tempo mov.</span>
+                      </div>
+                      <div className="flex flex-col items-center py-3 px-2 border-t border-white/10">
+                        <span className="text-base font-bold text-white">
+                          {workoutSummaryData.gpsElevationGain != null ? `${workoutSummaryData.gpsElevationGain} m` : "—"}
+                        </span>
+                        <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Elevação</span>
+                      </div>
+                      <div className="flex flex-col items-center py-3 px-2 border-t border-white/10">
+                        <span className="text-base font-bold text-white">
+                          {workoutSummaryData.gpsSteps != null ? workoutSummaryData.gpsSteps.toLocaleString("pt-BR") : "—"}
+                        </span>
+                        <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Passos</span>
+                      </div>
+                      <div className="flex flex-col items-center py-3 px-2 border-t border-white/10">
                         <span className="text-base font-bold text-white">{route.length}</span>
                         <span className="text-[10px] text-white/40 font-medium uppercase tracking-wide">Pontos GPS</span>
                       </div>
@@ -5590,6 +6087,10 @@ export default function Goals() {
           open={moodHistoryOpen}
           onOpenChange={setMoodHistoryOpen}
           userId={user.id}
+          onMoodUpdated={(date, mood) => {
+            const todayDate = new Date().toISOString().slice(0, 10);
+            if (date === todayDate) setTodayMood(mood);
+          }}
         />
       )}
 

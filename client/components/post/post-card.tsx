@@ -20,6 +20,7 @@ import { formatTimeAgo } from "@/lib/utils";
 import type { PostWithStats } from "@/services/post.service";
 import type { PostIncentiveType } from "@/lib/ritmofit-db";
 import { useNavigate } from "react-router-dom";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 
 interface PostCardProps {
   post: PostWithStats;
@@ -81,20 +82,21 @@ export function PostCard({
           )}
 
           {/* User info overlay */}
-          <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
+          <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-2 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
             <button
               onClick={() => navigate(`/usuario/${post.user_id}`)}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity min-w-0 flex-1"
             >
               <UserAvatar
                 photo={post.userPhoto}
                 gender={post.userGender}
                 nickname={post.userNickname}
                 size="sm"
-                className="border border-white/30"
+                className="border border-white/30 shrink-0"
               />
-              <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
-                <span className="text-xs font-medium text-white leading-none">
+              <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5 min-w-0">
+                {post.isVerified && <VerifiedBadge size="sm" />}
+                <span className="text-xs font-medium text-white leading-none truncate">
                   {post.userNickname}
                 </span>
                 <span

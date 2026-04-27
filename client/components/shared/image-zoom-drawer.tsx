@@ -101,13 +101,12 @@ export function ImageZoomDrawer({ item, onClose }: ImageZoomDrawerProps) {
               <img
                 src={item.src}
                 alt={item.name}
-                className="w-full flex-shrink-0 object-cover"
+                className="w-full flex-shrink-0 object-contain bg-black/10"
                 style={{ height: item.description ? "60dvh" : "55dvh" }}
                 onError={() => setImgError(true)}
               />
             ) : (() => {
               // Determine avatar config based on type
-              const isExercise = !!item.muscleGroup || (!item.category && !item.isHabit);
               const isDiet = !!item.category;
               const isHabit = item.isHabit;
 
