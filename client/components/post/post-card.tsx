@@ -2,6 +2,7 @@ import * as React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
+import { QuickIncentiveOverlay } from "@/components/shared/quick-incentive-overlay";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { PostCarousel } from "@/components/post/post-carousel";
@@ -54,6 +55,9 @@ export function PostCard({
 }: PostCardProps) {
   const navigate = useNavigate();
   const isOwner = post.user_id === currentUserId;
+  const [quickOverlayVisible, setQuickOverlayVisible] = React.useState(false);
+  const [burstType, setBurstType] = React.useState<PostIncentiveType | null>(null);
+  const lastTapRef = React.useRef<number>(0);
   const totalLikes = Object.values(post.likes).reduce(
     (sum: number, val: number) => sum + val,
     0,
@@ -64,7 +68,16 @@ export function PostCard({
     <Card className="border-border/60 relative overflow-hidden fade-in">
       <CardContent className="space-y-3 p-0">
         {/* Image + overlay */}
-        <div className="relative">
+        <div
+          className="relative"
+          onClick={() => {
+            const now = Date.now();
+            if (now - lastTapRef.current < 300) {
+              setQuickOverlayVisible(true);
+            }
+            lastTapRef.current = now;
+          }}
+        >
           {post.photos && post.photos.length > 0 ? (
             <PostCarousel photos={post.photos} alt="Post" />
           ) : post.photo ? (
@@ -80,6 +93,18 @@ export function PostCard({
             /* Post sem mídia — placeholder mínimo para o overlay não colapsar */
             <div className="relative w-full min-h-[56px] bg-muted/30 rounded-lg" />
           )}
+
+          <QuickIncentiveOverlay
+            visible={quickOverlayVisible}
+            userLikes={post.userLikes}
+            onSelect={(type) => {
+              setQuickOverlayVisible(false);
+              setBurstType(type);
+              setTimeout(() => setBurstType(null), 600);
+              onToggleLike(post.id, type);
+            }}
+            onDismiss={() => setQuickOverlayVisible(false)}
+          />
 
           {/* User info overlay */}
           <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-2 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
@@ -173,6 +198,7 @@ export function PostCard({
               isActive={post.userLikes.includes(type)}
               onClick={() => onToggleLike(post.id, type)}
               loading={togglingIncentives.has(`${post.id}-${type}`)}
+              burst={burstType === type}
             />
           ))}
           <div className="ml-auto">

@@ -18,6 +18,7 @@ import {
   getMyViewedFlowUserIdsDb,
   recordFlowViewDb,
   createUserGoalDb,
+  updateUserGoalDb,
   deletePostDb,
   getPostLikeUsersDb,
   copyRoutineToUserDb,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/ritmofit-db";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { ReportDrawer } from "@/components/shared/report-drawer";
+import { GoalCompletedDialog } from "@/components/goals/goal-completed-dialog";
 import { ShareDrawer } from "@/components/shared/share-drawer";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
 import { PostCard } from "@/components/post/post-card";
@@ -77,6 +79,10 @@ export default function Index() {
   const location = useLocation();
   const [posts, setPosts] = React.useState<PostWithStats[]>([]);
   const [discoverPosts, setDiscoverPosts] = React.useState<PostWithStats[]>([]);
+  const postsRef = React.useRef<PostWithStats[]>([]);
+  const discoverPostsRef = React.useRef<PostWithStats[]>([]);
+  postsRef.current = posts;
+  discoverPostsRef.current = discoverPosts;
   const [stories, setStories] = React.useState<StoryWithUser[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [discoverLoading, setDiscoverLoading] = React.useState(false);
@@ -115,6 +121,8 @@ export default function Index() {
 
   const [isCopyingGoal, setIsCopyingGoal] = React.useState(false);
   const [hasAlreadyCopiedGoal, setHasAlreadyCopiedGoal] = React.useState(false);
+  const [isMarkingGoalComplete, setIsMarkingGoalComplete] = React.useState(false);
+  const [completedGoalDescription, setCompletedGoalDescription] = React.useState<string | null>(null);
   const [copyingRoutineKeys, setCopyingRoutineKeys] = React.useState<Set<string>>(new Set());
   const [copiedRoutineKeys, setCopiedRoutineKeys] = React.useState<Set<string>>(new Set());
 
@@ -463,6 +471,28 @@ export default function Index() {
     }
   }, [selectedGoalPost?.userGoal, selectedGoalPost?.user_id, user, linkedRoutines]);
 
+  const handleMarkGoalComplete = React.useCallback(async () => {
+    if (!selectedGoalPost?.userGoal) return;
+    if (!confirm("Marcar esta meta como 100% concluída?")) return;
+    setIsMarkingGoalComplete(true);
+    try {
+      const ug = selectedGoalPost.userGoal;
+      await updateUserGoalDb(ug.id, {
+        duration: ug.duration,
+        quantity: ug.quantity,
+        days_completed: ug.duration,
+        perc: 100,
+        visibility: ug.visibility ?? 1,
+      });
+      setGoalModalOpen(false);
+      setCompletedGoalDescription(selectedGoalPost.userGoal.description ?? "");
+    } catch (err: any) {
+      toast({ title: "Erro ao concluir meta", description: err?.message || "Tente novamente.", variant: "destructive" });
+    } finally {
+      setIsMarkingGoalComplete(false);
+    }
+  }, [selectedGoalPost?.userGoal]);
+
   const handleCopyRoutine = React.useCallback(
     async (sourceUserId: string, routineType: number, routineName: string | undefined) => {
       if (!user) return;
@@ -522,8 +552,8 @@ export default function Index() {
 
       // Determine desired state from current post list before optimistic update
       const currentPost =
-        posts.find((p) => p.id === postId) ??
-        discoverPosts.find((p) => p.id === postId);
+        postsRef.current.find((p) => p.id === postId) ??
+        discoverPostsRef.current.find((p) => p.id === postId);
       const wasActive = currentPost?.userLikes.includes(incentiveType) ?? false;
       const wantActive = !wasActive;
 
@@ -873,6 +903,20 @@ export default function Index() {
                   </>
                 )}
 
+                {/* Mark complete button — own post only */}
+                {selectedGoalPost.user_id === user?.id && (selectedGoalPost.userGoal.perc ?? 0) < 100 && (
+                  <button
+                    onClick={handleMarkGoalComplete}
+                    disabled={isMarkingGoalComplete}
+                    className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-emerald-500 transition-colors py-1 disabled:opacity-50"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                    {isMarkingGoalComplete ? "Concluindo..." : "Marcar como concluída"}
+                  </button>
+                )}
+
                 {/* Copy Goal button */}
                 {selectedGoalPost.user_id !== user?.id && (
                   <div className="flex gap-2">
@@ -890,6 +934,14 @@ export default function Index() {
           </div>
         </DrawerContent>
       </Drawer>
+
+      {/* Goal Completed Dialog */}
+      {completedGoalDescription !== null && (
+        <GoalCompletedDialog
+          goalDescription={completedGoalDescription}
+          onClose={() => setCompletedGoalDescription(null)}
+        />
+      )}
 
       {/* Report Dialog */}
       <ReportDrawer

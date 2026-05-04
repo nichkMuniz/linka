@@ -255,7 +255,8 @@ export function PostCommentsDialog({
         <DrawerDescription className="sr-only">{t("comments_list_desc")}</DrawerDescription>
       </DrawerHeader>
 
-      <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
+      {/* stopPropagation prevents vaul from starting a drag gesture when tapping inside the content */}
+      <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4" onPointerDown={(e) => e.stopPropagation()}>
         {/* Comments list */}
         <div className="flex-1 space-y-3 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
           {loading ? (

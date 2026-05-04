@@ -1,4 +1,5 @@
 import * as React from "react";
+import { QuickIncentiveOverlay } from "@/components/shared/quick-incentive-overlay";
 import {
   Drawer,
   DrawerContent,
@@ -94,20 +95,42 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   const [isPaused, setIsPaused] = React.useState(false);
   const [showPauseIcon, setShowPauseIcon] = React.useState(false);
   const pauseIconTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [quickOverlayShotId, setQuickOverlayShotId] = React.useState<string | null>(null);
+  const [burstMap, setBurstMap] = React.useState<Record<string, PostIncentiveType | null>>({});
+  const lastTapRef = React.useRef<{ shotId: string; time: number } | null>(null);
+  const singleTapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleVideoTap = React.useCallback((shotId: string) => {
-    const video = videoRefsMap.current[shotId];
-    if (!video) return;
-    if (video.paused) {
-      video.play().catch(() => {});
-      setIsPaused(false);
-    } else {
-      video.pause();
-      setIsPaused(true);
+    const now = Date.now();
+    const last = lastTapRef.current;
+
+    if (last && last.shotId === shotId && now - last.time < 300) {
+      // Double tap — show quick incentive overlay
+      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+      lastTapRef.current = null;
+      setQuickOverlayShotId(shotId);
+      return;
     }
-    setShowPauseIcon(true);
-    if (pauseIconTimerRef.current) clearTimeout(pauseIconTimerRef.current);
-    pauseIconTimerRef.current = setTimeout(() => setShowPauseIcon(false), 800);
+
+    lastTapRef.current = { shotId, time: now };
+
+    // Delay single-tap action to allow double-tap detection
+    if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+    singleTapTimerRef.current = setTimeout(() => {
+      lastTapRef.current = null;
+      const video = videoRefsMap.current[shotId];
+      if (!video) return;
+      if (video.paused) {
+        video.play().catch(() => {});
+        setIsPaused(false);
+      } else {
+        video.pause();
+        setIsPaused(true);
+      }
+      setShowPauseIcon(true);
+      if (pauseIconTimerRef.current) clearTimeout(pauseIconTimerRef.current);
+      pauseIconTimerRef.current = setTimeout(() => setShowPauseIcon(false), 800);
+    }, 300);
   }, []);
 
   // Auto-dismiss swipe hint after 4s to prevent blocking interaction
@@ -518,6 +541,17 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
               {/* Video */}
               {shot.video_url ? (
                 <div className="h-full w-full relative" onClick={() => handleVideoTap(shot.id)}>
+                  <QuickIncentiveOverlay
+                    visible={quickOverlayShotId === shot.id}
+                    userLikes={shot.userLikes}
+                    onSelect={(type) => {
+                      setQuickOverlayShotId(null);
+                      setBurstMap((prev) => ({ ...prev, [shot.id]: type }));
+                      setTimeout(() => setBurstMap((prev) => ({ ...prev, [shot.id]: null })), 600);
+                      handleIncentiveClick(shot, type);
+                    }}
+                    onDismiss={() => setQuickOverlayShotId(null)}
+                  />
                   <video
                     ref={(el) => {
                       if (el) {
@@ -551,7 +585,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
               )}
 
               {/* Gradient Overlay for Better Text Visibility */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/40 pointer-events-none" />
 
               {/* Top-right controls */}
               <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
@@ -601,10 +635,10 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
               </div>
 
               {/* User Info - Top Left */}
-              <div className="absolute top-4 left-4 z-10 flex items-center gap-3">
+              <div className="absolute top-4 left-4 z-10 flex items-center gap-3 max-w-[55%]">
                 <button
                   onClick={() => navigate(`/usuario/${shot.user_id}`)}
-                  className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+                  className="shrink-0 hover:opacity-80 transition-opacity"
                 >
                   <UserAvatar
                     photo={shot.userPhoto}
@@ -613,27 +647,30 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     size="lg"
                     className="border-2 border-white/30 shadow-lg"
                   />
-                  <div>
-                    <div className="flex items-center gap-1">
-                      {shot.isVerified && <VerifiedBadge size="sm" />}
-                      <p className="text-sm font-bold text-white drop-shadow-md">
-                        {shot.userNickname || "Usuário"}
-                      </p>
-                    </div>
-                    {shot.userHandle && (
-                      <p className="text-xs text-white/70 drop-shadow-md">
-                        {shot.userHandle.startsWith("@") ? shot.userHandle : `@${shot.userHandle}`}
-                      </p>
-                    )}
-                  </div>
                 </button>
-                {user && user.id !== shot.user_id && (
-                  <FollowButton
-                    targetUserId={shot.user_id}
-                    initialIsFollowing={followingStatus[shot.user_id]}
-                    variant="overlay"
-                  />
-                )}
+                <div className="min-w-0 flex flex-col gap-1">
+                  <button
+                    onClick={() => navigate(`/usuario/${shot.user_id}`)}
+                    className="flex items-center gap-1 min-w-0 hover:opacity-80 transition-opacity text-left"
+                  >
+                    {shot.isVerified && <VerifiedBadge size="sm" className="shrink-0" />}
+                    <p className="text-sm font-bold text-white drop-shadow-md truncate">
+                      {shot.userNickname || "Usuário"}
+                    </p>
+                  </button>
+                  {shot.userHandle && (
+                    <p className="text-xs text-white/70 drop-shadow-md">
+                      {shot.userHandle.startsWith("@") ? shot.userHandle : `@${shot.userHandle}`}
+                    </p>
+                  )}
+                  {user && user.id !== shot.user_id && (
+                    <FollowButton
+                      targetUserId={shot.user_id}
+                      initialIsFollowing={followingStatus[shot.user_id]}
+                      variant="overlay"
+                    />
+                  )}
+                </div>
               </div>
 
               {/* Bottom Area: Description + Incentive Buttons aligned together */}
@@ -646,7 +683,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                 }}
               >
                 {/* Description - Bottom Left */}
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 flex flex-col justify-end">
                   {shot.description && (
                     <p className="text-sm text-white drop-shadow-md leading-relaxed">
                       {shot.description}
@@ -669,6 +706,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                           isActive={(shot.userLikes || [])?.includes(type) ?? false}
                           onClick={() => handleIncentiveClick(shot, type)}
                           loading={togglingIncentives.has(`${shot.id}-${type}`)}
+                          burst={burstMap[shot.id] === type}
                         />
                         {count > 0 && (
                           <span className="text-xs text-white/70 font-medium leading-none">

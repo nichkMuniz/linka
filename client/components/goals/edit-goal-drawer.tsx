@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/use-toast";
+import { CheckCircle2 } from "lucide-react";
 import {
   updateUserGoalDb,
   deleteUserGoalDb,
@@ -16,6 +17,7 @@ import {
   getUserSelectedGoalIdsDb,
   type UserGoal,
 } from "@/lib/ritmofit-db";
+import { useLanguage } from "@/lib/language-context";
 
 interface EditGoalDrawerProps {
   open: boolean;
@@ -23,6 +25,7 @@ interface EditGoalDrawerProps {
   goal: UserGoal | null;
   onGoalUpdated: (updatedGoals: UserGoal[], selectedIds: string[]) => void;
   onGoalDeleted: (deletedGoalId: string, deletedGoalRowId: string) => void;
+  onGoalCompleted?: (description: string) => void;
 }
 
 export function EditGoalDrawer({
@@ -31,7 +34,9 @@ export function EditGoalDrawer({
   goal,
   onGoalUpdated,
   onGoalDeleted,
+  onGoalCompleted,
 }: EditGoalDrawerProps) {
+  const { t } = useLanguage();
   const [duration, setDuration] = React.useState(0);
   const [quantity, setQuantity] = React.useState(0);
   const [visibility, setVisibility] = React.useState<number>(1);
@@ -74,6 +79,32 @@ export function EditGoalDrawer({
       const errorMsg = err?.message || "Tente novamente.";
       console.error("Error updating goal:", errorMsg);
       toast({ title: "Erro ao atualizar meta", description: errorMsg, variant: "destructive" });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleMarkComplete = async () => {
+    if (!goal) return;
+    if (!confirm(t("goals_mark_complete_confirm"))) return;
+    setIsUpdating(true);
+    try {
+      await updateUserGoalDb(goal.id, {
+        duration,
+        quantity,
+        days_completed: duration,
+        perc: 100,
+        visibility,
+      });
+      const [freshUserGoals, freshSelectedIds] = await Promise.all([
+        getUserGoalsDb(),
+        getUserSelectedGoalIdsDb(),
+      ]);
+      onGoalUpdated(freshUserGoals, freshSelectedIds);
+      onOpenChange(false);
+      onGoalCompleted?.(goal.description ?? "");
+    } catch (err: any) {
+      toast({ title: t("goals_mark_complete_error"), description: err?.message || "Tente novamente.", variant: "destructive" });
     } finally {
       setIsUpdating(false);
     }
@@ -168,6 +199,17 @@ export function EditGoalDrawer({
                   className="w-full rounded-full"
                 >
                   {isUpdating ? "Atualizando..." : "Salvar Alterações"}
+                </Button>
+
+                <Button
+                  onClick={handleMarkComplete}
+                  disabled={isUpdating || (goal.perc ?? 0) >= 100}
+                  variant="ghost"
+                  size="sm"
+                  className="w-full rounded-full text-xs text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/10 flex items-center justify-center gap-1.5"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                  <span>{t("goals_mark_complete")}</span>
                 </Button>
 
                 <Button

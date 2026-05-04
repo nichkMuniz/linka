@@ -161,10 +161,12 @@ import { EditGoalDrawer } from "@/components/goals/edit-goal-drawer";
 import { MoodDialog } from "@/components/goals/mood-dialog";
 import { MoodHistoryDrawer } from "@/components/goals/mood-history-drawer";
 import { BadgeUnlockedDialog } from "@/components/goals/badge-unlocked-dialog";
+import { GoalCompletedDialog } from "@/components/goals/goal-completed-dialog";
 import { RenameRoutineDialog } from "@/components/goals/rename-routine-dialog";
 import { ImageZoomDrawer, type ImageZoomItem } from "@/components/shared/image-zoom-drawer";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { ShareDrawer } from "@/components/shared/share-drawer";
+import { FabButton } from "@/components/shared/fab-button";
 import { CreateWorkoutDrawer } from "@/components/goals/create-workout-drawer";
 import { CreateGoalDrawer } from "@/components/goals/create-goal-drawer";
 import { LinkGoalDrawer } from "@/components/goals/link-goal-drawer";
@@ -175,7 +177,7 @@ import { startWorkoutLiveActivity, updateWorkoutLiveActivity, stopWorkoutLiveAct
 import { GpsTracking, isNativeGpsSupported, requestLocationPermission } from "@/hooks/use-native-gps";
 import {
   updateRoutineScheduledTimeDb,
-  type RoutineType,
+  type RoutineKind,
 } from "@/lib/ritmofit-db";
 import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
@@ -219,6 +221,7 @@ export default function Goals() {
   }, [pendingReopen, workoutModalOpen]);
 
   const initialTab = searchParams.get("tab") === "metas" ? "metas" : "rotinas";
+  const [activeGoalsTab, setActiveGoalsTab] = React.useState(initialTab);
 
   // Metas tab state
   const [goals, setGoals] = React.useState<ProgrammedGoal[]>([]);
@@ -544,6 +547,7 @@ export default function Goals() {
 
   // ─── Badge desbloqueada ───────────────────────────────────────────────────
   const [unlockedBadges, setUnlockedBadges] = React.useState<Badge[]>([]);
+  const [completedGoalDescription, setCompletedGoalDescription] = React.useState<string | null>(null);
 
   // ─── Humor do Dia ─────────────────────────────────────────────────────────
   const [moodModalOpen, setMoodModalOpen] = React.useState(false);
@@ -640,7 +644,7 @@ export default function Goals() {
 
   // Scheduled time (notification) state
   const [scheduledTimeDrawerOpen, setScheduledTimeDrawerOpen] = React.useState(false);
-  const [scheduledTimeTarget, setScheduledTimeTarget] = React.useState<{ id: string; type: RoutineType; name: string; currentTime: string | null } | null>(null);
+  const [scheduledTimeTarget, setScheduledTimeTarget] = React.useState<{ id: string; type: RoutineKind; name: string; currentTime: string | null } | null>(null);
   const [isSavingScheduledTime, setIsSavingScheduledTime] = React.useState(false);
 
   // Tracks which existing routine card we're adding items to (for pre-fill name context)
@@ -2073,9 +2077,9 @@ export default function Goals() {
       [workoutId]: updated,
     });
 
-    // Show machine-plated prompt when kg exceeds 120
+    // Show machine-plated prompt when kg exceeds 120 (only if user hasn't answered yet)
     if (field === "kg" && numValue > 120) {
-      setShowMachinePlatedFor(workoutId);
+      if (!(workoutId in machinePlated)) setShowMachinePlatedFor(workoutId);
     } else if (field === "kg" && numValue <= 120) {
       // Hide if user reduced below threshold and no other series > 120
       const stillAbove = updated.some((s, i) => i !== seriesIndex ? (s.kg > 120) : false);
@@ -2114,10 +2118,10 @@ export default function Goals() {
       [workoutId]: updated,
     });
 
-    // Machine plated: show prompt when completing a series with kg > 120
+    // Machine plated: show prompt when completing a series with kg > 120 (only if not answered yet)
     if (isMarking) {
       const serie = updated[seriesIndex];
-      if (serie.kg > 120) {
+      if (serie.kg > 120 && !(workoutId in machinePlated)) {
         setShowMachinePlatedFor(workoutId);
       }
     }
@@ -2822,7 +2826,7 @@ export default function Goals() {
       </div>
 
 
-      <Tabs defaultValue={initialTab} className="w-full">
+      <Tabs defaultValue={initialTab} className="w-full" onValueChange={setActiveGoalsTab}>
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="metas">{t("goals_tab_metas")}</TabsTrigger>
           <TabsTrigger value="rotinas">{t("goals_tab_rotinas")}</TabsTrigger>
@@ -2945,6 +2949,17 @@ export default function Goals() {
           />
         </TabsContent>
       </Tabs>
+
+      {/* FAB — visible only on Rotinas tab when user already has routines */}
+      {activeGoalsTab === "rotinas" && (userWorkouts.length > 0 || userDiets.length > 0 || userHabits.length > 0) && (
+        <FabButton
+          onClick={() => {
+            setSelectedRoutineType(null);
+            setAddRoutineModalOpen(true);
+          }}
+          title={t("goals_create_routine")}
+        />
+      )}
 
       {/* Add Routine Drawer Modal */}
       <Drawer open={addRoutineModalOpen} onOpenChange={(open) => { setAddRoutineModalOpen(open); if (!open) setIsAddingFromWorkout(false); }}>
@@ -4309,6 +4324,7 @@ export default function Goals() {
         onGoalDeleted={(goalId) => {
           setSelectedGoalIds((prev) => prev.filter((id) => id !== goalId));
         }}
+        onGoalCompleted={(description) => setCompletedGoalDescription(description)}
       />
 
       {/* Finish Workout Confirmation Drawer */}
@@ -6078,6 +6094,14 @@ export default function Goals() {
         <BadgeUnlockedDialog
           badges={unlockedBadges}
           onClose={() => setUnlockedBadges([])}
+        />
+      )}
+
+      {/* ─── Popup de meta concluída ─────────────────────────────────────── */}
+      {completedGoalDescription !== null && (
+        <GoalCompletedDialog
+          goalDescription={completedGoalDescription}
+          onClose={() => setCompletedGoalDescription(null)}
         />
       )}
 

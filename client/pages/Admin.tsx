@@ -26,6 +26,7 @@ import {
   BadgeCheck,
   Search,
   X,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,7 @@ import {
   getAdminComplaintsDb,
   getAdminStatsDb,
   getAdminAnalyticsDb,
+  getAdminActiveUsersDb,
   adminDismissComplaintDb,
   adminDeleteContentDb,
   adminBanUserDb,
@@ -55,6 +57,7 @@ import {
   type AdminAnalytics,
   type AdminTopScreen,
   type AdminDayCount,
+  type AdminActiveUser,
 } from "@/lib/ritmofit-db";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { Input } from "@/components/ui/input";
@@ -164,6 +167,7 @@ function MiniBar({ days, valueKey }: { days: AdminDayCount[]; valueKey: "total" 
   if (!days.length) return null;
   const values = days.map((d) => (valueKey === "total" ? d.total ?? 0 : d.usuarios_ativos ?? 0));
   const max = Math.max(...values, 1);
+  const BAR_MAX_H = 72;
   const dayLabels = days.map((d) => {
     const dateStr = d.dia ?? d.session_date ?? "";
     if (!dateStr) return "";
@@ -172,14 +176,75 @@ function MiniBar({ days, valueKey }: { days: AdminDayCount[]; valueKey: "total" 
   });
 
   return (
-    <div className="flex items-end gap-1 h-10 w-full">
-      {values.map((v, i) => (
-        <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-          <div
-            className="w-full rounded-sm bg-primary/60 min-h-[2px] transition-all"
-            style={{ height: `${Math.max(2, (v / max) * 40)}px` }}
-          />
-          <span className="text-[9px] text-muted-foreground leading-none">{dayLabels[i]}</span>
+    <div className="flex items-end gap-1.5 w-full" style={{ height: `${BAR_MAX_H + 36}px` }}>
+      {values.map((v, i) => {
+        const barH = Math.max(4, (v / max) * BAR_MAX_H);
+        const isToday = i === values.length - 1;
+        return (
+          <div key={i} className="flex-1 flex flex-col items-center gap-1" style={{ height: "100%", justifyContent: "flex-end" }}>
+            <span className="text-[10px] font-medium text-foreground/70 leading-none">{v > 0 ? v : ""}</span>
+            <div
+              className={`w-full rounded-t-sm transition-all ${isToday ? "bg-primary" : "bg-primary/40"}`}
+              style={{ height: `${barH}px` }}
+            />
+            <span className={`text-[10px] leading-none mt-0.5 ${isToday ? "text-primary font-semibold" : "text-muted-foreground"}`}>{dayLabels[i]}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── active users ranking ─────────────────────────────────────────────────────
+
+function ActiveUsersRanking({ users }: { users: AdminActiveUser[] }) {
+  if (!users.length) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-6 text-center">
+        <Activity className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+        <p className="text-sm text-muted-foreground">Nenhum dado de uso disponível hoje</p>
+      </div>
+    );
+  }
+  const maxSec = Math.max(...users.map((u) => u.total_seconds), 1);
+  const medals = ["🥇", "🥈", "🥉"];
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      {users.map((user, i) => (
+        <div
+          key={user.user_id}
+          className={`flex items-center gap-3 px-4 py-3 ${i < users.length - 1 ? "border-b border-border/50" : ""}`}
+        >
+          <span className="text-base w-6 text-center shrink-0">
+            {medals[i] ?? <span className="text-xs text-muted-foreground font-mono">{i + 1}</span>}
+          </span>
+
+          <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
+            {user.photo ? (
+              <img src={user.photo} alt={user.nickname} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <UserCircle className="w-5 h-5 text-muted-foreground" />
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground truncate">{user.nickname}</p>
+            {user.handle ? (
+              <div className="w-full h-1 bg-muted rounded-full mt-1 overflow-hidden">
+                <div
+                  className="h-full bg-primary/60 rounded-full transition-all"
+                  style={{ width: `${(user.total_seconds / maxSec) * 100}%` }}
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <span className="text-xs font-semibold text-primary shrink-0">
+            {formatSeconds(user.total_seconds)}
+          </span>
         </div>
       ))}
     </div>
@@ -384,6 +449,7 @@ function confirmTexts(action: PendingAction | null) {
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export default function Admin() {
+  const navigate = useNavigate();
   const [complaints, setComplaints] = React.useState<AdminComplaint[]>([]);
   const [stats, setStats] = React.useState<AdminStats | null>(null);
   const [analytics, setAnalytics] = React.useState<AdminAnalytics | null>(null);
@@ -393,6 +459,7 @@ export default function Admin() {
   const [acting, setActing] = React.useState(false);
 
   // ── Verified accounts ──────────────────────────────────────────────────────
+  const [activeUsers, setActiveUsers] = React.useState<AdminActiveUser[]>([]);
   const [verifiedAccounts, setVerifiedAccounts] = React.useState<{ userId: string; nickname: string; handle: string; photo: string | null }[]>([]);
   const [verifyHandle, setVerifyHandle] = React.useState("");
   const [verifyingHandle, setVerifyingHandle] = React.useState(false);
@@ -439,16 +506,18 @@ export default function Admin() {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const [c, s, a, v] = await Promise.all([
+      const [c, s, a, v, au] = await Promise.all([
         getAdminComplaintsDb(),
         getAdminStatsDb(),
         getAdminAnalyticsDb(),
         getVerifiedAccountsDb(),
+        getAdminActiveUsersDb(),
       ]);
       setComplaints(c);
       setStats(s);
       setAnalytics(a);
       setVerifiedAccounts(v);
+      setActiveUsers(au);
     } catch (err: any) {
       toast({ title: "Erro ao carregar dados", description: err.message, variant: "destructive" });
     } finally {
@@ -525,6 +594,14 @@ export default function Admin() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => navigate("/perfil")}
+            className="h-8 w-8 p-0"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
           <Shield className="w-5 h-5 text-primary" />
           <h1 className="text-xl font-bold text-foreground">Painel Admin</h1>
         </div>
@@ -619,6 +696,12 @@ export default function Admin() {
             <MiniBar days={analytics.dau_7d} valueKey="usuarios_ativos" />
           </div>
         )}
+      </section>
+
+      {/* ── Ranking usuários mais ativos hoje ─────────────────────────────── */}
+      <section>
+        <SectionHeader icon={TrendingUp} label="Usuários mais ativos hoje" />
+        <ActiveUsersRanking users={activeUsers} />
       </section>
 
       {/* ── Telas mais acessadas ───────────────────────────────────────────── */}

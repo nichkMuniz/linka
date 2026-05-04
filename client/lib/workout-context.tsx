@@ -139,7 +139,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     }
   }, [workoutSeries, workoutStartTime, selectedRoutineName, workoutExerciseRestTimes, workoutExerciseNotes, workoutModalOpen, workoutMinimized]);
 
-  // Workout duration timer — keeps running even when modal is minimized
+  // Workout duration timer — calculates from startTime so background/lock doesn't break it
   React.useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     const isActive = workoutModalOpen || workoutMinimized;
@@ -147,14 +147,27 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       setWorkoutStartTime(Date.now());
     }
     if (isActive && workoutStartTime !== null) {
+      // Calculate elapsed time from startTime so lock/background doesn't cause drift
       interval = setInterval(() => {
-        setWorkoutDuration((prev) => prev + 1);
+        setWorkoutDuration(Math.floor((Date.now() - workoutStartTime) / 1000));
       }, 1000);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
   }, [workoutModalOpen, workoutMinimized, workoutStartTime]);
+
+  // Sync workout duration when app returns from background/lock screen
+  React.useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      if (workoutStartTime !== null && (workoutModalOpen || workoutMinimized)) {
+        setWorkoutDuration(Math.floor((Date.now() - workoutStartTime) / 1000));
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [workoutStartTime, workoutModalOpen, workoutMinimized]);
 
   const REST_NOTIF_ID = 91823;
   const REST_TIMER_END_KEY = "rest_timer_end_at";

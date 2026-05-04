@@ -58,22 +58,31 @@ export function GoalsTab({
   const { t } = useLanguage();
   const [availableGoalSearch, setAvailableGoalSearch] = React.useState("");
 
+  const selectedGoals = goals.filter((goal) => selectedGoalIds.includes(goal.id));
+  const activeGoals = selectedGoals.filter((goal) => {
+    const userGoal = userGoals.find((ug) => ug.goal_id === goal.id);
+    return (userGoal?.perc ?? 0) < 100;
+  });
+  const completedGoals = selectedGoals.filter((goal) => {
+    const userGoal = userGoals.find((ug) => ug.goal_id === goal.id);
+    return (userGoal?.perc ?? 0) >= 100;
+  });
+
   return (
     <>
       {goals.length ? (
         <>
-          {/* Selected Goals Section */}
-          {selectedGoalIds.length > 0 && (
+          {/* Active Goals Section */}
+          {activeGoals.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold">{t("goals_my_active")}</h3>
                 <span className="text-xs text-muted-foreground">
-                  {selectedGoalIds.length} meta{selectedGoalIds.length > 1 ? "s" : ""}
+                  {activeGoals.length} meta{activeGoals.length > 1 ? "s" : ""}
                 </span>
               </div>
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {goals
-                  .filter((goal) => selectedGoalIds.includes(goal.id))
+                {activeGoals
                   .map((goal) => {
                     const userGoal = userGoals.find(ug => ug.goal_id === goal.id);
                     const duration = userGoal?.duration || goal.duration;
@@ -196,7 +205,7 @@ export function GoalsTab({
 
           {/* Available Goals Section - Accordion */}
           {goals.filter((g) => !selectedGoalIds.includes(g.id)).length > 0 && (
-            <Accordion type="single" collapsible defaultValue={selectedGoalIds.length === 0 ? "available-goals" : ""}>
+            <Accordion type="single" collapsible defaultValue={activeGoals.length === 0 && completedGoals.length === 0 ? "available-goals" : ""}>
               <AccordionItem value="available-goals" className="border-border/60">
                 <AccordionTrigger className="hover:no-underline">
                   <div className="flex items-center justify-between w-full pr-4">
@@ -361,6 +370,78 @@ export function GoalsTab({
               </AccordionItem>
             </Accordion>
           )}
+          {/* Completed Goals Section - Accordion (starts closed) */}
+          {completedGoals.length > 0 && (
+            <Accordion type="single" collapsible defaultValue="">
+              <AccordionItem value="completed-goals" className="border-border/60">
+                <AccordionTrigger className="hover:no-underline">
+                  <div className="flex items-center justify-between w-full pr-4">
+                    <h3 className="text-sm font-semibold">{t("goals_completed_section")}</h3>
+                    <span className="text-xs text-muted-foreground">
+                      {completedGoals.length} meta{completedGoals.length > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 pt-2">
+                    {completedGoals.map((goal) => {
+                      const userGoal = userGoals.find((ug) => ug.goal_id === goal.id);
+                      const duration = userGoal?.duration || goal.duration;
+                      const quantity = userGoal?.quantity || goal.quantity;
+                      const goalTypeLabel =
+                        goal.type === 1
+                          ? t("goals_type_fitness")
+                          : goal.type === 2
+                            ? t("goals_type_health")
+                            : t("goals_type_habits");
+                      const goalTypeColor =
+                        goal.type === 1
+                          ? "bg-blue-500/10 text-blue-600"
+                          : goal.type === 2
+                            ? "bg-emerald-500/10 text-emerald-600"
+                            : "bg-orange-500/10 text-orange-600";
+                      return (
+                        <Card
+                          key={goal.id}
+                          className="border-emerald-500/30 bg-emerald-500/5 overflow-hidden flex flex-col"
+                        >
+                          <div className={`px-3 py-1.5 ${goalTypeColor} text-xs font-semibold flex items-center justify-between`}>
+                            <span>✓ {goalTypeLabel}</span>
+                            <span className="text-[10px] font-medium bg-emerald-500/15 text-emerald-600 px-1.5 py-0.5 rounded-full">100%</span>
+                          </div>
+                          <CardHeader className="pb-2 pt-2">
+                            <CardTitle className="text-sm line-clamp-2">{goal.description}</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-2 flex-1 flex flex-col">
+                            <div className="grid grid-cols-2 gap-1.5 text-center text-xs">
+                              <div className="bg-muted rounded p-1.5">
+                                <p className="text-muted-foreground">{t("goals_duration")}</p>
+                                <p className="font-bold">{duration}d</p>
+                              </div>
+                              <div className="bg-muted rounded p-1.5">
+                                <p className="text-muted-foreground">{t("goals_frequency")}</p>
+                                <p className="font-bold">{quantity}</p>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">{t("goals_progress")}</span>
+                                <span className="font-bold text-emerald-600">100%</span>
+                              </div>
+                              <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                                <div className="bg-emerald-500 h-full rounded-full w-full" />
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )}
+
           {/* Create custom goal button */}
           <div className="flex justify-center pt-2">
             <Button

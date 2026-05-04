@@ -1312,12 +1312,28 @@ export type UserStats = {
   level: number;
 };
 
+function resolveWorkoutPhotoUrl(photo: string | null | undefined, wgerId?: number | null): string | null {
+  if (!photo && !wgerId) return null;
+  if (photo?.startsWith("http")) return photo;
+  if (!supabase) return null;
+  // Old wger.de path (/media/exercise-images/...) or any non-http value:
+  // map to the exercises bucket using wger_id + original extension
+  if (wgerId) {
+    const ext = photo ? (photo.match(/\.(\w+)$/) ?? [])[1] ?? "jpg" : "jpg";
+    const { data } = supabase.storage.from("exercises").getPublicUrl(`exercises/${wgerId}.${ext}`);
+    return data?.publicUrl ?? null;
+  }
+  // Relative path without wger_id — try exercises bucket as-is
+  const { data } = supabase.storage.from("exercises").getPublicUrl(photo!);
+  return data?.publicUrl ?? null;
+}
+
 export async function getWorkoutsDb(): Promise<Workout[]> {
   if (!hasSupabaseConfig || !supabase) return [];
   return cached("workouts", CACHE_TTL_LONG, async () => {
   const { data, error } = await supabase
     .from("workouts")
-    .select("id, name, description, photo, muscle_group, type")
+    .select("id, name, description, photo, muscle_group, type, wger_id")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -1331,7 +1347,7 @@ export async function getWorkoutsDb(): Promise<Workout[]> {
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
-    photo: row.photo ? String(row.photo) : null,
+    photo: resolveWorkoutPhotoUrl(row.photo, row.wger_id),
     muscle_group: row.muscle_group ? String(row.muscle_group) : null,
     type: row.type != null ? Number(row.type) : null,
   }));
@@ -1383,15 +1399,14 @@ export async function getCatalogWorkoutsFromDb(): Promise<Array<{
   const { data } = await supabase
     .from("workouts")
     .select("id, name, description, muscle_group, photo, wger_id")
-    .not("wger_id", "is", null)
-    .not("photo", "is", null);
+    .order("name", { ascending: true });
 
   return (data ?? []).map((row: any) => ({
     id: String(row.id),
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
     muscleGroup: String(row.muscle_group ?? ""),
-    photo: row.photo ? String(row.photo) : null,
+    photo: resolveWorkoutPhotoUrl(row.photo, row.wger_id),
     wgerId: row.wger_id ? Number(row.wger_id) : null,
   }));
 
@@ -2149,7 +2164,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, name, created_at, scheduled_time, notes, workouts(name, photo, description, muscle_group)",
+      "id, workout_id, user_id, name, created_at, scheduled_time, notes, workouts(name, photo, description, muscle_group, wger_id)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -2187,7 +2202,7 @@ export async function getUserWorkoutsDb(
         if (workoutIds.length > 0) {
           const { data: workoutsData } = await supabase
             .from("workouts")
-            .select("id, name, photo, description, muscle_group")
+            .select("id, name, photo, description, muscle_group, wger_id")
             .in("id", workoutIds);
 
           if (workoutsData) {
@@ -2205,7 +2220,7 @@ export async function getUserWorkoutsDb(
             user_id: String(row.user_id ?? ""),
             name: row.name ? String(row.name) : null,
             workoutName: workoutDetails?.name || "Exercício desconhecido",
-            workoutPhoto: workoutDetails?.photo || null,
+            workoutPhoto: resolveWorkoutPhotoUrl(workoutDetails?.photo, workoutDetails?.wger_id),
             workoutDescription: workoutDetails?.description || undefined,
             muscle_group: workoutDetails?.muscle_group || null,
             created_at: row.created_at ? String(row.created_at) : null,
@@ -2233,7 +2248,7 @@ export async function getUserWorkoutsDb(
     user_id: String(row.user_id ?? ""),
     name: row.name ? String(row.name) : null,
     workoutName: (row.workouts as any)?.name || "Exercício desconhecido",
-    workoutPhoto: (row.workouts as any)?.photo || null,
+    workoutPhoto: resolveWorkoutPhotoUrl((row.workouts as any)?.photo, (row.workouts as any)?.wger_id),
     workoutDescription: (row.workouts as any)?.description || undefined,
     muscle_group: (row.workouts as any)?.muscle_group || null,
     created_at: row.created_at ? String(row.created_at) : null,
@@ -2634,15 +2649,15 @@ export async function getUserHabitsDb(
 
 // Routine Scheduled Time
 
-export type RoutineType = "workout" | "diet" | "habit";
+export type RoutineKind = "workout" | "diet" | "habit";
 
 export async function updateRoutineScheduledTimeDb(
-  type: RoutineType,
+  type: RoutineKind,
   id: string,
   scheduledTime: string | null,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
-  const tableMap: Record<RoutineType, string> = {
+  const tableMap: Record<RoutineKind, string> = {
     workout: "user_workouts",
     diet: "user_diets",
     habit: "user_habits",
@@ -2661,7 +2676,7 @@ export async function updateRoutineScheduledTimeDb(
 
 export type RoutineScheduleEntry = {
   id: string;
-  type: RoutineType;
+  type: RoutineKind;
   name: string;
   scheduled_time: string;
 };
@@ -2780,7 +2795,7 @@ export async function searchUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, user_id, workout_id, workouts(id, name, description, photo), profiles(nickname, photo)",
+      "id, user_id, workout_id, workouts(id, name, description, photo, wger_id), profiles(nickname, photo)",
     )
     .ilike("workouts.name", searchQuery)
     .limit(20);
@@ -2809,7 +2824,7 @@ export async function searchUserWorkoutsDb(
         if (workoutIds.length > 0) {
           const { data: workoutsData } = await supabase
             .from("workouts")
-            .select("id, name, description, photo")
+            .select("id, name, description, photo, wger_id")
             .in("id", workoutIds);
 
           if (workoutsData) {
@@ -2850,7 +2865,7 @@ export async function searchUserWorkoutsDb(
               userPhoto: profile?.photo || null,
               workoutName: String(workout?.name ?? ""),
               workoutDescription: workout?.description,
-              workoutPhoto: workout?.photo || null,
+              workoutPhoto: resolveWorkoutPhotoUrl(workout?.photo, workout?.wger_id),
             };
           });
       }
@@ -2868,7 +2883,7 @@ export async function searchUserWorkoutsDb(
     userPhoto: (row.profiles as any)?.photo || null,
     workoutName: String((row.workouts as any)?.name ?? ""),
     workoutDescription: (row.workouts as any)?.description,
-    workoutPhoto: (row.workouts as any)?.photo || null,
+    workoutPhoto: resolveWorkoutPhotoUrl((row.workouts as any)?.photo, (row.workouts as any)?.wger_id),
   }));
 }
 
@@ -4962,8 +4977,7 @@ export async function toggleShotIncentiveDb(
       const tableName = checkError ? "likes" : "shots_likes";
       await supabase.from(tableName).delete().eq("id", existing.id);
     } else {
-      // Add the like
-      let insertError = null;
+      // Add the like — try shots_likes first, fall back to legacy likes table
       const { error: shotLikeError } = await supabase
         .from("shots_likes")
         .insert({
@@ -4972,8 +4986,10 @@ export async function toggleShotIncentiveDb(
           type: incentiveType,
         });
 
+      const usedLegacyTable = !!shotLikeError;
+      let insertSucceeded = !shotLikeError;
+
       if (shotLikeError) {
-        // Try legacy format
         const { error: legacyInsertError } = await supabase
           .from("likes")
           .insert({
@@ -4981,25 +4997,9 @@ export async function toggleShotIncentiveDb(
             user_id: viewer.id,
             type: incentiveType,
           });
-        insertError = legacyInsertError;
+        insertSucceeded = !legacyInsertError;
       }
 
-      if (!shotLikeError || !insertError) {
-
-        // Notify shot owner (type 2 = incentive), skip if owner is self
-        if (shotOwnerId && shotOwnerId !== viewer.id) {
-          const { error: notifError } = await supabase.from("notifications").insert({
-            user_id: shotOwnerId,
-            follower_id: viewer.id,
-            type: 2,
-            post_id: shotId,
-            read: false,
-          });
-          if (notifError) {
-            console.error("Error inserting shot incentive notification:", notifError);
-          }
-        }
-      }
     }
   } catch (err: any) {
     console.error(
@@ -5531,6 +5531,7 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
         shots_id,
         flow_id,
         duel_check_in_id,
+        incentive_type,
         created_at,
         read
       `
@@ -5606,19 +5607,26 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     const groupMap = new Map<string, any>((groups ?? []).map((g: any) => [g.id, g]));
     const flowMap = new Map<string, any>((flows ?? []).map((f: any) => [String(f.id), { photo: f.media_url }]));
 
-    // Fetch like types for incentive notifications.
-    // Key: notif.id → incentive type number.
-    // Strategy: for each incentive notification, fetch ALL likes from that user on that post/shot
-    // (ordered by created_at asc), then pick the like whose index matches the notification's
-    // rank among notifications from the same user+post pair (oldest notif → oldest like).
-    // This correctly handles users who gave multiple different incentives on the same post/shot.
+    // Build incentive type map. New notifications have incentive_type stored directly on the row.
+    // For old notifications (incentive_type is null), fall back to looking up the likes tables.
     let likesMap = new Map<string, number>(); // notif.id → incentive type
-    if (incentiveNotifications.length > 0) {
+
+    // Apply direct incentive_type values first
+    for (const n of incentiveNotifications) {
+      if (n.incentive_type != null) {
+        likesMap.set(n.id, Number(n.incentive_type));
+      }
+    }
+
+    // Only run the legacy likes lookup for notifications that don't have incentive_type yet
+    const legacyIncentiveNotifs = incentiveNotifications.filter((n: any) => n.incentive_type == null);
+
+    if (legacyIncentiveNotifs.length > 0) {
       // Separate incentive notifications: shots (have shots_id) vs regular posts (have post_id)
-      const shotIncentiveNotifs = incentiveNotifications.filter((n: any) => n.shots_id);
+      const shotIncentiveNotifs = legacyIncentiveNotifs.filter((n: any) => n.shots_id);
       const postIncentiveNotifs = incentiveNotifications.filter((n: any) => !n.shots_id && n.post_id);
 
-      // --- Regular post incentives (tabela: likes, coluna: post_id) ---
+      // --- Regular post incentives (likes primary; shots_likes fallback for old shot notifs with post_id) ---
       const groupedPostNotifs = new Map<string, any[]>();
       for (const notif of postIncentiveNotifs) {
         const key = `${notif.follower_id}:${notif.post_id}`;
@@ -5637,10 +5645,21 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           .eq("post_id", postId)
           .eq("user_id", followerId)
           .order("created_at", { ascending: true })
-          .then((r: any) => (r.data ?? []) as any[]);
+          .then(async (r: any) => {
+            const rows = (r.data ?? []) as any[];
+            if (rows.length > 0) return rows;
+            // Fallback: old shot incentive notifs stored post_id but like is in shots_likes
+            const fallback = await supabase
+              .from("shots_likes")
+              .select("type, created_at")
+              .eq("shots_id", postId)
+              .eq("user_id", followerId)
+              .order("created_at", { ascending: true });
+            return (fallback.data ?? []) as any[];
+          });
       });
 
-      // --- Shot incentives (tabela: shots_likes, coluna: shots_id) ---
+      // --- Shot incentives (shots_likes primary, likes fallback) ---
       const groupedShotNotifs = new Map<string, any[]>();
       for (const notif of shotIncentiveNotifs) {
         const key = `${notif.follower_id}:${notif.shots_id}`;
@@ -5653,17 +5672,29 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
       const uniqueShotPairs = [...groupedShotNotifs.keys()];
       const shotLikeQueries = uniqueShotPairs.map((key) => {
         const [followerId, shotId] = key.split(":");
+        // Try shots_likes first; if empty (table missing or data in legacy table), fall back to likes
         return supabase
           .from("shots_likes")
           .select("type, created_at")
           .eq("shots_id", shotId)
           .eq("user_id", followerId)
           .order("created_at", { ascending: true })
-          .then((r: any) => (r.data ?? []) as any[]);
+          .then(async (r: any) => {
+            const rows = (r.data ?? []) as any[];
+            if (rows.length > 0) return rows;
+            // Fallback: check legacy likes table (used when shots_likes insert failed)
+            const fallback = await supabase
+              .from("likes")
+              .select("type, created_at")
+              .eq("post_id", shotId)
+              .eq("user_id", followerId)
+              .order("created_at", { ascending: true });
+            return (fallback.data ?? []) as any[];
+          });
       });
 
       // --- Flow incentives (tabela: flow_likes, coluna: flow_id) ---
-      const flowIncentiveNotifs = incentiveNotifications.filter((n: any) => n.flow_id);
+      const flowIncentiveNotifs = legacyIncentiveNotifs.filter((n: any) => n.flow_id);
       const groupedFlowNotifs = new Map<string, any[]>();
       for (const notif of flowIncentiveNotifs) {
         const key = `${notif.follower_id}:${notif.flow_id}`;
@@ -5743,9 +5774,14 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           read: notif.read ?? false,
         };
 
-        // Add incentive type for type 2 notifications (keyed by notif.id)
-        if (notif.type === 2 && likesMap.has(notif.id)) {
-          notification.incentiveType = likesMap.get(notif.id);
+        // Add incentive type for type 2 notifications.
+        // Prefer the dedicated column; fall back to the legacy likes-lookup map for old rows.
+        if (notif.type === 2) {
+          if (notif.incentive_type != null) {
+            notification.incentiveType = Number(notif.incentive_type);
+          } else if (likesMap.has(notif.id)) {
+            notification.incentiveType = likesMap.get(notif.id);
+          }
         }
 
         // Map new dedicated columns
@@ -9141,7 +9177,7 @@ export async function addCheckInCommentDb(checkInId: string, text: string): Prom
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("nickname, photo")
+    .select("nickname, photo, gender")
     .eq("user_id", viewer.id)
     .maybeSingle();
 
@@ -9161,17 +9197,18 @@ export async function addCheckInCommentDb(checkInId: string, text: string): Prom
     });
   }
 
+  invalidateQueryCache("checkInComments");
+
   return {
     id: data.id,
     checkInId: data.check_in_id,
     userId: data.user_id,
     userNickname: profile?.nickname || "Usuário",
     userPhoto: profile?.photo || null,
+    userGender: (profile as any)?.gender || null,
     text: data.text,
     createdAt: data.created_at,
   };
-
-  invalidateQueryCache("checkInComments");
 }
 
 export async function deleteCheckInCommentDb(commentId: string): Promise<void> {
@@ -10624,6 +10661,44 @@ export async function getAdminAnalyticsDb(): Promise<AdminAnalytics | null> {
   const { data, error } = await supabase.rpc("get_admin_analytics");
   if (error) throw new Error(error.message);
   return data as AdminAnalytics;
+}
+
+export type AdminActiveUser = {
+  user_id: string;
+  nickname: string;
+  handle: string;
+  photo: string | null;
+  total_seconds: number;
+};
+
+export async function getAdminActiveUsersDb(): Promise<AdminActiveUser[]> {
+  if (!supabase) return [];
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("screen_time_logs")
+    .select("user_id, seconds, profiles!screen_time_logs_user_id_fkey(nickname, handle, photo)")
+    .eq("log_date", today);
+  if (error) return [];
+  const map = new Map<string, AdminActiveUser>();
+  for (const row of data ?? []) {
+    const p = (row as any).profiles;
+    if (!p) continue;
+    const existing = map.get(row.user_id);
+    if (existing) {
+      existing.total_seconds += row.seconds ?? 0;
+    } else {
+      map.set(row.user_id, {
+        user_id: row.user_id,
+        nickname: p.nickname ?? "—",
+        handle: p.handle ?? "",
+        photo: p.photo ?? null,
+        total_seconds: row.seconds ?? 0,
+      });
+    }
+  }
+  return Array.from(map.values())
+    .sort((a, b) => b.total_seconds - a.total_seconds)
+    .slice(0, 10);
 }
 
 export async function getAdminComplaintsDb(): Promise<AdminComplaint[]> {

@@ -89,27 +89,15 @@ export function FollowButton({
   );
 
   if (variant === "overlay") {
+    if (isFollowing) return null;
     return (
       <button
         onClick={handleClick}
         disabled={isLoading}
-        className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all disabled:opacity-50 ${
-          isFollowing
-            ? "bg-white/20 text-white hover:bg-white/30"
-            : "bg-white text-black hover:bg-white/90"
-        }`}
+        className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all disabled:opacity-50 bg-white text-black hover:bg-white/90"
       >
-        {isFollowing ? (
-          <>
-            <UserCheck className="h-3 w-3" />
-            Seguindo
-          </>
-        ) : (
-          <>
-            <UserPlus className="h-3 w-3" />
-            Seguir
-          </>
-        )}
+        <UserPlus className="h-3 w-3" />
+        Seguir
       </button>
     );
   }

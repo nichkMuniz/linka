@@ -105,6 +105,7 @@ import { useLanguage } from "@/lib/language-context";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { FabButton } from "@/components/shared/fab-button";
 
 type ViewMode = "conversations" | "conversation";
 
@@ -163,6 +164,7 @@ export default function Community() {
   const [joinedGroupIds, setJoinedGroupIds] = React.useState<Set<string>>(new Set());
   const [joiningGroupId, setJoiningGroupId] = React.useState<string | null>(null);
   const [selectedGroupForView, setSelectedGroupForView] = React.useState<any>(null);
+  const [allGroupsOpen, setAllGroupsOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (selectedGroupForView) {
@@ -1337,9 +1339,14 @@ export default function Community() {
   );
 
   return (
-    <div className={`w-full flex flex-col ${activeTab !== "ranking" && activeTab !== "requests" ? "h-[calc(100dvh-68px)] md:h-[calc(100dvh-48px)] overflow-hidden" : ""}`}>
+    <div
+      className={`w-full flex flex-col ${activeTab !== "ranking" && activeTab !== "requests" ? "overflow-hidden" : ""}`}
+      style={activeTab !== "ranking" && activeTab !== "requests" ? {
+        height: "calc(100dvh - 64px - env(safe-area-inset-top) - 1.5rem - 4.75rem - env(safe-area-inset-bottom))",
+      } : undefined}
+    >
       {/* Tabs — segmented control style (igual à tela de Loja) */}
-      <div className="flex-shrink-0 border-b border-border/60 px-4 pt-5 pb-3 md:pt-4">
+      <div className="flex-shrink-0 border-b border-border/60 px-4 pt-3 pb-3">
         <div className="flex items-center gap-3">
           {/* Segmented tabs */}
           <div className="flex flex-1 rounded-lg border border-border overflow-hidden">
@@ -1950,7 +1957,7 @@ export default function Community() {
                 if (!user?.id) return;
                 // Open modal immediately — load routines in background
                 setSelectedRoutineKey(null);
-                setCheckInForm({ photo: "", description: "", workoutId: "" });
+                setCheckInForm({ photo: "", photos: [], description: "", workoutId: "" });
                 setCheckInPhotoFiles([]);
                 setCheckInPhotoPreviewUrls([]);
                 setCompletedRoutines([]);
@@ -2047,7 +2054,7 @@ export default function Community() {
           </div>
 
           {/* Duels Grid */}
-          <div className="flex-1 overflow-y-auto px-3 pb-4 pt-4 space-y-6">
+          <div className="flex-1 overflow-y-auto px-3 pb-4 pt-4 space-y-6 min-h-0">
             {/* User Created Groups Section */}
             {userCreatedGroups.length > 0 && (
               <div>
@@ -2121,14 +2128,20 @@ export default function Community() {
               </div>
             )}
 
-            {/* All Groups Section */}
+            {/* All Groups Section — collapsible */}
             <div>
-              <h2 className="text-sm font-semibold text-muted-foreground mb-3">{t("duels_all_groups")}</h2>
-              {availableGroups.length === 0 ? (
+              <button
+                className="w-full flex items-center justify-between mb-3"
+                onClick={() => setAllGroupsOpen((v) => !v)}
+              >
+                <h2 className="text-sm font-semibold text-muted-foreground">{t("duels_all_groups")}</h2>
+                <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${allGroupsOpen ? "rotate-180" : ""}`} />
+              </button>
+              {allGroupsOpen && availableGroups.length === 0 ? (
                 <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
                   <p className="text-xs text-muted-foreground">{t("duels_no_groups")}</p>
                 </div>
-              ) : (
+              ) : allGroupsOpen ? (
                 <div className="grid grid-cols-2 gap-3">
                   {availableGroups.map((group) => (
                     <Card
@@ -2223,25 +2236,20 @@ export default function Community() {
                     </Card>
                   ))}
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
 
-          {/* Floating Create Group Button */}
-          <div className="fixed bottom-20 right-4 z-[53]">
-            <button
-              onClick={() => {
-                setGroupStep(1);
-                setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "", scoringType: "check_in_count", memeRule: "" });
-                setSelectedInvitees(new Set());
-                setIsCreateGroupModalOpen(true);
-              }}
-              className="h-14 w-14 rounded-full bg-brand text-white flex items-center justify-center hover:bg-brand/90 transition-colors shadow-lg"
-              title={t("duels_create")}
-            >
-              <Plus className="h-6 w-6" />
-            </button>
-          </div>
+          {/* Create Group Button — fixed above footer, outside scroll */}
+          <FabButton
+            onClick={() => {
+              setGroupStep(1);
+              setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "", scoringType: "check_in_count", memeRule: "" });
+              setSelectedInvitees(new Set());
+              setIsCreateGroupModalOpen(true);
+            }}
+            title={t("duels_create")}
+          />
         </>
       )}
 

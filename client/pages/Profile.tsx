@@ -150,6 +150,7 @@ import {
   Briefcase,
   ListChecks,
   Target,
+  ShieldCheck,
 } from "lucide-react";
 import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
@@ -1109,6 +1110,17 @@ export default function Profile() {
               {/* Handle */}
               {profile.handle && (
                 <p className="text-sm text-muted-foreground -mt-2">@{profile.handle.replace(/^@/, "")}</p>
+              )}
+
+              {/* Botão Admin — visível apenas para o próprio usuário verificado */}
+              {!isViewingOtherProfile && profile.is_verified && (
+                <button
+                  onClick={() => navigate("/admin")}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-brand/10 text-brand hover:bg-brand/20 transition-colors border border-brand/20"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Admin
+                </button>
               )}
 
             </div>

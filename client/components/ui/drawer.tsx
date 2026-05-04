@@ -3,6 +3,33 @@ import { Drawer as DrawerPrimitive } from "vaul";
 
 import { cn } from "@/lib/utils";
 
+// Tracks the keyboard height on iOS via visualViewport API.
+// Returns the number of pixels the keyboard is occupying above the bottom of the window.
+function useKeyboardOffset() {
+  const [offset, setOffset] = React.useState(0);
+
+  React.useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const update = () => {
+      // On iOS, when the keyboard opens the visualViewport height shrinks.
+      // offsetTop accounts for any scrolling of the viewport itself.
+      const keyboardHeight = window.innerHeight - vv.height - vv.offsetTop;
+      setOffset(Math.max(0, keyboardHeight));
+    };
+
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
+
+  return offset;
+}
+
 const Drawer = ({
   shouldScaleBackground = true,
   ...props
@@ -35,7 +62,9 @@ DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & { overlayClassName?: string }
->(({ className, children, overlayClassName, ...props }, ref) => {
+>(({ className, children, overlayClassName, style, ...props }, ref) => {
+  const keyboardOffset = useKeyboardOffset();
+
   return (
     <DrawerPortal>
       <DrawerOverlay className={overlayClassName} />
@@ -50,6 +79,10 @@ const DrawerContent = React.forwardRef<
           paddingBottom: "env(safe-area-inset-bottom)",
           paddingLeft: "env(safe-area-inset-left)",
           paddingRight: "env(safe-area-inset-right)",
+          // Lift the drawer above the iOS keyboard when it appears
+          bottom: keyboardOffset > 0 ? `${keyboardOffset}px` : undefined,
+          transition: keyboardOffset > 0 ? "bottom 0.25s ease-out" : undefined,
+          ...style,
         }}
         {...props}
       >

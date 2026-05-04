@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import { cn } from "@/lib/utils";
 import {
   getPromotionCommentsDb,
   addPromotionCommentDb,
@@ -162,7 +161,8 @@ export function PromotionCommentsDrawer({
           </DrawerDescription>
         </DrawerHeader>
 
-        <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4">
+        {/* stopPropagation prevents vaul from starting a drag gesture when tapping inside the content */}
+        <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4" onPointerDown={(e) => e.stopPropagation()}>
           {/* Comments list */}
           <div className="flex-1 space-y-3 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
             {loading ? (

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { motion } from "framer-motion";
+import { motion, useAnimation } from "framer-motion";
 import { Heart, Flame, Trophy, TrendingUp, Dumbbell, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -68,14 +68,28 @@ export function PostIncentiveButton({
   isActive,
   onClick,
   loading,
+  burst,
 }: {
   type: PostIncentiveType;
   isActive: boolean;
   onClick: () => void;
   loading?: boolean;
+  burst?: boolean;
 }) {
   const config = incentiveConfig[type];
   const Icon = config.Icon;
+  const controls = useAnimation();
+  const prevBurst = React.useRef(false);
+
+  React.useEffect(() => {
+    if (burst && !prevBurst.current) {
+      controls.start({
+        scale: [1, 1.7, 0.8, 1.2, 1],
+        transition: { duration: 0.5, ease: "easeOut" },
+      });
+    }
+    prevBurst.current = !!burst;
+  }, [burst, controls]);
 
   return (
     <TooltipProvider>
@@ -86,6 +100,7 @@ export function PostIncentiveButton({
             disabled={loading}
             aria-label={config.label}
             onClick={onClick}
+            animate={controls}
             whileHover={{ scale: 1.18 }}
             whileTap={{ scale: 0.85 }}
             className={cn(

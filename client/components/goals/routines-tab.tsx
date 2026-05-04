@@ -887,13 +887,6 @@ export function RoutinesTab({
             });
           })()}
 
-          {/* Add more button */}
-          <div className="flex justify-center pt-4 pb-4">
-            <Button onClick={onAddRoutineClick} className="rounded-full gap-2" variant="outline">
-              <Plus className="h-5 w-5" />
-              Nova Rotina
-            </Button>
-          </div>
         </div>
       ) : (
         <div className="flex justify-center pt-12 pb-12">

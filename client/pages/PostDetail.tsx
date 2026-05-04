@@ -6,7 +6,11 @@ import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { ArrowLeft, Edit2, Trash2, MoreVertical, Rocket } from "lucide-react";
+import { ArrowLeft, Edit2, Trash2, MoreVertical, Target } from "lucide-react";
+import { UserAvatar } from "@/components/shared/user-avatar";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
+import { PostCarousel } from "@/components/post/post-carousel";
+import { formatTimeAgo } from "@/lib/utils";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
@@ -190,98 +194,139 @@ export default function PostDetail() {
 
       {/* Post Detail */}
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <Card className="border-border/60 overflow-hidden">
+        <Card className="border-border/60 relative overflow-hidden">
           <CardContent className="space-y-3 p-0">
-            {/* Image with Settings Menu */}
+            {/* Image + overlay */}
             <div className="relative">
-              <ImageWithFallback
-                src={post.photo}
-                alt="Post"
-                fallback="/placeholder.svg"
-                className="w-full max-h-96 object-cover"
-              />
+              {post.photos && post.photos.length > 0 ? (
+                <PostCarousel photos={post.photos} alt="Post" />
+              ) : post.photo ? (
+                <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-lg">
+                  <ImageWithFallback
+                    src={post.photo}
+                    alt="Post"
+                    fallback="/placeholder.svg"
+                    className="max-w-full max-h-full w-auto h-auto object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="relative w-full min-h-[56px] bg-muted/30 rounded-lg" />
+              )}
 
-              {/* Settings Menu Icon - Top Right (only for post owner) */}
-              {post.user_id === user?.id && (
+              {/* User info overlay */}
+              <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-2 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
+                <button
+                  onClick={() => navigate(`/usuario/${post.user_id}`)}
+                  className="flex items-center gap-2 hover:opacity-80 transition-opacity min-w-0 flex-1"
+                >
+                  <UserAvatar
+                    photo={post.userPhoto}
+                    gender={post.userGender ?? null}
+                    nickname={post.userNickname}
+                    size="sm"
+                    className="border border-white/30 shrink-0"
+                  />
+                  <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5 min-w-0">
+                    {post.isVerified && <VerifiedBadge size="sm" />}
+                    <span className="text-xs font-medium text-white leading-none truncate">
+                      {post.userNickname}
+                    </span>
+                  </div>
+                </button>
+
+                {/* Context menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="absolute top-3 right-3 bg-black/40 hover:bg-black/60 text-white p-2 rounded-full transition-colors z-10"
-                      aria-label="Configurações do post"
-                      onClick={(e) => e.stopPropagation()}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-white hover:bg-white/20"
                     >
-                      <MoreVertical className="h-5 w-5" />
-                    </button>
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-40">
-                    <DropdownMenuItem onSelect={handleEditOpen}>
-                      <Edit2 className="h-4 w-4 mr-2" />
-                      Editar
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onSelect={() => setDeleteDialogOpen(true)}
-                      className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Excluir
-                    </DropdownMenuItem>
+                  <DropdownMenuContent align="end" className="w-44">
+                    {post.user_id === user?.id ? (
+                      <>
+                        <DropdownMenuItem onSelect={handleEditOpen}>
+                          <Edit2 className="h-4 w-4 mr-2" />
+                          Editar post
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => setDeleteDialogOpen(true)}
+                          className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Excluir post
+                        </DropdownMenuItem>
+                      </>
+                    ) : null}
                   </DropdownMenuContent>
                 </DropdownMenu>
-              )}
+              </div>
             </div>
 
-            {/* Content */}
-            <div className="p-4 space-y-4">
-              {/* Description */}
+            {/* Incentive buttons + comments */}
+            <div className="flex items-center px-2 pt-1 pb-0.5">
+              {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
+                <PostIncentiveButton
+                  key={type}
+                  type={type}
+                  isActive={userLikes.includes(type)}
+                  onClick={() => handleToggleIncentive(type)}
+                  loading={togglingIncentives.has(type)}
+                />
+              ))}
+              <div className="ml-auto">
+                <PostCommentsDialog
+                  postId={post.id}
+                  commentCount={0}
+                  hasActivity={false}
+                  isPostOwner={post.user_id === user?.id}
+                  defaultOpen={navState?.openComments === true}
+                />
+              </div>
+            </div>
+
+            {/* Like count + timestamp */}
+            <div className="flex items-center gap-2 px-3 pb-1">
+              {totalLikes > 0 && (
+                <button
+                  onClick={handleOpenLikesModal}
+                  className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
+                >
+                  {totalLikes} incentivos
+                </button>
+              )}
+              <span className="text-xs text-muted-foreground ml-auto">
+                {formatTimeAgo(post.created_at)}
+              </span>
+            </div>
+
+            {/* Description + goal */}
+            <div className="px-3 pb-3 space-y-2">
               {post.description && (
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
                   {post.description}
                 </p>
               )}
 
-              {/* Linked Goal */}
               {postGoal && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-500/10 border border-violet-400/20">
-                  <Rocket className="h-4 w-4 text-violet-400 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-xs text-violet-400/80 font-medium">Meta vinculada</p>
-                    <p className="text-sm text-violet-300 font-semibold truncate">{postGoal.description}</p>
+                <div className="w-full text-left">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Target className="h-3 w-3 text-brand flex-shrink-0" />
+                    <span className="text-xs font-medium text-foreground truncate flex-1">
+                      {postGoal.description}
+                    </span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-brand h-full rounded-full"
+                      style={{ width: `${Math.min(100, Math.max(0, postGoal.perc ?? 0))}%` }}
+                    />
                   </div>
                 </div>
               )}
-
-              {/* Incentive Buttons and Comments */}
-              <div className="pt-3 border-t border-border/60 space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1">
-                    {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-                      <PostIncentiveButton
-                        key={type}
-                        type={type}
-                        isActive={userLikes.includes(type)}
-                        onClick={() => handleToggleIncentive(type)}
-                        loading={togglingIncentives.has(type)}
-                      />
-                    ))}
-                  </div>
-                  <PostCommentsDialog
-                    postId={post.id}
-                    commentCount={0}
-                    hasActivity={false}
-                    isPostOwner={post.user_id === user?.id}
-                    defaultOpen={navState?.openComments === true}
-                  />
-                </div>
-                {totalLikes > 0 && (
-                  <button
-                    onClick={handleOpenLikesModal}
-                    className="text-xs font-semibold text-foreground hover:text-brand transition-colors px-1"
-                  >
-                    {totalLikes} {totalLikes === 1 ? "incentivo" : "incentivos"}
-                  </button>
-                )}
-              </div>
             </div>
           </CardContent>
         </Card>
