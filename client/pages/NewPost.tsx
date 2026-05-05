@@ -276,12 +276,12 @@ export default function NewPost() {
         const { error: uploadError } = await supabase.storage
           .from("posts")
           .upload(filePath, file, { contentType: file.type, upsert: false });
-        if (uploadError) throw new Error(`Erro ao fazer upload de ${file.name}: ${uploadError.message}`);
+        if (uploadError) throw new Error(`${t("newpost_upload_error_file").replace("{name}", file.name)}: ${uploadError.message}`);
         uploadedPaths.push(filePath);
         const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
         uploadedUrls.push(urlData.publicUrl);
       }
-      const postId = await createPostDb(uploadedUrls, description, selectedGoalId || null);
+      await createPostDb(uploadedUrls, description, selectedGoalId || null);
       if (selectedGoalId) {
         try { await incrementGoalProgressDb(selectedGoalId); } catch {}
       }
@@ -304,7 +304,7 @@ export default function NewPost() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [user, selectedFiles, description, selectedGoalId, navigate]);
+  }, [user, selectedFiles, description, selectedGoalId, navigate, t]);
 
   const handleVideoSubmit = React.useCallback(async () => {
     if (!user || !selectedVideoFile) {
@@ -328,7 +328,7 @@ export default function NewPost() {
       const { error: uploadError } = await supabase.storage
         .from("posts")
         .upload(filePath, selectedVideoFile, { contentType, upsert: false });
-      if (uploadError) throw new Error(`Erro ao fazer upload do vídeo: ${uploadError.message}`);
+      if (uploadError) throw new Error(`${t("newpost_upload_error_video")}: ${uploadError.message}`);
       const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
       await createShotDb(urlData.publicUrl, videoDescription, null);
       toast({ title: t("newpost_success"), description: t("newpost_shot_published") });
@@ -345,7 +345,7 @@ export default function NewPost() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [user, selectedVideoFile, videoDescription, navigate]);
+  }, [user, selectedVideoFile, videoDescription, navigate, t]);
 
   // ── Can advance ──
   const canAdvance = mediaType === "post" ? previewUrls.length > 0 : !!videoPreview;
@@ -390,7 +390,7 @@ export default function NewPost() {
           <button
             onClick={() => setStep("caption")}
             disabled={!canAdvance}
-            className={`text-sm font-semibold transition-colors ${canAdvance ? "text-primary" : "text-muted-foreground"}`}
+            className={`min-h-[44px] px-2 flex items-center text-sm font-semibold transition-colors ${canAdvance ? "text-primary" : "text-muted-foreground"}`}
           >
             {t("newpost_advance")}
           </button>
@@ -485,7 +485,7 @@ export default function NewPost() {
             )
           ) : (
             videoPreview ? (
-              <video src={videoPreview} controls className="w-full h-full object-contain" />
+              <video src={videoPreview} controls playsInline className="w-full h-full object-contain" />
             ) : (
               <button
                 onClick={() => videoInputRef.current?.click()}
@@ -529,7 +529,7 @@ export default function NewPost() {
                     className="relative aspect-square cursor-pointer"
                     onClick={() => setCurrentPreviewIndex(index)}
                   >
-                    <img src={url} alt={`Photo ${index + 1}`} className="w-full h-full object-cover" />
+                    <img src={url} alt={t("newpost_photo_alt").replace("{n}", String(index + 1))} className="w-full h-full object-cover" />
                     {/* Selected indicator */}
                     <div className={`absolute inset-0 transition-colors ${index === currentPreviewIndex ? "bg-primary/20 ring-2 ring-inset ring-primary" : "hover:bg-black/10"}`} />
                     {/* Remove button */}
@@ -631,7 +631,7 @@ export default function NewPost() {
         <button
           onClick={mediaType === "post" ? handleImageSubmit : handleVideoSubmit}
           disabled={isSubmitting}
-          className="text-sm font-semibold text-primary disabled:opacity-50 transition-opacity"
+          className="min-h-[44px] px-2 flex items-center text-sm font-semibold text-primary disabled:opacity-50 transition-opacity"
         >
           {isSubmitting ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -652,7 +652,7 @@ export default function NewPost() {
             />
           )}
           {mediaType === "shot" && videoPreview && (
-            <video src={videoPreview} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
+            <video src={videoPreview} playsInline muted className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
           )}
           <Textarea
             placeholder={mediaType === "post" ? t("newpost_caption_placeholder") : t("newpost_caption_video_placeholder")}
@@ -674,7 +674,7 @@ export default function NewPost() {
                 <div key={i} className="relative flex-shrink-0">
                   <img
                     src={url}
-                    alt={`Photo ${i + 1}`}
+                    alt={t("newpost_photo_alt").replace("{n}", String(i + 1))}
                     className={`h-14 w-14 rounded-lg object-cover ${i === currentPreviewIndex ? "ring-2 ring-primary" : ""}`}
                     onClick={() => setCurrentPreviewIndex(i)}
                   />

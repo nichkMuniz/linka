@@ -98,6 +98,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
+import { Browser } from "@capacitor/browser";
 import { supabase } from "@/lib/supabase";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
@@ -469,7 +470,7 @@ export default function Community() {
     const state = location.state as { openCheckIn?: string } | null;
     if (!state?.openCheckIn) return;
     // Clear nav state so back-navigation doesn't re-trigger
-    window.history.replaceState({}, "");
+    navigate(location.pathname, { replace: true, state: {} });
     const checkInId = state.openCheckIn;
     (async () => {
       try {
@@ -490,7 +491,7 @@ export default function Community() {
         console.error("Error opening check-in from notification:", err);
       }
     })();
-  }, [location.state]);
+  }, [location.state, navigate]);
 
   // Load user nickname and groups when user changes
   React.useEffect(() => {
@@ -1022,7 +1023,7 @@ export default function Community() {
                           src={mainText.replace("[image]:", "")}
                           alt="Imagem"
                           className="rounded-lg max-w-[220px] max-h-[280px] object-cover cursor-pointer"
-                          onClick={() => window.open(mainText.replace("[image]:", ""), "_blank")}
+                          onClick={() => Browser.open({ url: mainText.replace("[image]:", "") })}
                         />
                       ) : mainText.startsWith("[audio]:") ? (
                         <audio

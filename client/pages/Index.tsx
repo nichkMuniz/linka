@@ -42,7 +42,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChevronDown, Target } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { PostSkeleton } from "@/components/shared/animated-loading";
 import type { PostWithStats } from "../services/post.service";
 import { FlowCarousel } from "@/components/shots/flow-carousel";
@@ -90,12 +90,11 @@ export default function Index() {
   const [discoverLoading, setDiscoverLoading] = React.useState(false);
   const [discoverLoaded, setDiscoverLoaded] = React.useState(false);
 
-  // Bug 2 fix: use a ref for the toggling set so the guard is always current
   const togglingIncentivesRef = React.useRef<Set<string>>(new Set());
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<string>>(new Set());
 
   const [goalModalOpen, setGoalModalOpen] = React.useState(false);
-  const [goalRoutinesLoading, setGoalRoutinesLoading] = React.useState(false); // Bug 5
+  const [goalRoutinesLoading, setGoalRoutinesLoading] = React.useState(false);
   const [selectedGoalPost, setSelectedGoalPost] = React.useState<PostWithStats | null>(null);
   const [linkedRoutines, setLinkedRoutines] = React.useState<any[]>([]);
   const [expandedLinkedRoutine, setExpandedLinkedRoutine] = React.useState<string | null>(null);
@@ -128,7 +127,6 @@ export default function Index() {
   const [copyingRoutineKeys, setCopyingRoutineKeys] = React.useState<Set<string>>(new Set());
   const [copiedRoutineKeys, setCopiedRoutineKeys] = React.useState<Set<string>>(new Set());
 
-  // Bug 6 fix: track whether likes modal is loading to prevent double-clicks
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
   const [likesLoading, setLikesLoading] = React.useState(false);
   const [postLikes, setPostLikes] = React.useState<Array<{
@@ -194,7 +192,7 @@ export default function Index() {
   React.useEffect(() => {
     const state = location.state as { openFlow?: string } | null;
     if (!state?.openFlow || stories.length === 0) return;
-    window.history.replaceState({}, "");
+    navigate(location.pathname, { replace: true, state: {} });
     const targetStory = stories.find((s) => String(s.id) === String(state.openFlow));
     if (targetStory) {
       setSelectedStory(targetStory);
@@ -204,7 +202,7 @@ export default function Index() {
 
   React.useEffect(() => {
     const handler = () => {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      feedScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       setDiscoverLoaded(false);
       loadFeed(true);
     };
@@ -242,9 +240,6 @@ export default function Index() {
       .catch((err) => console.error("Erro ao carregar foto do perfil:", err));
   }, [user?.id]);
 
-  // Bug 4 fix: feedMode is derived from URL/session state, not persisted localStorage
-  // new_user_open_discover flag is consumed once at mount (no lazy initializer that
-  // escapes the auth context)
   React.useEffect(() => {
     const flag = localStorage.getItem("new_user_open_discover");
     if (flag === "1" && user?.id) {
@@ -298,8 +293,6 @@ export default function Index() {
             userPhoto: currentUserPhoto,
           };
 
-          // Bug 3 fix: capture the current stories list synchronously before any
-          // setState so we never read a stale closure when building activeViewerStories
           const currentStories = stories;
           setStories((prev) => [enrichedStory, ...prev]);
           setOwnerHasViewedFlow(false);
@@ -348,7 +341,6 @@ export default function Index() {
   React.useEffect(() => { viewerStoriesRef.current = activeViewerStories; }, [activeViewerStories]);
   React.useEffect(() => { selectedStoryRef.current = selectedStory; }, [selectedStory]);
 
-  // Bug 8 fix: record view for each story the user navigates to (not just the first)
   const handleSkipStory = React.useCallback(() => {
     const current = selectedStoryRef.current;
     if (!current) return;
@@ -396,7 +388,6 @@ export default function Index() {
     setLinkedRoutines([]);
 
     if (post.userGoal) {
-      // Bug 5 fix: show loading state while fetching routines
       setGoalRoutinesLoading(true);
       try {
         const routines = await getRoutinesByGoalIdDb(post.userGoal.goal_id);
@@ -437,7 +428,6 @@ export default function Index() {
         selectedGoalPost.userGoal.quantity,
       );
 
-      // Bug 14 fix: copy all routine types including habits (type=3)
       if (linkedRoutines.length > 0) {
         const seen = new Set<string>();
         const groups = linkedRoutines.reduce<{ type: number; name?: string }[]>((acc, r) => {
@@ -519,7 +509,6 @@ export default function Index() {
   const handleCopyRoutine = React.useCallback(
     async (sourceUserId: string, routineType: number, routineName: string | undefined) => {
       if (!user) return;
-      // Bug 13 fix: include type in the key to prevent name collision
       const key = `${sourceUserId}::${routineType}::${routineName ?? ""}`;
       if (copyingRoutineKeys.has(key) || copiedRoutineKeys.has(key)) return;
 
@@ -619,7 +608,6 @@ export default function Index() {
     setReportDialogOpen(true);
   }, []);
 
-  // Bug 6 fix: prevent double-clicks and show nothing opens silently
   const handleOpenLikesModal = React.useCallback(async (post: PostWithStats) => {
     if (likesLoading) return;
     setLikesLoading(true);
@@ -665,7 +653,6 @@ export default function Index() {
     setEditPostOpen(true);
   }, []);
 
-  // Bug 7 fix: after edit, reload both feeds silently
   const handlePostSaved = React.useCallback(async () => {
     await loadFeed(false);
     // Also refresh discover so edited post description updates there too
@@ -689,10 +676,22 @@ export default function Index() {
     onDelete: handleDeletePost,
   };
 
+  const feedScrollRef = React.useRef<HTMLDivElement>(null);
+
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-2xl flex flex-col">
-        <div className="h-24 bg-background border-b border-border/60 animate-pulse" />
+        {/* Stories skeleton — evita layout shift quando o carrossel aparece */}
+        <div className="bg-background border-b border-border/60 px-3 py-3">
+          <div className="flex gap-3 overflow-hidden">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex flex-col items-center gap-1 shrink-0">
+                <div className="w-14 h-14 rounded-full bg-muted animate-pulse" />
+                <div className="w-10 h-2 rounded bg-muted animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="grid w-full gap-3 py-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <PostSkeleton key={i} />
@@ -703,7 +702,7 @@ export default function Index() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl flex flex-col">
+    <div ref={feedScrollRef} className="mx-auto w-full max-w-2xl flex flex-col">
       {/* Stories Carousel */}
       <div className="bg-background border-b border-border/60">
         <FlowCarousel
@@ -755,7 +754,6 @@ export default function Index() {
           </p>
         )}
 
-        {/* Bug 10 fix: Discover inline empty state with CTA */}
         {discoverLoading ? (
           <>{[1, 2, 3].map((i) => <PostSkeleton key={i} />)}</>
         ) : discoverPosts.length === 0 ? (
@@ -774,7 +772,6 @@ export default function Index() {
           </div>
         ) : (
           discoverPosts.map((post) => (
-            // Bug 17 fix: showFollowButton=true in discover sections
             <PostCard
               key={`seed-${post.id}`}
               post={post}
@@ -807,10 +804,17 @@ export default function Index() {
           setActiveViewerStories(storiesList.length > 0 ? storiesList : [s]);
         }}
         onDeleted={() => {
+          const deletedId = selectedStory?.id;
           setStoryViewerOpen(false);
           setSelectedStory(null);
           setActiveViewerStories([]);
-          getActiveStoriesDb().then(setStories).catch(console.error);
+          // Remove otimisticamente antes do reload para evitar flash visual
+          if (deletedId) setStories((prev) => prev.filter((s) => s.id !== deletedId));
+          getActiveStoriesDb()
+            .then(setStories)
+            .catch(() => {
+              toast({ title: t("error"), description: t("retry"), variant: "destructive" });
+            });
         }}
       />
 
@@ -818,9 +822,12 @@ export default function Index() {
       <Drawer open={goalModalOpen} onOpenChange={setGoalModalOpen}>
         <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>Progresso da Meta</DrawerTitle>
+            <DrawerTitle>{t("feed_goal_drawer_title")}</DrawerTitle>
           </DrawerHeader>
-          <div className="flex flex-col flex-1 gap-4 overflow-y-auto px-4 pb-6">
+          <div
+            className="flex flex-col flex-1 gap-4 overflow-y-auto px-4"
+            style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
+          >
             {selectedGoalPost?.userGoal && (
               <div className="space-y-4 flex-1">
                 {/* Goal Info */}
@@ -830,7 +837,7 @@ export default function Index() {
                   {/* Progress Bar — Bug 9 fix: clamp to 100 */}
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium text-foreground">Progresso</span>
+                      <span className="text-sm font-medium text-foreground">{t("feed_goal_progress_label")}</span>
                       <span className="text-lg font-bold text-brand">
                         {Math.round(Math.min(100, selectedGoalPost.userGoal.perc))}%
                       </span>
@@ -845,15 +852,15 @@ export default function Index() {
 
                   <div className="grid grid-cols-3 gap-3 pt-2">
                     <div className="p-2 bg-background/50 rounded text-center">
-                      <p className="text-xs text-muted-foreground">Duração</p>
+                      <p className="text-xs text-muted-foreground">{t("feed_goal_duration")}</p>
                       <p className="text-sm font-bold">{selectedGoalPost.userGoal.duration}d</p>
                     </div>
                     <div className="p-2 bg-background/50 rounded text-center">
-                      <p className="text-xs text-muted-foreground">Quantidade</p>
+                      <p className="text-xs text-muted-foreground">{t("feed_goal_quantity")}</p>
                       <p className="text-sm font-bold">{selectedGoalPost.userGoal.quantity}</p>
                     </div>
                     <div className="p-2 bg-background/50 rounded text-center">
-                      <p className="text-xs text-muted-foreground">Tipo</p>
+                      <p className="text-xs text-muted-foreground">{t("feed_goal_type_label")}</p>
                       <p className="text-sm font-bold">
                         {selectedGoalPost.userGoal.type_goal === 1
                           ? t("feed_goal_type_fitness")
@@ -865,7 +872,6 @@ export default function Index() {
                   </div>
                 </div>
 
-                {/* Bug 5 fix: loading state while routines load */}
                 {goalRoutinesLoading ? (
                   <div className="flex items-center justify-center py-6">
                     <p className="text-sm text-muted-foreground">{t("feed_routine_loading")}</p>
@@ -1009,12 +1015,12 @@ export default function Index() {
             <AlertDialogDescription>{confirmDialog.description}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDialog.onConfirm}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Confirmar
+              {t("confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1076,7 +1082,7 @@ function RoutineAccordion({
         className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
       >
         <h3 className="text-sm font-medium">
-          Rotinas Vinculadas ({groups.length})
+          {t("feed_goal_linked_routines").replace("{n}", String(groups.length))}
         </h3>
 
         <ChevronDown
@@ -1092,7 +1098,6 @@ function RoutineAccordion({
             const label = name || typeLabel;
             const isOpen = expandedLinkedRoutine === key;
             const items = linkedRoutineItems[key];
-            // Bug 13 fix: key includes type to prevent name collision
             const copyKey = `${postUserId}::${type}::${name ?? ""}`;
             const isCopyingThis = copyingRoutineKeys.has(copyKey);
             const isCopiedThis = copiedRoutineKeys.has(copyKey);

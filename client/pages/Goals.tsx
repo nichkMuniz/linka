@@ -453,12 +453,12 @@ export default function Goals() {
         const isDenied = String(err).includes("PERMISSION_DENIED");
         if (isDenied) {
           toast({
-            title: "Permissão de localização negada",
+            title: t("goals_gps_unavailable"),
             description: "Acesse Configurações > LinKa > Localização e permita o acesso.",
             variant: "destructive",
           });
         } else {
-          toast({ title: "GPS não disponível", description: "Não foi possível iniciar o rastreamento.", variant: "destructive" });
+          toast({ title: t("goals_gps_unavailable"), description: t("goals_gps_start_error"), variant: "destructive" });
         }
         setGpsActive(false);
         stopGpsTracking();
@@ -472,29 +472,31 @@ export default function Goals() {
         const isDenied = data.message === "PERMISSION_DENIED";
         if (isDenied) {
           toast({
-            title: "Permissão de localização negada",
+            title: t("goals_gps_unavailable"),
             description: "Acesse Configurações > LinKa > Localização e permita o acesso.",
             variant: "destructive",
           });
         } else {
-          toast({ title: "Erro de GPS", description: data.message, variant: "destructive" });
+          toast({ title: t("goals_gps_error"), description: data.message, variant: "destructive" });
         }
         stopGpsTracking();
       });
     } else {
       // Fallback: Web Geolocation API (pauses when screen is locked)
       if (!navigator.geolocation) {
-        toast({ title: "GPS não disponível", description: "Seu dispositivo não suporta geolocalização.", variant: "destructive" });
+        toast({ title: t("goals_gps_unavailable"), description: t("goals_gps_unavailable_desc"), variant: "destructive" });
         setGpsActive(false);
         return;
       }
+      // Aviso: a API web pausa quando a tela bloqueia no iOS
+      toast({ title: t("goals_gps_screen_warning"), variant: "destructive" });
       gpsWatchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
           onLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, alt: pos.coords.altitude });
           gpsLastPosRef.current = pos;
         },
         (err) => {
-          toast({ title: "Erro de GPS", description: err.message, variant: "destructive" });
+          toast({ title: t("goals_gps_error"), description: err.message, variant: "destructive" });
           stopGpsTracking();
         },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
@@ -4579,7 +4581,7 @@ export default function Goals() {
           if (!files.length) return;
           const valid = files.filter((f) => f.type.startsWith("image/") && f.size <= 10 * 1024 * 1024);
           if (valid.length < files.length) {
-            toast({ title: "Alguns arquivos foram ignorados (tipo inválido ou >10MB)", variant: "destructive" });
+            toast({ title: t("goals_photo_ignored"), variant: "destructive" });
           }
           if (!valid.length) return;
           // Queue for cropping
@@ -4761,7 +4763,10 @@ export default function Goals() {
             {/* Desktop Backdrop */}
             <div className="hidden md:block fixed inset-0 z-[190] bg-black/80 backdrop-blur-sm" onClick={closeSummary} />
 
-            <div className="fixed inset-0 z-[200] flex flex-col bg-background overflow-y-auto md:top-[5vh] md:bottom-[5vh] md:left-1/2 md:-translate-x-1/2 md:right-auto md:w-full md:max-w-[680px] md:rounded-2xl md:border md:border-border/50 md:shadow-2xl">
+            <div
+              className="fixed inset-0 z-[200] flex flex-col bg-background overflow-y-auto md:top-[5vh] md:bottom-[5vh] md:left-1/2 md:-translate-x-1/2 md:right-auto md:w-full md:max-w-[680px] md:rounded-2xl md:border md:border-border/50 md:shadow-2xl"
+              style={{ paddingTop: "env(safe-area-inset-top)" }}
+            >
               {/* Hidden canvases for cover generation */}
               <canvas ref={workoutCanvasRef} width={800} height={800} className="hidden" />
               <canvas ref={prCanvasRef} width={800} height={800} className="hidden" />
@@ -4769,7 +4774,7 @@ export default function Goals() {
               <canvas ref={gpsRouteCanvasRef} width={800} height={800} className="hidden" />
 
               {/* Header */}
-              <div className="flex items-center justify-between px-4 pt-12 pb-4 flex-shrink-0">
+              <div className="flex items-center justify-between px-4 pt-4 pb-4 flex-shrink-0">
                 <button onClick={closeSummary} className="p-2 rounded-full hover:bg-muted transition-colors" aria-label="Fechar">
                   <X className="h-5 w-5" />
                 </button>

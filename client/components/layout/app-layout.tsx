@@ -22,6 +22,16 @@ import { AnimatePresence, motion } from "framer-motion";
 import { PageTransition } from "@/components/layout/page-transition";
 
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, recordScreenTimeDb } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
@@ -58,6 +68,8 @@ export function AppLayout() {
     globalRestTimerRemaining, setGlobalRestTimerRemaining, globalRestTimerActive, setGlobalRestTimerActive, globalRestTimerTotal, setGlobalRestTimerTotal,
     workoutSeries, resetWorkoutState,
   } = useWorkout();
+
+  const [endWorkoutConfirmOpen, setEndWorkoutConfirmOpen] = React.useState(false);
 
   // Auto-reopen workout modal when rest timer reaches 0 while minimized
   const prevRestTimerActiveRef = React.useRef(globalRestTimerActive);
@@ -256,30 +268,20 @@ export function AppLayout() {
           if (window.location.pathname === "/notificacoes") return;
           const row = payload.new as { type?: number;[key: string]: unknown } | undefined;
           if (!row) return;
-          const titleMap: Record<number, string> = {
-            1: "Novo seguidor 👤",
-            2: "Novo incentivo 🔥",
-            3: "Novo comentário 💬",
-            4: "Convite para duelo ⚔️",
-            5: "Pedido de entrada no duelo 👊",
-            6: "Reação no seu comentário ❤️",
-            7: "Reação no seu check-in 🏆",
-          };
-          const bodyMap: Record<number, string> = {
-            1: "Alguém começou a te seguir.",
-            2: "Alguém reagiu à sua postagem.",
-            3: "Alguém comentou na sua postagem.",
-            4: "Você recebeu um convite para duelo.",
-            5: "Alguém quer entrar no seu grupo.",
-            6: "Alguém reagiu ao seu comentário.",
-            7: "Alguém reagiu ao seu check-in.",
-          };
           const type = row.type as number ?? 0;
+          const notifTitles: Record<number, string> = {
+            1: t("notif_title_1"), 2: t("notif_title_2"), 3: t("notif_title_3"),
+            4: t("notif_title_4"), 5: t("notif_title_5"), 6: t("notif_title_6"), 7: t("notif_title_7"),
+          };
+          const notifBodies: Record<number, string> = {
+            1: t("notif_body_1"), 2: t("notif_body_2"), 3: t("notif_body_3"),
+            4: t("notif_body_4"), 5: t("notif_body_5"), 6: t("notif_body_6"), 7: t("notif_body_7"),
+          };
           LocalNotifications.schedule({
             notifications: [{
               id: Date.now() % 2_000_000,
-              title: titleMap[type] ?? "Nova notificação 🔔",
-              body: bodyMap[type] ?? "Você tem uma nova notificação no LinKa.",
+              title: notifTitles[type] ?? t("notif_title_default"),
+              body: notifBodies[type] ?? t("notif_body_default"),
               extra: { url: "/notificacoes" },
               smallIcon: "ic_stat_icon_config_sample",
               iconColor: "#f97316",
@@ -492,7 +494,7 @@ export function AppLayout() {
             <Timer className="h-4 w-4 flex-shrink-0" />
             {sidebarExpanded && (
               <div className="flex flex-col">
-                <span className="text-[11px] font-medium">Tempo restante</span>
+                <span className="text-[11px] font-medium">{t("nav_time_remaining")}</span>
                 <span className="text-sm font-mono font-bold">{timerLabel}</span>
               </div>
             )}
@@ -502,15 +504,15 @@ export function AppLayout() {
         {/* Toggle sidebar button */}
         <button
           onClick={toggleSidebar}
-          aria-label={sidebarExpanded ? "Recolher menu" : "Expandir menu"}
-          title={sidebarExpanded ? "Recolher menu" : "Expandir menu"}
+          aria-label={sidebarExpanded ? t("nav_sidebar_collapse_label") : t("nav_sidebar_expand_label")}
+          title={sidebarExpanded ? t("nav_sidebar_collapse_label") : t("nav_sidebar_expand_label")}
           className={cn(
             "flex items-center rounded-xl py-3 mb-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors",
             sidebarExpanded ? "gap-4 px-3" : "justify-center px-0",
           )}
         >
           {sidebarExpanded
-            ? <><PanelLeftClose className="h-6 w-6 flex-shrink-0" /><span className="text-[15px] font-medium">Recolher</span></>
+            ? <><PanelLeftClose className="h-6 w-6 flex-shrink-0" /><span className="text-[15px] font-medium">{t("nav_sidebar_collapse")}</span></>
             : <PanelLeftOpen className="h-6 w-6" />
           }
         </button>
@@ -712,7 +714,8 @@ export function AppLayout() {
 
         return (
           <motion.div
-            className="fixed bottom-24 right-4 z-[150] flex items-center gap-2"
+            className="fixed right-4 z-[150] flex items-center gap-2"
+            style={{ bottom: "calc(6rem + env(safe-area-inset-bottom))" }}
             initial={{ opacity: 0, scale: 0.7, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.7, y: 20 }}
@@ -721,16 +724,14 @@ export function AppLayout() {
             <button
               onClick={() => {
                 if (hasAnyValues) {
-                  if (window.confirm("Encerrar treino? Os dados registrados serão descartados.")) {
-                    resetWorkoutState();
-                  }
+                  setEndWorkoutConfirmOpen(true);
                 } else {
                   resetWorkoutState();
                 }
               }}
               className="flex items-center justify-center bg-destructive text-white rounded-full shadow-lg w-10 h-10 transition-all active:scale-95"
-              title="Encerrar treino"
-              aria-label="Encerrar treino"
+              title={t("goals_workout_end_confirm")}
+              aria-label={t("goals_workout_end_confirm")}
             >
               <Trash2 className="h-4 w-4" />
             </button>
@@ -748,7 +749,6 @@ export function AppLayout() {
                 <>
                   <Timer className="h-4 w-4 shrink-0" />
                   <span>{globalRestTimerRemaining}s</span>
-                  {/* progress bar */}
                   <span
                     className="absolute bottom-0 left-0 h-1 bg-white/40 rounded-full transition-all"
                     style={{ width: `${timerPercent}%` }}
@@ -757,7 +757,7 @@ export function AppLayout() {
               ) : (
                 <>
                   <Dumbbell className="h-4 w-4" />
-                  Treino em andamento
+                  {t("goals_workout_in_progress")}
                 </>
               )}
             </button>
@@ -766,19 +766,38 @@ export function AppLayout() {
       })()}
       </AnimatePresence>
 
+      {/* End Workout Confirmation — substitui window.confirm bloqueado no Capacitor iOS */}
+      <AlertDialog open={endWorkoutConfirmOpen} onOpenChange={setEndWorkoutConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("goals_workout_end_confirm")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("goals_workout_end_confirm_desc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              onClick={() => { resetWorkoutState(); setEndWorkoutConfirmOpen(false); }}
+            >
+              {t("goals_workout_end_btn")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Timer Expired Full-Screen Block */}
       {timerBlockVisible && (
         <div className="fixed inset-0 z-[500] bg-background flex flex-col items-center justify-center gap-6 px-6 text-center">
           <div className="text-6xl">⏰</div>
-          <h2 className="text-2xl font-bold">Tempo esgotado!</h2>
+          <h2 className="text-2xl font-bold">{t("app_timer_expired_title")}</h2>
           <p className="text-muted-foreground text-sm max-w-xs">
-            Você atingiu o limite diário de uso. Deseja adiar ou ignorar o limite por hoje?
+            {t("app_timer_expired_desc")}
           </p>
           <div className="flex flex-col gap-3 w-full max-w-xs">
             {[
-              { label: "Adiar por 5 min", seconds: 5 * 60 },
-              { label: "Adiar por 10 min", seconds: 10 * 60 },
-              { label: "Adiar por 30 min", seconds: 30 * 60 },
+              { label: t("app_timer_snooze_5"), seconds: 5 * 60 },
+              { label: t("app_timer_snooze_10"), seconds: 10 * 60 },
+              { label: t("app_timer_snooze_30"), seconds: 30 * 60 },
             ].map(({ label, seconds }) => (
               <Button
                 key={label}
@@ -795,13 +814,12 @@ export function AppLayout() {
             <Button
               className="w-full rounded-full"
               onClick={() => {
-                // Ignore limit for today: save flag and hide timer
                 localStorage.setItem("ritmofit_limit_ignored_date", new Date().toDateString());
                 setLimitIgnoredToday(true);
                 setTimerBlockVisible(false);
               }}
             >
-              Ignorar limite por hoje
+              {t("app_timer_ignore_today")}
             </Button>
           </div>
         </div>

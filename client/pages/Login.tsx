@@ -94,7 +94,7 @@ export default function Login() {
   const [showSplash, setShowSplash] = React.useState(true);
 
   React.useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), 5500);
+    const timer = setTimeout(() => setShowSplash(false), 1800);
     return () => clearTimeout(timer);
   }, []);
 
@@ -652,7 +652,7 @@ export default function Login() {
       }
 
       const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail.trim(), {
-        redirectTo: `${window.location.origin}/login`,
+        redirectTo: "https://linka.app/login",
       });
 
       if (error) {
@@ -1025,7 +1025,7 @@ export default function Login() {
         const { data, error } = await supabase.auth.signInWithOAuth({
           provider: "apple",
           options: {
-            redirectTo: `${window.location.origin}/login`,
+            redirectTo: "https://linka.app/login",
             skipBrowserRedirect: false,
           },
         });
@@ -1053,7 +1053,14 @@ export default function Login() {
 
   if (showSplash) {
     return (
-      <div className="grid min-h-dvh place-items-center" style={{ backgroundColor: "#FCFCFF" }}>
+      <div
+        className="grid min-h-dvh place-items-center"
+        style={{
+          backgroundColor: "#FCFCFF",
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
         <img
           src="/logo-animada-v2.gif"
           alt="LinKa"
@@ -1064,7 +1071,13 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-background p-6">
+    <div
+      className="flex min-h-dvh items-center justify-center bg-background p-6 overflow-y-auto"
+      style={{
+        paddingTop: "max(1.5rem, env(safe-area-inset-top))",
+        paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
+      }}
+    >
       <div className="mx-auto grid w-full max-w-md gap-6 my-auto">
         <BrandHeader />
 
@@ -1410,16 +1423,21 @@ export default function Login() {
                     </Button>
 
                     {hasBiometricRegistered && (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="rounded-full"
-                        disabled={busy}
-                        onClick={handleBiometricLogin}
-                      >
-                        <Fingerprint className="h-4 w-4 mr-2" />
-                        Entrar com Biometria
-                      </Button>
+                      <div className="flex flex-col items-center gap-1">
+                        <p className="text-xs text-muted-foreground text-center">
+                          Suas credenciais estão salvas. Toque para autenticar com Face ID / Touch ID.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="rounded-full w-full"
+                          disabled={busy}
+                          onClick={handleBiometricLogin}
+                        >
+                          <Fingerprint className="h-4 w-4 mr-2" />
+                          Entrar com Biometria
+                        </Button>
+                      </div>
                     )}
 
                     <div className="relative my-1">

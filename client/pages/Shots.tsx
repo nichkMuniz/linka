@@ -27,7 +27,7 @@ import {
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
-import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, ChevronLeft, ChevronRight, Play, Pause, Users } from "lucide-react";
+import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, Play, Pause, Users } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,7 +49,6 @@ import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
-import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
@@ -94,7 +93,6 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   const [isSavingEditComment, setIsSavingEditComment] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const videoRefsMap = React.useRef<Record<string, HTMLVideoElement>>({});
-  const [currentIndex, setCurrentIndex] = React.useState(0);
   const [isPaused, setIsPaused] = React.useState(false);
   const [showPauseIcon, setShowPauseIcon] = React.useState(false);
   const pauseIconTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -351,7 +349,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         });
       }
     },
-    [user, togglingIncentives]
+    [user, togglingIncentives, t]
   );
 
   const handleOpenComments = React.useCallback(
@@ -374,7 +372,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         setIsLoadingComments(false);
       }
     },
-    []
+    [t]
   );
 
   const handleAddComment = React.useCallback(async () => {
@@ -408,7 +406,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     } finally {
       setIsAddingComment(false);
     }
-  }, [commentText, selectedShot]);
+  }, [commentText, selectedShot, t]);
 
   const handleDeleteComment = React.useCallback((commentId: string) => {
     setDeletingCommentId(commentId);
@@ -593,6 +591,9 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                     muted={isMuted}
                     loop
                     playsInline
+                    // webkit-playsinline garante reprodução inline no WKWebView iOS
+                    // x-webkit-airplay="deny" evita que o iOS sequestre o player nativo
+                    {...({ "webkit-playsinline": "true", "x-webkit-airplay": "deny" } as React.VideoHTMLAttributes<HTMLVideoElement>)}
                     preload="metadata"
                     className="h-full w-full object-cover"
                   />
@@ -618,7 +619,10 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/40 pointer-events-none" />
 
               {/* Top-right controls */}
-              <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+              <div
+                className="absolute right-4 z-20 flex items-center gap-2"
+                style={{ top: "max(1rem, env(safe-area-inset-top))" }}
+              >
                 <button
                   onClick={() => {
                     const newMuted = !isMuted;
@@ -669,7 +673,10 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
               </div>
 
               {/* User Info - Top Left */}
-              <div className="absolute top-4 left-4 z-10 flex items-center gap-3 max-w-[55%]">
+              <div
+                className="absolute left-4 z-10 flex items-center gap-3 max-w-[55%]"
+                style={{ top: "max(1rem, env(safe-area-inset-top))" }}
+              >
                 <button
                   onClick={() => navigate(`/usuario/${shot.user_id}`)}
                   className="shrink-0 hover:opacity-80 transition-opacity"
@@ -677,7 +684,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                   <UserAvatar
                     photo={shot.userPhoto}
                     gender={shot.userGender}
-                    nickname={shot.userNickname || "Usuário"}
+                    nickname={shot.userNickname || t("shots_user_fallback")}
                     size="lg"
                     className="border-2 border-white/30 shadow-lg"
                   />
@@ -689,7 +696,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                   >
                     {shot.isVerified && <VerifiedBadge size="sm" className="shrink-0" />}
                     <p className="text-sm font-bold text-white drop-shadow-md truncate">
-                      {shot.userNickname || "Usuário"}
+                      {shot.userNickname || t("shots_user_fallback")}
                     </p>
                   </button>
                   {shot.userHandle && (
@@ -977,7 +984,10 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
 
           {/* Comment Input */}
           {selectedShot && (
-            <div className="flex gap-2 border-t border-border/60 px-4 py-4 items-center">
+            <div
+              className="flex gap-2 border-t border-border/60 px-4 py-4 items-center"
+              style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+            >
               <Input
                 placeholder={t("comments_placeholder")}
                 value={commentText}

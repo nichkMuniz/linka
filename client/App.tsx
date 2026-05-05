@@ -25,6 +25,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { FloatingActionMenu } from "@/components/layout/floating-action-menu";
 
 import { useAuthContext as useAuth, AuthProvider } from "@/lib/auth-context";
+import { useLanguage } from "@/lib/language-context";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useTheme } from "next-themes";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
@@ -55,9 +56,10 @@ const APP_STORE_URL = "https://apps.apple.com/app/id6761916728";
  * Dentro do WebView do Capacitor, window.Capacitor existe — não faz nada.
  */
 function AppStoreRedirect() {
+  const { t } = useLanguage();
+
   React.useEffect(() => {
     if (typeof window === "undefined") return;
-    // Dentro do app Capacitor, não redireciona
     if ((window as unknown as { Capacitor?: unknown }).Capacitor) return;
 
     const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -66,24 +68,23 @@ function AppStoreRedirect() {
     }
   }, []);
 
-  // Fallback para Android/desktop — mostra um link simples
   if ((window as unknown as { Capacitor?: unknown }).Capacitor) return null;
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  if (isIOS) return null; // redireciona via useEffect, nada a renderizar
+  if (isIOS) return null;
 
   return (
     <div className="grid min-h-dvh place-items-center bg-background p-6 text-center">
       <div>
         <img src="/logo-branco.png" alt="Linka" className="h-12 mx-auto mb-6" />
-        <p className="text-lg font-semibold mb-2">Disponível no iPhone</p>
+        <p className="text-lg font-semibold mb-2">{t("app_store_title")}</p>
         <p className="text-muted-foreground mb-6 text-sm">
-          O Linka é um app exclusivo para iOS. Baixe gratuitamente na App Store.
+          {t("app_store_desc")}
         </p>
         <a
           href={APP_STORE_URL}
           className="inline-block bg-primary text-primary-foreground rounded-xl px-6 py-3 font-medium"
         >
-          Baixar na App Store
+          {t("app_store_btn")}
         </a>
       </div>
     </div>
@@ -99,9 +100,18 @@ function DeepLinkHandler() {
       try {
         const parsed = new URL(url);
         const path = parsed.pathname;
+        const hash = parsed.hash;
 
-        // Ignora callbacks de auth — tratados na página de Login
+        // Ignora callbacks de auth comuns — tratados na página de Login
         if (path.includes("login-callback")) return;
+
+        // Link de recuperação de senha: Supabase envia hash com type=recovery
+        // Ao abrir o app via deeplink, navegar para /login para que o
+        // onAuthStateChange dispare PASSWORD_RECOVERY e mostre o formulário.
+        if (hash.includes("type=recovery")) {
+          navigate("/login", { replace: true });
+          return;
+        }
 
         if (user) {
           navigate(path, { replace: false });
@@ -127,12 +137,13 @@ const queryClient = new QueryClient();
 
 function AuthLoadingScreen() {
   const { resolvedTheme } = useTheme();
+  const { t } = useLanguage();
   const logoSrc = resolvedTheme === "dark" ? "/logo-branco.png" : "/logo.png";
   return (
     <div className="grid min-h-dvh place-items-center bg-background p-6">
       <div className="text-center">
         <img src={logoSrc} alt="LinKa" className="h-12 mx-auto" />
-        <div className="mt-1 text-sm text-muted-foreground">Carregando…</div>
+        <div className="mt-1 text-sm text-muted-foreground">{t("app_loading")}</div>
       </div>
     </div>
   );
@@ -188,16 +199,6 @@ function GlobalFABContainer() {
 }
 
 const App = () => {
-  React.useEffect(() => {
-    // Register Service Worker only in production builds.
-    if (!import.meta.env.PROD) return;
-    if (!("serviceWorker" in navigator)) return;
-
-    navigator.serviceWorker
-      .register("/sw.js")
-      .catch((err) => console.warn("SW registration failed", err));
-  }, []);
-
   React.useEffect(() => {
     // Handle unhandled promise rejections from network errors
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {

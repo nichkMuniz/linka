@@ -34,6 +34,11 @@ type RoutineCardProps = {
   isCopied: boolean;
   isOwn: boolean;
   loadingText: string;
+  unnamedText: string;
+  copyingText: string;
+  copyBtnText: string;
+  viewRoutineText: string;
+  noItemsText: string;
   onToggleExpand: (routine: RoutineResult) => void;
   onCopy: (routine: RoutineResult) => void;
   onNavigate: (userId: string) => void;
@@ -49,6 +54,11 @@ function RoutineCard({
   isCopied,
   isOwn,
   loadingText,
+  unnamedText,
+  copyingText,
+  copyBtnText,
+  viewRoutineText,
+  noItemsText,
   onToggleExpand,
   onCopy,
   onNavigate,
@@ -58,7 +68,7 @@ function RoutineCard({
     <Card className="border-border/60">
       <CardContent className="p-4">
         {/* Routine name — prominent */}
-        <p className="font-semibold text-sm mb-2">{routine.routineName ?? "Rotina sem nome"}</p>
+        <p className="font-semibold text-sm mb-2">{routine.routineName ?? unnamedText}</p>
 
         {/* User info row + action buttons */}
         <div className="flex items-center gap-2">
@@ -88,7 +98,7 @@ function RoutineCard({
               disabled={isCopying || isOwn}
             >
               <Copy className="h-3 w-3" />
-              {isCopying ? "Copiando..." : "Copiar"}
+              {isCopying ? copyingText : copyBtnText}
             </Button>
           ) : (
             <Button
@@ -97,7 +107,7 @@ function RoutineCard({
               className="rounded-full h-7 px-2.5 gap-1 text-xs flex-shrink-0"
               onClick={onGoToRoutines}
             >
-              Ver rotina
+              {viewRoutineText}
             </Button>
           )}
 
@@ -117,7 +127,7 @@ function RoutineCard({
             {isLoadingItems ? (
               <p className="text-xs text-muted-foreground text-center py-2">{loadingText}</p>
             ) : items.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-2">Nenhum item encontrado</p>
+              <p className="text-xs text-muted-foreground text-center py-2">{noItemsText}</p>
             ) : (
               items.map((item) => (
                 <div key={item.id} className="flex items-center gap-2 py-1 px-2 rounded-md bg-muted/30">
@@ -269,27 +279,27 @@ export default function Search() {
       const key = `${routine.userId}::${routine.routineId ?? routine.routineName}`;
       setCopyingKeys((prev) => new Set(prev).add(key));
       try {
-        await copyRoutineToUserDb(routine.userId, user.id, routine.routineType as 1 | 2, routine.routineName);
+        await copyRoutineToUserDb(routine.userId, user.id, routine.routineType as 1 | 2 | 3, routine.routineName);
         setCopiedKeys((prev) => new Set(prev).add(key));
         toast({
-          title: routine.routineType === 1 ? "Treino copiado!" : "Dieta copiada!",
-          description: `"${routine.routineName ?? "Rotina sem nome"}" foi adicionado(a) à sua conta.`,
+          title: routine.routineType === 1 ? t("search_copy_workout_success") : t("search_copy_diet_success"),
+          description: t("search_copy_desc").replace("{name}", routine.routineName ?? t("search_routine_unnamed")),
         });
       } catch (err: any) {
-        toast({ title: "Erro ao copiar", description: err.message || "Tente novamente.", variant: "destructive" });
+        toast({ title: t("search_copy_error"), description: err.message || t("search_copy_error_retry"), variant: "destructive" });
       } finally {
         setCopyingKeys((prev) => { const s = new Set(prev); s.delete(key); return s; });
       }
     },
-    [user],
+    [user, t],
   );
 
   const searchPlaceholder =
     activeTab === "people"
-      ? "Busque por pessoas"
+      ? t("search_placeholder_people")
       : activeTab === "workouts"
-        ? "Busque por treinos"
-        : "Busque por dietas";
+        ? t("search_placeholder_workouts")
+        : t("search_placeholder_diets");
 
   return (
     <div className="space-y-4">
@@ -323,9 +333,9 @@ export default function Search() {
                   <SearchX className="h-7 w-7 text-muted-foreground" />
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm font-semibold text-foreground">Nenhuma pessoa encontrada</p>
+                  <p className="text-sm font-semibold text-foreground">{t("search_no_people")}</p>
                   <p className="text-xs text-muted-foreground max-w-[220px]">
-                    Tente buscar por um nome ou @nickname diferente
+                    {t("search_no_people_hint")}
                   </p>
                 </div>
               </div>
@@ -376,9 +386,9 @@ export default function Search() {
                   <Dumbbell className="h-7 w-7 text-muted-foreground" />
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm font-semibold text-foreground">Nenhum treino cadastrado ainda</p>
+                  <p className="text-sm font-semibold text-foreground">{t("search_no_workouts")}</p>
                   <p className="text-xs text-muted-foreground max-w-[220px]">
-                    Quando alguém compartilhar um treino, ele aparece aqui para você copiar
+                    {t("search_no_workouts_hint")}
                   </p>
                 </div>
               </div>
@@ -394,7 +404,12 @@ export default function Search() {
               isCopying={copyingKeys.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
               isCopied={copiedKeys.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
               isOwn={routine.userId === user?.id}
-              loadingText={t("loading")}
+              loadingText={t("search_loading")}
+              unnamedText={t("search_routine_unnamed")}
+              copyingText={t("search_copying")}
+              copyBtnText={t("search_copy_btn")}
+              viewRoutineText={t("search_view_routine")}
+              noItemsText={t("search_no_items")}
               onToggleExpand={handleToggleExpand}
               onCopy={handleCopy}
               onNavigate={(id) => navigate(`/usuario/${id}`)}
@@ -414,9 +429,9 @@ export default function Search() {
                   <Salad className="h-7 w-7 text-muted-foreground" />
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm font-semibold text-foreground">Nenhuma dieta cadastrada ainda</p>
+                  <p className="text-sm font-semibold text-foreground">{t("search_no_diets")}</p>
                   <p className="text-xs text-muted-foreground max-w-[220px]">
-                    Quando alguém compartilhar uma dieta, ela aparece aqui para você copiar
+                    {t("search_no_diets_hint")}
                   </p>
                 </div>
               </div>
@@ -432,7 +447,12 @@ export default function Search() {
               isCopying={copyingKeys.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
               isCopied={copiedKeys.has(`${routine.userId}::${routine.routineId ?? routine.routineName}`)}
               isOwn={routine.userId === user?.id}
-              loadingText={t("loading")}
+              loadingText={t("search_loading")}
+              unnamedText={t("search_routine_unnamed")}
+              copyingText={t("search_copying")}
+              copyBtnText={t("search_copy_btn")}
+              viewRoutineText={t("search_view_routine")}
+              noItemsText={t("search_no_items")}
               onToggleExpand={handleToggleExpand}
               onCopy={handleCopy}
               onNavigate={(id) => navigate(`/usuario/${id}`)}

@@ -733,9 +733,8 @@ export async function createCustomGoalAndSelectDb(
     throw linkError;
   }
 
-  return goalId;
-
   invalidateQueryCache("programmedGoals"); invalidateQueryCache("userGoals"); invalidateQueryCache("selectedGoalIds");
+  return goalId;
 }
 
 export async function createUserGoalDb(
@@ -1241,7 +1240,8 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     .from("posts")
     .select("id, description, photo, photos, created_at, user_id, user_goal_id")
     .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(100);
 
   if (error) {
     const errorMsg = error?.message || String(error);
@@ -1435,6 +1435,7 @@ export async function createCustomWorkoutDb(
     throw error;
   }
 
+  invalidateQueryCache("workouts"); invalidateQueryCache("catalogWorkouts");
   return {
     id: String(data.id),
     name: String(data.name),
@@ -1442,8 +1443,6 @@ export async function createCustomWorkoutDb(
     photo: data.photo ? String(data.photo) : null,
     muscle_group: data.muscle_group ? String(data.muscle_group) : null,
   };
-
-  invalidateQueryCache("workouts"); invalidateQueryCache("catalogWorkouts");
 }
 
 export async function getUserStatsDb(userId: string): Promise<UserStats> {
@@ -1631,6 +1630,7 @@ export async function createCustomDietDb(
     throw error;
   }
 
+  invalidateQueryCache("diets"); invalidateQueryCache("catalogDiets");
   return {
     id: String(data.id),
     name: String(data.name),
@@ -1643,8 +1643,6 @@ export async function createCustomDietDb(
     fiber_g: data.fiber_g != null ? Number(data.fiber_g) : null,
     food_quality: data.food_quality ?? null,
   };
-
-  invalidateQueryCache("diets"); invalidateQueryCache("catalogDiets");
 }
 
 export type Habit = {
@@ -3208,11 +3206,11 @@ export async function getRoutineDietsDb(userId: string, routineName: string | nu
   }
 }
 
-// Copy all workouts or diets from one user to another
+// Copy all workouts, diets or habits from one user to another
 export async function copyRoutineToUserDb(
   sourceUserId: string,
   targetUserId: string,
-  routineType: 1 | 2,
+  routineType: 1 | 2 | 3,
   routineName: string | null,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
@@ -3608,8 +3606,6 @@ export async function deleteOldStoriesDb(): Promise<boolean> {
   // the active feed by the created_at filter in getActiveStoriesDb.
   // Manual deletion happens via deleteStoryDb only.
   return true;
-
-  invalidateQueryCache("activeStories");
 }
 
 export async function deleteStoryDb(storyId: string): Promise<boolean> {
@@ -5360,9 +5356,8 @@ export async function updateUserWorkoutDb(
     return false;
   }
 
-  return true;
-
   invalidateQueryCache("userWorkouts");
+  return true;
 }
 
 // Toggle completion for user diet
@@ -5389,9 +5384,8 @@ export async function toggleUserDietCompletionDb(
     return false;
   }
 
-  return true;
-
   invalidateQueryCache("userDiets");
+  return true;
 }
 
 // Toggle completion for user habit
@@ -5418,9 +5412,8 @@ export async function toggleUserHabitCompletionDb(
     return false;
   }
 
-  return true;
-
   invalidateQueryCache("userHabits");
+  return true;
 }
 
 export async function updateWorkoutNotesDb(
@@ -9969,9 +9962,8 @@ export async function awardNutritionBadgesDb(userId: string): Promise<string[]> 
     console.error("Error awarding nutrition badges:", err);
   }
 
-  return awarded;
-
   invalidateQueryCache("userBadges");
+  return awarded;
 }
 
 async function _grantNutritionBadgeIfNew(userId: string, badgeKey: string): Promise<void> {
@@ -10012,7 +10004,7 @@ export async function getTodayMoodDb(userId: string): Promise<MoodLog | null> {
   const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from("mood_logs")
-    .select("*")
+    .select("id, user_id, mood, log_date, created_at")
     .eq("user_id", userId)
     .eq("log_date", today)
     .maybeSingle();
@@ -10716,29 +10708,42 @@ export type AdminActiveUser = {
 export async function getAdminActiveUsersDb(): Promise<AdminActiveUser[]> {
   if (!supabase) return [];
   const today = new Date().toISOString().slice(0, 10);
-  const { data, error } = await supabase
+  const { data: logs, error } = await supabase
     .from("screen_time_logs")
-    .select("user_id, seconds, profiles!screen_time_logs_user_id_fkey(nickname, handle, photo)")
+    .select("user_id, duration_seconds")
     .eq("log_date", today);
-  if (error) return [];
-  const map = new Map<string, AdminActiveUser>();
-  for (const row of data ?? []) {
-    const p = (row as any).profiles;
-    if (!p) continue;
-    const existing = map.get(row.user_id);
-    if (existing) {
-      existing.total_seconds += row.seconds ?? 0;
-    } else {
-      map.set(row.user_id, {
-        user_id: row.user_id,
-        nickname: p.nickname ?? "—",
-        handle: p.handle ?? "",
-        photo: p.photo ?? null,
-        total_seconds: row.seconds ?? 0,
-      });
-    }
+  console.log("[activeUsers] today:", today, "logs:", logs?.length, "error:", error, "sample:", logs?.[0]);
+  if (error || !logs?.length) return [];
+
+  const map = new Map<string, number>();
+  for (const row of logs) {
+    map.set(row.user_id, (map.get(row.user_id) ?? 0) + ((row as any).duration_seconds ?? 0));
   }
-  return Array.from(map.values())
+
+  const userIds = Array.from(map.keys());
+  console.log("[activeUsers] unique userIds:", userIds.length, userIds);
+  const { data: profiles, error: pErr } = await supabase
+    .from("profiles")
+    .select("user_id, nickname, handle, photo")
+    .in("user_id", userIds);
+  console.log("[activeUsers] profiles returned:", profiles?.length, "error:", pErr);
+
+  const profileMap = new Map<string, { nickname: string; handle: string; photo: string | null }>();
+  for (const p of profiles ?? []) {
+    profileMap.set(p.user_id, { nickname: p.nickname ?? "—", handle: p.handle ?? "", photo: p.photo ?? null });
+  }
+
+  return userIds
+    .map((uid) => {
+      const p = profileMap.get(uid);
+      return {
+        user_id: uid,
+        nickname: p?.nickname ?? "—",
+        handle: p?.handle ?? "",
+        photo: p?.photo ?? null,
+        total_seconds: map.get(uid) ?? 0,
+      };
+    })
     .sort((a, b) => b.total_seconds - a.total_seconds)
     .slice(0, 10);
 }

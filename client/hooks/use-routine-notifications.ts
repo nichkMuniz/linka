@@ -9,8 +9,18 @@ export function formatScheduledTime(time: string): string {
   return time.slice(0, 5);
 }
 
-const TYPE_LABELS: Record<string, string> = { workout: "Treino", diet: "Refeição", habit: "Hábito" };
+const TYPE_LABELS_PT: Record<string, string> = { workout: "Treino", diet: "Refeição", habit: "Hábito" };
+const TYPE_LABELS_EN: Record<string, string> = { workout: "Workout", diet: "Meal", habit: "Habit" };
 const TYPE_ICONS: Record<string, string> = { workout: "💪", diet: "🥗", habit: "✅" };
+
+function getTypeLabels(): Record<string, string> {
+  try {
+    const lang = localStorage.getItem("ritmofit-language") || "pt";
+    return lang === "en" ? TYPE_LABELS_EN : TYPE_LABELS_PT;
+  } catch {
+    return TYPE_LABELS_PT;
+  }
+}
 
 /**
  * Requests notification permission using the native Capacitor plugin.
@@ -73,7 +83,7 @@ async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<
     .map((e) => ({
       id: entryToNotifId(e.id),
       title: `${TYPE_ICONS[e.type] || "🔔"} ${e.name}`,
-      body: `Hora do seu ${TYPE_LABELS[e.type] || "item"}: ${e.name}`,
+      body: `${getTypeLabels()[e.type] || "item"}: ${e.name}`,
       schedule: {
         at: nextOccurrence(e.scheduled_time!),
         repeats: true,
@@ -118,7 +128,7 @@ export function useRoutineNotifications(userId: string | null) {
       (action) => {
         const url: string = action.notification.extra?.url || "/metas";
         if (typeof window !== "undefined") {
-          window.location.hash = url.replace(/^\//, "#/") || "#/metas";
+          window.location.pathname = url;
         }
       }
     );

@@ -155,6 +155,7 @@ import {
 import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
+import { Browser } from "@capacitor/browser";
 
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
@@ -693,7 +694,7 @@ export default function Profile() {
     if (!user || !profileUserId) return;
     setCopyingRoutineId(routine.id);
     try {
-      await copyRoutineToUserDb(profileUserId, user.id, routine.type as 1 | 2, routine.name ?? null);
+      await copyRoutineToUserDb(profileUserId, user.id, routine.type as 1 | 2 | 3, routine.name ?? null);
       toast({ title: t("profile_toast_routine_copied"), description: t("profile_toast_routine_copied_desc") });
     } catch (err: any) {
       toast({ title: t("profile_toast_routine_copy_error"), description: err.message || t("retry"), variant: "destructive" });
@@ -1155,16 +1156,14 @@ export default function Profile() {
                 <div className="flex flex-col gap-1 p-2 rounded-lg bg-muted/20 border border-brand/20">
                   <div className="flex items-center gap-2">
                     {commercialProfile.business_phone ? (
-                      <a
-                        href={`https://wa.me/55${commercialProfile.business_phone.replace(/\D/g, "")}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        onClick={() => Browser.open({ url: `https://wa.me/55${commercialProfile.business_phone!.replace(/\D/g, "")}` })}
                         className="text-sm font-medium text-brand hover:underline flex items-center gap-1"
                         title={t("profile_contact_btn")}
                       >
                         <span>💬</span>
                         {commercialProfile.business_name}
-                      </a>
+                      </button>
                     ) : (
                       <div className="text-sm font-medium text-brand">
                         🏪 {commercialProfile.business_name}
@@ -1193,15 +1192,13 @@ export default function Profile() {
                     )}
                   </div>
                   {commercialProfile.business_website && (
-                    <a
-                      href={commercialProfile.business_website}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={() => Browser.open({ url: commercialProfile.business_website! })}
                       className="text-xs text-brand hover:underline flex items-center gap-1"
                     >
                       <span>🔗</span>
                       {commercialProfile.business_website.replace(/^https?:\/\//, "")}
-                    </a>
+                    </button>
                   )}
                 </div>
               )}
@@ -1269,7 +1266,7 @@ export default function Profile() {
                 className="rounded-full gap-2"
                 onClick={() => {
                   const text = t("profile_share_other").replace("{handle}", profile?.nickname ?? "");
-                  const profileUrl = `${window.location.origin}/usuario/${profileUserId}`;
+                  const profileUrl = `https://linka.app/usuario/${profileUserId}`;
                   setShareDrawerText(text);
                   setShareDrawerUrl(profileUrl);
                   setShareDrawerOpen(true);
@@ -1291,7 +1288,7 @@ export default function Profile() {
                   const tierKey = stats.points >= 1000 ? "profile_tier_elite" : stats.points >= 500 ? "profile_tier_gold" : stats.points >= 200 ? "profile_tier_silver" : "profile_tier_bronze";
                   const tier = t(tierKey as any);
                   const text = t("profile_share_text").replace("{level}", String(stats.level)).replace("{tier}", tier).replace("{points}", String(stats.points)).replace("{handle}", profile.nickname ?? "");
-                  const profileUrl = `${window.location.origin}/usuario/${profileUserId}`;
+                  const profileUrl = `https://linka.app/usuario/${profileUserId}`;
                   setShareDrawerText(text);
                   setShareDrawerUrl(profileUrl);
                   setShareDrawerOpen(true);
@@ -1491,6 +1488,8 @@ export default function Profile() {
                   >
                     <video
                       src={shot.video_url}
+                      playsInline
+                      muted
                       className="h-full w-full object-cover group-hover:scale-110 transition-transform"
                     />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
@@ -2369,9 +2368,9 @@ export default function Profile() {
                     )}
                   </div>
                   {commercialProfile.business_website && (
-                    <a href={commercialProfile.business_website} target="_blank" rel="noopener noreferrer" className="shrink-0 text-muted-foreground hover:text-brand transition-colors">
+                    <button onClick={() => Browser.open({ url: commercialProfile.business_website! })} className="shrink-0 text-muted-foreground hover:text-brand transition-colors">
                       <ExternalLink className="h-4 w-4" />
-                    </a>
+                    </button>
                   )}
                 </div>
               </div>
@@ -2437,18 +2436,18 @@ export default function Profile() {
                               <span className="text-base font-black text-foreground tracking-tighter">R$ {offer.price}</span>
                             </span>
                           )}
-                          <a
-                            href={offer.link_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={() => incrementOfferClickDb(offer.id, offer.user_id)}
+                          <button
+                            onClick={() => {
+                              incrementOfferClickDb(offer.id, offer.user_id);
+                              if (offer.link_url) Browser.open({ url: offer.link_url });
+                            }}
                             className="flex items-center gap-1.5 h-9 px-4 rounded-xl bg-brand text-white text-xs font-bold hover:bg-brand/90 transition-colors shrink-0"
                           >
                             {isService
                               ? <><Phone className="h-3.5 w-3.5" /> {t("profile_contact_btn")}</>
                               : <><ArrowRight className="h-3.5 w-3.5" /> {t("profile_view_offer")}</>
                             }
-                          </a>
+                          </button>
                         </div>
                       </div>
                     </div>

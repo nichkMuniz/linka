@@ -174,9 +174,12 @@ export function AddRoutineModal({
         }}
       >
         <DrawerContent
-          className="flex flex-col modal-enter h-dvh mt-0 rounded-none"
+          className="flex flex-col modal-enter rounded-none"
+          style={{ height: "100dvh", maxHeight: "100dvh", marginTop: 0 }}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
+          {/* absorve o foco inicial no iOS para evitar que o teclado abra automaticamente */}
+          <span tabIndex={0} aria-hidden className="absolute opacity-0 pointer-events-none w-0 h-0 overflow-hidden" />
           {/* Header — always visible */}
           <DrawerHeader className="shrink-0 pb-2">
             <div className="flex items-center justify-between">
@@ -225,7 +228,6 @@ export function AddRoutineModal({
                     type="text"
                     value={routineName}
                     onChange={(e) => onRoutineNameChange(e.target.value)}
-                    onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
                     className="h-10 border-brand/30 focus:border-brand bg-background"
                     placeholder={t("goals_routine_name_placeholder_exercises")}
                   />

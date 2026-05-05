@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/lib/language-context";
 import { ArrowLeft, Edit2, Trash2, MoreVertical, Target } from "lucide-react";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
@@ -37,6 +38,7 @@ export default function PostDetail() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const { t } = useLanguage();
 
   const [post, setPost] = React.useState<PostWithUser | null>(null);
   const [postGoal, setPostGoal] = React.useState<UserGoal | null>(null);
@@ -98,7 +100,7 @@ export default function PostDetail() {
           }
         } else {
           toast({
-            title: "Post não encontrado",
+            title: t("post_not_found"),
             variant: "destructive",
           });
           navigate(-1);
@@ -106,7 +108,7 @@ export default function PostDetail() {
       } catch (err: any) {
         console.error("Error loading post:", err);
         toast({
-          title: "Erro ao carregar post",
+          title: t("post_load_error_single"),
           description: err?.message || "Tente novamente.",
         });
         navigate(-1);
@@ -149,10 +151,10 @@ export default function PostDetail() {
     setIsDeleting(true);
     try {
       await deletePostDb(post.id);
-      toast({ title: "Post excluído" });
+      toast({ title: t("post_deleted") });
       navigate(-1);
     } catch (err: any) {
-      toast({ title: "Erro ao excluir post", description: err?.message, variant: "destructive" });
+      toast({ title: t("post_delete_single_error"), description: err?.message, variant: "destructive" });
     } finally {
       setIsDeleting(false);
       setDeleteDialogOpen(false);
@@ -162,7 +164,7 @@ export default function PostDetail() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <p className="text-muted-foreground">Carregando...</p>
+        <p className="text-muted-foreground">{t("loading")}</p>
       </div>
     );
   }
@@ -170,8 +172,8 @@ export default function PostDetail() {
   if (!post) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-3 p-6 text-center">
-        <p className="text-lg font-semibold">Post não encontrado</p>
-        <p className="text-sm text-muted-foreground">Este post pode ter sido removido ou você não tem permissão para visualizá-lo.</p>
+        <p className="text-lg font-semibold">{t("post_not_found")}</p>
+        <p className="text-sm text-muted-foreground">{t("post_not_found_desc")}</p>
       </div>
     );
   }
@@ -179,7 +181,7 @@ export default function PostDetail() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="sticky top-0 z-40 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3">
+      <div className="sticky top-0 z-40 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-4 py-3" style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}>
         <div className="flex items-center gap-3 max-w-2xl mx-auto">
           <Button
             variant="ghost"
@@ -250,14 +252,14 @@ export default function PostDetail() {
                       <>
                         <DropdownMenuItem onSelect={handleEditOpen}>
                           <Edit2 className="h-4 w-4 mr-2" />
-                          Editar post
+                          {t("post_edit_label")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onSelect={() => setDeleteDialogOpen(true)}
                           className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
-                          Excluir post
+                          {t("post_delete_label")}
                         </DropdownMenuItem>
                       </>
                     ) : null}
@@ -295,7 +297,7 @@ export default function PostDetail() {
                   onClick={handleOpenLikesModal}
                   className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
                 >
-                  {totalLikes} incentivos
+                  {t("post_incentives_count").replace("{n}", String(totalLikes))}
                 </button>
               )}
               <span className="text-xs text-muted-foreground ml-auto">
@@ -353,19 +355,19 @@ export default function PostDetail() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir post</AlertDialogTitle>
+            <AlertDialogTitle>{t("post_delete_label")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir este post? Esta ação não pode ser desfeita.
+              {t("post_delete_confirm_desc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeletePost}
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? "Excluindo..." : "Excluir"}
+              {isDeleting ? t("post_deleting") : t("post_delete_confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
