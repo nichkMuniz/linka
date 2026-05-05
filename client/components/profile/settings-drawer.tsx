@@ -33,6 +33,7 @@ import {
   updateUserPersonalDataDb,
   deletePushTokenDb,
   recordAccessSessionDb,
+  recordScreenTimeDb,
   type UserProfile,
   type UserStats,
   type CommercialProfile,

@@ -38,11 +38,11 @@ function ZoomableImage({
 }) {
   const [scale, setScale] = React.useState(1);
   const [origin, setOrigin] = React.useState({ x: 50, y: 50 });
+  const [isPinching, setIsPinching] = React.useState(false);
   const pinch = React.useRef({ active: false, startDist: 0, baseScale: 1 });
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const transitioning = React.useRef(false);
 
-  // Non-passive touchmove so we can preventDefault during pinch
+  // Non-passive touchmove so we can preventDefault during pinch only
   React.useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -70,14 +70,14 @@ function ZoomableImage({
         baseScale: scale,
       };
       setOrigin(getPinchOrigin(e.touches, rect));
-      transitioning.current = false;
+      setIsPinching(true);
     }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (pinch.current.active && e.touches.length < 2) {
       pinch.current.active = false;
-      transitioning.current = true;
+      setIsPinching(false);
       setScale(1);
     }
   };
@@ -101,7 +101,8 @@ function ZoomableImage({
           transformOrigin: `${origin.x}% ${origin.y}%`,
           transition: scale === 1 ? "transform 0.25s ease-out" : "none",
           userSelect: "none",
-          touchAction: "none",
+          // "pan-y" permite scroll vertical livre; apenas durante pinch bloqueamos tudo
+          touchAction: isPinching ? "none" : "pan-y",
           willChange: "transform",
         }}
       />
@@ -153,12 +154,16 @@ export function PostCarousel({
     );
   }
 
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const isHorizontalSwipe = React.useRef<boolean | null>(null);
+
   const goTo = (index: number) => {
     setCurrentIndex((index + photos.length) % photos.length);
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
     touchCount.current = e.touches.length;
+    isHorizontalSwipe.current = null;
     if (e.touches.length === 1) {
       touchStartX.current = e.touches[0].clientX;
       touchStartY.current = e.touches[0].clientY;
@@ -169,9 +174,9 @@ export function PostCarousel({
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    // Don't swipe if a pinch was in progress
     if (touchCount.current >= 2) {
       touchCount.current = 0;
+      isHorizontalSwipe.current = null;
       return;
     }
     if (touchStartX.current === null || touchStartY.current === null) return;
@@ -183,10 +188,34 @@ export function PostCarousel({
     touchStartX.current = null;
     touchStartY.current = null;
     touchCount.current = 0;
+    isHorizontalSwipe.current = null;
   };
+
+  // Adiciona listener não-passivo para bloquear scroll apenas em swipe horizontal
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onMove = (e: TouchEvent) => {
+      if (touchCount.current >= 2) return;
+      if (touchStartX.current === null || touchStartY.current === null) return;
+      const dx = e.touches[0].clientX - touchStartX.current;
+      const dy = e.touches[0].clientY - touchStartY.current;
+      // Determina direção do swipe na primeira leitura com deslocamento suficiente
+      if (isHorizontalSwipe.current === null && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+        isHorizontalSwipe.current = Math.abs(dx) > Math.abs(dy);
+      }
+      // Só bloqueia o scroll padrão se for swipe horizontal
+      if (isHorizontalSwipe.current === true) {
+        e.preventDefault();
+      }
+    };
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onMove);
+  }, []);
 
   return (
     <div
+      ref={containerRef}
       className={`relative group overflow-hidden rounded-lg ${isContain ? "bg-black" : "bg-slate-900/10"}`}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
@@ -242,20 +271,23 @@ export function PostCarousel({
         </button>
       )}
 
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none">
-        <div className="flex gap-1">
-          {photos.map((_, index) => (
-            <div
-              key={index}
-              className={`h-1.5 rounded-full transition-all duration-200 ${
-                currentIndex === index ? "w-4 bg-white" : "w-1.5 bg-white/50"
-              }`}
-            />
-          ))}
-        </div>
-        <p className="text-white text-xs font-medium bg-black/40 px-2 py-0.5 rounded-full">
+      {/* Pill counter — top-right, never overlaps user info */}
+      <div className="absolute top-3 right-3 pointer-events-none">
+        <span className="text-white text-xs font-semibold bg-black/50 backdrop-blur-sm px-2.5 py-1 rounded-full">
           {currentIndex + 1}/{photos.length}
-        </p>
+        </span>
+      </div>
+
+      {/* Dots — top-center */}
+      <div className="absolute top-3 left-1/2 -translate-x-1/2 flex gap-1 pointer-events-none">
+        {photos.map((_, index) => (
+          <div
+            key={index}
+            className={`h-1.5 rounded-full transition-all duration-200 ${
+              currentIndex === index ? "w-4 bg-white" : "w-1.5 bg-white/50"
+            }`}
+          />
+        ))}
       </div>
     </div>
   );

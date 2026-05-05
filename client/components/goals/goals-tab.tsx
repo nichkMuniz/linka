@@ -72,6 +72,23 @@ export function GoalsTab({
     <>
       {goals.length ? (
         <>
+          {/* Onboarding banner — shown only when user has no active goals yet */}
+          {activeGoals.length === 0 && completedGoals.length === 0 && (
+            <div className="rounded-2xl border-2 border-dashed border-primary/30 bg-primary/5 p-5 text-center space-y-2">
+              <p className="text-2xl">🎯</p>
+              <p className="text-sm font-bold">{t("goals_onboarding_title")}</p>
+              <p className="text-xs text-muted-foreground">{t("goals_onboarding_desc")}</p>
+              <button
+                type="button"
+                onClick={onCreateGoalDrawerOpen}
+                className="inline-flex items-center gap-1.5 mt-1 text-xs font-semibold text-primary hover:underline"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t("goals_create_own")}
+              </button>
+            </div>
+          )}
+
           {/* Active Goals Section */}
           {activeGoals.length > 0 && (
             <div className="space-y-3">

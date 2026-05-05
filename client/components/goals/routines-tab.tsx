@@ -101,6 +101,7 @@ interface RoutinesTabProps {
   // Actions / modal triggers
   activeWorkoutRoutineName: string | null;
   onAddRoutineClick: () => void;
+  onAddRoutineWithType: (typeCode: number) => void;
   onAddToRoutineCard: (typeCode: number, displayLabel: string, isNamed: boolean) => void;
   onStartWorkout: (routineName: string) => void;
   onScheduleNotification: (target: { id: string; type: "workout" | "diet" | "habit"; name: string; currentTime: string | null }) => void;
@@ -146,6 +147,7 @@ export function RoutinesTab({
   onSetExpandedRoutineId,
   activeWorkoutRoutineName,
   onAddRoutineClick,
+  onAddRoutineWithType,
   onAddToRoutineCard,
   onStartWorkout,
   onScheduleNotification,
@@ -889,15 +891,28 @@ export function RoutinesTab({
 
         </div>
       ) : (
-        <div className="flex justify-center pt-12 pb-12">
-          <div className="text-center space-y-4 max-w-xs">
-            <p className="text-2xl">🏋️</p>
-            <p className="text-sm font-medium">{t("goals_no_routines")}</p>
-            <p className="text-xs text-muted-foreground">{t("goals_no_routines_desc")}</p>
-            <Button onClick={onAddRoutineClick} className="rounded-full gap-2" size="lg">
-              <Plus className="h-5 w-5" />
-              {t("goals_create_routine")}
-            </Button>
+        <div className="space-y-4 pt-4 pb-8">
+          <div className="text-center space-y-1 pb-2">
+            <p className="text-base font-bold">{t("goals_no_routines")}</p>
+            <p className="text-xs text-muted-foreground max-w-xs mx-auto">{t("goals_no_routines_onboarding")}</p>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { typeCode: 1, emoji: "🏋️", label: t("goals_routine_type_workout"), desc: t("goals_routine_type_workout_desc") },
+              { typeCode: 2, emoji: "🥗", label: t("goals_routine_type_diet"), desc: t("goals_routine_type_diet_desc") },
+              { typeCode: 3, emoji: "✨", label: t("goals_routine_type_habit"), desc: t("goals_routine_type_habit_desc") },
+            ].map((item) => (
+              <button
+                key={item.typeCode}
+                type="button"
+                onClick={() => onAddRoutineWithType(item.typeCode)}
+                className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-border/60 p-4 text-center hover:border-primary/40 hover:bg-primary/5 active:scale-95 transition-all"
+              >
+                <span className="text-3xl">{item.emoji}</span>
+                <span className="text-xs font-semibold leading-tight">{item.label}</span>
+                <span className="text-[10px] text-muted-foreground leading-tight">{item.desc}</span>
+              </button>
+            ))}
           </div>
         </div>
       )}

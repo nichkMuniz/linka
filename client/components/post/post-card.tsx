@@ -29,6 +29,8 @@ interface PostCardProps {
   togglingIncentives: Set<string>;
   /** Show a Follow button in the overlay (used in Discover sections) */
   showFollowButton?: boolean;
+  /** When true the likes count button is disabled (parent is loading likes data) */
+  likesLoading?: boolean;
   onToggleLike: (postId: string, type: PostIncentiveType) => void;
   onOpenLikes: (post: PostWithStats) => void;
   onOpenGoal: (post: PostWithStats) => void;
@@ -44,6 +46,7 @@ export function PostCard({
   currentUserId,
   togglingIncentives,
   showFollowButton = false,
+  likesLoading = false,
   onToggleLike,
   onOpenLikes,
   onOpenGoal,
@@ -65,7 +68,7 @@ export function PostCard({
   const progressWidth = `${Math.min(100, Math.max(0, post.userGoal?.perc ?? 0))}%`;
 
   return (
-    <Card className="border-border/60 relative overflow-hidden fade-in">
+    <Card className="border-border/60 relative overflow-hidden fade-in rounded-xl mx-2">
       <CardContent className="space-y-3 p-0">
         {/* Image + overlay */}
         <div
@@ -81,7 +84,7 @@ export function PostCard({
           {post.photos && post.photos.length > 0 ? (
             <PostCarousel photos={post.photos} alt="Post" />
           ) : post.photo ? (
-            <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-lg">
+            <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-t-xl">
               <ImageWithFallback
                 src={post.photo}
                 alt="Post"
@@ -91,7 +94,7 @@ export function PostCard({
             </div>
           ) : (
             /* Post sem mídia — placeholder mínimo para o overlay não colapsar */
-            <div className="relative w-full min-h-[56px] bg-muted/30 rounded-lg" />
+            <div className="relative w-full min-h-[56px] bg-muted/30" />
           )}
 
           <QuickIncentiveOverlay
@@ -216,7 +219,8 @@ export function PostCard({
           {totalLikes > 0 && (
             <button
               onClick={() => onOpenLikes(post)}
-              className="text-xs font-semibold text-foreground hover:text-brand transition-colors"
+              disabled={likesLoading}
+              className="text-xs font-semibold text-foreground hover:text-brand transition-colors disabled:opacity-50 disabled:cursor-wait"
             >
               {totalLikes} incentivos
             </button>

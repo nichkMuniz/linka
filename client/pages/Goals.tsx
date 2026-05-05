@@ -228,6 +228,11 @@ export default function Goals() {
   const [selectedGoalIds, setSelectedGoalIds] = React.useState<string[]>([]);
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
 
+  // When true, the add-routine drawer shows the name step before the item list
+  const [nameStepActive, setNameStepActive] = React.useState(false);
+  // Tracks whether the current drawer session was initiated from type cards (affects back button behavior)
+  const [cameFromTypeCard, setCameFromTypeCard] = React.useState(false);
+
   // Add routine modal state
   const [addRoutineModalOpen, setAddRoutineModalOpen] = React.useState(false);
   const [selectedRoutineType, setSelectedRoutineType] = React.useState<
@@ -366,9 +371,9 @@ export default function Goals() {
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
@@ -501,8 +506,8 @@ export default function Goals() {
     if (isNativeGpsSupported()) {
       nativeGpsListenerRef.current?.remove();
       nativeGpsListenerRef.current = null;
-      GpsTracking.removeAllListeners().catch(() => {});
-      GpsTracking.stop().catch(() => {});
+      GpsTracking.removeAllListeners().catch(() => { });
+      GpsTracking.stop().catch(() => { });
     } else if (gpsWatchIdRef.current !== null) {
       navigator.geolocation.clearWatch(gpsWatchIdRef.current);
       gpsWatchIdRef.current = null;
@@ -720,19 +725,19 @@ export default function Goals() {
     const hasMixedCardio = !isAllCardio && (totalKm > 0 || totalCardioTimeSecs > 0);
     const statsData = isAllCardio
       ? [
-          { label: "Tempo", value: totalCardioTimeSecs > 0 ? fmtCardioSecs(totalCardioTimeSecs) : durationStr },
-          { label: "Distância", value: totalKm > 0 ? `${totalKm} km` : "—" },
-          { label: "Séries", value: String(totalSeries) },
-          { label: "Exercícios", value: String(exerciseNames.length) },
-        ]
+        { label: "Tempo", value: totalCardioTimeSecs > 0 ? fmtCardioSecs(totalCardioTimeSecs) : durationStr },
+        { label: "Distância", value: totalKm > 0 ? `${totalKm} km` : "—" },
+        { label: "Séries", value: String(totalSeries) },
+        { label: "Exercícios", value: String(exerciseNames.length) },
+      ]
       : hasMixedCardio
-      ? [
+        ? [
           { label: "Duração", value: durationStr },
           { label: "Volume", value: totalVolume > 0 ? `${totalVolume} kg` : "—" },
           { label: "Distância", value: totalKm > 0 ? `${totalKm} km` : "—" },
           { label: "Séries", value: String(totalSeries) },
         ]
-      : [
+        : [
           { label: "Duração", value: durationStr },
           { label: "Volume", value: totalVolume > 0 ? `${totalVolume} kg` : "—" },
           { label: "Séries", value: String(totalSeries) },
@@ -997,7 +1002,7 @@ export default function Goals() {
     const cm = Math.floor((cardioSecs % 3600) / 60);
     const cs = cardioSecs % 60;
     const timeStr = cardioSecs > 0
-      ? ch > 0 ? `${ch}h ${String(cm).padStart(2, "0")}min` : cs > 0 ? `${cm}min ${String(cs).padStart(2,"0")}s` : `${cm}min`
+      ? ch > 0 ? `${ch}h ${String(cm).padStart(2, "0")}min` : cs > 0 ? `${cm}min ${String(cs).padStart(2, "0")}s` : `${cm}min`
       : "—";
     const elevStr = workoutSummaryData?.gpsElevationGain != null ? `${workoutSummaryData.gpsElevationGain} m` : "—";
     const stepsStr = workoutSummaryData?.gpsSteps != null ? workoutSummaryData.gpsSteps.toLocaleString("pt-BR") : "—";
@@ -1371,7 +1376,7 @@ export default function Goals() {
     if (!isActive || workoutStartTime === null) return;
     const ex = userWorkouts[currentWorkoutIndex ?? 0];
     if (!ex) return;
-    const done  = (workoutSeries[ex.workout_id] ?? []).filter((s) => s.completed).length;
+    const done = (workoutSeries[ex.workout_id] ?? []).filter((s) => s.completed).length;
     const total = (workoutSeries[ex.workout_id] ?? []).length;
     updateWorkoutLiveActivity({
       exerciseName: ex.workoutName ?? selectedRoutineName ?? "Treino",
@@ -1477,6 +1482,18 @@ export default function Goals() {
     setSearchQuery("");
     setSelectedMuscleGroups(new Set());
     setSelectedDietCategories(new Set());
+  };
+
+  const handleAddRoutineWithType = (typeCode: number) => {
+    setSelectedRoutineType(typeCode);
+    setRoutineName("");
+    setSelectedItems(new Set());
+    setSearchQuery("");
+    setSelectedMuscleGroups(new Set());
+    setSelectedDietCategories(new Set());
+    setNameStepActive(true);
+    setCameFromTypeCard(true);
+    setAddRoutineModalOpen(true);
   };
 
   const [isAddingFromWorkout, setIsAddingFromWorkout] = React.useState(false);
@@ -1855,7 +1872,7 @@ export default function Goals() {
         }
         return;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // Fallback: build summary from workout history map
     const exercises = userWorkouts.filter((w) =>
@@ -2503,7 +2520,7 @@ export default function Goals() {
       try {
         const storageKey = `lastWorkoutSummary_${user?.id}_${selectedRoutineName === "__unnamed__" ? "__unnamed__" : (selectedRoutineName || "__unnamed__")}`;
         localStorage.setItem(storageKey, JSON.stringify(summaryPayload));
-      } catch (_) {}
+      } catch (_) { }
 
       setWorkoutSummaryData(summaryPayload);
       setFinishWorkoutConfirmOpen(false);
@@ -2666,7 +2683,7 @@ export default function Goals() {
           // If no known routine_id, backfill after trigger creates the routines entry
           if (!knownRoutineId) {
             const insertedIds = inserted.map((w) => w.id);
-            backfillRoutineIdOnItemsDb(user.id, 1, finalRoutineName, insertedIds).catch(() => {});
+            backfillRoutineIdOnItemsDb(user.id, 1, finalRoutineName, insertedIds).catch(() => { });
           }
         }
       } else if (selectedRoutineType === 2) {
@@ -2678,7 +2695,7 @@ export default function Goals() {
         });
         if (!knownRoutineId) {
           const insertedIds = inserted.map((d) => d.id);
-          backfillRoutineIdOnItemsDb(user.id, 2, finalRoutineName, insertedIds).catch(() => {});
+          backfillRoutineIdOnItemsDb(user.id, 2, finalRoutineName, insertedIds).catch(() => { });
         }
       } else if (selectedRoutineType === 3) {
         // Save habits — one entry only; recurrence is managed via scheduled_time notifications
@@ -2689,7 +2706,7 @@ export default function Goals() {
         });
         if (!knownRoutineId) {
           const insertedIds = inserted.map((h) => h.id);
-          backfillRoutineIdOnItemsDb(user.id, 3, finalRoutineName, insertedIds).catch(() => {});
+          backfillRoutineIdOnItemsDb(user.id, 3, finalRoutineName, insertedIds).catch(() => { });
         }
       }
 
@@ -2778,50 +2795,50 @@ export default function Goals() {
         {/* Header icons: Humor + Insignias */}
         <div className="flex items-center gap-2">
 
-        {/* Mood History Icon */}
-        <button
-          onClick={() => setMoodHistoryOpen(true)}
-          className="h-10 w-10 rounded-full border border-border flex items-center justify-center transition-all"
-          aria-label="Histórico de humor"
-          title="Histórico de humor"
-        >
-          <span className="text-lg">
-            {todayMood === "muito_triste" ? "😢"
-              : todayMood === "triste" ? "😕"
-              : todayMood === "neutro" ? "😐"
-              : todayMood === "feliz" ? "😊"
-              : todayMood === "muito_feliz" ? "😄"
-              : "🙂"}
-          </span>
-        </button>
-
-        {/* Badges Icon */}
-        <div className="relative flex-shrink-0" style={{ width: 44, height: 44 }}>
+          {/* Mood History Icon */}
           <button
-            onClick={() => {
-              setBadgesModalOpen(true);
-              setHasNewBadge(false);
-              if (user) {
-                localStorage.setItem(
-                  `ritmofit_badges_seen_${user.id}`,
-                  String(userBadges.length),
-                );
-              }
-            }}
-            className={`h-10 w-10 rounded-full border flex items-center justify-center transition-all ${hasNewBadge ? "animate-pulse border-yellow-500 shadow-md shadow-yellow-500/30" : "border-border"}`}
-            title={t("goals_see_badges")}
+            onClick={() => setMoodHistoryOpen(true)}
+            className="h-10 w-10 rounded-full border border-border flex items-center justify-center transition-all"
+            aria-label="Histórico de humor"
+            title="Histórico de humor"
           >
-            <span className="text-lg">🏆</span>
-          </button>
-          {hasNewBadge && (
-            <span className="absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center pointer-events-none">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-60" />
-              <span className="relative inline-flex items-center justify-center rounded-full h-5 w-5 bg-red-500 ring-2 ring-background shadow-md">
-                <span className="text-[9px] text-white font-bold leading-none">!</span>
-              </span>
+            <span className="text-lg">
+              {todayMood === "muito_triste" ? "😢"
+                : todayMood === "triste" ? "😕"
+                  : todayMood === "neutro" ? "😐"
+                    : todayMood === "feliz" ? "😊"
+                      : todayMood === "muito_feliz" ? "😄"
+                        : "🙂"}
             </span>
-          )}
-        </div>
+          </button>
+
+          {/* Badges Icon */}
+          <div className="relative flex-shrink-0" style={{ width: 44, height: 44 }}>
+            <button
+              onClick={() => {
+                setBadgesModalOpen(true);
+                setHasNewBadge(false);
+                if (user) {
+                  localStorage.setItem(
+                    `ritmofit_badges_seen_${user.id}`,
+                    String(userBadges.length),
+                  );
+                }
+              }}
+              className={`h-10 w-10 rounded-full border flex items-center justify-center transition-all ${hasNewBadge ? "animate-pulse border-yellow-500 shadow-md shadow-yellow-500/30" : "border-border"}`}
+              title={t("goals_see_badges")}
+            >
+              <span className="text-lg">🏆</span>
+            </button>
+            {hasNewBadge && (
+              <span className="absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center pointer-events-none">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-60" />
+                <span className="relative inline-flex items-center justify-center rounded-full h-5 w-5 bg-red-500 ring-2 ring-background shadow-md">
+                  <span className="text-[9px] text-white font-bold leading-none">!</span>
+                </span>
+              </span>
+            )}
+          </div>
         </div>{/* end flex icons wrapper */}
       </div>
 
@@ -2895,6 +2912,7 @@ export default function Goals() {
             expandedRoutineId={expandedRoutineId}
             onSetExpandedRoutineId={setExpandedRoutineId}
             onAddRoutineClick={handleAddRoutineClick}
+            onAddRoutineWithType={handleAddRoutineWithType}
             onAddToRoutineCard={handleAddToRoutineCard}
             activeWorkoutRoutineName={(workoutModalOpen || workoutMinimized) ? selectedRoutineName : null}
             onStartWorkout={async (routineName) => {
@@ -2962,23 +2980,60 @@ export default function Goals() {
       )}
 
       {/* Add Routine Drawer Modal */}
-      <Drawer open={addRoutineModalOpen} onOpenChange={(open) => { setAddRoutineModalOpen(open); if (!open) setIsAddingFromWorkout(false); }}>
+      <Drawer open={addRoutineModalOpen} onOpenChange={(open) => { setAddRoutineModalOpen(open); if (!open) { setIsAddingFromWorkout(false); setNameStepActive(false); setCameFromTypeCard(false); } }}>
         <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>{t("goals_add_routine_title")}</DrawerTitle>
+            <DrawerTitle>
+              {nameStepActive
+                ? (selectedRoutineType === 1 ? `🏋️ ${t("goals_rt_exercises")}` : selectedRoutineType === 2 ? `🥗 ${t("goals_rt_diets")}` : `✅ ${t("goals_rt_habits")}`)
+                : t("goals_add_routine_title")}
+            </DrawerTitle>
           </DrawerHeader>
 
           <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
             {/* Context banner when adding to an existing named routine */}
-            {addToRoutineCardName && selectedRoutineType !== null && (
+            {addToRoutineCardName && selectedRoutineType !== null && !nameStepActive && (
               <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-brand/10 border border-brand/20 rounded-lg">
                 <span className="text-xs text-brand">{t("goals_adding_to")}</span>
                 <span className="text-xs font-semibold text-brand">{addToRoutineCardName}</span>
               </div>
             )}
 
-            {/* Type Selection */}
-            {selectedRoutineType === null ? (
+            {/* Name step — shown when coming from type cards in empty state */}
+            {nameStepActive ? (
+              <div className="space-y-5 pt-1">
+                <p className="text-xs text-muted-foreground">{t("goals_name_step_hint")}</p>
+                <div className="space-y-2">
+                  <Label htmlFor="routine_name_step" className="text-sm font-semibold">
+                    {t("goals_routine_name_label")}
+                  </Label>
+                  <Input
+                    id="routine_name_step"
+                    type="text"
+                    placeholder={
+                      selectedRoutineType === 2
+                        ? t("goals_routine_name_placeholder_diets")
+                        : selectedRoutineType === 3
+                        ? t("goals_routine_name_placeholder_habits")
+                        : t("goals_routine_name_placeholder_exercises")
+                    }
+                    value={routineName}
+                    onChange={(e) => setRoutineName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { setNameStepActive(false); setSearchQuery(""); } }}
+                    className="h-11"
+                    style={{ fontSize: "16px" }}
+                    autoFocus
+                  />
+                </div>
+                <Button
+                  className="w-full rounded-full h-11 gap-2"
+                  onClick={() => { setNameStepActive(false); setSearchQuery(""); }}
+                >
+                  {t("goals_name_step_next")}
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : selectedRoutineType === null ? (
               <div className="space-y-5">
                 {/* Nome da rotina — destacado */}
                 <div className="rounded-xl border-2 border-brand/40 bg-brand/5 p-4 space-y-2">
@@ -2991,10 +3046,14 @@ export default function Goals() {
                     value={routineName}
                     onChange={(e) => setRoutineName(e.target.value)}
                     className="h-10 border-brand/30 focus:border-brand bg-background"
+                    placeholder={
+                      selectedRoutineType === 2
+                        ? t("goals_routine_name_placeholder_diets")
+                        : selectedRoutineType === 3
+                        ? t("goals_routine_name_placeholder_habits")
+                        : t("goals_routine_name_placeholder_exercises")
+                    }
                   />
-                  <p className="text-xs text-muted-foreground">
-                    {t("goals_routine_name_hint")}
-                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -3035,7 +3094,11 @@ export default function Goals() {
                     {!isAddingFromWorkout && (
                       <button
                         onClick={() => {
-                          setSelectedRoutineType(null);
+                          if (cameFromTypeCard) {
+                            setNameStepActive(true);
+                          } else {
+                            setSelectedRoutineType(null);
+                          }
                           setSelectedItems(new Set());
                           setSearchQuery("");
                           setSelectedMuscleGroups(new Set());
@@ -3418,24 +3481,14 @@ export default function Goals() {
                   </div>
                 </div>
 
-                {/* Save Button — for diet/habit: go to schedule step first */}
+                {/* Save Button — always go to schedule step first */}
                 {selectedItems.size > 0 && (
                   <Button
-                    onClick={() => {
-                      if (selectedRoutineType === 2 || selectedRoutineType === 3) {
-                        setShowExecuteAtStep(true);
-                      } else {
-                        handleSaveRoutines();
-                      }
-                    }}
+                    onClick={() => setShowExecuteAtStep(true)}
                     disabled={isAddingRoutine}
                     className="w-full rounded-full"
                   >
-                    {selectedRoutineType === 2 || selectedRoutineType === 3
-                      ? `Próximo (${selectedItems.size})`
-                      : isAddingRoutine
-                        ? "Salvando..."
-                        : `Salvar (${selectedItems.size})`}
+                    {`Próximo (${selectedItems.size})`}
                   </Button>
                 )}
               </>
@@ -3743,11 +3796,10 @@ export default function Goals() {
                             <button
                               type="button"
                               onClick={() => handleSetExerciseRestTime(workout.workout_id, 0)}
-                              className={`text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors ${
-                                !workoutExerciseRestTimes[workout.workout_id]
-                                  ? "bg-brand text-white"
-                                  : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
-                              }`}
+                              className={`text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors ${!workoutExerciseRestTimes[workout.workout_id]
+                                ? "bg-brand text-white"
+                                : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
+                                }`}
                             >
                               {t("goals_disabled")}
                             </button>
@@ -3756,11 +3808,10 @@ export default function Goals() {
                                 key={time}
                                 type="button"
                                 onClick={() => handleSetExerciseRestTime(workout.workout_id, time)}
-                                className={`text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors ${
-                                  workoutExerciseRestTimes[workout.workout_id] === time
-                                    ? "bg-brand text-white"
-                                    : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
-                                }`}
+                                className={`text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors ${workoutExerciseRestTimes[workout.workout_id] === time
+                                  ? "bg-brand text-white"
+                                  : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
+                                  }`}
                               >
                                 {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
                               </button>
@@ -3803,8 +3854,8 @@ export default function Goals() {
                               const h = Math.floor(totalSecs / 3600);
                               const m = Math.floor((totalSecs % 3600) / 60);
                               const s2 = totalSecs % 60;
-                              if (h > 0) return `${h}h ${String(m).padStart(2,"0")}min`;
-                              if (s2 > 0) return `${m}min ${String(s2).padStart(2,"0")}s`;
+                              if (h > 0) return `${h}h ${String(m).padStart(2, "0")}min`;
+                              if (s2 > 0) return `${m}min ${String(s2).padStart(2, "0")}s`;
                               return `${m}min`;
                             };
 
@@ -3987,11 +4038,10 @@ export default function Goals() {
                                 {/* Confirm button */}
                                 <button
                                   onPointerDown={(e) => { e.preventDefault(); handleToggleSerieCompleted(workout.workout_id, 0); }}
-                                  className={`w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
-                                    s.completed
-                                      ? "bg-brand text-white"
-                                      : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
-                                  }`}
+                                  className={`w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${s.completed
+                                    ? "bg-brand text-white"
+                                    : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
+                                    }`}
                                 >
                                   {s.completed ? (
                                     <>
@@ -4166,13 +4216,13 @@ export default function Goals() {
 
                         {/* Add Series Button — hidden for cardio */}
                         {(workout.muscle_group || "").toLowerCase() !== "cardio" && (
-                        <button
-                          onClick={() => handleAddSerie(workout.workout_id)}
-                          className="w-full mt-2 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded flex items-center justify-center gap-2"
-                        >
-                          <Plus className="h-3 w-3" />
-                          {t("goals_add_series")}
-                        </button>
+                          <button
+                            onClick={() => handleAddSerie(workout.workout_id)}
+                            className="w-full mt-2 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded flex items-center justify-center gap-2"
+                          >
+                            <Plus className="h-3 w-3" />
+                            {t("goals_add_series")}
+                          </button>
                         )}
                       </div>
                     </div>
@@ -4845,25 +4895,25 @@ export default function Goals() {
                       </p>
                     )}
                     <div className="flex gap-2 overflow-x-auto pb-1">
-                    {workoutCoverPreviews.map((src, idx) => {
-                      // User photos are at the start of allSlides, so slideIdx == idx
-                      const slideIdx = idx;
-                      const isActive = Math.min(coverCarouselIndex, workoutCoverPreviews.length - 1) === slideIdx;
-                      return (
-                        <div
-                          key={idx}
-                          draggable
-                          onDragStart={(e) => handleDragStart(e, idx)}
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={(e) => handleDrop(e, idx)}
-                          onClick={() => setCoverCarouselIndex(slideIdx)}
-                          className={`relative flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing border-2 transition-all ${isActive ? "border-brand" : "border-transparent opacity-60 hover:opacity-80"}`}
-                        >
-                          <img src={src} alt={`Foto ${idx + 1}`} className="w-full h-full object-cover" />
-                          <span className="absolute bottom-0 left-0 right-0 text-center text-[9px] font-bold bg-black/50 text-white">{idx + 1}</span>
-                        </div>
-                      );
-                    })}
+                      {workoutCoverPreviews.map((src, idx) => {
+                        // User photos are at the start of allSlides, so slideIdx == idx
+                        const slideIdx = idx;
+                        const isActive = Math.min(coverCarouselIndex, workoutCoverPreviews.length - 1) === slideIdx;
+                        return (
+                          <div
+                            key={idx}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, idx)}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => handleDrop(e, idx)}
+                            onClick={() => setCoverCarouselIndex(slideIdx)}
+                            className={`relative flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden cursor-grab active:cursor-grabbing border-2 transition-all ${isActive ? "border-brand" : "border-transparent opacity-60 hover:opacity-80"}`}
+                          >
+                            <img src={src} alt={`Foto ${idx + 1}`} className="w-full h-full object-cover" />
+                            <span className="absolute bottom-0 left-0 right-0 text-center text-[9px] font-bold bg-black/50 text-white">{idx + 1}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -4917,7 +4967,7 @@ export default function Goals() {
                 const m = Math.floor((cardioTimeSecs % 3600) / 60);
                 const s = cardioTimeSecs % 60;
                 const timeStr = cardioTimeSecs > 0
-                  ? h > 0 ? `${h}h ${String(m).padStart(2,"0")}min` : s > 0 ? `${m}min ${String(s).padStart(2,"0")}s` : `${m}min`
+                  ? h > 0 ? `${h}h ${String(m).padStart(2, "0")}min` : s > 0 ? `${m}min ${String(s).padStart(2, "0")}s` : `${m}min`
                   : null;
                 return (
                   <div className="mx-4 mb-4 rounded-2xl overflow-hidden border border-brand/30 bg-[#0d1117]">

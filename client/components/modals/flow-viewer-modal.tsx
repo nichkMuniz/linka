@@ -100,6 +100,8 @@ export function FlowViewerModal({
   const [prevStoryId, setPrevStoryId] = React.useState<string | null>(null);
   const [activeCommentIndex, setActiveCommentIndex] = React.useState(0);
   const commentCycleRef = React.useRef<NodeJS.Timeout | null>(null);
+  const [floatingBubbles, setFloatingBubbles] = React.useState<Array<{ id: string; comment: StoryComment }>>([]);
+  const bubbleKeyRef = React.useRef(0);
   const [commentsDrawerOpen, setCommentsDrawerOpen] = React.useState(false);
   const [editingCommentId, setEditingCommentId] = React.useState<string | null>(null);
   const [editCommentDraft, setEditCommentDraft] = React.useState("");
@@ -108,13 +110,54 @@ export function FlowViewerModal({
   const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
 
+  // Track visual viewport so the fullscreen dialog stays within the visible area
+  // on iOS when the software keyboard opens (layout viewport doesn't shrink, visual does).
+  const [vp, setVp] = React.useState<{ height: number; offsetTop: number }>(() => ({
+    height: typeof window !== "undefined" ? (window.visualViewport?.height ?? window.innerHeight) : 800,
+    offsetTop: typeof window !== "undefined" ? (window.visualViewport?.offsetTop ?? 0) : 0,
+  }));
+
+  React.useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setVp({ height: vv.height, offsetTop: vv.offsetTop });
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
+
   React.useEffect(() => {
     setActiveCommentIndex(0);
+    setFloatingBubbles([]);
     if (commentCycleRef.current) clearInterval(commentCycleRef.current);
-    if (comments.length > 1) {
-      commentCycleRef.current = setInterval(() => {
-        setActiveCommentIndex((prev) => (prev + 1) % comments.length);
-      }, 2000);
+    if (comments.length > 0) {
+      let idx = 0;
+      // Show first bubble immediately
+      const firstComment = comments[0];
+      const firstKey = ++bubbleKeyRef.current;
+      const firstBubbleId = `${firstComment.id}-${firstKey}`;
+      setFloatingBubbles([{ id: firstBubbleId, comment: firstComment }]);
+      setTimeout(() => {
+        setFloatingBubbles((prev) => prev.filter((b) => b.id !== firstBubbleId));
+      }, 3500);
+
+      if (comments.length > 1) {
+        idx = 1;
+        commentCycleRef.current = setInterval(() => {
+          const comment = comments[idx % comments.length];
+          const key = ++bubbleKeyRef.current;
+          const bubbleId = `${comment.id}-${key}`;
+          setActiveCommentIndex(idx % comments.length);
+          setFloatingBubbles((prev) => [...prev.slice(-2), { id: bubbleId, comment }]);
+          setTimeout(() => {
+            setFloatingBubbles((prev) => prev.filter((b) => b.id !== bubbleId));
+          }, 3500);
+          idx++;
+        }, 2800);
+      }
     }
     return () => {
       if (commentCycleRef.current) clearInterval(commentCycleRef.current);
@@ -377,9 +420,13 @@ export function FlowViewerModal({
     <>
       <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
         <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black" />
+          <DialogPrimitive.Overlay
+            className="fixed left-0 right-0 z-50 bg-black"
+            style={{ top: vp.offsetTop, height: vp.height }}
+          />
           <DialogPrimitive.Content
-            className="fixed inset-0 z-50 bg-black overflow-hidden flex items-center justify-center"
+            className="fixed left-0 right-0 z-50 bg-black overflow-hidden flex items-center justify-center"
+            style={{ top: vp.offsetTop, height: vp.height }}
             onOpenAutoFocus={(e) => e.preventDefault()}
           >
             <VisuallyHidden><DialogPrimitive.Title>Flow viewer</DialogPrimitive.Title></VisuallyHidden>
@@ -581,6 +628,41 @@ export function FlowViewerModal({
                       </div>
                     )}
 
+                    {/* Floating Comment Bubbles — overlaid on media like Instagram */}
+                    <div className="absolute left-3 bottom-20 z-[57] flex flex-col gap-2 items-start max-w-[80%] pointer-events-none">
+                      <AnimatePresence>
+                        {floatingBubbles.map(({ id, comment }) => (
+                          <motion.button
+                            key={id}
+                            className="pointer-events-auto flex items-center gap-2 bg-black/50 backdrop-blur-md rounded-2xl px-3 py-2 border border-white/15 shadow-lg text-left active:scale-95 transition-transform"
+                            initial={{ opacity: 0, x: -24, scale: 0.9 }}
+                            animate={{ opacity: 1, x: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -16, scale: 0.92 }}
+                            transition={{ duration: 0.35, ease: "easeOut" }}
+                            onClick={() => { setIsPaused(true); isPausedRef.current = true; setCommentsDrawerOpen(true); }}
+                          >
+                            <div className="shrink-0 h-6 w-6 rounded-full overflow-hidden ring-1 ring-white/30">
+                              <UserAvatar
+                                photo={comment.userPhoto}
+                                gender={comment.userGender}
+                                nickname={comment.userName}
+                                className="h-full w-full"
+                              />
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-[10px] font-bold text-white leading-tight drop-shadow">
+                                {comment.userName}
+                                {comment.userHandle && (
+                                  <span className="font-normal text-white/60"> @{comment.userHandle.replace(/^@/, "")}</span>
+                                )}
+                              </span>
+                              <span className="text-[11px] text-white/90 leading-snug drop-shadow line-clamp-2">{comment.text}</span>
+                            </div>
+                          </motion.button>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+
                   </div>
 
                   {/* Bottom Comment Section */}
@@ -598,49 +680,6 @@ export function FlowViewerModal({
                         })}
                       </motion.div>
                     )}
-                    {comments.length > 0 && (
-                      <button
-                        className="mb-3 h-8 w-full relative overflow-hidden text-left"
-                        onClick={() => { setIsPaused(true); isPausedRef.current = true; setCommentsDrawerOpen(true); }}
-                      >
-                        <AnimatePresence mode="popLayout" initial={false}>
-                          {(() => {
-                            const comment = comments[activeCommentIndex] ?? comments[0];
-                            if (!comment) return null;
-                            return (
-                              <motion.div
-                                key={comment.id}
-                                initial={{ opacity: 0, y: 12 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -12 }}
-                                transition={{ duration: 0.35, ease: "easeInOut" }}
-                                className="absolute inset-0 flex items-center gap-1.5"
-                              >
-                                <div className="shrink-0 h-5 w-5 rounded-full overflow-hidden ring-1 ring-white/30">
-                                  <UserAvatar
-                                    photo={comment.userPhoto}
-                                    gender={comment.userGender}
-                                    nickname={comment.userName}
-                                    className="h-full w-full"
-                                  />
-                                </div>
-                                <span className="text-[11px] font-bold text-white shrink-0 drop-shadow">
-                                  {comment.userName}
-                                  {comment.userHandle && (
-                                    <span className="font-normal text-white/60"> @{comment.userHandle.replace(/^@/, "")}</span>
-                                  )}
-                                </span>
-                                <span className="text-[11px] text-white/85 truncate leading-normal drop-shadow">{comment.text}</span>
-                                {comments.length > 1 && (
-                                  <span className="shrink-0 ml-1 text-[10px] text-white/40">{activeCommentIndex + 1}/{comments.length}</span>
-                                )}
-                              </motion.div>
-                            );
-                          })()}
-                        </AnimatePresence>
-                      </button>
-                    )}
-
                     <div className="flex gap-3 items-center">
                       <div className="flex-1 flex gap-2 items-center bg-white/5 border border-white/20 rounded-full px-4 py-3 focus-within:border-white/50 transition-all backdrop-blur-sm">
                         <Input
@@ -700,15 +739,24 @@ export function FlowViewerModal({
       </DialogPrimitive.Root>
 
       {/* Comments Drawer */}
-      <Drawer open={commentsDrawerOpen} onOpenChange={(o) => { setCommentsDrawerOpen(o); if (!o) { setIsPaused(false); isPausedRef.current = false; } }}>
-        <DrawerContent className="max-h-[85vh]" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <Drawer open={commentsDrawerOpen} onOpenChange={(o) => { setCommentsDrawerOpen(o); if (!o) { setIsPaused(false); isPausedRef.current = false; } }} noBodyStyles shouldScaleBackground={false}>
+        <DrawerContent
+          className="flex flex-col"
+          style={{ maxHeight: Math.min(vp.height * 0.88, vp.height - 80) }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <DrawerHeader>
             <DrawerTitle className="flex items-center gap-2 pt-2">
               Comentários ({comments.length})
             </DrawerTitle>
             <DrawerDescription className="sr-only">Lista de comentários do flow</DrawerDescription>
           </DrawerHeader>
-          <div className="overflow-y-auto px-4 pb-12 space-y-4">
+          <div
+            className="flex-1 overflow-y-auto overscroll-contain px-4 space-y-4"
+            style={{ paddingBottom: "max(3rem, env(safe-area-inset-bottom))" }}
+            onTouchMove={(e) => e.stopPropagation()}
+          >
             {comments.length === 0 ? (
               <p className="text-center text-muted-foreground py-10">Nenhum comentário ainda</p>
             ) : (

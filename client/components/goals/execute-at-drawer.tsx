@@ -1,11 +1,6 @@
 import * as React from "react";
-import { CalendarIcon, ChevronDown } from "lucide-react";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { CalendarIcon, ChevronDown, Clock, X } from "lucide-react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -59,9 +54,7 @@ export function ExecuteAtDrawer({
   const toggleWeekDay = (day: number) => {
     setSelectedWeekDays((prev) => {
       const next = prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day];
-      // Sync calendar dates with week day selection
       const weekDayDates = next.map(getNextOccurrence);
-      // Keep manually picked dates that aren't from week day shortcuts
       const manualDates = dates.filter(
         (d) => !prev.map(getNextOccurrence).some((wd) => wd.toDateString() === d.toDateString())
       );
@@ -84,11 +77,11 @@ export function ExecuteAtDrawer({
   const handleCalendarSelect = (selected: Date[] | undefined) => {
     const newDates = selected ?? [];
     setDates(newDates);
-    // Clear week day shortcuts if manually deselected
     const weekDayOccurrences = selectedWeekDays.map(getNextOccurrence);
     const stillSelected = selectedWeekDays.filter((day) =>
-      weekDayOccurrences
-        .find((d) => d.getDay() === day && newDates.some((nd) => nd.toDateString() === d.toDateString()))
+      weekDayOccurrences.find(
+        (d) => d.getDay() === day && newDates.some((nd) => nd.toDateString() === d.toDateString())
+      )
     );
     setSelectedWeekDays(stillSelected);
   };
@@ -119,118 +112,144 @@ export function ExecuteAtDrawer({
     );
 
   return (
-    <Drawer open={open} onOpenChange={(v) => { if (!v) onOpenChange(false); }}>
-      <DrawerContent className="max-h-[90dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
-        <DrawerHeader className="shrink-0">
-          <DrawerTitle>Horário para realizar</DrawerTitle>
-        </DrawerHeader>
-        <div className="flex flex-col gap-4 px-4 pb-6 flex-1 overflow-y-auto">
-          <p className="text-sm text-muted-foreground">
-            Defina quando você pretende realizar esta rotina. A rotina será criada uma única vez — os dias selecionados serão usados para enviar lembretes de notificação. Esse campo é opcional.
-          </p>
-
-          {/* Atalhos de dias da semana */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">Dias de lembrete</label>
-              <button
-                type="button"
-                onClick={toggleAllWeekDays}
-                className="text-xs text-brand hover:underline"
-              >
-                {selectedWeekDays.length === 7 ? "Limpar tudo" : "Todos os dias"}
-              </button>
+    <DialogPrimitive.Root open={open} onOpenChange={(v) => { if (!v) onOpenChange(false); }}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[200] bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-none"
+          style={{
+            paddingTop: "max(1rem, env(safe-area-inset-top))",
+            paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+            paddingLeft: "max(1rem, env(safe-area-inset-left))",
+            paddingRight: "max(1rem, env(safe-area-inset-right))",
+          }}
+        >
+          <DialogPrimitive.Content
+            onOpenAutoFocus={(e) => e.preventDefault()}
+            className="pointer-events-auto w-[calc(100vw-2rem)] max-w-sm rounded-2xl max-h-[85dvh] flex flex-col overflow-hidden bg-background border border-border shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+          >
+            {/* Header */}
+            <div className="px-5 pt-5 pb-3 shrink-0 flex items-center justify-between">
+              <h2 className="text-base font-semibold">Horário para realizar</h2>
+              <DialogPrimitive.Close className="rounded-sm opacity-70 hover:opacity-100 transition-opacity">
+                <X className="h-4 w-4" />
+                <span className="sr-only">Fechar</span>
+              </DialogPrimitive.Close>
             </div>
-            <div className="flex gap-1.5 flex-wrap">
-              {WEEK_DAYS.map((day) => (
-                <button
-                  key={day.value}
-                  type="button"
-                  onClick={() => toggleWeekDay(day.value)}
-                  className={cn(
-                    "flex-1 min-w-[36px] h-9 rounded-lg text-xs font-medium border transition-colors",
-                    selectedWeekDays.includes(day.value)
-                      ? "bg-brand text-white border-brand"
-                      : "bg-background text-muted-foreground border-border/60 hover:border-brand/60"
-                  )}
-                >
-                  {day.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
-          {/* Calendário */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Ou escolha datas específicas</label>
-            <button
-              type="button"
-              onClick={() => setCalendarOpen((v) => !v)}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm hover:border-brand/60 transition-colors text-left"
-            >
-              <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-              {dates.length > 0
-                ? <span className="truncate">{formattedDates.join(", ")}</span>
-                : <span className="text-muted-foreground">Escolher datas...</span>
-              }
-              <ChevronDown className={cn("h-4 w-4 text-muted-foreground ml-auto shrink-0 transition-transform", calendarOpen && "rotate-180")} />
-            </button>
+            {/* Body */}
+            <div className="flex flex-col gap-4 px-5 pb-5 flex-1 overflow-y-auto">
+              <p className="text-sm text-muted-foreground">
+                Defina quando você pretende realizar esta rotina. Os dias selecionados serão usados para enviar lembretes. Opcional.
+              </p>
 
-            {calendarOpen && (
-              <div className="rounded-lg border border-border/60 bg-background overflow-hidden">
-                <Calendar
-                  mode="multiple"
-                  selected={dates}
-                  onSelect={handleCalendarSelect}
-                  disabled={(d) => d < today || d > maxDate}
-                  className="mx-auto"
-                />
+              {/* Atalhos de dias da semana */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">Dias de lembrete</label>
+                  <button
+                    type="button"
+                    onClick={toggleAllWeekDays}
+                    className="text-xs text-brand hover:underline"
+                  >
+                    {selectedWeekDays.length === 7 ? "Limpar tudo" : "Todos os dias"}
+                  </button>
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {WEEK_DAYS.map((day) => (
+                    <button
+                      key={day.value}
+                      type="button"
+                      onClick={() => toggleWeekDay(day.value)}
+                      className={cn(
+                        "flex-1 min-w-[36px] h-9 rounded-lg text-xs font-medium border transition-colors",
+                        selectedWeekDays.includes(day.value)
+                          ? "bg-brand text-white border-brand"
+                          : "bg-background text-muted-foreground border-border/60 hover:border-brand/60"
+                      )}
+                    >
+                      {day.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
 
-            {dates.length > 0 && (
-              <button
-                type="button"
-                onClick={() => { setDates([]); setSelectedWeekDays([]); }}
-                className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-              >
-                Remover datas selecionadas ({dates.length})
-              </button>
-            )}
-          </div>
+              {/* Calendário */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Ou escolha datas específicas</label>
+                <button
+                  type="button"
+                  onClick={() => setCalendarOpen((v) => !v)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm hover:border-brand/60 transition-colors text-left"
+                >
+                  <CalendarIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                  {dates.length > 0
+                    ? <span className="truncate">{formattedDates.join(", ")}</span>
+                    : <span className="text-muted-foreground">Escolher datas...</span>
+                  }
+                  <ChevronDown className={cn("h-4 w-4 text-muted-foreground ml-auto shrink-0 transition-transform", calendarOpen && "rotate-180")} />
+                </button>
 
-          {/* Horário */}
-          {dates.length > 0 && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Horário (opcional)</label>
-              <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-brand/40"
-              />
+                {calendarOpen && (
+                  <div className="rounded-lg border border-border/60 bg-background overflow-hidden">
+                    <Calendar
+                      mode="multiple"
+                      selected={dates}
+                      onSelect={handleCalendarSelect}
+                      disabled={(d) => d < today || d > maxDate}
+                      className="mx-auto"
+                    />
+                  </div>
+                )}
+
+                {dates.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setDates([]); setSelectedWeekDays([]); }}
+                    className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    Remover datas selecionadas ({dates.length})
+                  </button>
+                )}
+              </div>
+
+              {/* Horário */}
+              {dates.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                    Horário (opcional)
+                  </label>
+                  <input
+                    type="time"
+                    value={time}
+                    onChange={(e) => setTime(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-brand/40"
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-1">
+                <Button
+                  variant="outline"
+                  className="flex-1 rounded-full"
+                  onClick={() => { onConfirm([]); onOpenChange(false); }}
+                  disabled={isSaving}
+                >
+                  Pular
+                </Button>
+                <Button
+                  className="flex-1 rounded-full"
+                  onClick={() => { onConfirm(buildExecuteDates()); onOpenChange(false); }}
+                  disabled={isSaving}
+                >
+                  {isSaving ? "Salvando..." : "Salvar"}
+                </Button>
+              </div>
             </div>
-          )}
-
-          <div className="flex gap-3 mt-auto pt-2">
-            <Button
-              variant="outline"
-              className="flex-1 rounded-full"
-              onClick={() => { onConfirm([]); onOpenChange(false); }}
-              disabled={isSaving}
-            >
-              Pular
-            </Button>
-            <Button
-              className="flex-1 rounded-full"
-              onClick={() => { onConfirm(buildExecuteDates()); onOpenChange(false); }}
-              disabled={isSaving}
-            >
-              {isSaving ? "Salvando..." : "Salvar"}
-            </Button>
-          </div>
+          </DialogPrimitive.Content>
         </div>
-      </DrawerContent>
-    </Drawer>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }

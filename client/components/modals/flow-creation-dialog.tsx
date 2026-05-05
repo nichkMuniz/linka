@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { Upload, X, Image, Type, Check } from "lucide-react";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 const GRADIENT_PRESETS = [
   { id: "pink-orange", value: "linear-gradient(135deg, #FF0080 0%, #FF8A2A 100%)", label: "Rosa" },
@@ -47,6 +48,7 @@ export function FlowCreationDialog({
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const viewportHeight = useKeyboardAwareHeight();
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -171,7 +173,11 @@ export function FlowCreationDialog({
   return (
     <>
     <Drawer open={open} onOpenChange={handleOpenChange}>
-      <DrawerContent className="max-h-[90dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent
+        className="flex flex-col"
+        style={{ maxHeight: Math.min(viewportHeight * 0.9, viewportHeight - 60) }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DrawerHeader className="text-center pb-2">
           <DrawerTitle>Criar novo flow</DrawerTitle>
           <DrawerDescription>
@@ -205,7 +211,11 @@ export function FlowCreationDialog({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-6">
+        <div
+          className="flex-1 overflow-y-auto overscroll-contain px-4"
+          style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
+          onTouchMove={(e) => e.stopPropagation()}
+        >
           {mode === "media" ? (
             <div className="space-y-4">
               {/* Media Preview */}
@@ -325,7 +335,6 @@ export function FlowCreationDialog({
                   onChange={(e) => setDescription(e.target.value)}
                   maxLength={200}
                   className="resize-none h-24"
-                  autoFocus
                 />
                 <p className="text-xs text-muted-foreground mt-1">{description.length}/200 caracteres</p>
               </div>

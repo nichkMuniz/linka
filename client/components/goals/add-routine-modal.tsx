@@ -174,26 +174,48 @@ export function AddRoutineModal({
         }}
       >
         <DrawerContent
-          className="max-h-[80dvh] flex flex-col modal-enter"
+          className="flex flex-col modal-enter h-dvh mt-0 rounded-none"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>{t("goals_add_routine_title")}</DrawerTitle>
-          </DrawerHeader>
-
-          <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
-            {/* Context banner when adding to an existing named routine */}
+          {/* Header — always visible */}
+          <DrawerHeader className="shrink-0 pb-2">
+            <div className="flex items-center justify-between">
+              <DrawerTitle>
+                {selectedRoutineType !== null
+                  ? selectedRoutineType === 1
+                    ? t("goals_rt_exercises")
+                    : selectedRoutineType === 2
+                      ? t("goals_rt_diets")
+                      : t("goals_rt_habits")
+                  : t("goals_add_routine_title")}
+              </DrawerTitle>
+              {selectedRoutineType !== null && !isAddingFromWorkout && (
+                <button
+                  onClick={() => {
+                    onSelectedRoutineTypeChange(null);
+                    onSelectedItemsChange(new Set());
+                    onSearchQueryChange("");
+                    onSelectedMuscleGroupsChange(new Set());
+                    onSelectedDietCategoriesChange(new Set());
+                  }}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1 -mr-2 min-h-[44px] flex items-center"
+                >
+                  {t("goals_back")}
+                </button>
+              )}
+            </div>
             {addToRoutineCardName && selectedRoutineType !== null && (
-              <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-brand/10 border border-brand/20 rounded-lg">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-brand/10 border border-brand/20 rounded-lg mt-1">
                 <span className="text-xs text-brand">{t("goals_adding_to")}</span>
                 <span className="text-xs font-semibold text-brand">{addToRoutineCardName}</span>
               </div>
             )}
+          </DrawerHeader>
 
-            {/* Type Selection */}
+          <div className="flex flex-col flex-1 overflow-hidden">
+            {/* Type Selection step */}
             {selectedRoutineType === null ? (
-              <div className="space-y-5">
-                {/* Nome da rotina — destacado */}
+              <div className="flex flex-col gap-5 px-4 pb-4 overflow-y-auto">
                 <div className="rounded-xl border-2 border-brand/40 bg-brand/5 p-4 space-y-2">
                   <Label htmlFor="routine_name" className="text-sm font-semibold text-brand">
                     {t("goals_routine_name_label")}
@@ -205,10 +227,8 @@ export function AddRoutineModal({
                     onChange={(e) => onRoutineNameChange(e.target.value)}
                     onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
                     className="h-10 border-brand/30 focus:border-brand bg-background"
+                    placeholder={t("goals_routine_name_placeholder_exercises")}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    {t("goals_routine_name_hint")}
-                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -222,7 +242,7 @@ export function AddRoutineModal({
                       <button
                         key={code}
                         onClick={() => { onSelectedRoutineTypeChange(code); onSearchQueryChange(""); }}
-                        className="p-4 border border-border/60 rounded-lg hover:bg-muted/50 hover:border-border transition-colors text-left flex items-center gap-3"
+                        className="p-4 border border-border/60 rounded-lg hover:bg-muted/50 hover:border-border transition-colors text-left flex items-center gap-3 min-h-[64px]"
                       >
                         <span className="text-2xl">{emoji}</span>
                         <div>
@@ -236,423 +256,321 @@ export function AddRoutineModal({
               </div>
             ) : (
               <>
-                {/* Item Selection */}
-                <div className="space-y-3 flex-1 overflow-y-auto">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">
-                      {selectedRoutineType === 1
-                        ? t("goals_rt_exercises")
-                        : selectedRoutineType === 2
-                          ? t("goals_rt_diets")
-                          : t("goals_rt_habits")}
-                    </p>
-                    {!isAddingFromWorkout && (
-                      <button
-                        onClick={() => {
-                          onSelectedRoutineTypeChange(null);
-                          onSelectedItemsChange(new Set());
-                          onSearchQueryChange("");
-                          onSelectedMuscleGroupsChange(new Set());
-                          onSelectedDietCategoriesChange(new Set());
-                        }}
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {t("goals_back")}
-                      </button>
-                    )}
+                {/* Sticky filters section */}
+                <div className="shrink-0 px-4 pb-2 space-y-2 border-b border-border/30">
+                  {/* Search — all types */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      type="text"
+                      placeholder={
+                        selectedRoutineType === 1
+                          ? t("goals_search_exercise")
+                          : selectedRoutineType === 2
+                            ? t("goals_search_diet")
+                            : t("goals_search_habit")
+                      }
+                      value={searchQuery}
+                      onChange={(e) => onSearchQueryChange(e.target.value)}
+                      className="pl-10 h-10"
+                    />
                   </div>
 
-                  {/* Search for Habits */}
-                  {selectedRoutineType === 3 && (
-                    <div className="relative shrink-0">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        type="text"
-                        placeholder={t("goals_search_habit")}
-                        value={searchQuery}
-                        onChange={(e) => onSearchQueryChange(e.target.value)}
-                        onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
-                        className="pl-10 h-9"
-                      />
+                  {/* Workout type pills */}
+                  {selectedRoutineType === 1 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground font-medium">{t("goals_type_label")}</span>
+                      {[
+                        { value: null, label: t("goals_all") },
+                        { value: 1, label: t("goals_gym") },
+                        { value: 2, label: t("goals_home") },
+                      ].map((opt) => (
+                        <button
+                          key={String(opt.value)}
+                          type="button"
+                          onClick={() => onSelectedWorkoutTypeChange(opt.value)}
+                          className={`text-xs px-3 py-1.5 rounded-full border transition-all min-h-[32px] ${selectedWorkoutType === opt.value
+                            ? "border-brand bg-brand/15 text-brand font-medium"
+                            : "border-border/50 text-muted-foreground hover:border-brand/40"
+                            }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
                     </div>
                   )}
 
-                  {/* Search and Filter for Diets */}
-                  {selectedRoutineType === 2 && (
-                    <div className="space-y-3">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          type="text"
-                          placeholder={t("goals_search_diet")}
-                          value={searchQuery}
-                          onChange={(e) => onSearchQueryChange(e.target.value)}
-                          onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
-                          className="pl-10 h-9"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <button
-                            type="button"
-                            onClick={() => onShowMuscleFilterPanelChange(!showMuscleFilterPanel)}
-                            className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-                          >
-                            <Filter className={`h-3.5 w-3.5 ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
-                            <p className={`text-xs font-medium ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
-                              {t("goals_category")} {selectedDietCategories.size > 0 ? `(${selectedDietCategories.size})` : ""}
-                            </p>
-                            <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
+                  {/* Muscle group filter */}
+                  {selectedRoutineType === 1 && uniqueMuscleGroups.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => onShowMuscleFilterPanelChange(!showMuscleFilterPanel)}
+                          className="flex items-center gap-1.5 min-h-[36px]"
+                        >
+                          <Filter className={`h-3.5 w-3.5 ${selectedMuscleGroups.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
+                          <span className={`text-xs font-medium ${selectedMuscleGroups.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
+                            {t("goals_muscle_group")}{selectedMuscleGroups.size > 0 ? ` (${selectedMuscleGroups.size})` : ""}
+                          </span>
+                          <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
+                        </button>
+                        {selectedMuscleGroups.size > 0 && (
+                          <button onClick={() => onSelectedMuscleGroupsChange(new Set())} className="text-xs text-brand">
+                            {t("goals_clear")}
                           </button>
-                          {selectedDietCategories.size > 0 && (
-                            <button
-                              onClick={() => onSelectedDietCategoriesChange(new Set())}
-                              className="text-xs text-brand hover:underline"
-                            >
-                              {t("goals_clear")}
-                            </button>
-                          )}
-                        </div>
-                        {showMuscleFilterPanel && (
-                          <div className="flex flex-wrap gap-2">
-                            {uniqueDietCategories.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">{t("goals_categories_loading")}</p>
-                            ) : (
-                              uniqueDietCategories.map((cat) => (
-                                <button
-                                  key={cat}
-                                  onClick={() => handleToggleDietCategory(cat)}
-                                  className={`px-3 py-1.5 text-xs rounded-full border transition-all ${selectedDietCategories.has(cat)
-                                    ? "border-brand bg-brand/20 text-brand"
-                                    : "border-border/60 text-muted-foreground hover:border-border/80"
-                                    }`}
-                                >
-                                  {cat}
-                                </button>
-                              ))
-                            )}
-                          </div>
                         )}
                       </div>
-                    </div>
-                  )}
-
-                  {/* Search and Filter for Exercises */}
-                  {selectedRoutineType === 1 && (
-                    <div className="space-y-3">
-                      {/* Search Bar */}
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          type="text"
-                          placeholder={t("goals_search_exercise")}
-                          value={searchQuery}
-                          onChange={(e) => onSearchQueryChange(e.target.value)}
-                          onFocus={(e) => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
-                          className="pl-10 h-9"
-                        />
-                      </div>
-
-                      {/* Workout Type Filter */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground font-medium">{t("goals_type_label")}</span>
-                        {[
-                          { value: null, label: t("goals_all") },
-                          { value: 1, label: t("goals_gym") },
-                          { value: 2, label: t("goals_home") },
-                        ].map((opt) => (
-                          <button
-                            key={String(opt.value)}
-                            type="button"
-                            onClick={() => onSelectedWorkoutTypeChange(opt.value)}
-                            className={`text-xs px-3 py-1 rounded-full border transition-all ${selectedWorkoutType === opt.value
-                              ? "border-brand bg-brand/15 text-brand font-medium"
-                              : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
-                              }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Muscle Group Filter */}
-                      {uniqueMuscleGroups.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
+                      {showMuscleFilterPanel && (
+                        <div className="grid grid-cols-4 gap-1.5 pb-1">
+                          {uniqueMuscleGroups.map((muscleGroup) => (
                             <button
-                              type="button"
-                              onClick={() => onShowMuscleFilterPanelChange(!showMuscleFilterPanel)}
-                              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+                              key={muscleGroup}
+                              onClick={() => handleToggleMuscleGroup(muscleGroup)}
+                              className={`flex items-center justify-center py-2 px-1 rounded-xl border text-center transition-all min-h-[36px] ${selectedMuscleGroups.has(muscleGroup)
+                                ? "border-brand bg-brand/15 text-brand"
+                                : "border-border/50 text-muted-foreground"
+                                }`}
                             >
-                              <Filter className={`h-3.5 w-3.5 ${selectedMuscleGroups.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
-                              <p className={`text-xs font-medium ${selectedMuscleGroups.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
-                                {t("goals_muscle_group")} {selectedMuscleGroups.size > 0 ? `(${selectedMuscleGroups.size})` : ""}
-                              </p>
-                              <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
+                              <span className="text-[10px] font-medium leading-tight">{muscleGroup}</span>
                             </button>
-                            {selectedMuscleGroups.size > 0 && (
-                              <button
-                                onClick={() => onSelectedMuscleGroupsChange(new Set())}
-                                className="text-xs text-brand hover:underline"
-                              >
-                                {t("goals_clear")}
-                              </button>
-                            )}
-                          </div>
-                          {showMuscleFilterPanel && (
-                            <div className="grid grid-cols-4 gap-1.5">
-                              {uniqueMuscleGroups.map((muscleGroup) => {
-                                const isActive = selectedMuscleGroups.has(muscleGroup);
-                                return (
-                                  <button
-                                    key={muscleGroup}
-                                    onClick={() => handleToggleMuscleGroup(muscleGroup)}
-                                    className={`flex items-center justify-center py-2 px-1 rounded-xl border text-center transition-all ${isActive
-                                      ? "border-brand bg-brand/15 text-brand shadow-sm"
-                                      : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
-                                      }`}
-                                  >
-                                    <span className="text-[10px] font-medium leading-tight">{muscleGroup}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
+                          ))}
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* Items List */}
-                  <div className="space-y-2">
-                    {selectedRoutineType === 1 &&
-                      filteredWorkouts.map((exercise) => {
-                        const isAlreadySelected = userWorkouts.some(
-                          (uw) => uw.workout_id === exercise.id
-                        );
-                        const isNewSelection = selectedItems.has(exercise.id);
-
-                        return (
-                          <button
-                            key={exercise.key}
-                            onClick={async () => {
-                              if (!exercise.isLocal && !selectedItems.has(exercise.id)) {
-                                try {
-                                  const created = await createCustomWorkoutDb(
-                                    exercise.name,
-                                    exercise.description,
-                                    exercise.muscleGroup || "",
-                                    exercise.catalogImage,
-                                  );
-                                  exercise.id = created.id;
-                                  exercise.isLocal = true;
-                                  handleSelectItem(created.id);
-                                } catch (err: any) {
-                                  toast({
-                                    title: "Erro ao adicionar exercício",
-                                    description: err?.message || "Tente novamente.",
-                                    variant: "destructive",
-                                  });
-                                }
-                              } else {
-                                handleSelectItem(exercise.id);
-                              }
-                            }}
-                            className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
-                              ? "border-brand bg-brand/10"
-                              : isAlreadySelected
-                                ? "border-green-500/40 bg-green-500/5"
-                                : "border-border/60 hover:border-border/80"
-                              }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div
-                                className="flex-shrink-0 rounded overflow-hidden cursor-pointer"
-                                onClick={(e) => { e.stopPropagation(); onImageZoomChange({ src: exercise.photo || null, name: exercise.name, description: exercise.description || undefined, muscleGroup: exercise.muscleGroup }); }}
-                              >
-                                <ExerciseImage
-                                  photo={exercise.photo}
-                                  name={exercise.name}
-                                  muscleGroup={exercise.muscleGroup}
-                                />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-sm font-medium">
-                                    {exercise.name}
-                                  </span>
-                                  {isAlreadySelected && !isNewSelection && (
-                                    <p className="text-xs text-green-600 dark:text-green-400 font-medium">
-                                      {t("goals_already_added")}
-                                    </p>
-                                  )}
-                                </div>
-                                {exercise.description && (
-                                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                                    {exercise.description}
-                                  </p>
-                                )}
-                                {exercise.muscleGroup && (
-                                  <span className="inline-block text-[10px] font-medium text-brand bg-brand/10 px-2 py-0.5 rounded-full mt-1">
-                                    {exercise.muscleGroup}
-                                  </span>
-                                )}
-                              </div>
-                              <input
-                                type="checkbox"
-                                checked={isNewSelection}
-                                onChange={() => { }}
-                                className="h-4 w-4 flex-shrink-0"
-                              />
-                            </div>
-                          </button>
-                        );
-                      })}
-
-                    {selectedRoutineType === 1 && (
-                      <div className="flex justify-center pt-1">
-                        <Button
+                  {/* Diet category filter */}
+                  {selectedRoutineType === 2 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <button
                           type="button"
-                          variant="outline"
-                          size="sm"
-                          className="rounded-full gap-2 text-xs"
-                          onClick={() => {
-                            setCreateWorkoutInitialName(addToRoutineCardName || routineName.trim() || "");
-                            setCreateWorkoutDrawerOpen(true);
-                          }}
+                          onClick={() => onShowMuscleFilterPanelChange(!showMuscleFilterPanel)}
+                          className="flex items-center gap-1.5 min-h-[36px]"
                         >
-                          <Plus className="h-3.5 w-3.5" />
-                          {t("goals_not_found_exercise")}
-                        </Button>
+                          <Filter className={`h-3.5 w-3.5 ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
+                          <span className={`text-xs font-medium ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
+                            {t("goals_category")}{selectedDietCategories.size > 0 ? ` (${selectedDietCategories.size})` : ""}
+                          </span>
+                          <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
+                        </button>
+                        {selectedDietCategories.size > 0 && (
+                          <button onClick={() => onSelectedDietCategoriesChange(new Set())} className="text-xs text-brand">
+                            {t("goals_clear")}
+                          </button>
+                        )}
                       </div>
-                    )}
-
-                    {selectedRoutineType === 2 &&
-                      filteredDiets.map((diet) => {
-                        const isAlreadyInRoutine = userDiets.some(
-                          (ud) =>
-                            ud.diet_id === diet.id &&
-                            (addToRoutineCardName
-                              ? ud.name === addToRoutineCardName
-                              : !ud.name),
-                        );
-                        const isNewSelection = selectedItems.has(diet.id);
-                        return (
-                          <button
-                            key={diet.id}
-                            onClick={() => handleSelectItem(diet.id)}
-                            className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
-                              ? "border-brand bg-brand/10"
-                              : isAlreadyInRoutine
-                                ? "border-green-500/40 bg-green-500/5"
-                                : "border-border/60 hover:border-border/80"
-                              }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div
-                                className="flex-shrink-0 rounded overflow-hidden cursor-pointer"
-                                onClick={(e) => { e.stopPropagation(); onImageZoomChange({ src: (diet as any).photo || (diet as any).image || null, name: diet.name, description: diet.description || undefined, category: diet.category }); }}
+                      {showMuscleFilterPanel && (
+                        <div className="flex flex-wrap gap-2 pb-1">
+                          {uniqueDietCategories.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">{t("goals_categories_loading")}</p>
+                          ) : (
+                            uniqueDietCategories.map((cat) => (
+                              <button
+                                key={cat}
+                                onClick={() => handleToggleDietCategory(cat)}
+                                className={`px-3 py-1.5 text-xs rounded-full border transition-all min-h-[32px] ${selectedDietCategories.has(cat)
+                                  ? "border-brand bg-brand/20 text-brand"
+                                  : "border-border/60 text-muted-foreground"
+                                  }`}
                               >
-                                <DietImage
-                                  photo={diet.photo}
-                                  name={diet.name}
-                                  category={diet.category}
-                                />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-sm font-medium truncate">{diet.name}</span>
-                                  <input
-                                    type="checkbox"
-                                    checked={isNewSelection}
-                                    onChange={() => { }}
-                                    className="h-4 w-4 flex-shrink-0"
-                                  />
-                                </div>
-                                {diet.category && (
-                                  <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground mt-1">
-                                    {diet.category}
-                                  </span>
-                                )}
-                                {isAlreadyInRoutine && !isNewSelection && (
-                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium block mt-1">
-                                    {t("goals_already_added")}
-                                  </span>
-                                )}
-                                {(diet.calories ?? 0) > 0 && (
-                                  <p className="text-xs text-muted-foreground mt-1">{diet.calories} cal</p>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-
-                    {selectedRoutineType === 3 &&
-                      habits.filter((h) => h.name.toLowerCase().includes(searchQuery.toLowerCase())).map((habit) => {
-                        const isAlreadyInRoutine = userHabits.some(
-                          (uh) =>
-                            uh.habit_id === habit.id &&
-                            (addToRoutineCardName
-                              ? uh.name === addToRoutineCardName
-                              : !uh.name),
-                        );
-                        const isNewSelection = selectedItems.has(habit.id);
-                        return (
-                          <button
-                            key={habit.id}
-                            onClick={() => handleSelectItem(habit.id)}
-                            className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
-                              ? "border-brand bg-brand/10"
-                              : isAlreadyInRoutine
-                                ? "border-green-500/40 bg-green-500/5"
-                                : "border-border/60 hover:border-border/80"
-                              }`}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
-                                <span className="text-sm font-medium truncate">{habit.name}</span>
-                                {isAlreadyInRoutine && !isNewSelection && (
-                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium flex-shrink-0">
-                                    {t("goals_already_added")}
-                                  </span>
-                                )}
-                              </div>
-                              <input
-                                type="checkbox"
-                                checked={isNewSelection}
-                                onChange={() => { }}
-                                className="h-4 w-4 flex-shrink-0"
-                              />
-                            </div>
-                            {habit.description && (
-                              <p className="text-xs text-muted-foreground mt-1">{habit.description}</p>
-                            )}
-                          </button>
-                        );
-                      })}
-                  </div>
+                                {cat}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {/* Save Button — for diet/habit: go to schedule step first */}
+                {/* Scrollable items list — takes all remaining space */}
+                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+                  {selectedRoutineType === 1 &&
+                    filteredWorkouts.map((exercise) => {
+                      const isAlreadySelected = userWorkouts.some((uw) => uw.workout_id === exercise.id);
+                      const isNewSelection = selectedItems.has(exercise.id);
+
+                      return (
+                        <button
+                          key={exercise.key}
+                          onClick={async () => {
+                            if (!exercise.isLocal && !selectedItems.has(exercise.id)) {
+                              try {
+                                const created = await createCustomWorkoutDb(
+                                  exercise.name,
+                                  exercise.description,
+                                  exercise.muscleGroup || "",
+                                  exercise.catalogImage,
+                                );
+                                exercise.id = created.id;
+                                exercise.isLocal = true;
+                                handleSelectItem(created.id);
+                              } catch (err: any) {
+                                toast({
+                                  title: t("goals_error_add_exercise"),
+                                  description: err?.message || t("goals_try_again"),
+                                  variant: "destructive",
+                                });
+                              }
+                            } else {
+                              handleSelectItem(exercise.id);
+                            }
+                          }}
+                          className={`w-full p-3 rounded-lg border transition-all text-left min-h-[64px] ${isNewSelection
+                            ? "border-brand bg-brand/10"
+                            : isAlreadySelected
+                              ? "border-green-500/40 bg-green-500/5"
+                              : "border-border/60 hover:border-border/80"
+                            }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="flex-shrink-0 rounded overflow-hidden"
+                              onClick={(e) => { e.stopPropagation(); onImageZoomChange({ src: exercise.photo || null, name: exercise.name, description: exercise.description || undefined, muscleGroup: exercise.muscleGroup }); }}
+                            >
+                              <ExerciseImage photo={exercise.photo} name={exercise.name} muscleGroup={exercise.muscleGroup} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-medium">{exercise.name}</span>
+                                {isAlreadySelected && !isNewSelection && (
+                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium">{t("goals_already_added")}</span>
+                                )}
+                              </div>
+                              {exercise.description && (
+                                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{exercise.description}</p>
+                              )}
+                              {exercise.muscleGroup && (
+                                <span className="inline-block text-[10px] font-medium text-brand bg-brand/10 px-2 py-0.5 rounded-full mt-1">
+                                  {exercise.muscleGroup}
+                                </span>
+                              )}
+                            </div>
+                            <div className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${isNewSelection ? "border-brand bg-brand" : "border-border/60"}`}>
+                              {isNewSelection && <span className="text-white text-[10px] font-bold">✓</span>}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                  {selectedRoutineType === 1 && (
+                    <div className="flex justify-center pt-2 pb-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="rounded-full gap-2 text-xs"
+                        onClick={() => {
+                          setCreateWorkoutInitialName(addToRoutineCardName || routineName.trim() || "");
+                          setCreateWorkoutDrawerOpen(true);
+                        }}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        {t("goals_not_found_exercise")}
+                      </Button>
+                    </div>
+                  )}
+
+                  {selectedRoutineType === 2 &&
+                    filteredDiets.map((diet) => {
+                      const isAlreadyInRoutine = userDiets.some(
+                        (ud) => ud.diet_id === diet.id && (addToRoutineCardName ? ud.name === addToRoutineCardName : !ud.name),
+                      );
+                      const isNewSelection = selectedItems.has(diet.id);
+                      return (
+                        <button
+                          key={diet.id}
+                          onClick={() => handleSelectItem(diet.id)}
+                          className={`w-full p-3 rounded-lg border transition-all text-left min-h-[64px] ${isNewSelection
+                            ? "border-brand bg-brand/10"
+                            : isAlreadyInRoutine
+                              ? "border-green-500/40 bg-green-500/5"
+                              : "border-border/60 hover:border-border/80"
+                            }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="flex-shrink-0 rounded overflow-hidden"
+                              onClick={(e) => { e.stopPropagation(); onImageZoomChange({ src: (diet as any).photo || (diet as any).image || null, name: diet.name, description: diet.description || undefined, category: diet.category }); }}
+                            >
+                              <DietImage photo={diet.photo} name={diet.name} category={diet.category} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium truncate flex-1">{diet.name}</span>
+                                {isAlreadyInRoutine && !isNewSelection && (
+                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium flex-shrink-0">{t("goals_already_added")}</span>
+                                )}
+                              </div>
+                              {diet.category && (
+                                <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground mt-1">{diet.category}</span>
+                              )}
+                              {(diet.calories ?? 0) > 0 && (
+                                <p className="text-xs text-muted-foreground mt-0.5">{diet.calories} cal</p>
+                              )}
+                            </div>
+                            <div className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${isNewSelection ? "border-brand bg-brand" : "border-border/60"}`}>
+                              {isNewSelection && <span className="text-white text-[10px] font-bold">✓</span>}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                  {selectedRoutineType === 3 &&
+                    habits.filter((h) => h.name.toLowerCase().includes(searchQuery.toLowerCase())).map((habit) => {
+                      const isAlreadyInRoutine = userHabits.some(
+                        (uh) => uh.habit_id === habit.id && (addToRoutineCardName ? uh.name === addToRoutineCardName : !uh.name),
+                      );
+                      const isNewSelection = selectedItems.has(habit.id);
+                      return (
+                        <button
+                          key={habit.id}
+                          onClick={() => handleSelectItem(habit.id)}
+                          className={`w-full p-3 rounded-lg border transition-all text-left min-h-[56px] ${isNewSelection
+                            ? "border-brand bg-brand/10"
+                            : isAlreadyInRoutine
+                              ? "border-green-500/40 bg-green-500/5"
+                              : "border-border/60 hover:border-border/80"
+                            }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-medium truncate">{habit.name}</span>
+                                {isAlreadyInRoutine && !isNewSelection && (
+                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium flex-shrink-0">{t("goals_already_added")}</span>
+                                )}
+                              </div>
+                              {habit.description && (
+                                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{habit.description}</p>
+                              )}
+                            </div>
+                            <div className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all ${isNewSelection ? "border-brand bg-brand" : "border-border/60"}`}>
+                              {isNewSelection && <span className="text-white text-[10px] font-bold">✓</span>}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                </div>
+
+                {/* Sticky footer — confirm button */}
                 {selectedItems.size > 0 && (
-                  <Button
-                    onClick={() => {
-                      if (selectedRoutineType === 2 || selectedRoutineType === 3) {
-                        onShowExecuteAtStepChange(true);
-                      } else {
-                        onSaveRoutines();
-                      }
-                    }}
-                    disabled={isAddingRoutine}
-                    className="w-full rounded-full"
+                  <div className="shrink-0 px-4 pt-2 pb-4 border-t border-border/30 bg-background/95 backdrop-blur-sm"
+                    style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
                   >
-                    {selectedRoutineType === 2 || selectedRoutineType === 3
-                      ? `Próximo (${selectedItems.size})`
-                      : isAddingRoutine
-                        ? "Salvando..."
-                        : `Salvar (${selectedItems.size})`}
-                  </Button>
+                    <Button
+                      onClick={() => onShowExecuteAtStepChange(true)}
+                      disabled={isAddingRoutine}
+                      className="w-full rounded-full h-12 text-base font-semibold"
+                    >
+                      {t("goals_next_n").replace("{n}", String(selectedItems.size))}
+                    </Button>
+                  </div>
                 )}
               </>
             )}

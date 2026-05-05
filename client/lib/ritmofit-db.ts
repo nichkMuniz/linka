@@ -562,7 +562,7 @@ export async function getPostCommentsDb(
     .from("comments")
     .select("id, post_id, user_id, text, created_at")
     .eq("post_id", postId)
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(500);
 
   if (error) {
@@ -3644,13 +3644,12 @@ export async function deleteStoryDb(storyId: string): Promise<boolean> {
       return false;
     }
 
+    invalidateQueryCache("activeStories");
     return true;
   } catch (err: any) {
     console.error("Error deleting story:", err);
     return false;
   }
-
-  invalidateQueryCache("activeStories");
 }
 
 // Story likes (incentives)
@@ -4940,6 +4939,49 @@ export async function deleteShotDb(shotId: string): Promise<boolean> {
   }
 }
 
+export async function getShotLikeUsersDb(shotId: string): Promise<Array<{
+  userId: string;
+  userNickname: string;
+  userPhoto: string | null;
+  userGender: string | null;
+  type: number;
+}>> {
+  if (!hasSupabaseConfig || !supabase) return [];
+
+  try {
+    const { data: likesData } = await supabase
+      .from("shots_likes")
+      .select("user_id, type")
+      .eq("shots_id", shotId)
+      .order("created_at", { ascending: false });
+
+    if (!likesData || likesData.length === 0) return [];
+
+    const userIds = [...new Set(likesData.map((l: any) => l.user_id))];
+
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("user_id, nickname, photo, gender")
+      .in("user_id", userIds);
+
+    const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
+
+    return likesData.map((like: any) => {
+      const profile = profileMap.get(like.user_id);
+      return {
+        userId: like.user_id,
+        userNickname: profile?.nickname ?? "Usuário",
+        userPhoto: profile?.photo ?? null,
+        userGender: profile?.gender ?? null,
+        type: like.type,
+      };
+    });
+  } catch (err: any) {
+    console.error("Error fetching shot like users:", err);
+    return [];
+  }
+}
+
 export async function toggleShotIncentiveDb(
   shotId: string,
   incentiveType: PostIncentiveType,
@@ -5092,7 +5134,7 @@ export async function getShotCommentsDb(
       .from("shots_comments")
       .select("*")
       .eq("shots_id", shotId)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: false });
 
     if (error) {
       console.error(
@@ -5104,7 +5146,7 @@ export async function getShotCommentsDb(
         .from("comments")
         .select("*")
         .eq("post_id", shotId)
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: false });
 
       if (legacyError) {
         console.error(

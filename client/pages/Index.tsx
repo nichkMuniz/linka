@@ -51,6 +51,7 @@ import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { useLanguage } from "@/lib/language-context";
 
 function sortStoriesInstagram(storiesList: StoryWithUser[]): StoryWithUser[] {
   const groups: Record<string, StoryWithUser[]> = {};
@@ -75,6 +76,7 @@ function sortStoriesInstagram(storiesList: StoryWithUser[]): StoryWithUser[] {
 
 export default function Index() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
   const [posts, setPosts] = React.useState<PostWithStats[]>([]);
@@ -176,13 +178,13 @@ export default function Index() {
     } catch (err: any) {
       console.error("Erro ao carregar feed:", err?.message || err);
       toast({
-        title: "Erro ao carregar feed",
-        description: err?.message || "Tente novamente.",
+        title: t("post_load_error"),
+        description: err?.message || t("retry"),
       });
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, t]);
 
   React.useEffect(() => {
     loadFeed();
@@ -322,20 +324,22 @@ export default function Index() {
     setSelectedStory(story);
 
     const isOwner = story.user_id === user?.id;
-    const storiesList = isOwner
-      ? stories.filter((s) => s.user_id === user?.id)
-      : stories.filter((s) => s.user_id !== user?.id);
+    // When viewing own stories: show only own stories.
+    // When viewing another user's stories: show only that user's stories.
+    const storiesList = stories.filter((s) => s.user_id === story.user_id);
 
-    setActiveViewerStories(storiesList);
+    setActiveViewerStories(storiesList.length > 0 ? storiesList : [story]);
     setStoryViewerOpen(true);
 
     if (isOwner) {
       setOwnerHasViewedFlow(true);
     } else {
       setViewedStoryIds((prev) => new Set(prev).add(story.id));
-      recordFlowViewDb(story.id, story.user_id).catch((err) =>
-        console.error("Error recording flow view:", err),
-      );
+      recordFlowViewDb(story.id, story.user_id).catch((err) => {
+        console.error("Error recording flow view:", err);
+        // Revert optimistic viewed state so the ring reappears on next load
+        setViewedStoryIds((prev) => { const next = new Set(prev); next.delete(story.id); return next; });
+      });
     }
   }, [stories, user?.id]);
 
@@ -357,7 +361,10 @@ export default function Index() {
       // Record view for the story we're navigating to (if not already viewed)
       if (next.user_id !== user?.id) {
         setViewedStoryIds((prev) => new Set(prev).add(next.id));
-        recordFlowViewDb(next.id, next.user_id).catch(console.error);
+        recordFlowViewDb(next.id, next.user_id).catch((err) => {
+          console.error("Error recording flow view:", err);
+          setViewedStoryIds((prev) => { const s = new Set(prev); s.delete(next.id); return s; });
+        });
       }
     } else {
       setStoryViewerOpen(false);
@@ -442,7 +449,7 @@ export default function Index() {
           return acc;
         }, []);
 
-        await Promise.allSettled(
+        const routineResults = await Promise.allSettled(
           groups.map(({ type, name }) =>
             copyRoutineToUserDb(
               selectedGoalPost.user_id,
@@ -452,46 +459,62 @@ export default function Index() {
             ),
           ),
         );
+        const failedCount = routineResults.filter((r) => r.status === "rejected").length;
+        if (failedCount > 0) {
+          toast({
+            title: t("feed_goal_copied_warning"),
+            description: t("feed_goal_copied_warning_desc").replace("{n}", String(failedCount)),
+            variant: "destructive",
+          });
+          setHasAlreadyCopiedGoal(true);
+          setGoalModalOpen(false);
+          return;
+        }
       }
 
       toast({
-        title: "Meta copiada com sucesso!",
-        description: "Você agora tem a mesma meta e rotinas que este usuário.",
+        title: t("feed_goal_copied"),
+        description: t("feed_goal_copied_desc"),
       });
       setHasAlreadyCopiedGoal(true);
       setGoalModalOpen(false);
     } catch (err: any) {
       console.error("Error copying goal:", err);
       toast({
-        title: "Erro ao copiar meta",
-        description: err?.message || "Tente novamente.",
+        title: t("feed_goal_copy_error"),
+        description: err?.message || t("retry"),
       });
     } finally {
       setIsCopyingGoal(false);
     }
-  }, [selectedGoalPost?.userGoal, selectedGoalPost?.user_id, user, linkedRoutines]);
+  }, [selectedGoalPost?.userGoal, selectedGoalPost?.user_id, user, linkedRoutines, t]);
 
-  const handleMarkGoalComplete = React.useCallback(async () => {
+  const handleMarkGoalComplete = React.useCallback(() => {
     if (!selectedGoalPost?.userGoal) return;
-    if (!confirm("Marcar esta meta como 100% concluída?")) return;
-    setIsMarkingGoalComplete(true);
-    try {
-      const ug = selectedGoalPost.userGoal;
-      await updateUserGoalDb(ug.id, {
-        duration: ug.duration,
-        quantity: ug.quantity,
-        days_completed: ug.duration,
-        perc: 100,
-        visibility: ug.visibility ?? 1,
-      });
-      setGoalModalOpen(false);
-      setCompletedGoalDescription(selectedGoalPost.userGoal.description ?? "");
-    } catch (err: any) {
-      toast({ title: "Erro ao concluir meta", description: err?.message || "Tente novamente.", variant: "destructive" });
-    } finally {
-      setIsMarkingGoalComplete(false);
-    }
-  }, [selectedGoalPost?.userGoal]);
+    showConfirm(
+      t("feed_goal_complete_title"),
+      t("feed_goal_complete_desc"),
+      async () => {
+        setIsMarkingGoalComplete(true);
+        try {
+          const ug = selectedGoalPost.userGoal!;
+          await updateUserGoalDb(ug.id, {
+            duration: ug.duration,
+            quantity: ug.quantity,
+            days_completed: ug.duration,
+            perc: 100,
+            visibility: ug.visibility ?? 1,
+          });
+          setGoalModalOpen(false);
+          setCompletedGoalDescription(ug.description ?? "");
+        } catch (err: any) {
+          toast({ title: t("error"), description: err?.message || t("retry"), variant: "destructive" });
+        } finally {
+          setIsMarkingGoalComplete(false);
+        }
+      },
+    );
+  }, [selectedGoalPost?.userGoal, showConfirm, t]);
 
   const handleCopyRoutine = React.useCallback(
     async (sourceUserId: string, routineType: number, routineName: string | undefined) => {
@@ -505,16 +528,16 @@ export default function Index() {
         await copyRoutineToUserDb(sourceUserId, user.id, routineType as 1 | 2 | 3, routineName ?? null);
         setCopiedRoutineKeys((prev) => new Set(prev).add(key));
         toast({
-          title: routineType === 1 ? "Treino copiado!" : routineType === 2 ? "Dieta copiada!" : "Hábito copiado!",
-          description: `"${routineName ?? "Rotina"}" foi adicionada à sua conta.`,
+          title: routineType === 1 ? t("feed_workout_copied") : routineType === 2 ? t("feed_diet_copied") : t("feed_habit_copied"),
+          description: t("feed_routine_copied_desc").replace("{name}", routineName ?? "Rotina"),
         });
       } catch (err: any) {
-        toast({ title: "Erro ao copiar", description: err?.message || "Tente novamente.", variant: "destructive" });
+        toast({ title: t("feed_copy_error"), description: err?.message || t("retry"), variant: "destructive" });
       } finally {
         setCopyingRoutineKeys((prev) => { const s = new Set(prev); s.delete(key); return s; });
       }
     },
-    [user, copyingRoutineKeys, copiedRoutineKeys],
+    [user, copyingRoutineKeys, copiedRoutineKeys, t],
   );
 
   const applyOptimisticLike = (
@@ -563,15 +586,17 @@ export default function Index() {
       setPosts((prev) => applyOptimisticLike(prev, postId, incentiveType));
       setDiscoverPosts((prev) => applyOptimisticLike(prev, postId, incentiveType));
 
-      togglePostLike(postId, incentiveType, wantActive);
-
-      // Release the toggling lock after a short delay so rapid double-clicks are prevented
-      setTimeout(() => {
+      togglePostLike(postId, incentiveType, wantActive).catch(() => {
+        // Revert optimistic update on failure
+        setPosts((prev) => applyOptimisticLike(prev, postId, incentiveType));
+        setDiscoverPosts((prev) => applyOptimisticLike(prev, postId, incentiveType));
+        toast({ title: t("feed_incentive_save_error"), description: t("retry"), variant: "destructive" });
+      }).finally(() => {
         togglingIncentivesRef.current.delete(key);
         setTogglingIncentives((prev) => { const next = new Set(prev); next.delete(key); return next; });
-      }, 300);
+      });
     },
-    [],
+    [t],
   );
 
   const handleSharePost = React.useCallback((post: PostWithStats) => {
@@ -604,35 +629,35 @@ export default function Index() {
       setLikesModalOpen(true);
     } catch (err) {
       console.error("Error loading post likes:", err);
-      toast({ title: "Erro", description: "Não foi possível carregar os incentivos.", variant: "destructive" });
+      toast({ title: t("error"), description: t("post_incentives_load_error"), variant: "destructive" });
     } finally {
       setLikesLoading(false);
     }
-  }, [likesLoading]);
+  }, [likesLoading, t]);
 
   const handleDeletePost = React.useCallback(
     (post: PostWithStats) => {
       if (!user) {
-        toast({ title: "Erro", description: "Você precisa estar logado para deletar um post.", variant: "destructive" });
+        toast({ title: t("error"), description: t("post_login_required"), variant: "destructive" });
         return;
       }
       showConfirm(
-        "Excluir post",
-        "Tem certeza que deseja excluir este post? Esta ação não pode ser desfeita.",
+        t("post_delete_title"),
+        t("post_delete_desc"),
         async () => {
           try {
             await deletePostDb(post.id);
             setPosts((prev) => prev.filter((p) => p.id !== post.id));
             setDiscoverPosts((prev) => prev.filter((p) => p.id !== post.id));
-            toast({ title: "Sucesso", description: "Post deletado com sucesso." });
+            toast({ title: t("confirm"), description: t("post_deleted_success") });
           } catch (err: any) {
             console.error("Error deleting post:", err);
-            toast({ title: "Erro ao deletar post", description: err?.message || "Não foi possível deletar o post. Tente novamente.", variant: "destructive" });
+            toast({ title: t("post_delete_error"), description: err?.message || t("post_delete_error_desc"), variant: "destructive" });
           }
         },
       );
     },
-    [user, showConfirm],
+    [user, showConfirm, t],
   );
 
   const handleEditPost = React.useCallback((post: PostWithStats) => {
@@ -653,6 +678,7 @@ export default function Index() {
   const sharedCardProps = {
     currentUserId: user?.id,
     togglingIncentives,
+    likesLoading,
     onToggleLike: handleToggleLike,
     onOpenLikes: handleOpenLikesModal,
     onOpenGoal: openGoalModal,
@@ -667,7 +693,7 @@ export default function Index() {
     return (
       <div className="mx-auto w-full max-w-2xl flex flex-col">
         <div className="h-24 bg-background border-b border-border/60 animate-pulse" />
-        <div className="grid w-full gap-3 p-4">
+        <div className="grid w-full gap-3 py-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <PostSkeleton key={i} />
           ))}
@@ -694,7 +720,7 @@ export default function Index() {
       </div>
 
       {/* Feed Content — Following + Discover inline */}
-      <div className="grid w-full gap-3 p-4">
+      <div className="grid w-full gap-3 py-4">
         {posts.map((post) => (
           <PostCard key={post.id} post={post} {...sharedCardProps} />
         ))}
@@ -702,7 +728,7 @@ export default function Index() {
         {posts.length === 0 && (
           <div className="flex flex-col items-center gap-2 text-center pt-4 pb-1">
             <p className="text-xs text-muted-foreground">
-              Siga pessoas para ver o feed delas.
+              {t("feed_follow_cta")}
             </p>
             <Button
               size="sm"
@@ -710,7 +736,7 @@ export default function Index() {
               className="rounded-full text-xs h-7 px-3"
               onClick={() => navigate("/buscar")}
             >
-              Encontrar pessoas
+              {t("feed_find_people")}
             </Button>
           </div>
         )}
@@ -719,13 +745,13 @@ export default function Index() {
         <div className="flex items-center gap-3 py-2">
           <div className="flex-1 h-px bg-border/60" />
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest px-1">
-            Descobrir
+            {t("feed_discover_label")}
           </span>
           <div className="flex-1 h-px bg-border/60" />
         </div>
         {posts.length > 0 && (
           <p className="text-xs text-muted-foreground text-center -mt-1 mb-1">
-            Você chegou ao fim — veja o que está acontecendo na comunidade
+            {t("feed_discover_end")}
           </p>
         )}
 
@@ -735,7 +761,7 @@ export default function Index() {
         ) : discoverPosts.length === 0 ? (
           <div className="flex flex-col items-center py-8 gap-3 text-center">
             <p className="text-sm text-muted-foreground">
-              Ainda não há posts na comunidade.
+              {t("feed_discover_empty")}
             </p>
             <Button
               size="sm"
@@ -743,7 +769,7 @@ export default function Index() {
               className="rounded-full text-xs h-7 px-3"
               onClick={() => navigate("/buscar")}
             >
-              Encontrar pessoas para seguir
+              {t("feed_find_people_follow")}
             </Button>
           </div>
         ) : (
@@ -777,14 +803,13 @@ export default function Index() {
         onPrevStory={handlePrevStory}
         onSelectStory={(s) => {
           setSelectedStory(s);
-          const isOwner = s.user_id === user?.id;
-          const storiesList = isOwner
-            ? stories.filter((st) => st.user_id === user?.id)
-            : stories.filter((st) => st.user_id !== user?.id);
+          const storiesList = stories.filter((st) => st.user_id === s.user_id);
           setActiveViewerStories(storiesList.length > 0 ? storiesList : [s]);
         }}
         onDeleted={() => {
           setStoryViewerOpen(false);
+          setSelectedStory(null);
+          setActiveViewerStories([]);
           getActiveStoriesDb().then(setStories).catch(console.error);
         }}
       />
@@ -831,10 +856,10 @@ export default function Index() {
                       <p className="text-xs text-muted-foreground">Tipo</p>
                       <p className="text-sm font-bold">
                         {selectedGoalPost.userGoal.type_goal === 1
-                          ? "Fitness"
+                          ? t("feed_goal_type_fitness")
                           : selectedGoalPost.userGoal.type_goal === 2
-                            ? "Saúde"
-                            : "Hábitos"}
+                            ? t("feed_goal_type_health")
+                            : t("feed_goal_type_habits")}
                       </p>
                     </div>
                   </div>
@@ -843,7 +868,7 @@ export default function Index() {
                 {/* Bug 5 fix: loading state while routines load */}
                 {goalRoutinesLoading ? (
                   <div className="flex items-center justify-center py-6">
-                    <p className="text-sm text-muted-foreground">Carregando rotinas...</p>
+                    <p className="text-sm text-muted-foreground">{t("feed_routine_loading")}</p>
                   </div>
                 ) : (
                   <>
@@ -868,7 +893,7 @@ export default function Index() {
                         ) : (
                           <div className="border border-border/60 rounded-lg p-4 bg-muted/20 text-center space-y-3">
                             <p className="text-sm text-muted-foreground">
-                              Nenhuma rotina vinculada a esta meta
+                              {t("feed_routines_no_linked")}
                             </p>
                             <Button
                               variant="outline"
@@ -876,7 +901,7 @@ export default function Index() {
                               className="w-full rounded-full"
                               onClick={() => navigate("/metas?tab=rotinas")}
                             >
-                              Vincular Rotinas
+                              {t("feed_routines_link_btn")}
                             </Button>
                           </div>
                         )}
@@ -913,7 +938,7 @@ export default function Index() {
                     <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
                     </svg>
-                    {isMarkingGoalComplete ? "Concluindo..." : "Marcar como concluída"}
+                    {isMarkingGoalComplete ? t("feed_goal_marking") : t("feed_goal_mark_complete_btn")}
                   </button>
                 )}
 
@@ -925,7 +950,7 @@ export default function Index() {
                       disabled={isCopyingGoal || hasAlreadyCopiedGoal}
                       className="flex-1 rounded-full gap-2 shrink-0"
                     >
-                      {isCopyingGoal ? "Copiando..." : hasAlreadyCopiedGoal ? "Já copiado" : "Copiar Meta"}
+                      {isCopyingGoal ? t("feed_goal_copying") : hasAlreadyCopiedGoal ? t("feed_goal_already_copied") : t("feed_goal_copy_btn")}
                     </Button>
                   </div>
                 )}
@@ -965,7 +990,7 @@ export default function Index() {
         onOpenChange={setShareDrawerOpen}
         text={shareDrawerText}
         url={shareDrawerUrl}
-        title="Compartilhar post"
+        title={t("feed_share_post_title")}
       />
 
       <PostLikesModal
@@ -1036,6 +1061,7 @@ function RoutineAccordion({
   onCopyRoutine,
   postUserId,
 }: RoutineAccordionProps) {
+  const { t } = useLanguage();
   const seen = new Set<string>();
   const groups = linkedRoutines.reduce<{ key: string; type: number; name?: string }[]>((acc, r) => {
     const k = `${r.type}__${r.name ?? ""}`;
@@ -1052,6 +1078,7 @@ function RoutineAccordion({
         <h3 className="text-sm font-medium">
           Rotinas Vinculadas ({groups.length})
         </h3>
+
         <ChevronDown
           className={`h-5 w-5 transform transition-transform ${expandedRoutines ? "rotate-180" : ""}`}
         />
@@ -1061,7 +1088,7 @@ function RoutineAccordion({
         <div className="border-t border-border/60 divide-y divide-border/40">
           {groups.map(({ key, type, name }) => {
             const typeIcon = type === 1 ? "🏋️" : type === 2 ? "🍽️" : "✅";
-            const typeLabel = type === 1 ? "Exercícios" : type === 2 ? "Dietas" : "Hábitos";
+            const typeLabel = type === 1 ? t("feed_routines_exercises") : type === 2 ? t("feed_routines_diets") : t("feed_goal_type_habits");
             const label = name || typeLabel;
             const isOpen = expandedLinkedRoutine === key;
             const items = linkedRoutineItems[key];
@@ -1084,9 +1111,9 @@ function RoutineAccordion({
                 {isOpen && (
                   <div className="bg-muted/20 px-4 pb-3 pt-1 space-y-1.5">
                     {!items ? (
-                      <p className="text-xs text-muted-foreground py-2">Carregando...</p>
+                      <p className="text-xs text-muted-foreground py-2">{t("feed_routine_loading")}</p>
                     ) : items.length === 0 ? (
-                      <p className="text-xs text-muted-foreground py-2">Nenhum item nesta rotina.</p>
+                      <p className="text-xs text-muted-foreground py-2">{t("feed_routine_empty_items")}</p>
                     ) : (
                       <>
                         {items.map((item: any) => {
@@ -1110,14 +1137,14 @@ function RoutineAccordion({
                             }}
                           >
                             {isCopyingThis
-                              ? "Copiando..."
+                              ? t("feed_goal_copying")
                               : isCopiedThis
-                                ? "✓ Copiado"
+                                ? t("feed_copied_btn")
                                 : type === 1
-                                  ? "Copiar Treino"
+                                  ? t("feed_copy_workout_btn")
                                   : type === 2
-                                    ? "Copiar Dieta"
-                                    : "Copiar Hábito"}
+                                    ? t("feed_copy_diet_btn")
+                                    : t("feed_copy_habit_btn")}
                           </Button>
                         )}
                       </>

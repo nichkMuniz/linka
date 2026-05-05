@@ -15,6 +15,7 @@ import { toast } from "@/components/ui/use-toast";
 import {
   getShotsDb,
   toggleShotIncentiveDb,
+  getShotLikeUsersDb,
   addShotCommentDb,
   getShotCommentsDb,
   deleteShotCommentDb,
@@ -25,7 +26,8 @@ import {
   type ShotComment,
   type PostIncentiveType,
 } from "@/lib/ritmofit-db";
-import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, ChevronLeft, ChevronRight, Play, Pause } from "lucide-react";
+import { PostLikesModal } from "@/components/modals/post-likes-modal";
+import { MessageCircle, Send, Trash2, VolumeX, Volume2, MoreVertical, Edit2, AlertTriangle, Pencil, Check, X, ChevronLeft, ChevronRight, Play, Pause, Users } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,6 +65,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   const [shotsError, setShotsError] = React.useState(false);
   const [visibleShotId, setVisibleShotId] = React.useState<string | null>(null);
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<string>>(new Set());
+  const commentsListRef = React.useRef<HTMLDivElement>(null);
   const [commentsOpen, setCommentsOpen] = React.useState(false);
   const [selectedShot, setSelectedShot] = React.useState<ShotWithUser | null>(
     null,
@@ -99,6 +102,24 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
   const [burstMap, setBurstMap] = React.useState<Record<string, PostIncentiveType | null>>({});
   const lastTapRef = React.useRef<{ shotId: string; time: number } | null>(null);
   const singleTapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [shotLikesModalOpen, setShotLikesModalOpen] = React.useState(false);
+  const [shotLikes, setShotLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; userGender: string | null; type: number }>>([]);
+  const [shotLikesLoading, setShotLikesLoading] = React.useState(false);
+
+  const handleOpenShotLikes = React.useCallback(async (shotId: string) => {
+    if (shotLikesLoading) return;
+    setShotLikesLoading(true);
+    try {
+      const likes = await getShotLikeUsersDb(shotId);
+      setShotLikes(likes);
+      setShotLikesModalOpen(true);
+    } catch (err) {
+      console.error("Error loading shot likes:", err);
+      toast({ title: t("error"), description: t("post_incentives_load_error"), variant: "destructive" });
+    } finally {
+      setShotLikesLoading(false);
+    }
+  }, [shotLikesLoading, t]);
 
   const handleVideoTap = React.useCallback((shotId: string) => {
     const now = Date.now();
@@ -365,6 +386,9 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
 
       const updatedComments = await getShotCommentsDb(selectedShot.id);
       setComments(updatedComments);
+      requestAnimationFrame(() => {
+        if (commentsListRef.current) commentsListRef.current.scrollTop = 0;
+      });
       setCommentText("");
       // Bug 5 fix: increment commentCount in shots state
       setShots((prev) =>
@@ -406,9 +430,15 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
     setIsSavingEditComment(true);
     try {
       await updateShotCommentDb(commentId, editCommentDraft);
-      setComments((prev) =>
-        prev.map((c) => c.id === commentId ? { ...c, text: editCommentDraft.trim() } : c)
-      );
+      setComments((prev) => {
+        const updated = prev.map((c) => c.id === commentId ? { ...c, text: editCommentDraft.trim() } : c);
+        const idx = updated.findIndex((c) => c.id === commentId);
+        if (idx > 0) { const [item] = updated.splice(idx, 1); updated.unshift(item); }
+        return [...updated];
+      });
+      requestAnimationFrame(() => {
+        if (commentsListRef.current) commentsListRef.current.scrollTop = 0;
+      });
       setEditingCommentId(null);
       setEditCommentDraft("");
       toast({ title: t("comments_edited") });
@@ -611,13 +641,17 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                         <MoreVertical className="h-4 w-4" />
                       </button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuContent align="end" className="w-48">
                       <DropdownMenuItem onClick={() => {
                         setEditingShot(shot);
                         setEditShotOpen(true);
                       }}>
                         <Edit2 className="h-4 w-4 mr-2" />
                         {t("shots_edit_desc")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleOpenShotLikes(shot.id)} disabled={shotLikesLoading}>
+                        <Users className="h-4 w-4 mr-2" />
+                        {t("shots_see_incentives")}
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
@@ -826,6 +860,13 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Shot Incentives Modal — owner only */}
+      <PostLikesModal
+        open={shotLikesModalOpen}
+        onOpenChange={setShotLikesModalOpen}
+        likes={shotLikes}
+      />
+
       {/* Comments Drawer */}
       <Drawer
         open={commentsOpen && selectedShot !== null}
@@ -837,7 +878,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
             <DrawerDescription className="sr-only">{t("shots_comments_desc")}</DrawerDescription>
           </DrawerHeader>
 
-          <div className="flex-1 overflow-y-auto space-y-4 px-4 py-4">
+          <div ref={commentsListRef} className="flex-1 overflow-y-auto space-y-4 px-4 py-4">
             {isLoadingComments ? (
               <p className="text-sm text-muted-foreground text-center">
                 {t("comments_loading")}

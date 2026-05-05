@@ -12,65 +12,95 @@ Tela de criação de conteúdo. Permite ao usuário publicar um post com imagens
 
 ---
 
-## Estrutura Visual
+## Estrutura Visual (2 etapas — estilo Instagram)
 
 ```
+ETAPA 1 — Seleção de mídia
 ┌──────────────────────────────────┐
-│  Tabs: [Imagens] [Vídeo]         │
+│  [X]   Novo post         Avançar │  ← header customizado
 ├──────────────────────────────────┤
-│  Conteúdo da Tab ativa           │
-│  (formulário de criação)         │
+│                                  │
+│     Preview da foto/vídeo        │  ← aspect-ratio 1:1, full-width
+│       selecionada(o)             │
+│                                  │
+├──────────────────────────────────┤
+│  Recentes >        [Selecionar]  │  ← toolbar da galeria
+├──────────────────────────────────┤
+│  Grade 4 colunas de fotos        │  ← fotos selecionadas
+│  selecionadas (toque p/ preview) │
+├──────────────────────────────────┤
+│    [POST]        [SHOT]          │  ← seletor de tipo de mídia
+└──────────────────────────────────┘
+
+ETAPA 2 — Legenda e publicação
+┌──────────────────────────────────┐
+│  [←]   Novo post    Compartilhar │  ← header com botão de submit
+├──────────────────────────────────┤
+│  [thumb] Textarea de legenda     │  ← preview miniatura + texto
+├──────────────────────────────────┤
+│  Tiras de fotos selecionadas     │  ← strip horizontal (se múltiplas)
+├──────────────────────────────────┤
+│  Contador de caracteres          │
+├──────────────────────────────────┤
+│  Vincular a uma meta (opcional)  │
+├──────────────────────────────────┤
+│  [     Publicar / Pub. Shot    ] │  ← botão principal
 └──────────────────────────────────┘
 ```
 
 ---
 
-## Tab: Imagens (Post)
+## Etapa 1: Seleção de Mídia
 
-### Área de Upload
-- Botão grande com ícone `ImagePlus`
-- Aceita múltiplas imagens (array de arquivos)
-- Preview das imagens selecionadas em carrossel
-- Navegação no carrossel com `ChevronLeft` / `ChevronRight`
-- Botão `X` para remover imagem individual
+### Header
+- Botão `X` (fecha/volta à tela anterior via `navigate(-1)`)
+- Título "Novo post"
+- Botão "Avançar" (habilitado apenas quando há mídia selecionada)
 
-### Carrossel de Preview
-- Exibe a imagem atual (`currentPreviewIndex`)
-- Indicador de posição (ex: "2 / 4")
-- Botões de navegação esquerda/direita
+### Preview
+- Área full-width com `aspect-ratio: 1/1` (fundo preto)
+- Mostra a foto atual (`currentPreviewIndex`) ou o vídeo selecionado
+- Se vazio: placeholder com ícone `Camera` ou `Video` + instrução de toque
+- Sobre a imagem: botão "Editar" (crop), navegação `ChevronLeft/Right`, dots de posição, badge com total de fotos
 
-### Campos
-| Campo | Tipo | Descrição |
-|---|---|---|
-| Descrição | Textarea | Texto do post, persistido em sessionStorage |
-| Meta vinculada | Select | Lista das metas ativas do usuário |
+### Toolbar da Galeria
+- Label "Recentes" à esquerda
+- Botão "Selecionar" abre o `<input type="file">` correspondente
 
-### Botão de Publicar
-- Texto: "Publicar Post"
-- Desabilitado se: nenhuma imagem selecionada, texto vazio ou requisição em andamento
-- Estado de loading: ícone `Loader2` animado
-- Ao publicar: chama `createPostDb` → faz upload das imagens no Supabase Storage → navega para `/perfil`
+### Grade de Fotos (somente POST)
+- 4 colunas, `gap-px`
+- Primeira célula: ícone `Camera` (abre file picker)
+- Células seguintes: fotos selecionadas (toque define o preview principal)
+- Sobre cada foto: botão `X` para remover, número de ordem no canto inferior esquerdo, anel de destaque na foto ativa
+- Sem fotos: 12 células de placeholder (só a primeira tem ícone)
+
+### Seletor de Tipo (POST / SHOT)
+- Tabs na parte inferior com ícone + label em maiúsculas
+- Sublinhado na opção ativa
 
 ---
 
-## Tab: Vídeo (Shot)
+## Etapa 2: Legenda e Publicação
 
-### Área de Upload
-- Botão grande com ícone `Video`
-- Aceita um único arquivo de vídeo
-- Preview do vídeo selecionado (elemento `<video>`)
-- Botão `X` para remover vídeo
+### Header
+- Botão `ArrowLeft` (volta à etapa 1)
+- Título "Novo post"
+- Botão "Compartilhar" executa o submit (com spinner durante envio)
 
-### Campos
-| Campo | Tipo | Descrição |
-|---|---|---|
-| Descrição | Textarea | Texto do clipe, persistido em sessionStorage |
-| Meta vinculada | Select | Lista das metas ativas do usuário |
+### Área de Legenda
+- Miniatura 64×64 da foto/vídeo selecionado
+- `Textarea` sem borda (integrado ao layout), máx. 500 chars
+- Strip horizontal de thumbnails abaixo (apenas se múltiplas fotos selecionadas)
 
-### Botão de Publicar
-- Texto: "Publicar Clipe"
-- Desabilitado se: nenhum vídeo selecionado, texto vazio ou requisição em andamento
-- Ao publicar: chama `createShotDb` → faz upload do vídeo no Supabase Storage → navega para `/shots`
+### Vincular Meta (somente POST)
+- `Select` com metas ativas do usuário
+- Se sem metas: link "Criar meta →" navega para `/metas?tab=metas`
+- Hint verde com ícone `Sparkles` quando meta selecionada
+
+### Botão Publicar
+- Fixo no rodapé com `env(safe-area-inset-bottom)`
+- "Publicar" (POST) ou "Publicar Shot" (SHOT)
+- Desabilitado durante envio
 
 ---
 

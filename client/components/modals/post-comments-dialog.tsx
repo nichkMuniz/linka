@@ -20,6 +20,7 @@ import {
   deletePostCommentDb,
   updatePostCommentDb,
   markPostCommentsAsReadDb,
+  getUserProfileDb,
   type PostComment,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
@@ -86,6 +87,7 @@ export function PostCommentsDialog({
   const [comments, setComments] = React.useState<PostComment[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [draft, setDraft] = React.useState("");
+  const commentsListRef = React.useRef<HTMLDivElement>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -149,13 +151,36 @@ export function PostCommentsDialog({
 
     try {
       setSubmitting(true);
-      await addPostCommentDb(postId, draft);
-
+      const commentText = draft.trim();
+      await addPostCommentDb(postId, commentText);
       setDraft("");
 
-      // Refresh comments
-      const updated = await getPostCommentsDb(postId);
-      setComments(updated);
+      // Optimistic update: add comment immediately using cached profile
+      const profile = await getUserProfileDb(user.id);
+      const optimisticComment: PostComment = {
+        id: `optimistic-${Date.now()}`,
+        postId,
+        userId: user.id,
+        userName: profile?.nickname || t("comments_you"),
+        userHandle: profile?.handle || "",
+        userPhoto: profile?.photo || null,
+        userGender: profile?.gender || null,
+        text: commentText,
+        createdAt: new Date().toISOString(),
+        isVerified: profile?.is_verified || false,
+      };
+      setComments((prev) => [optimisticComment, ...prev]);
+      requestAnimationFrame(() => {
+        if (commentsListRef.current) commentsListRef.current.scrollTop = 0;
+      });
+
+      // Background refresh to replace optimistic entry with real DB data
+      getPostCommentsDb(postId).then((data) => {
+        setComments(data);
+        requestAnimationFrame(() => {
+          if (commentsListRef.current) commentsListRef.current.scrollTop = 0;
+        });
+      }).catch(() => {});
 
       toast({
         title: t("comments_sent"),
@@ -170,7 +195,7 @@ export function PostCommentsDialog({
     } finally {
       setSubmitting(false);
     }
-  }, [draft, postId, user]);
+  }, [draft, postId, user, t]);
 
   const handleStartEdit = React.useCallback((comment: PostComment) => {
     setEditingId(comment.id);
@@ -187,9 +212,15 @@ export function PostCommentsDialog({
     try {
       setSavingEditId(commentId);
       await updatePostCommentDb(commentId, editDraft);
-      setComments((prev) =>
-        prev.map((c) => c.id === commentId ? { ...c, text: editDraft.trim() } : c)
-      );
+      setComments((prev) => {
+        const updated = prev.map((c) => c.id === commentId ? { ...c, text: editDraft.trim() } : c);
+        const idx = updated.findIndex((c) => c.id === commentId);
+        if (idx > 0) {
+          const [item] = updated.splice(idx, 1);
+          updated.unshift(item);
+        }
+        return [...updated];
+      });
       setEditingId(null);
       setEditDraft("");
       toast({ title: t("comments_edited") });
@@ -258,7 +289,7 @@ export function PostCommentsDialog({
       {/* stopPropagation prevents vaul from starting a drag gesture when tapping inside the content */}
       <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4" onPointerDown={(e) => e.stopPropagation()}>
         {/* Comments list */}
-        <div className="flex-1 space-y-3 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
+        <div ref={commentsListRef} className="flex-1 space-y-3 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
           {loading ? (
             <div className="text-sm text-muted-foreground">
               {t("comments_loading")}
@@ -279,61 +310,61 @@ export function PostCommentsDialog({
                       nickname={comment.userName}
                       size="sm"
                     />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <div className="flex items-center gap-1 text-xs font-medium">
-                        {comment.isVerified && <VerifiedBadge size="sm" />}
-                        {comment.userName}
-                        {comment.userHandle ? <span className="font-normal text-muted-foreground"> | @{comment.userHandle.replace(/^@/, "")}</span> : null}
-                      </div>
-                    </div>
-                    {editingId === comment.id ? (
-                      <div className="mt-1 flex flex-col gap-1.5">
-                        <Textarea
-                          value={editDraft}
-                          onChange={(e) => setEditDraft(e.target.value)}
-                          className="min-h-16 resize-none text-sm"
-                          disabled={savingEditId === comment.id}
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey && editDraft.trim()) {
-                              e.preventDefault();
-                              handleSaveEdit(comment.id);
-                            }
-                            if (e.key === "Escape") handleCancelEdit();
-                          }}
-                        />
-                        <div className="flex gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleSaveEdit(comment.id)}
-                            disabled={!editDraft.trim() || savingEditId === comment.id}
-                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                          >
-                            <Check className="h-3 w-3" />
-                            {t("comments_edit_save")}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleCancelEdit}
-                            disabled={savingEditId === comment.id}
-                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50 transition-colors"
-                          >
-                            <X className="h-3 w-3" />
-                            {t("comments_edit_cancel")}
-                          </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1 text-xs font-medium">
+                          {comment.isVerified && <VerifiedBadge size="sm" />}
+                          {comment.userName}
+                          {comment.userHandle ? <span className="font-normal text-muted-foreground"> @{comment.userHandle.replace(/^@/, "")}</span> : null}
                         </div>
                       </div>
-                    ) : (
-                      <p className="mt-1 text-sm leading-relaxed break-words">
-                        {comment.text}
-                      </p>
-                    )}
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {new Date(comment.createdAt).toLocaleString("pt-BR")}
+                      {editingId === comment.id ? (
+                        <div className="mt-1 flex flex-col gap-1.5">
+                          <Textarea
+                            value={editDraft}
+                            onChange={(e) => setEditDraft(e.target.value)}
+                            className="min-h-16 resize-none text-sm"
+                            disabled={savingEditId === comment.id}
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey && editDraft.trim()) {
+                                e.preventDefault();
+                                handleSaveEdit(comment.id);
+                              }
+                              if (e.key === "Escape") handleCancelEdit();
+                            }}
+                          />
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEdit(comment.id)}
+                              disabled={!editDraft.trim() || savingEditId === comment.id}
+                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            >
+                              <Check className="h-3 w-3" />
+                              {t("comments_edit_save")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCancelEdit}
+                              disabled={savingEditId === comment.id}
+                              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50 transition-colors"
+                            >
+                              <X className="h-3 w-3" />
+                              {t("comments_edit_cancel")}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-sm leading-relaxed break-words">
+                          {comment.text}
+                        </p>
+                      )}
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {new Date(comment.createdAt).toLocaleString("pt-BR")}
+                      </div>
+                      <CommentReactions commentType="post" commentId={comment.id} commentOwnerId={comment.userId} sourceId={postId} isOwnComment={!!(user && user.id === comment.userId)} />
                     </div>
-                    <CommentReactions commentType="post" commentId={comment.id} commentOwnerId={comment.userId} sourceId={postId} isOwnComment={!!(user && user.id === comment.userId)} />
-                  </div>
                   </div>
 
                   {user && user.id === comment.userId && editingId !== comment.id && (

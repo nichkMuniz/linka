@@ -278,13 +278,21 @@ Cada meta no catálogo exibe:
 
 ## Criação de Conteúdo Customizado
 
-### Criar Meta Customizada
-- Dialog com campos:
-  - Nome da meta
-  - Descrição
-  - Tipo (treino / dieta / hábito)
-  - Data objetivo
+### Criar Meta Customizada (`CreateGoalDrawer`)
+- Drawer com campos redesenhados para melhor UX:
+  - **Objetivo** (textarea) — placeholder inspirador com contador de caracteres
+  - **Categoria** — 3 botões com emoji + label: 💪 Fitness / 🏥 Saúde / ✨ Hábitos
+  - **Duração** — chips de preset (30 / 60 / 90 dias) + opção "Personalizado" com input
+  - **Frequência** — stepper (− / número / +) com descrição em linguagem humana ("todos os dias" / "a cada N dias")
 - Função: `createCustomGoalAndSelectDb`
+
+**Empty state da aba Metas (GoalsTab):**
+- Quando o usuário não tem metas ativas nem concluídas, exibe um banner de onboarding com: ícone 🎯, título, descrição e link "Crie sua própria meta"
+- O accordion de metas disponíveis abre automaticamente neste estado
+
+**Empty state da aba Rotinas (RoutinesTab):**
+- Quando o usuário não tem nenhuma rotina, exibe 3 cards de início rápido (Treino 🏋️ / Dieta 🥗 / Hábito ✨) com descrição curta + botão primário "Criar Rotina"
+- Cada card abre o modal de criação de rotina ao ser tocado
 
 ### Criar Treino Customizado
 - Busca no catálogo de exercícios

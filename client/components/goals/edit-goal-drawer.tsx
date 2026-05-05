@@ -41,6 +41,7 @@ export function EditGoalDrawer({
   const [quantity, setQuantity] = React.useState(0);
   const [visibility, setVisibility] = React.useState<number>(1);
   const [isUpdating, setIsUpdating] = React.useState(false);
+  const [showCompleteLabel, setShowCompleteLabel] = React.useState(false);
 
   React.useEffect(() => {
     if (goal) {
@@ -49,6 +50,13 @@ export function EditGoalDrawer({
       setVisibility(goal.visibility ?? 1);
     }
   }, [goal]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setShowCompleteLabel(true);
+    const timer = setTimeout(() => setShowCompleteLabel(false), 3000);
+    return () => clearTimeout(timer);
+  }, [open]);
 
   const handleSave = async () => {
     if (!goal) return;
@@ -141,8 +149,23 @@ export function EditGoalDrawer({
         {goal && (
           <div className="flex-1 overflow-y-auto px-4 pb-6">
             <div className="space-y-4">
-              <div className="p-4 bg-muted/20 rounded-lg">
-                <p className="text-sm font-medium">{goal.description}</p>
+              <div className="p-4 bg-muted/20 rounded-lg flex items-start justify-between gap-3">
+                <p className="text-sm font-medium flex-1">{goal.description}</p>
+                {(goal.perc ?? 0) < 100 && (
+                  <button
+                    onClick={handleMarkComplete}
+                    disabled={isUpdating}
+                    className="flex items-center gap-1 shrink-0 text-xs text-muted-foreground/60 hover:text-emerald-500 transition-colors disabled:opacity-30 disabled:pointer-events-none mt-0.5"
+                  >
+                    <CheckCircle2 className="h-3 w-3 shrink-0" />
+                    <span
+                      className="overflow-hidden transition-all duration-500 ease-in-out whitespace-nowrap"
+                      style={{ maxWidth: showCompleteLabel ? "200px" : "0px", opacity: showCompleteLabel ? 1 : 0 }}
+                    >
+                      {t("goals_mark_complete")}
+                    </span>
+                  </button>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -201,18 +224,7 @@ export function EditGoalDrawer({
                   {isUpdating ? "Atualizando..." : "Salvar Alterações"}
                 </Button>
 
-                <Button
-                  onClick={handleMarkComplete}
-                  disabled={isUpdating || (goal.perc ?? 0) >= 100}
-                  variant="ghost"
-                  size="sm"
-                  className="w-full rounded-full text-xs text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/10 flex items-center justify-center gap-1.5"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                  <span>{t("goals_mark_complete")}</span>
-                </Button>
-
-                <Button
+<Button
                   onClick={handleDelete}
                   disabled={isUpdating}
                   variant="destructive"

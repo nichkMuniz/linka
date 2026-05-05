@@ -51,6 +51,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 | Botão Mudo/Som | Superior direito | Toggle de áudio |
 | Botões de Incentivo | Lateral direita | 6 tipos de reação |
 | Botão Comentários | Lateral direita | Ícone de balão + contagem |
+| Botão de Incentivos (dono) | Lateral direita | ❤️ + total de incentivos recebidos — visível apenas para o dono do shot |
 
 ---
 
@@ -137,6 +138,7 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 | Lista de shots | `getShotsDb()` |
 | Status de seguimento | `getFollowingStatusBatchDb()` |
 | Comentários do shot | `getShotCommentsDb(shotId)` |
+| Quem mandou incentivos | `getShotLikeUsersDb(shotId)` — carregado sob demanda pelo dono |
 
 ---
 
