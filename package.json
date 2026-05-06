@@ -27,7 +27,7 @@
     "@capacitor/local-notifications": "^7.0.0",
     "@capacitor/push-notifications": "^7.0.0",
     "@capacitor/share": "^7.0.0",
-    "@capgo/capacitor-photo-library": "^8.0.11",
+    "@capgo/capacitor-photo-library": "^7.2.11",
     "@supabase/supabase-js": "^2.91.0",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
