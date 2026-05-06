@@ -226,7 +226,7 @@
 
   /* Fade transitions */
   .fade-in {
-    animation: fadeIn 0.3s ease-out;
+    animation: fadeIn 0.25s ease-out;
   }
 
   .fade-out {
@@ -236,10 +236,44 @@
   @keyframes fadeIn {
     from {
       opacity: 0;
+      transform: translateY(6px);
     }
     to {
       opacity: 1;
+      transform: translateY(0);
     }
+  }
+
+  /* Stagger entrance for list items — use nth-child delays via inline style or data-index */
+  @keyframes itemEnter {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .animate-item-enter {
+    animation: itemEnter 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* Tab content transition */
+  @keyframes tabIn {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-tab-in {
+    animation: tabIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   @keyframes fadeOut {

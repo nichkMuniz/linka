@@ -44,7 +44,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { EditShotDescriptionDrawer } from "@/components/profile/edit-shot-description-drawer";
+import { EditShotDescriptionDrawer } from "@/components/shots/edit-shot-description-drawer";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";

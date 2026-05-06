@@ -590,7 +590,13 @@ export default function Admin() {
     : null;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 space-y-8">
+    <div
+      className="max-w-2xl mx-auto px-4 space-y-8"
+      style={{
+        paddingTop: "max(1.5rem, env(safe-area-inset-top))",
+        paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
+      }}
+    >
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

@@ -500,6 +500,8 @@ export const translations = {
     newpost_select_btn: "Selecionar",
     newpost_tap_to_select: "Toque para selecionar fotos",
     newpost_tap_to_select_video: "Toque para selecionar vídeo",
+    newpost_gallery_permission_denied: "Permissão negada. Use o botão para selecionar.",
+    newpost_load_more_photos: "Carregar mais fotos",
     // Loading screen (app-level)
     app_loading: "Carregando…",
     // Goals page — will be expanded below
@@ -1431,6 +1433,8 @@ export const translations = {
     newpost_select_btn: "Select",
     newpost_tap_to_select: "Tap to select photos",
     newpost_tap_to_select_video: "Tap to select a video",
+    newpost_gallery_permission_denied: "Permission denied. Use the button to select.",
+    newpost_load_more_photos: "Load more photos",
     // Loading screen (app-level)
     app_loading: "Loading…",
     // Goals page

@@ -31,7 +31,7 @@ import { ReportDrawer } from "@/components/shared/report-drawer";
 import { GoalCompletedDialog } from "@/components/goals/goal-completed-dialog";
 import { ShareDrawer } from "@/components/shared/share-drawer";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
-import { PostCard } from "@/components/post/post-card";
+import { PostCard } from "@/components/feed/post-card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,7 +45,7 @@ import {
 import { ChevronDown } from "lucide-react";
 import { PostSkeleton } from "@/components/shared/animated-loading";
 import type { PostWithStats } from "../services/post.service";
-import { FlowCarousel } from "@/components/shots/flow-carousel";
+import { FlowCarousel } from "@/components/feed/flow-carousel";
 import { FlowCreationDialog } from "@/components/modals/flow-creation-dialog";
 import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
 import { useAuth } from "@/hooks/useAuth";
@@ -163,24 +163,25 @@ export default function Index() {
       ]);
       setPosts(postsData);
       setStories(storiesData);
-      const activeFlowIds = storiesData.map((s: StoryWithUser) => s.id);
-      const viewedUserIds = await getMyViewedFlowUserIdsDb(activeFlowIds);
-      setViewedStoryIds(viewedUserIds);
+      setLoading(false);
 
       const userStory = storiesData.find((s: StoryWithUser) => s.user_id === user?.id);
       if (userStory?.userPhoto) setCurrentUserPhoto((prev) => prev || userStory.userPhoto);
 
-      deleteOldStoriesDb().catch((err) =>
-        console.error("Error cleaning old stories:", err),
-      );
+      const activeFlowIds = storiesData.map((s: StoryWithUser) => s.id);
+      Promise.all([
+        getMyViewedFlowUserIdsDb(activeFlowIds),
+        deleteOldStoriesDb().catch((err) => console.error("Error cleaning old stories:", err)),
+      ]).then(([viewedUserIds]) => {
+        setViewedStoryIds(viewedUserIds as string[]);
+      }).catch(console.error);
     } catch (err: any) {
       console.error("Erro ao carregar feed:", err?.message || err);
+      setLoading(false);
       toast({
         title: t("post_load_error"),
         description: err?.message || t("retry"),
       });
-    } finally {
-      setLoading(false);
     }
   }, [user?.id, t]);
 

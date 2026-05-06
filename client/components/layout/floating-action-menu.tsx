@@ -8,7 +8,7 @@ import {
   ShoppingBag,
   X,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { AnimatePresence, motion } from "framer-motion";
 import { useLayoutMode, getDefaultFABPosition } from "@/hooks/useLayoutMode";
 import { cn } from "@/lib/utils";
 
@@ -113,42 +113,56 @@ export function FloatingActionMenu() {
         }}
       >
         {/* Expanded Menu Items */}
-        {isOpen && (
-          <div className="absolute bottom-20 right-0 flex flex-col gap-3 mb-2">
-            {navItems.map((item) => {
-              const active = isActivePath(location.pathname, item.to);
-              const Icon = item.icon;
+        <AnimatePresence>
+          {isOpen && (
+            <div className="absolute bottom-20 right-0 flex flex-col gap-3 mb-2">
+              {navItems.map((item, i) => {
+                const active = isActivePath(location.pathname, item.to);
+                const Icon = item.icon;
+                const reverseIndex = navItems.length - 1 - i;
 
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  onClick={handleClose}
-                  className="block"
-                >
-                  <button
-                    className={cn(
-                      "flex flex-col items-center gap-1 px-3 py-2 rounded-2xl transition-all duration-200 text-xs font-medium whitespace-nowrap",
-                      active
-                        ? "bg-brand text-white shadow-lg"
-                        : "bg-muted text-foreground shadow-md hover:bg-muted/80",
-                    )}
+                return (
+                  <motion.div
+                    key={item.to}
+                    initial={{ opacity: 0, y: 12, scale: 0.88 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.9 }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 420,
+                      damping: 26,
+                      delay: reverseIndex * 0.045,
+                    }}
                   >
-                    <Icon className="h-5 w-5" />
-                    <span>{item.label}</span>
-                  </button>
-                </Link>
-              );
-            })}
-          </div>
-        )}
+                    <Link to={item.to} onClick={handleClose} className="block">
+                      <button
+                        className={cn(
+                          "flex flex-col items-center gap-1 px-3 py-2 rounded-2xl transition-all duration-200 text-xs font-medium whitespace-nowrap active:scale-95",
+                          active
+                            ? "bg-brand text-white shadow-lg"
+                            : "bg-muted text-foreground shadow-md hover:bg-muted/80",
+                        )}
+                      >
+                        <Icon className="h-5 w-5" />
+                        <span>{item.label}</span>
+                      </button>
+                    </Link>
+                  </motion.div>
+                );
+              })}
+            </div>
+          )}
+        </AnimatePresence>
 
         {/* Main FAB Button */}
-        <button
+        <motion.button
           onMouseDown={handleMouseDown}
           onClick={() => !isDragging && setIsOpen(!isOpen)}
+          whileTap={{ scale: 0.9 }}
+          animate={{ rotate: isOpen ? 90 : 0 }}
+          transition={{ type: "spring", stiffness: 400, damping: 22 }}
           className={cn(
-            "relative h-16 w-16 rounded-full shadow-lg transition-all duration-200 flex items-center justify-center cursor-grab active:cursor-grabbing",
+            "relative h-16 w-16 rounded-full shadow-lg flex items-center justify-center cursor-grab active:cursor-grabbing transition-colors duration-200",
             isDragging && "cursor-grabbing",
             isOpen
               ? "bg-destructive text-white hover:bg-destructive/90"
@@ -156,12 +170,31 @@ export function FloatingActionMenu() {
           )}
           aria-label={isOpen ? "Fechar menu" : "Abrir menu"}
         >
-          {isOpen ? (
-            <X className="h-6 w-6" />
-          ) : (
-            <span className="text-2xl">≡</span>
-          )}
-        </button>
+          <AnimatePresence mode="wait" initial={false}>
+            {isOpen ? (
+              <motion.span
+                key="close"
+                initial={{ opacity: 0, scale: 0.7 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.7 }}
+                transition={{ duration: 0.12 }}
+              >
+                <X className="h-6 w-6" />
+              </motion.span>
+            ) : (
+              <motion.span
+                key="menu"
+                initial={{ opacity: 0, scale: 0.7 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.7 }}
+                transition={{ duration: 0.12 }}
+                className="text-2xl leading-none"
+              >
+                ≡
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </motion.button>
       </div>
     </>
   );

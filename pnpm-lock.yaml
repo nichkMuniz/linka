@@ -38,6 +38,9 @@ importers:
       '@capacitor/share':
         specifier: ^7.0.0
         version: 7.0.4(@capacitor/core@7.6.2)
+      '@capgo/capacitor-photo-library':
+        specifier: ^8.0.11
+        version: 8.0.11(@capacitor/core@7.6.2)
       '@supabase/supabase-js':
         specifier: ^2.91.0
         version: 2.91.0
@@ -856,6 +859,11 @@ packages:
 
   '@capacitor/synapse@1.0.4':
     resolution: {integrity: sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==}
+
+  '@capgo/capacitor-photo-library@8.0.11':
+    resolution: {integrity: sha512-rrkNVMjuWChaj+hFhvZFiOeJVlWl8fkjgfa1xPasxbxSnvPkrRBBamWwff7qgoGG0Zxp1dwqoKuYc7zmNFKzDQ==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -6458,6 +6466,10 @@ snapshots:
       '@capacitor/core': 7.6.2
 
   '@capacitor/synapse@1.0.4': {}
+
+  '@capgo/capacitor-photo-library@8.0.11(@capacitor/core@7.6.2)':
+    dependencies:
+      '@capacitor/core': 7.6.2
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:

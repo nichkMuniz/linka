@@ -36,8 +36,10 @@ export default function Notifications() {
 
     const loadNotifications = async () => {
       try {
-        await markNotificationsAsReadDb();
-        const data = await getNotificationsDb();
+        const [data] = await Promise.all([
+          getNotificationsDb(),
+          markNotificationsAsReadDb(),
+        ]);
         if (isMounted) setNotifications(data);
       } catch (err: any) {
         console.error("Error loading notifications:", err);

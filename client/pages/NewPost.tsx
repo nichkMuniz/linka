@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { useLanguage } from "@/lib/language-context";
+import { PhotoLibrary, type PhotoLibraryAsset } from "@capgo/capacitor-photo-library";
 
 // Module-level draft store — persists across navigation within the same SPA session
 const imageDraft: { files: File[]; previews: string[]; originalDataUrls: string[] } = {
@@ -92,6 +93,14 @@ export default function NewPost() {
     () => imageDraft.originalDataUrls,
   );
 
+  // ── Gallery state ──
+  const [galleryAssets, setGalleryAssets] = React.useState<PhotoLibraryAsset[]>([]);
+  const [galleryLoading, setGalleryLoading] = React.useState(false);
+  const [galleryPermission, setGalleryPermission] = React.useState<"unknown" | "granted" | "limited" | "denied">("unknown");
+  const [galleryPage, setGalleryPage] = React.useState(0);
+  const [galleryHasMore, setGalleryHasMore] = React.useState(false);
+  const GALLERY_PAGE_SIZE = 40;
+
   // ── Refs ──
   const imageInputRef = React.useRef<HTMLInputElement>(null);
   const videoInputRef = React.useRef<HTMLInputElement>(null);
@@ -145,6 +154,89 @@ export default function NewPost() {
       })
       .finally(() => setIsLoadingGoals(false));
   }, [user, authLoading]);
+
+  // ── Load gallery ──
+  const loadGalleryPage = React.useCallback(async (page: number, reset = false) => {
+    setGalleryLoading(true);
+    try {
+      const result = await PhotoLibrary.getLibrary({
+        offset: page * GALLERY_PAGE_SIZE,
+        limit: GALLERY_PAGE_SIZE,
+        includeImages: true,
+        includeVideos: mediaType === "shot",
+        thumbnailWidth: 300,
+        thumbnailHeight: 300,
+        thumbnailQuality: 0.7,
+      });
+      setGalleryAssets((prev) => reset ? result.assets : [...prev, ...result.assets]);
+      setGalleryHasMore(result.hasMore);
+      setGalleryPage(page);
+    } catch {
+      // silently fail — user may have denied or be on web
+    } finally {
+      setGalleryLoading(false);
+    }
+  }, [mediaType]);
+
+  React.useEffect(() => {
+    const initGallery = async () => {
+      try {
+        const { state } = await PhotoLibrary.checkAuthorization();
+        if (state === "authorized" || state === "limited") {
+          setGalleryPermission(state === "limited" ? "limited" : "granted");
+          loadGalleryPage(0, true);
+        } else if (state === "notDetermined") {
+          const { state: newState } = await PhotoLibrary.requestAuthorization();
+          if (newState === "authorized" || newState === "limited") {
+            setGalleryPermission(newState === "limited" ? "limited" : "granted");
+            loadGalleryPage(0, true);
+          } else {
+            setGalleryPermission("denied");
+          }
+        } else {
+          setGalleryPermission("denied");
+        }
+      } catch {
+        // running in browser/web — gallery not available
+      }
+    };
+    initGallery();
+  }, []);
+
+  React.useEffect(() => {
+    if (galleryPermission === "granted" || galleryPermission === "limited") {
+      setGalleryAssets([]);
+      loadGalleryPage(0, true);
+    }
+  }, [mediaType]);
+
+  const handleGalleryAssetTap = async (asset: PhotoLibraryAsset) => {
+    if (mediaType === "shot" && asset.type === "video") {
+      try {
+        const { webPath } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
+        const response = await fetch(webPath);
+        const blob = await response.blob();
+        const file = new File([blob], asset.fileName, { type: asset.mimeType || "video/mp4" });
+        setSelectedVideoFile(file);
+        setVideoPreview(URL.createObjectURL(file));
+      } catch {
+        videoInputRef.current?.click();
+      }
+      return;
+    }
+    if (mediaType === "post" && asset.type === "image") {
+      try {
+        const { webPath } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
+        const response = await fetch(webPath);
+        const blob = await response.blob();
+        const file = new File([blob], asset.fileName, { type: asset.mimeType || "image/jpeg" });
+        pendingCropQueue.push(file);
+        if (!pendingCropSrc) processNextInQueue();
+      } catch {
+        imageInputRef.current?.click();
+      }
+    }
+  };
 
   // ── Crop helpers ──
   const processNextInQueue = () => {
@@ -510,83 +602,173 @@ export default function NewPost() {
           </button>
         </div>
 
-        {/* ── Gallery grid (selected photos) ── */}
+        {/* ── Gallery grid ── */}
         {mediaType === "post" && (
           <div className="flex-1 overflow-y-auto bg-background">
-            {previewUrls.length > 0 ? (
-              <div className="grid grid-cols-4 gap-px bg-border/20">
-                {/* Camera/add cell */}
-                <button
-                  onClick={() => imageInputRef.current?.click()}
-                  className="aspect-square bg-muted/60 flex items-center justify-center"
-                >
-                  <Camera className="h-6 w-6 text-muted-foreground" />
-                </button>
-                {/* Selected photos */}
-                {previewUrls.map((url, index) => (
-                  <div
-                    key={index}
-                    className="relative aspect-square cursor-pointer"
-                    onClick={() => setCurrentPreviewIndex(index)}
-                  >
-                    <img src={url} alt={t("newpost_photo_alt").replace("{n}", String(index + 1))} className="w-full h-full object-cover" />
-                    {/* Selected indicator */}
-                    <div className={`absolute inset-0 transition-colors ${index === currentPreviewIndex ? "bg-primary/20 ring-2 ring-inset ring-primary" : "hover:bg-black/10"}`} />
-                    {/* Remove button */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); removePhoto(index); }}
-                      className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5"
-                    >
-                      <X className="h-3 w-3 text-white" />
-                    </button>
-                    {/* Order number */}
-                    <div className="absolute bottom-1 left-1 bg-black/60 rounded-full w-5 h-5 flex items-center justify-center text-white text-[10px] font-bold">
-                      {index + 1}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              /* Empty grid — 12 placeholder cells */
-              <div className="grid grid-cols-4 gap-px bg-border/20">
-                {Array.from({ length: 12 }).map((_, i) => (
+            <div className="grid grid-cols-4 gap-px bg-border/20">
+              {/* Camera/add cell — always first */}
+              <button
+                onClick={() => imageInputRef.current?.click()}
+                className="aspect-square bg-muted/60 flex items-center justify-center"
+              >
+                <Camera className="h-6 w-6 text-muted-foreground" />
+              </button>
+
+              {galleryPermission === "denied" && galleryAssets.length === 0 && (
+                <div className="col-span-3 aspect-square flex items-center justify-center px-3">
+                  <p className="text-xs text-muted-foreground text-center">{t("newpost_gallery_permission_denied")}</p>
+                </div>
+              )}
+
+              {/* Gallery assets from device */}
+              {galleryAssets.map((asset) => {
+                const selectedIdx = previewUrls.findIndex((_, i) => selectedFiles[i]?.name === asset.fileName);
+                const isSelected = selectedIdx !== -1;
+                const thumbSrc = asset.thumbnail?.webPath;
+                return (
                   <button
-                    key={i}
-                    onClick={() => imageInputRef.current?.click()}
-                    className="aspect-square bg-muted/40 flex items-center justify-center"
+                    key={asset.id}
+                    onClick={() => handleGalleryAssetTap(asset)}
+                    className="relative aspect-square overflow-hidden"
                   >
-                    {i === 0 && <Camera className="h-6 w-6 text-muted-foreground" />}
+                    {thumbSrc ? (
+                      <img src={thumbSrc} alt={asset.fileName} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-muted/40 flex items-center justify-center">
+                        <Camera className="h-4 w-4 text-muted-foreground/40" />
+                      </div>
+                    )}
+                    {isSelected && (
+                      <div className="absolute inset-0 bg-primary/25 ring-2 ring-inset ring-primary" />
+                    )}
+                    {isSelected && (
+                      <div className="absolute bottom-1 left-1 bg-primary rounded-full w-5 h-5 flex items-center justify-center text-white text-[10px] font-bold">
+                        {selectedIdx + 1}
+                      </div>
+                    )}
                   </button>
-                ))}
+                );
+              })}
+
+              {/* Placeholder cells while loading (first load) */}
+              {galleryLoading && galleryAssets.length === 0 &&
+                Array.from({ length: 11 }).map((_, i) => (
+                  <div key={`ph-${i}`} className="aspect-square bg-muted/30 animate-pulse" />
+                ))
+              }
+            </div>
+
+            {/* Load more */}
+            {galleryHasMore && !galleryLoading && (
+              <button
+                onClick={() => loadGalleryPage(galleryPage + 1)}
+                className="w-full py-3 text-xs text-muted-foreground"
+              >
+                {t("newpost_load_more_photos")}
+              </button>
+            )}
+            {galleryLoading && galleryAssets.length > 0 && (
+              <div className="flex justify-center py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               </div>
             )}
           </div>
         )}
 
-        {mediaType === "shot" && videoPreview && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4 py-6 bg-background">
-            <Clapperboard className="h-8 w-8 text-muted-foreground" />
-            {selectedVideoFile && (
-              <div className="text-center">
-                <p className="text-sm font-medium truncate max-w-[240px]">{selectedVideoFile.name}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {selectedVideoFile.size < 1024 * 1024
-                    ? `${Math.round(selectedVideoFile.size / 1024)} KB`
-                    : `${(selectedVideoFile.size / (1024 * 1024)).toFixed(1)} MB`}
-                </p>
+        {mediaType === "shot" && (
+          <div className="flex-1 overflow-y-auto bg-background">
+            {videoPreview && (
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border/20">
+                <div className="flex items-center gap-3">
+                  <Clapperboard className="h-5 w-5 text-muted-foreground" />
+                  {selectedVideoFile && (
+                    <div>
+                      <p className="text-sm font-medium truncate max-w-[200px]">{selectedVideoFile.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {selectedVideoFile.size < 1024 * 1024
+                          ? `${Math.round(selectedVideoFile.size / 1024)} KB`
+                          : `${(selectedVideoFile.size / (1024 * 1024)).toFixed(1)} MB`}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    if (videoPreview?.startsWith("blob:")) URL.revokeObjectURL(videoPreview);
+                    setVideoPreview(null);
+                    setSelectedVideoFile(null);
+                  }}
+                  className="flex items-center gap-1 text-destructive text-sm"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
             )}
-            <button
-              onClick={() => {
-                if (videoPreview?.startsWith("blob:")) URL.revokeObjectURL(videoPreview);
-                setVideoPreview(null);
-                setSelectedVideoFile(null);
-              }}
-              className="flex items-center gap-1.5 text-destructive text-sm"
-            >
-              <X className="h-4 w-4" />
-              {t("newpost_remove_video_label")}
-            </button>
+
+            {/* Video gallery grid */}
+            <div className="grid grid-cols-4 gap-px bg-border/20">
+              <button
+                onClick={() => videoInputRef.current?.click()}
+                className="aspect-square bg-muted/60 flex items-center justify-center"
+              >
+                <Video className="h-6 w-6 text-muted-foreground" />
+              </button>
+
+              {galleryPermission === "denied" && galleryAssets.length === 0 && (
+                <div className="col-span-3 aspect-square flex items-center justify-center px-3">
+                  <p className="text-xs text-muted-foreground text-center">{t("newpost_gallery_permission_denied")}</p>
+                </div>
+              )}
+
+              {galleryAssets.map((asset) => {
+                const isSelected = selectedVideoFile?.name === asset.fileName;
+                const thumbSrc = asset.thumbnail?.webPath;
+                return (
+                  <button
+                    key={asset.id}
+                    onClick={() => handleGalleryAssetTap(asset)}
+                    className="relative aspect-square overflow-hidden"
+                  >
+                    {thumbSrc ? (
+                      <img src={thumbSrc} alt={asset.fileName} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-muted/40 flex items-center justify-center">
+                        <Video className="h-4 w-4 text-muted-foreground/40" />
+                      </div>
+                    )}
+                    {/* Duration badge */}
+                    {asset.duration && (
+                      <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] px-1 rounded">
+                        {Math.floor(asset.duration / 60)}:{String(Math.round(asset.duration % 60)).padStart(2, "0")}
+                      </div>
+                    )}
+                    {isSelected && (
+                      <div className="absolute inset-0 bg-primary/25 ring-2 ring-inset ring-primary" />
+                    )}
+                  </button>
+                );
+              })}
+
+              {galleryLoading && galleryAssets.length === 0 &&
+                Array.from({ length: 11 }).map((_, i) => (
+                  <div key={`ph-${i}`} className="aspect-square bg-muted/30 animate-pulse" />
+                ))
+              }
+            </div>
+
+            {galleryHasMore && !galleryLoading && (
+              <button
+                onClick={() => loadGalleryPage(galleryPage + 1)}
+                className="w-full py-3 text-xs text-muted-foreground"
+              >
+                {t("newpost_load_more_photos")}
+              </button>
+            )}
+            {galleryLoading && galleryAssets.length > 0 && (
+              <div className="flex justify-center py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
           </div>
         )}
 
@@ -701,17 +883,19 @@ export default function NewPost() {
             </div>
             {isLoadingGoals ? (
               <p className="text-sm text-muted-foreground">{t("newpost_goals_loading")}</p>
-            ) : userGoals.length > 0 ? (
+            ) : userGoals.filter((g) => g.perc < 100).length > 0 ? (
               <Select value={selectedGoalId} onValueChange={setSelectedGoalId}>
                 <SelectTrigger className="rounded-xl">
                   <SelectValue placeholder={t("newpost_select_goal")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {userGoals.map((goal) => (
-                    <SelectItem key={goal.id} value={goal.id}>
-                      {goal.description}
-                    </SelectItem>
-                  ))}
+                  {userGoals
+                    .filter((g) => g.perc < 100)
+                    .map((goal) => (
+                      <SelectItem key={goal.id} value={goal.id}>
+                        {goal.description}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             ) : (

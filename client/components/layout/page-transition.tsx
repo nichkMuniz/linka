@@ -14,15 +14,18 @@ function getRouteIndex(path: string) {
 const variants = {
   initial: (dir: number) => ({
     opacity: 0,
-    x: dir * 22,
+    x: dir * 30,
+    scale: 0.98,
   }),
   animate: {
     opacity: 1,
     x: 0,
+    scale: 1,
   },
   exit: (dir: number) => ({
     opacity: 0,
-    x: -dir * 14,
+    x: -dir * 18,
+    scale: 0.98,
   }),
 };
 
@@ -50,7 +53,7 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
         initial="initial"
         animate="animate"
         exit="exit"
-        transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
+        transition={{ duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
         style={{ willChange: "opacity, transform" }}
       >
         {children}

@@ -378,18 +378,6 @@ export default function Goals() {
   };
 
   const startGpsTracking = async (workoutId: string) => {
-    // Request location permission first — on iOS this triggers the system dialog
-    if (isNativeGpsSupported()) {
-      const granted = await requestLocationPermission();
-      if (!granted) {
-        toast({
-          title: "Permissão de localização negada",
-          description: "Acesse Configurações > LinKa > Localização e permita o acesso.",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
 
     setGpsActive(true);
     setGpsDistance(0);
@@ -458,7 +446,8 @@ export default function Goals() {
             variant: "destructive",
           });
         } else {
-          toast({ title: t("goals_gps_unavailable"), description: t("goals_gps_start_error"), variant: "destructive" });
+          const msg = String(err);
+          toast({ title: t("goals_gps_unavailable"), description: msg || t("goals_gps_start_error"), variant: "destructive" });
         }
         setGpsActive(false);
         stopGpsTracking();
@@ -2983,7 +2972,7 @@ export default function Goals() {
 
       {/* Add Routine Drawer Modal */}
       <Drawer open={addRoutineModalOpen} onOpenChange={(open) => { setAddRoutineModalOpen(open); if (!open) { setIsAddingFromWorkout(false); setNameStepActive(false); setCameFromTypeCard(false); } }}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent className={`flex flex-col modal-enter ${selectedRoutineType !== null && !nameStepActive ? "h-[85dvh]" : "max-h-[80dvh]"}`} onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               {nameStepActive

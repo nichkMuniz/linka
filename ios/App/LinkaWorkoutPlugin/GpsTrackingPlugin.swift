@@ -12,22 +12,21 @@ public class GpsTrackingPlugin: CAPPlugin, CLLocationManagerDelegate {
 
     @objc func start(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            // Stop any previous session before starting a new one
+            self.locationManager?.stopUpdatingLocation()
+            self.pendingStartCall = nil
+
             let manager = CLLocationManager()
             manager.delegate = self
             manager.desiredAccuracy = kCLLocationAccuracyBest
             manager.distanceFilter = kCLDistanceFilterNone
             manager.pausesLocationUpdatesAutomatically = false
-
-            if manager.responds(to: #selector(getter: CLLocationManager.allowsBackgroundLocationUpdates)) {
-                manager.allowsBackgroundLocationUpdates = true
-            }
-
+            manager.allowsBackgroundLocationUpdates = true
             self.locationManager = manager
 
             let status = manager.authorizationStatus
             switch status {
             case .notDetermined:
-                // Store call — will resolve/reject in didChangeAuthorization
                 self.pendingStartCall = call
                 manager.requestAlwaysAuthorization()
             case .authorizedAlways, .authorizedWhenInUse:
@@ -36,7 +35,7 @@ public class GpsTrackingPlugin: CAPPlugin, CLLocationManagerDelegate {
             case .denied, .restricted:
                 call.reject("PERMISSION_DENIED")
             @unknown default:
-                call.reject("PERMISSION_DENIED")
+                call.reject("UNKNOWN_AUTH_STATUS")
             }
         }
     }
