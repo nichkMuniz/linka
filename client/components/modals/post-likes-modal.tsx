@@ -10,16 +10,7 @@ import { UserAvatar } from "@/components/shared/user-avatar";
 import { useNavigate } from "react-router-dom";
 import { Heart } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
-
-const INCENTIVE_ICONS: Record<number, string> = {
-  1: "❤️",
-  2: "🔥",
-  3: "🏆",
-  4: "📈",
-  5: "💪",
-  6: "⚡",
-};
-
+import { getIncentiveConfig } from "@/lib/incentive-config";
 
 export interface PostLike {
   userId: string;
@@ -89,12 +80,14 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
               </p>
             </div>
 
-            {/* Incentive Type Breakdown with Icons - Filterable */}
+            {/* Incentive Type Breakdown — Filterable */}
             {Object.keys(incentiveTypeCounts).length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {Object.entries(incentiveTypeCounts).map(([typeStr, count]) => {
                   const typeNum = Number(typeStr);
                   const isActive = activeFilter === typeNum;
+                  const cfg = getIncentiveConfig(typeNum);
+                  const Icon = cfg?.Icon;
                   return (
                     <button
                       key={typeStr}
@@ -107,9 +100,11 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
                     >
                       <span className="font-semibold">{count}</span>
                       <p className={isActive ? "text-primary-foreground" : "text-muted-foreground"}>{getIncentiveTypeName(typeNum)}</p>
-                      <span className="text-base ml-1">
-                        {INCENTIVE_ICONS[typeNum] || "👍"}
-                      </span>
+                      {Icon && (
+                        <Icon
+                          className={`h-4 w-4 ml-1 ${isActive ? "text-primary-foreground" : cfg!.activeClassName}`}
+                        />
+                      )}
                     </button>
                   );
                 })}
@@ -122,37 +117,41 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
           {filteredLikes.length === 0 ? (
             <div className="flex items-center justify-center py-8">
               <p className="text-sm text-muted-foreground">
-                {likes.length === 0 ? t("incentives_none") : "Nenhum incentivo deste tipo"}
+                {likes.length === 0 ? t("incentives_none") : t("incentives_none_type")}
               </p>
             </div>
           ) : (
             <div className="space-y-2 pt-4">
-              {filteredLikes.map((like) => (
-                <button
-                  key={`${like.userId}-${like.type}`}
-                  onClick={() => handleUserClick(like.userId)}
-                  className="w-full flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors border border-border/40"
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <UserAvatar
-                      photo={like.userPhoto}
-                      gender={like.userGender}
-                      nickname={like.userNickname}
-                    />
-                    <p className="text-sm font-medium text-foreground truncate">
-                      {like.userNickname}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs font-semibold bg-red-500/20 text-red-600 px-2 py-1 rounded-full flex items-center gap-1.5">
-                      {getIncentiveTypeName(like.type)}
-                      <span className="text-sm">
-                        {INCENTIVE_ICONS[like.type] || "👍"}
+              {filteredLikes.map((like) => {
+                const cfg = getIncentiveConfig(like.type);
+                const Icon = cfg?.Icon;
+                return (
+                  <button
+                    key={`${like.userId}-${like.type}`}
+                    onClick={() => handleUserClick(like.userId)}
+                    className="w-full flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors border border-border/40"
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <UserAvatar
+                        photo={like.userPhoto}
+                        gender={like.userGender}
+                        nickname={like.userNickname}
+                      />
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {like.userNickname}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs font-semibold bg-red-500/20 text-red-600 px-2 py-1 rounded-full flex items-center gap-1.5">
+                        {getIncentiveTypeName(like.type)}
+                        {Icon && (
+                          <Icon className={`h-3.5 w-3.5 ${cfg!.activeClassName}`} />
+                        )}
                       </span>
-                    </span>
-                  </div>
-                </button>
-              ))}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

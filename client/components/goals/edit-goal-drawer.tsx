@@ -18,6 +18,7 @@ import {
   type UserGoal,
 } from "@/lib/ritmofit-db";
 import { useLanguage } from "@/lib/language-context";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 interface EditGoalDrawerProps {
   open: boolean;
@@ -37,6 +38,7 @@ export function EditGoalDrawer({
   onGoalCompleted,
 }: EditGoalDrawerProps) {
   const { t } = useLanguage();
+  const viewportHeight = useKeyboardAwareHeight();
   const [duration, setDuration] = React.useState(0);
   const [quantity, setQuantity] = React.useState(0);
   const [visibility, setVisibility] = React.useState<number>(1);
@@ -141,7 +143,7 @@ export function EditGoalDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Editar Meta</DrawerTitle>
         </DrawerHeader>

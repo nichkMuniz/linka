@@ -9,6 +9,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { type SearchUser, type Conversation, searchUsersDb } from "@/lib/ritmofit-db";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 interface NewConversationDrawerProps {
   open: boolean;
@@ -26,6 +27,7 @@ export function NewConversationDrawer({
   const [results, setResults] = React.useState<SearchUser[]>([]);
   const [isSearching, setIsSearching] = React.useState(false);
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const viewportHeight = useKeyboardAwareHeight();
 
   React.useEffect(() => {
     if (!open) {
@@ -56,7 +58,7 @@ export function NewConversationDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent className="flex flex-col z-[100]" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Nova mensagem</DrawerTitle>
         </DrawerHeader>

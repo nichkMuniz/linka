@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Edit2, Trash2 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import { updateShotDb, deleteShotDb, type ShotWithUser } from "@/lib/ritmofit-db";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 interface ShotEditorDrawerProps {
   open: boolean;
@@ -28,6 +29,7 @@ export function ShotEditorDrawer({
 }: ShotEditorDrawerProps) {
   const [isEditing, setIsEditing] = React.useState(false);
   const [description, setDescription] = React.useState("");
+  const viewportHeight = useKeyboardAwareHeight();
   const [isSaving, setIsSaving] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
 
@@ -75,7 +77,7 @@ export function ShotEditorDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>{isEditing ? "Editar Shot" : "Opções do Shot"}</DrawerTitle>
         </DrawerHeader>

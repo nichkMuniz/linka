@@ -1,4 +1,5 @@
 import * as React from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
@@ -17,11 +18,13 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { MoreVertical, Flag, Trash2, Share2, Edit2, Target } from "lucide-react";
-import { formatTimeAgo } from "@/lib/utils";
+import { formatTimeAgo, cn } from "@/lib/utils";
 import type { PostWithStats } from "@/services/post.service";
 import type { PostIncentiveType } from "@/lib/ritmofit-db";
+import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
 import { useNavigate } from "react-router-dom";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
+import { useLanguage } from "@/lib/language-context";
 
 interface PostCardProps {
   post: PostWithStats;
@@ -57,15 +60,39 @@ export function PostCard({
   onDelete,
 }: PostCardProps) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const isOwner = post.user_id === currentUserId;
   const [quickOverlayVisible, setQuickOverlayVisible] = React.useState(false);
   const [burstType, setBurstType] = React.useState<PostIncentiveType | null>(null);
+  const [badgeType, setBadgeType] = React.useState<PostIncentiveType | null>(null);
+  const [badgeTick, setBadgeTick] = React.useState(0);
   const lastTapRef = React.useRef<number>(0);
+  const badgeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const totalLikes = Object.values(post.likes).reduce(
     (sum: number, val: number) => sum + val,
     0,
   );
   const progressWidth = `${Math.min(100, Math.max(0, post.userGoal?.perc ?? 0))}%`;
+
+  const badgeCfg = badgeType ? INCENTIVE_CONFIG[badgeType] : null;
+  const badgeLabel = badgeType
+    ? t(`incentive_${badgeType}` as Parameters<typeof t>[0])
+    : null;
+
+  function triggerBadge(type: PostIncentiveType) {
+    if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    setBadgeType(type);
+    setBadgeTick((n) => n + 1);
+    badgeTimerRef.current = setTimeout(() => setBadgeType(null), 3000);
+  }
+
+  React.useEffect(
+    () => () => {
+      if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+    },
+    [],
+  );
 
   return (
     <Card className="border-border/60 relative overflow-hidden fade-in rounded-xl mx-2">
@@ -93,7 +120,6 @@ export function PostCard({
               />
             </div>
           ) : (
-            /* Post sem mídia — placeholder mínimo para o overlay não colapsar */
             <div className="relative w-full min-h-[56px] bg-muted/30" />
           )}
 
@@ -102,12 +128,45 @@ export function PostCard({
             userLikes={post.userLikes}
             onSelect={(type) => {
               setQuickOverlayVisible(false);
+              triggerBadge(type);
               setBurstType(type);
               setTimeout(() => setBurstType(null), 600);
               onToggleLike(post.id, type);
             }}
             onDismiss={() => setQuickOverlayVisible(false)}
           />
+
+          {/* Incentive confirmation badge — flies up from icon area, stays, flies back */}
+          <AnimatePresence mode="wait">
+            {badgeType && badgeCfg && (
+              <motion.div
+                key={`badge-${badgeTick}`}
+                className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none"
+                initial={{ opacity: 0, scale: 0.35, y: 72 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.35, y: 72 }}
+                transition={{
+                  opacity: { duration: 0.45, ease: "easeInOut" },
+                  scale: { type: "spring", stiffness: 460, damping: 22 },
+                  y: { type: "spring", stiffness: 460, damping: 22 },
+                }}
+              >
+                <div
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-full px-5 py-3",
+                    "bg-black/75 backdrop-blur-md shadow-2xl border border-white/15",
+                  )}
+                >
+                  <badgeCfg.Icon
+                    className={cn("h-5 w-5 flex-shrink-0", badgeCfg.activeClassName)}
+                  />
+                  <span className="text-sm font-semibold text-white tracking-wide">
+                    {badgeLabel}
+                  </span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* User info overlay */}
           <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-2 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
@@ -194,16 +253,22 @@ export function PostCard({
 
         {/* Incentive buttons + comments */}
         <div className="flex items-center px-2 pt-1 pb-0.5">
-          {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => (
-            <PostIncentiveButton
-              key={type}
-              type={type}
-              isActive={post.userLikes.includes(type)}
-              onClick={() => onToggleLike(post.id, type)}
-              loading={togglingIncentives.has(`${post.id}-${type}`)}
-              burst={burstType === type}
-            />
-          ))}
+          {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
+            const isActive = post.userLikes.includes(type);
+            return (
+              <PostIncentiveButton
+                key={type}
+                type={type}
+                isActive={isActive}
+                onClick={() => {
+                  if (!isActive) triggerBadge(type);
+                  onToggleLike(post.id, type);
+                }}
+                loading={togglingIncentives.has(`${post.id}-${type}`)}
+                burst={burstType === type}
+              />
+            );
+          })}
           <div className="ml-auto">
             <PostCommentsDialog
               postId={post.id}

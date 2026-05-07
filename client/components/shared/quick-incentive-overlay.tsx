@@ -1,18 +1,10 @@
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart, Flame, Trophy, TrendingUp, Dumbbell, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PostIncentiveType } from "@/lib/ritmofit-db";
+import { INCENTIVE_CONFIG, INCENTIVE_TYPES } from "@/lib/incentive-config";
 import { useLanguage } from "@/lib/language-context";
-
-const incentiveConfig = {
-  1: { Icon: Heart, activeClassName: "text-rose-500 fill-rose-500", bgColor: "bg-rose-500/20" },
-  2: { Icon: Flame, activeClassName: "text-orange-500 fill-orange-500", bgColor: "bg-orange-500/20" },
-  3: { Icon: Trophy, activeClassName: "text-amber-500 fill-amber-500", bgColor: "bg-amber-500/20" },
-  4: { Icon: TrendingUp, activeClassName: "text-emerald-500", bgColor: "bg-emerald-500/20" },
-  5: { Icon: Dumbbell, activeClassName: "text-blue-500 fill-blue-500", bgColor: "bg-blue-500/20" },
-  6: { Icon: Zap, activeClassName: "text-yellow-500 fill-yellow-500", bgColor: "bg-yellow-500/20" },
-} as const;
+import { showIncentiveToast } from "@/lib/incentive-toast";
 
 interface QuickIncentiveOverlayProps {
   visible: boolean;
@@ -29,12 +21,17 @@ export function QuickIncentiveOverlay({
 }: QuickIncentiveOverlayProps) {
   const { t } = useLanguage();
 
-  // Auto-dismiss after 3 seconds
+  // Auto-dismiss picker after 3 seconds
   React.useEffect(() => {
     if (!visible) return;
     const timer = setTimeout(onDismiss, 3000);
     return () => clearTimeout(timer);
   }, [visible, onDismiss]);
+
+  function handleSelect(type: PostIncentiveType) {
+    showIncentiveToast(type);
+    onSelect(type);
+  }
 
   return (
     <AnimatePresence>
@@ -46,7 +43,7 @@ export function QuickIncentiveOverlay({
             onClick={onDismiss}
           />
 
-          {/* Overlay pill */}
+          {/* Icons pill */}
           <motion.div
             className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
             initial={{ opacity: 0 }}
@@ -61,15 +58,15 @@ export function QuickIncentiveOverlay({
               exit={{ scale: 0.6, y: 20 }}
               transition={{ type: "spring", stiffness: 400, damping: 25 }}
             >
-              {(Object.keys(incentiveConfig) as unknown as PostIncentiveType[]).map((type) => {
-                const { Icon, activeClassName, bgColor } = incentiveConfig[type];
+              {INCENTIVE_TYPES.map((type) => {
+                const { Icon, activeClassName, bgColor } = INCENTIVE_CONFIG[type];
                 const isActive = userLikes.includes(type);
                 return (
                   <motion.button
                     key={type}
                     type="button"
-                    aria-label={t(`incentive_${type as number}` as Parameters<typeof t>[0])}
-                    onClick={() => onSelect(type)}
+                    aria-label={t(`incentive_${type}` as Parameters<typeof t>[0])}
+                    onClick={() => handleSelect(type)}
                     whileHover={{ scale: 1.2 }}
                     whileTap={{ scale: 0.8 }}
                     className={cn(
@@ -87,7 +84,7 @@ export function QuickIncentiveOverlay({
                       <motion.div
                         className="absolute inset-0 rounded-full border-2 border-current opacity-60"
                         layoutId={`active-ring-${type}`}
-                        style={{ color: Icon === Heart ? "#f43f5e" : undefined }}
+                        style={{ color: type === 1 ? "#f43f5e" : undefined }}
                       />
                     )}
                   </motion.button>

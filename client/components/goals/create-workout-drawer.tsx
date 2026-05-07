@@ -12,6 +12,7 @@ import { toast } from "@/components/ui/use-toast";
 import { createCustomWorkoutDb, type Workout } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { Camera, X } from "lucide-react";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 interface CreateWorkoutDrawerProps {
   open: boolean;
@@ -35,6 +36,7 @@ export function CreateWorkoutDrawer({
   const [photoFile, setPhotoFile] = React.useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const viewportHeight = useKeyboardAwareHeight();
 
   React.useEffect(() => {
     if (open) {
@@ -94,7 +96,7 @@ export function CreateWorkoutDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Criar Exercício Personalizado</DrawerTitle>
         </DrawerHeader>

@@ -1,5 +1,6 @@
 import * as React from "react";
 import { QuickIncentiveOverlay } from "@/components/shared/quick-incentive-overlay";
+import { showIncentiveToast } from "@/lib/incentive-toast";
 import {
   Drawer,
   DrawerContent,
@@ -576,6 +577,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                       setQuickOverlayShotId(null);
                       setBurstMap((prev) => ({ ...prev, [shot.id]: type }));
                       setTimeout(() => setBurstMap((prev) => ({ ...prev, [shot.id]: null })), 600);
+                      showIncentiveToast(type);
                       handleIncentiveClick(shot, type);
                     }}
                     onDismiss={() => setQuickOverlayShotId(null)}
@@ -621,7 +623,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
               {/* Top-right controls */}
               <div
                 className="absolute right-4 z-20 flex items-center gap-2"
-                style={{ top: "max(1rem, env(safe-area-inset-top))" }}
+                style={{ top: "1rem" }}
               >
                 <button
                   onClick={() => {
@@ -675,7 +677,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
               {/* User Info - Top Left */}
               <div
                 className="absolute left-4 z-10 flex items-center gap-3 max-w-[55%]"
-                style={{ top: "max(1rem, env(safe-area-inset-top))" }}
+                style={{ top: "1rem" }}
               >
                 <button
                   onClick={() => navigate(`/usuario/${shot.user_id}`)}
@@ -720,7 +722,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
                 style={{
                   bottom: isDesktop
                     ? "1rem"
-                    : `calc(${footerHeight}px + env(safe-area-inset-bottom) + 0.25rem)`,
+                    : "calc(env(safe-area-inset-bottom) + 0.75rem)",
                 }}
               >
                 {/* Description - Bottom Left */}

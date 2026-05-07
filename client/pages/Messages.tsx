@@ -595,8 +595,17 @@ export default function Messages() {
         </div>
 
         {/* Input */}
-        <div className="flex-shrink-0 border-t border-border/60 bg-background px-4 py-3 flex gap-2" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
-          <Input
+        <div
+          className="flex-shrink-0 border-t border-border/60 bg-background flex items-center gap-3"
+          style={{
+            paddingTop: "0.75rem",
+            paddingLeft: "1rem",
+            paddingRight: "1rem",
+            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+            minHeight: "4.5rem",
+          }}
+        >
+          <input
             placeholder="Envie uma mensagem..."
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
@@ -606,15 +615,30 @@ export default function Messages() {
                 handleSendMessage();
               }
             }}
-            className="rounded-full"
+            style={{
+              flex: 1,
+              height: "3rem",
+              minHeight: "3rem",
+              borderRadius: "9999px",
+              border: "1px solid hsl(var(--border))",
+              background: "hsl(var(--background))",
+              color: "hsl(var(--foreground))",
+              fontSize: "1rem",
+              paddingLeft: "1.25rem",
+              paddingRight: "1.25rem",
+              outline: "none",
+              WebkitAppearance: "none",
+              boxSizing: "border-box",
+            }}
           />
           <Button
             onClick={handleSendMessage}
             disabled={!messageText.trim() || isSending}
-            size="sm"
-            className="rounded-full flex-shrink-0"
+            size="icon"
+            style={{ height: "3rem", width: "3rem", flexShrink: 0 }}
+            className="rounded-full"
           >
-            <Send className="h-4 w-4" />
+            <Send className="h-5 w-5" />
           </Button>
         </div>
       </div>

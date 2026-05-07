@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { updatePostDb, getUserGoalsDb, removePostPhotoDb } from "@/lib/ritmofit-db";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 interface EditPostTarget {
   id: string;
@@ -29,6 +30,7 @@ interface EditPostDrawerProps {
 export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDrawerProps) {
   const [description, setDescription] = React.useState("");
   const [goalId, setGoalId] = React.useState<string | null>(null);
+  const viewportHeight = useKeyboardAwareHeight();
   const [userGoals, setUserGoals] = React.useState<Array<{ id: string; description: string }>>([]);
   const [isLoadingGoals, setIsLoadingGoals] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
@@ -89,7 +91,7 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
 
   return (
     <Drawer open={open} onOpenChange={(v) => { if (!v) onOpenChange(false); }}>
-      <DrawerContent className="max-h-[85dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent className="flex flex-col" style={{ maxHeight: `min(85dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader>
           <DrawerTitle>Editar post</DrawerTitle>
         </DrawerHeader>

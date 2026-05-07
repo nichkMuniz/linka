@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 import { addMembersToGroupDb, type SearchUser } from "@/lib/ritmofit-db";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 interface AddMembersDrawerProps {
   open: boolean;
@@ -31,6 +32,7 @@ export function AddMembersDrawer({
 }: AddMembersDrawerProps) {
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const viewportHeight = useKeyboardAwareHeight();
 
   React.useEffect(() => {
     if (!open) {
@@ -72,7 +74,7 @@ export function AddMembersDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent className="flex flex-col z-[100]" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Adicionar Membros</DrawerTitle>
           <DrawerDescription className="sr-only">Convide pessoas para o grupo</DrawerDescription>

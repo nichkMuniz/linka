@@ -33,6 +33,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { IncentiveConfirmToast } from "@/components/shared/incentive-confirm-toast";
 import { getUnreadMessageCountDb, getUnreadNotificationsCountDb, getUserProfileDb, subscribeToUnreadNotificationsDb, recordAccessSessionDb, recordScreenTimeDb } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -350,6 +351,18 @@ export function AppLayout() {
     loadProfilePhoto();
   }, [user]);
 
+  // Full-screen mode: driven by data-fullscreen-step on document.body (set by NewPost)
+  const [isFullscreenPage, setIsFullscreenPage] = React.useState(
+    () => document.body.dataset.fullscreenStep === "true"
+  );
+  React.useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsFullscreenPage(document.body.dataset.fullscreenStep === "true");
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ["data-fullscreen-step"] });
+    return () => observer.disconnect();
+  }, []);
+
   // Scroll hide header — mobile only, only on feed and shots pages
   const isScrollHidePage = location.pathname === "/" || location.pathname === "/shots";
 
@@ -542,7 +555,7 @@ export function AppLayout() {
       </aside>
 
       {/* ── MOBILE HEADER (< md) ── */}
-      <header
+      {!isFullscreenPage && <header
         className={cn(
           "md:hidden sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55 transition-transform duration-200",
           headerHidden ? "-translate-y-full pointer-events-none" : "translate-y-0",
@@ -617,7 +630,7 @@ export function AppLayout() {
             </Link>
           </div>
         </div>
-      </header>
+      </header>}
 
       {/* ── SINGLE OUTLET — rendered once, responsive for mobile and desktop ── */}
       <div
@@ -629,14 +642,17 @@ export function AppLayout() {
       >
         <main
           className={cn(
-            "w-full pt-6",
-            // Mobile
-            "px-4",
-            layoutMode === "default" && !hideNav
-              ? "pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)]"
-              : "pb-6",
-            // Desktop overrides
-            "md:px-0 md:pb-6 md:max-w-[680px] md:mx-auto md:min-h-dvh",
+            "w-full",
+            isFullscreenPage
+              ? "pt-0 px-0 pb-0"
+              : cn(
+                  "pt-6 px-4",
+                  layoutMode === "default" && !hideNav
+                    ? "pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)]"
+                    : "pb-6",
+                ),
+            // Desktop overrides (sidebar layout — not affected by fullscreen flag)
+            "md:px-0 md:pb-6 md:pt-6 md:max-w-[680px] md:mx-auto md:min-h-dvh",
           )}
         >
           <PageTransition>
@@ -646,7 +662,7 @@ export function AppLayout() {
       </div>
 
       {/* ── MOBILE BOTTOM NAV (< md) ── */}
-      {layoutMode === "default" && !hideNav && (
+      {layoutMode === "default" && !hideNav && !isFullscreenPage && (
         <nav className={cn(
           "md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border/60",
           location.pathname === "/shots"
@@ -784,6 +800,9 @@ export function AppLayout() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Global incentive confirmation toast */}
+      <IncentiveConfirmToast />
 
       {/* Timer Expired Full-Screen Block */}
       {timerBlockVisible && (

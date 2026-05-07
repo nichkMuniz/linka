@@ -20,6 +20,7 @@ import { ExecuteAtDrawer } from "@/components/goals/execute-at-drawer";
 import { CreateWorkoutDrawer } from "@/components/goals/create-workout-drawer";
 import { useLanguage } from "@/lib/language-context";
 import { toast } from "@/components/ui/use-toast";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { createCustomWorkoutDb, type Workout, type Diet, type Habit, type UserWorkoutWithDetails, type UserDietWithDetails } from "@/lib/ritmofit-db";
 
 export interface UnifiedExercise {
@@ -131,6 +132,7 @@ export function AddRoutineModal({
   onWorkoutCreated,
 }: AddRoutineModalProps) {
   const { t } = useLanguage();
+  const viewportHeight = useKeyboardAwareHeight();
   const [createWorkoutDrawerOpen, setCreateWorkoutDrawerOpen] = React.useState(false);
   const [createWorkoutInitialName, setCreateWorkoutInitialName] = React.useState("");
 
@@ -172,10 +174,12 @@ export function AddRoutineModal({
           onOpenChange(o);
           if (!o) onIsAddingFromWorkoutChange(false);
         }}
+        snapPoints={[0.9, 1]}
+        defaultSnapPoint={0.9}
       >
         <DrawerContent
-          className="flex flex-col modal-enter rounded-none"
-          style={{ height: "100dvh", maxHeight: "100dvh", marginTop: 0 }}
+          className="flex flex-col modal-enter"
+          style={{ height: `min(90dvh, ${viewportHeight - 8}px)`, maxHeight: "100dvh" }}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           {/* absorve o foco inicial no iOS para evitar que o teclado abra automaticamente */}

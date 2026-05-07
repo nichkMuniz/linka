@@ -29,40 +29,278 @@ import {
   Sparkles,
   Target,
   Clapperboard,
-  Crop,
   Camera,
   ArrowLeft,
 } from "lucide-react";
-import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { useLanguage } from "@/lib/language-context";
 import { PhotoLibrary, type PhotoLibraryAsset } from "@capgo/capacitor-photo-library";
 
-// Module-level draft store — persists across navigation within the same SPA session
-const imageDraft: { files: File[]; previews: string[]; originalDataUrls: string[] } = {
-  files: [],
-  previews: [],
-  originalDataUrls: [],
-};
-const pendingCropQueue: File[] = [];
+// ─── Crop types & helpers ───────────────────────────────────────────────────
+
+interface CropTransform {
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+const MIN_SCALE = 1;
+const MAX_SCALE = 5;
+
+function clampVal(v: number, lo: number, hi: number) {
+  return Math.min(Math.max(v, lo), hi);
+}
+
+function clampedOffset(
+  imgEl: HTMLImageElement,
+  containerW: number,
+  scale: number,
+  ox: number,
+  oy: number
+): { offsetX: number; offsetY: number } {
+  const imgAspect = imgEl.naturalWidth / imgEl.naturalHeight;
+  let baseW: number, baseH: number;
+  if (imgAspect > 1) { baseH = containerW; baseW = containerW * imgAspect; }
+  else { baseW = containerW; baseH = containerW / imgAspect; }
+  const dW = baseW * scale;
+  const dH = baseH * scale;
+  const maxX = Math.max(0, (dW - containerW) / 2);
+  const maxY = Math.max(0, (dH - containerW) / 2);
+  return { offsetX: clampVal(ox, -maxX, maxX), offsetY: clampVal(oy, -maxY, maxY) };
+}
+
+function applyTransformToBlob(
+  dataUrl: string,
+  transform: CropTransform,
+  containerWidth: number
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const frameW = containerWidth;
+      const frameH = containerWidth;
+      const imgAspect = img.naturalWidth / img.naturalHeight;
+      let baseW: number, baseH: number;
+      if (imgAspect > 1) { baseH = frameH; baseW = frameH * imgAspect; }
+      else { baseW = frameW; baseH = frameW / imgAspect; }
+      const { scale, offsetX, offsetY } = transform;
+      const cssPerNatX = (baseW * scale) / img.naturalWidth;
+      const cssPerNatY = (baseH * scale) / img.naturalHeight;
+      const cropOriginX = ((baseW * scale - frameW) / 2 - offsetX) / cssPerNatX;
+      const cropOriginY = ((baseH * scale - frameH) / 2 - offsetY) / cssPerNatY;
+      const cropNatW = frameW / cssPerNatX;
+      const cropNatH = frameH / cssPerNatY;
+      const MAX_EXPORT = 2160;
+      const exportW = Math.round(Math.min(cropNatW, MAX_EXPORT));
+      const exportH = Math.round(Math.min(cropNatH, MAX_EXPORT));
+      const canvas = document.createElement("canvas");
+      canvas.width = exportW;
+      canvas.height = exportH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("no ctx")); return; }
+      ctx.drawImage(img, cropOriginX, cropOriginY, cropNatW, cropNatH, 0, 0, exportW, exportH);
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+        "image/jpeg",
+        0.92
+      );
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+// ─── Inline crop preview ────────────────────────────────────────────────────
+
+function InlineCropPreview({
+  imageSrc,
+  transform,
+  onTransformChange,
+  containerWidthRef,
+}: {
+  imageSrc: string;
+  transform: CropTransform;
+  onTransformChange: (t: CropTransform) => void;
+  containerWidthRef: React.MutableRefObject<number>;
+}) {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const imgRef = React.useRef<HTMLImageElement | null>(null);
+  const [imageLoaded, setImageLoaded] = React.useState(false);
+  const [containerW, setContainerW] = React.useState(0);
+  const gestureRef = React.useRef<{
+    type: "none" | "drag" | "pinch";
+    lastX: number; lastY: number; lastDist: number; lastScale: number;
+  }>({ type: "none", lastX: 0, lastY: 0, lastDist: 0, lastScale: 1 });
+
+  // Store latest transform in a ref so gesture handlers don't go stale
+  const transformRef = React.useRef(transform);
+  React.useEffect(() => { transformRef.current = transform; }, [transform]);
+
+  React.useEffect(() => {
+    setImageLoaded(false);
+    const img = new Image();
+    img.onload = () => { imgRef.current = img; setImageLoaded(true); };
+    img.src = imageSrc;
+  }, [imageSrc]);
+
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      setContainerW(w);
+      containerWidthRef.current = w;
+    });
+    ro.observe(el);
+    const w = el.clientWidth;
+    setContainerW(w);
+    containerWidthRef.current = w;
+    return () => ro.disconnect();
+  }, []);
+
+  // Draw canvas
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img || !imageLoaded || containerW === 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(containerW * dpr);
+    canvas.height = Math.round(containerW * dpr);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, containerW, containerW);
+    const { scale, offsetX, offsetY } = transform;
+    const imgAspect = img.naturalWidth / img.naturalHeight;
+    let baseW: number, baseH: number;
+    if (imgAspect > 1) { baseH = containerW; baseW = containerW * imgAspect; }
+    else { baseW = containerW; baseH = containerW / imgAspect; }
+    const drawW = baseW * scale;
+    const drawH = baseH * scale;
+    ctx.drawImage(img, (containerW - drawW) / 2 + offsetX, (containerW - drawH) / 2 + offsetY, drawW, drawH);
+  }, [transform, imageLoaded, containerW]);
+
+  const getClampedOffset = (scale: number, ox: number, oy: number) => {
+    if (!imgRef.current || containerW === 0) return { offsetX: ox, offsetY: oy };
+    return clampedOffset(imgRef.current, containerW, scale, ox, oy);
+  };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch") return;
+    gestureRef.current = { type: "drag", lastX: e.clientX, lastY: e.clientY, lastDist: 0, lastScale: transformRef.current.scale };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (gestureRef.current.type !== "drag") return;
+    const dx = e.clientX - gestureRef.current.lastX;
+    const dy = e.clientY - gestureRef.current.lastY;
+    gestureRef.current.lastX = e.clientX;
+    gestureRef.current.lastY = e.clientY;
+    const t = transformRef.current;
+    onTransformChange({ ...t, ...getClampedOffset(t.scale, t.offsetX + dx, t.offsetY + dy) });
+  };
+  const onPointerUp = () => { gestureRef.current.type = "none"; };
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    e.stopPropagation();
+    if (e.touches.length === 1) {
+      gestureRef.current = { type: "drag", lastX: e.touches[0].clientX, lastY: e.touches[0].clientY, lastDist: 0, lastScale: transformRef.current.scale };
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      gestureRef.current = {
+        type: "pinch",
+        lastX: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        lastY: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+        lastDist: Math.sqrt(dx * dx + dy * dy),
+        lastScale: transformRef.current.scale,
+      };
+    }
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const t = transformRef.current;
+    if (e.touches.length === 1 && gestureRef.current.type === "drag") {
+      const dx = e.touches[0].clientX - gestureRef.current.lastX;
+      const dy = e.touches[0].clientY - gestureRef.current.lastY;
+      gestureRef.current.lastX = e.touches[0].clientX;
+      gestureRef.current.lastY = e.touches[0].clientY;
+      onTransformChange({ ...t, ...getClampedOffset(t.scale, t.offsetX + dx, t.offsetY + dy) });
+    } else if (e.touches.length === 2 && gestureRef.current.type === "pinch") {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      const scaleDelta = dist / gestureRef.current.lastDist;
+      const panDx = midX - gestureRef.current.lastX;
+      const panDy = midY - gestureRef.current.lastY;
+      gestureRef.current.lastDist = dist;
+      gestureRef.current.lastX = midX;
+      gestureRef.current.lastY = midY;
+      const newScale = clampVal(t.scale * scaleDelta, MIN_SCALE, MAX_SCALE);
+      onTransformChange({ scale: newScale, ...getClampedOffset(newScale, t.offsetX + panDx, t.offsetY + panDy) });
+    }
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    e.stopPropagation();
+    if (e.touches.length === 0) gestureRef.current.type = "none";
+    else if (e.touches.length === 1) {
+      gestureRef.current = { type: "drag", lastX: e.touches[0].clientX, lastY: e.touches[0].clientY, lastDist: 0, lastScale: transformRef.current.scale };
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className="w-full h-full relative select-none overflow-hidden cursor-grab active:cursor-grabbing"
+      style={{ touchAction: "none" }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerLeave={onPointerUp}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      <canvas ref={canvasRef} className="w-full h-full" style={{ display: "block" }} />
+    </div>
+  );
+}
+
+// ─── Module-level draft ─────────────────────────────────────────────────────
+
+const imageDraft: {
+  files: File[];
+  previews: string[];
+  transforms: Record<number, CropTransform>;
+} = { files: [], previews: [], transforms: {} };
+
 const videoDraft: { file: File | null; preview: string | null } = { file: null, preview: null };
+
+// ─── Page component ─────────────────────────────────────────────────────────
 
 type Step = "select" | "caption";
 type MediaType = "post" | "shot";
+
+const DEFAULT_TRANSFORM: CropTransform = { scale: 1, offsetX: 0, offsetY: 0 };
 
 export default function NewPost() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const { t } = useLanguage();
 
-  // ── Step & media type ──
   const [step, setStep] = React.useState<Step>("select");
   const [mediaType, setMediaType] = React.useState<MediaType>(
     () => (sessionStorage.getItem("newpost_tab") === "video" ? "shot" : "post"),
   );
 
-  // ── Image/Post state ──
   const [selectedFiles, setSelectedFiles] = React.useState<File[]>(() => imageDraft.files);
   const [previewUrls, setPreviewUrls] = React.useState<string[]>(() => imageDraft.previews);
+  const [cropTransforms, setCropTransforms] = React.useState<Record<number, CropTransform>>(
+    () => imageDraft.transforms
+  );
   const [currentPreviewIndex, setCurrentPreviewIndex] = React.useState(0);
   const [description, setDescription] = React.useState(
     () => sessionStorage.getItem("newpost_description") || "",
@@ -71,7 +309,6 @@ export default function NewPost() {
     () => sessionStorage.getItem("newpost_goal_id") || "",
   );
 
-  // ── Video/Shot state ──
   const [selectedVideoFile, setSelectedVideoFile] = React.useState<File | null>(
     () => videoDraft.file,
   );
@@ -80,20 +317,10 @@ export default function NewPost() {
     () => sessionStorage.getItem("newpost_video_description") || "",
   );
 
-  // ── Shared ──
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [isLoadingGoals, setIsLoadingGoals] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-  // ── Crop state ──
-  const [pendingCropSrc, setPendingCropSrc] = React.useState<string | null>(null);
-  const pendingFileRef = React.useRef<File | null>(null);
-  const [editCropIndex, setEditCropIndex] = React.useState<number | null>(null);
-  const [originalDataUrls, setOriginalDataUrls] = React.useState<string[]>(
-    () => imageDraft.originalDataUrls,
-  );
-
-  // ── Gallery state ──
   const [galleryAssets, setGalleryAssets] = React.useState<PhotoLibraryAsset[]>([]);
   const [galleryLoading, setGalleryLoading] = React.useState(false);
   const [galleryPermission, setGalleryPermission] = React.useState<"unknown" | "granted" | "limited" | "denied">("unknown");
@@ -101,9 +328,12 @@ export default function NewPost() {
   const [galleryHasMore, setGalleryHasMore] = React.useState(false);
   const GALLERY_PAGE_SIZE = 40;
 
-  // ── Refs ──
   const imageInputRef = React.useRef<HTMLInputElement>(null);
   const videoInputRef = React.useRef<HTMLInputElement>(null);
+  // Tracks the actual pixel width of the preview frame for accurate crop export
+  const cropContainerWidthRef = React.useRef<number>(
+    typeof window !== "undefined" ? window.innerWidth : 375
+  );
 
   // ── Cleanup video blob URL ──
   React.useEffect(() => {
@@ -115,25 +345,17 @@ export default function NewPost() {
   }, []);
 
   // ── Persist session ──
-  React.useEffect(() => {
-    sessionStorage.setItem("newpost_description", description);
-  }, [description]);
-  React.useEffect(() => {
-    sessionStorage.setItem("newpost_goal_id", selectedGoalId);
-  }, [selectedGoalId]);
-  React.useEffect(() => {
-    sessionStorage.setItem("newpost_video_description", videoDescription);
-  }, [videoDescription]);
-  React.useEffect(() => {
-    sessionStorage.setItem("newpost_tab", mediaType === "shot" ? "video" : "images");
-  }, [mediaType]);
+  React.useEffect(() => { sessionStorage.setItem("newpost_description", description); }, [description]);
+  React.useEffect(() => { sessionStorage.setItem("newpost_goal_id", selectedGoalId); }, [selectedGoalId]);
+  React.useEffect(() => { sessionStorage.setItem("newpost_video_description", videoDescription); }, [videoDescription]);
+  React.useEffect(() => { sessionStorage.setItem("newpost_tab", mediaType === "shot" ? "video" : "images"); }, [mediaType]);
 
   // ── Sync module-level draft ──
   React.useEffect(() => {
     imageDraft.files = selectedFiles;
     imageDraft.previews = previewUrls;
-    imageDraft.originalDataUrls = originalDataUrls;
-  }, [selectedFiles, previewUrls, originalDataUrls]);
+    imageDraft.transforms = cropTransforms;
+  }, [selectedFiles, previewUrls, cropTransforms]);
   React.useEffect(() => {
     videoDraft.file = selectedVideoFile;
     videoDraft.preview = videoPreview;
@@ -162,7 +384,7 @@ export default function NewPost() {
       const result = await PhotoLibrary.getLibrary({
         offset: page * GALLERY_PAGE_SIZE,
         limit: GALLERY_PAGE_SIZE,
-        includeImages: true,
+        includeImages: mediaType === "post",
         includeVideos: mediaType === "shot",
         thumbnailWidth: 300,
         thumbnailHeight: 300,
@@ -210,6 +432,21 @@ export default function NewPost() {
     }
   }, [mediaType]);
 
+  // ── Add image directly (no crop modal) ──
+  const addImageFile = React.useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      setSelectedFiles((prev) => [...prev, file]);
+      setPreviewUrls((prev) => {
+        const next = [...prev, dataUrl];
+        setCurrentPreviewIndex(next.length - 1);
+        return next;
+      });
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
   const handleGalleryAssetTap = async (asset: PhotoLibraryAsset) => {
     if (mediaType === "shot" && asset.type === "video") {
       try {
@@ -230,43 +467,11 @@ export default function NewPost() {
         const response = await fetch(webPath);
         const blob = await response.blob();
         const file = new File([blob], asset.fileName, { type: asset.mimeType || "image/jpeg" });
-        pendingCropQueue.push(file);
-        if (!pendingCropSrc) processNextInQueue();
+        addImageFile(file);
       } catch {
         imageInputRef.current?.click();
       }
     }
-  };
-
-  // ── Crop helpers ──
-  const processNextInQueue = () => {
-    if (pendingCropQueue.length === 0) {
-      pendingFileRef.current = null;
-      setPendingCropSrc(null);
-      return;
-    }
-    const file = pendingCropQueue[0];
-    pendingFileRef.current = file;
-    const reader = new FileReader();
-    reader.onloadend = () => setPendingCropSrc(reader.result as string);
-    reader.readAsDataURL(file);
-  };
-
-  const handleCropConfirm = (dataUrl: string, blob: Blob) => {
-    const file = pendingFileRef.current;
-    const originalSrc = pendingCropSrc;
-    if (!file || !originalSrc) return;
-    const croppedFile = new File([blob], file.name, { type: "image/jpeg" });
-    setSelectedFiles((prev) => [...prev, croppedFile]);
-    setPreviewUrls((prev) => [...prev, dataUrl]);
-    setOriginalDataUrls((prev) => [...prev, originalSrc]);
-    pendingCropQueue.splice(0, 1);
-    processNextInQueue();
-  };
-
-  const handleCropCancel = () => {
-    pendingCropQueue.splice(0, 1);
-    processNextInQueue();
   };
 
   // ── File handlers ──
@@ -275,7 +480,6 @@ export default function NewPost() {
     e.target.value = "";
     if (files.length === 0) return;
 
-    const validFiles: File[] = [];
     for (const file of files) {
       if (!file.type.startsWith("image/")) {
         toast({
@@ -293,11 +497,8 @@ export default function NewPost() {
         });
         continue;
       }
-      validFiles.push(file);
+      addImageFile(file);
     }
-    if (validFiles.length === 0) return;
-    pendingCropQueue.push(...validFiles);
-    if (!pendingCropSrc) processNextInQueue();
   };
 
   const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -329,10 +530,18 @@ export default function NewPost() {
   const removePhoto = (index: number) => {
     imageDraft.files = imageDraft.files.filter((_, i) => i !== index);
     imageDraft.previews = imageDraft.previews.filter((_, i) => i !== index);
-    imageDraft.originalDataUrls = imageDraft.originalDataUrls.filter((_, i) => i !== index);
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
     setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
-    setOriginalDataUrls((prev) => prev.filter((_, i) => i !== index));
+    // Shift transform indices
+    setCropTransforms((prev) => {
+      const next: Record<number, CropTransform> = {};
+      for (const [k, v] of Object.entries(prev)) {
+        const ki = Number(k);
+        if (ki < index) next[ki] = v;
+        else if (ki > index) next[ki - 1] = v;
+      }
+      return next;
+    });
     setCurrentPreviewIndex((prev) => {
       const newLen = previewUrls.length - 1;
       if (newLen === 0) return 0;
@@ -358,16 +567,20 @@ export default function NewPost() {
     }
     setIsSubmitting(true);
     const uploadedPaths: string[] = [];
+    const containerWidth = cropContainerWidthRef.current;
     try {
       const uploadedUrls: string[] = [];
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
+        const transform = cropTransforms[i] || DEFAULT_TRANSFORM;
+        const croppedBlob = await applyTransformToBlob(previewUrls[i], transform, containerWidth);
+        const croppedFile = new File([croppedBlob], file.name, { type: "image/jpeg" });
+
         const timestamp = Date.now();
-        const extension = file.name.split(".").pop() || "jpg";
-        const filePath = `${user.id}/${timestamp}-${i}.${extension}`;
+        const filePath = `${user.id}/${timestamp}-${i}.jpg`;
         const { error: uploadError } = await supabase.storage
           .from("posts")
-          .upload(filePath, file, { contentType: file.type, upsert: false });
+          .upload(filePath, croppedFile, { contentType: "image/jpeg", upsert: false });
         if (uploadError) throw new Error(`${t("newpost_upload_error_file").replace("{name}", file.name)}: ${uploadError.message}`);
         uploadedPaths.push(filePath);
         const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
@@ -380,10 +593,10 @@ export default function NewPost() {
       toast({ title: t("newpost_success"), description: t("newpost_post_published") });
       imageDraft.files = [];
       imageDraft.previews = [];
-      imageDraft.originalDataUrls = [];
+      imageDraft.transforms = {};
       setSelectedFiles([]);
       setPreviewUrls([]);
-      setOriginalDataUrls([]);
+      setCropTransforms({});
       setCurrentPreviewIndex(0);
       setDescription("");
       setSelectedGoalId("");
@@ -396,7 +609,7 @@ export default function NewPost() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [user, selectedFiles, description, selectedGoalId, navigate, t]);
+  }, [user, selectedFiles, previewUrls, cropTransforms, description, selectedGoalId, navigate, t]);
 
   const handleVideoSubmit = React.useCallback(async () => {
     if (!user || !selectedVideoFile) {
@@ -439,8 +652,13 @@ export default function NewPost() {
     }
   }, [user, selectedVideoFile, videoDescription, navigate, t]);
 
-  // ── Can advance ──
   const canAdvance = mediaType === "post" ? previewUrls.length > 0 : !!videoPreview;
+
+  // Signal AppLayout to hide/show header+nav based on current step
+  React.useEffect(() => {
+    document.body.dataset.fullscreenStep = step === "select" ? "true" : "false";
+    return () => { delete document.body.dataset.fullscreenStep; };
+  }, [step]);
 
   if (authLoading) {
     return (
@@ -464,14 +682,17 @@ export default function NewPost() {
   }
 
   // ─────────────────────────────────────────
-  //  STEP 1 — Gallery picker (Instagram-like)
+  //  STEP 1 — Gallery picker
   // ─────────────────────────────────────────
   if (step === "select") {
     return (
-      <div className="-mx-4 -mt-6 flex flex-col" style={{ minHeight: "calc(100dvh - 4rem - env(safe-area-inset-bottom))" }}>
+      <div className="flex flex-col" style={{ minHeight: "100dvh" }}>
 
         {/* ── Custom header ── */}
-        <div className="flex items-center justify-between px-4 py-3 bg-background border-b border-border/40">
+        <div
+          className="flex items-center justify-between px-4 py-3 bg-background border-b border-border/40"
+          style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
+        >
           <button
             onClick={() => navigate(-1)}
             className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-muted transition-colors"
@@ -521,36 +742,31 @@ export default function NewPost() {
           {mediaType === "post" ? (
             previewUrls.length > 0 ? (
               <>
-                <img
-                  src={previewUrls[currentPreviewIndex]}
-                  alt="Preview"
-                  className="w-full h-full object-cover"
+                <InlineCropPreview
+                  imageSrc={previewUrls[currentPreviewIndex]}
+                  transform={cropTransforms[currentPreviewIndex] || DEFAULT_TRANSFORM}
+                  onTransformChange={(t) =>
+                    setCropTransforms((prev) => ({ ...prev, [currentPreviewIndex]: t }))
+                  }
+                  containerWidthRef={cropContainerWidthRef}
                 />
-                {/* Crop button */}
-                <button
-                  onClick={() => setEditCropIndex(currentPreviewIndex)}
-                  className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/60 text-white text-xs font-medium px-2.5 py-1.5 rounded-full"
-                >
-                  <Crop className="h-3.5 w-3.5" />
-                  {t("newpost_edit_crop")}
-                </button>
                 {/* Carousel nav */}
                 {previewUrls.length > 1 && (
                   <>
                     <button
                       onClick={() => setCurrentPreviewIndex((i) => (i - 1 + previewUrls.length) % previewUrls.length)}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 p-2 rounded-full"
+                      className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 p-2 rounded-full pointer-events-auto"
                     >
                       <ChevronLeft className="h-5 w-5 text-white" />
                     </button>
                     <button
                       onClick={() => setCurrentPreviewIndex((i) => (i + 1) % previewUrls.length)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 p-2 rounded-full"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 p-2 rounded-full pointer-events-auto"
                     >
                       <ChevronRight className="h-5 w-5 text-white" />
                     </button>
                     {/* Dots */}
-                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1">
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1 pointer-events-none">
                       {previewUrls.map((_, i) => (
                         <div
                           key={i}
@@ -561,7 +777,7 @@ export default function NewPost() {
                   </>
                 )}
                 {/* Multi-select badge */}
-                <div className="absolute top-3 right-3 bg-black/60 rounded-full px-2.5 py-1 text-white text-xs font-semibold flex items-center gap-1">
+                <div className="absolute top-3 right-3 bg-black/60 rounded-full px-2.5 py-1 text-white text-xs font-semibold flex items-center gap-1 pointer-events-none">
                   <ImagePlus className="h-3.5 w-3.5" />
                   {previewUrls.length}
                 </div>
@@ -590,23 +806,31 @@ export default function NewPost() {
           )}
         </div>
 
+        {/* ── Crop hint ── */}
+        {mediaType === "post" && previewUrls.length > 0 && (
+          <div className="px-4 py-1.5 bg-background border-b border-border/10 text-center">
+            <span className="text-[10px] text-muted-foreground">{t("newpost_crop_hint")}</span>
+          </div>
+        )}
+
         {/* ── Gallery toolbar ── */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/20 bg-background">
           <span className="text-sm font-semibold">{t("newpost_recents")}</span>
-          <button
-            onClick={() => mediaType === "post" ? imageInputRef.current?.click() : videoInputRef.current?.click()}
-            className="flex items-center gap-1.5 bg-muted hover:bg-muted/80 text-foreground text-sm font-medium px-3 py-1.5 rounded-full transition-colors"
-          >
-            <ImagePlus className="h-4 w-4" />
-            {t("newpost_select_btn")}
-          </button>
+          {mediaType === "post" && (
+            <button
+              onClick={() => imageInputRef.current?.click()}
+              className="flex items-center gap-1.5 bg-muted hover:bg-muted/80 text-foreground text-sm font-medium px-3 py-1.5 rounded-full transition-colors"
+            >
+              <ImagePlus className="h-4 w-4" />
+              {t("newpost_select_btn")}
+            </button>
+          )}
         </div>
 
         {/* ── Gallery grid ── */}
         {mediaType === "post" && (
           <div className="flex-1 overflow-y-auto bg-background">
             <div className="grid grid-cols-4 gap-px bg-border/20">
-              {/* Camera/add cell — always first */}
               <button
                 onClick={() => imageInputRef.current?.click()}
                 className="aspect-square bg-muted/60 flex items-center justify-center"
@@ -620,7 +844,6 @@ export default function NewPost() {
                 </div>
               )}
 
-              {/* Gallery assets from device */}
               {galleryAssets.map((asset) => {
                 const selectedIdx = previewUrls.findIndex((_, i) => selectedFiles[i]?.name === asset.fileName);
                 const isSelected = selectedIdx !== -1;
@@ -650,7 +873,6 @@ export default function NewPost() {
                 );
               })}
 
-              {/* Placeholder cells while loading (first load) */}
               {galleryLoading && galleryAssets.length === 0 &&
                 Array.from({ length: 11 }).map((_, i) => (
                   <div key={`ph-${i}`} className="aspect-square bg-muted/30 animate-pulse" />
@@ -658,7 +880,6 @@ export default function NewPost() {
               }
             </div>
 
-            {/* Load more */}
             {galleryHasMore && !galleryLoading && (
               <button
                 onClick={() => loadGalleryPage(galleryPage + 1)}
@@ -705,7 +926,6 @@ export default function NewPost() {
               </div>
             )}
 
-            {/* Video gallery grid */}
             <div className="grid grid-cols-4 gap-px bg-border/20">
               <button
                 onClick={() => videoInputRef.current?.click()}
@@ -736,7 +956,6 @@ export default function NewPost() {
                         <Video className="h-4 w-4 text-muted-foreground/40" />
                       </div>
                     )}
-                    {/* Duration badge */}
                     {asset.duration && (
                       <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] px-1 rounded">
                         {Math.floor(asset.duration / 60)}:{String(Math.round(asset.duration % 60)).padStart(2, "0")}
@@ -775,22 +994,6 @@ export default function NewPost() {
         {/* Hidden file inputs */}
         <input ref={imageInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
         <input ref={videoInputRef} type="file" accept="video/*" onChange={handleVideoFileChange} className="hidden" />
-
-        {/* Croppers */}
-        <ImageCropperDrawer imageSrc={pendingCropSrc} aspectRatio={1} onConfirm={handleCropConfirm} onCancel={handleCropCancel} />
-        <ImageCropperDrawer
-          imageSrc={editCropIndex !== null ? (originalDataUrls[editCropIndex] ?? previewUrls[editCropIndex]) : null}
-          aspectRatio={1}
-          onConfirm={(dataUrl, blob) => {
-            if (editCropIndex === null) return;
-            const original = selectedFiles[editCropIndex];
-            const croppedFile = new File([blob], original?.name ?? "photo.jpg", { type: "image/jpeg" });
-            setSelectedFiles((prev) => prev.map((f, i) => (i === editCropIndex ? croppedFile : f)));
-            setPreviewUrls((prev) => prev.map((u, i) => (i === editCropIndex ? dataUrl : u)));
-            setEditCropIndex(null);
-          }}
-          onCancel={() => setEditCropIndex(null)}
-        />
       </div>
     );
   }
@@ -799,7 +1002,7 @@ export default function NewPost() {
   //  STEP 2 — Caption & publish
   // ─────────────────────────────────────────
   return (
-    <div className="-mx-4 -mt-6 flex flex-col" style={{ minHeight: "calc(100dvh - 4rem - env(safe-area-inset-bottom))" }}>
+    <div className="flex flex-col">
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-4 py-3 bg-background border-b border-border/40">
@@ -810,17 +1013,7 @@ export default function NewPost() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <span className="text-base font-semibold">{t("newpost_new_post_header")}</span>
-        <button
-          onClick={mediaType === "post" ? handleImageSubmit : handleVideoSubmit}
-          disabled={isSubmitting}
-          className="min-h-[44px] px-2 flex items-center text-sm font-semibold text-primary disabled:opacity-50 transition-opacity"
-        >
-          {isSubmitting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            t("newpost_share")
-          )}
-        </button>
+        <div className="w-9" />
       </div>
 
       <div className="flex-1 overflow-y-auto">

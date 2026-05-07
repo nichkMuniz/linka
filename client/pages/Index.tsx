@@ -21,6 +21,7 @@ import {
   updateUserGoalDb,
   deletePostDb,
   getPostLikeUsersDb,
+  flushPendingIncentivesDb,
   copyRoutineToUserDb,
   type PostIncentiveType,
   type StoryWithUser,
@@ -173,7 +174,7 @@ export default function Index() {
         getMyViewedFlowUserIdsDb(activeFlowIds),
         deleteOldStoriesDb().catch((err) => console.error("Error cleaning old stories:", err)),
       ]).then(([viewedUserIds]) => {
-        setViewedStoryIds(viewedUserIds as string[]);
+        setViewedStoryIds(viewedUserIds as Set<string>);
       }).catch(console.error);
     } catch (err: any) {
       console.error("Erro ao carregar feed:", err?.message || err);
@@ -199,7 +200,7 @@ export default function Index() {
       setSelectedStory(targetStory);
       setStoryViewerOpen(true);
     }
-  }, [stories, location.state]);
+  }, [stories, location.state?.openFlow]);
 
   React.useEffect(() => {
     const handler = () => {
@@ -613,6 +614,7 @@ export default function Index() {
     if (likesLoading) return;
     setLikesLoading(true);
     try {
+      await flushPendingIncentivesDb(post.id);
       const likes = await getPostLikeUsersDb(post.id);
       setPostLikes(likes);
       setLikesModalOpen(true);

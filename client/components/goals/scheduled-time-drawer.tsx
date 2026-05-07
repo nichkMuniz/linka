@@ -7,6 +7,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 interface ScheduledTimeDrawerProps {
   open: boolean;
@@ -26,6 +27,7 @@ export function ScheduledTimeDrawer({
   onConfirm,
 }: ScheduledTimeDrawerProps) {
   const [time, setTime] = React.useState(currentTime ?? "");
+  const viewportHeight = useKeyboardAwareHeight();
 
   React.useEffect(() => {
     if (open) setTime(currentTime ?? "");
@@ -43,7 +45,7 @@ export function ScheduledTimeDrawer({
 
   return (
     <Drawer open={open} onOpenChange={(v) => { if (!v) onOpenChange(false); }}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle className="flex items-center gap-2">
             <Bell className="h-4 w-4 text-brand" />

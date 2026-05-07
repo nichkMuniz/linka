@@ -29,6 +29,7 @@ import {
   removePostPhotoDb,
   deleteRoutineDb,
   getPostLikeUsersDb,
+  flushPendingIncentivesDb,
   getPostCommentsDb,
   getCommercialProfileDb,
   createOrUpdateCommercialProfileDb,
@@ -388,6 +389,7 @@ export default function Profile() {
     setIsLoadingPostData(true);
 
     try {
+      await flushPendingIncentivesDb(post.id);
       const [likes, comments, userLikes] = await Promise.all([
         getPostLikeUsersDb(post.id),
         getPostCommentsDb(post.id),
@@ -464,6 +466,7 @@ export default function Profile() {
     setPostUserLikes(wasActive ? previousLikes.filter((t) => t !== type) : [...previousLikes, type]);
     try {
       togglePostLike(selectedPost.id, type, !wasActive);
+      await flushPendingIncentivesDb(selectedPost.id);
       const updatedLikes = await getPostLikeUsersDb(selectedPost.id);
       setPostLikes(updatedLikes);
     } catch (err) {

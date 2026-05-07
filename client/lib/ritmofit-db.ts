@@ -191,12 +191,12 @@ export async function getMyProfileDb(): Promise<DbProfile | null> {
 
 /**
  * Post incentive types:
- * 1 = "te apoio" (HeartHandshake)
- * 2 = "continua" (Flame)
- * 3 = "ganhador" (Trophy)
- * 4 = "você consegue mais" (Rocket)
- * 5 = "seu limite é maior" (Target)
- * 6 = "aguentava mais 10" (Zap)
+ * 1 = "Amei" (Heart)
+ * 2 = "Pode mais!" (Flame)
+ * 3 = "Vencedor!" (Trophy)
+ * 4 = "Evolução!" (TrendingUp)
+ * 5 = "Boa execução!" (Dumbbell)
+ * 6 = "Intensifique!" (Zap)
  */
 export type PostIncentiveType = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -269,6 +269,44 @@ export function togglePostIncentiveDb(
   }, 5000);
 
   _incentivePending.set(key, { timer, wantActive });
+}
+
+// Flush any pending (debounced) incentive writes for a given post immediately.
+// Call this before opening the incentives drawer so the DB reflects the latest state.
+export async function flushPendingIncentivesDb(postId: string): Promise<void> {
+  const pendingKeys = [..._incentivePending.keys()].filter((k) => k.startsWith(`${postId}:`));
+  if (pendingKeys.length === 0) return;
+
+  const viewer = await getViewer();
+  if (!viewer) return;
+
+  await Promise.all(
+    pendingKeys.map(async (key) => {
+      const entry = _incentivePending.get(key);
+      if (!entry) return;
+      clearTimeout(entry.timer);
+      _incentivePending.delete(key);
+
+      const incentiveType = key.split(":")[1];
+      const { wantActive } = entry;
+
+      const { data: existing } = await supabase!
+        .from("likes")
+        .select("id")
+        .eq("post_id", postId)
+        .eq("user_id", viewer.id)
+        .eq("type", incentiveType)
+        .maybeSingle();
+
+      if (wantActive && !existing?.id) {
+        await supabase!.from("likes").insert({ post_id: postId, user_id: viewer.id, type: incentiveType });
+      } else if (!wantActive && existing?.id) {
+        await supabase!.from("likes").delete().eq("id", existing.id);
+      }
+    }),
+  );
+
+  invalidateQueryCache("postLikes");
 }
 
 export async function getPostLikesDb(postId: string): Promise<PostLikeStats> {

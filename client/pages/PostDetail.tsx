@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { getPostByIdDb, getPostLikeUsersDb, getPostLikesDb, getUserPostLikesDb, togglePostIncentiveDb, getUserGoalByIdDb, deletePostDb, type PostWithUser, type PostLikeStats, type PostIncentiveType, type UserGoal } from "@/lib/ritmofit-db";
+import { getPostByIdDb, getPostLikeUsersDb, getPostLikesDb, getUserPostLikesDb, togglePostIncentiveDb, getUserGoalByIdDb, deletePostDb, flushPendingIncentivesDb, type PostWithUser, type PostLikeStats, type PostIncentiveType, type UserGoal } from "@/lib/ritmofit-db";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
@@ -94,6 +94,7 @@ export default function PostDetail() {
             openLikesConsumedRef.current = true;
             // Clear nav state so back-navigation doesn't re-trigger
             navigate(location.pathname, { replace: true, state: {} });
+            await flushPendingIncentivesDb(postId);
             const likes = await getPostLikeUsersDb(postId);
             setPostLikes(likes);
             setLikesModalOpen(true);
@@ -121,6 +122,7 @@ export default function PostDetail() {
   const totalLikes = likeStats.apoio + likeStats.continua + likeStats.ganhador + likeStats.consegueMais + likeStats.limiteMaior + likeStats.maisAlgum;
 
   const handleOpenLikesModal = async () => {
+    await flushPendingIncentivesDb(post!.id);
     const likes = await getPostLikeUsersDb(post!.id);
     setPostLikes(likes);
     setLikesModalOpen(true);

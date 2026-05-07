@@ -1234,26 +1234,18 @@ export default function Goals() {
 
   // Load catalog data (workouts/diets/habits base lists) — isolated so errors don't break main load
   React.useEffect(() => {
-    (async () => {
-      try {
-        const [workoutsBaseData, dietsBaseData, habitsBaseData] = await Promise.all([
-          getWorkoutsDb(),
-          getDietsDb(),
-          getHabitsDb(),
-        ]);
-        setWorkouts(workoutsBaseData);
-        setDiets(dietsBaseData);
-        setHabits(habitsBaseData);
-      } catch (err: any) {
-        console.error("Erro ao carregar catálogo base:", err?.message || err);
-      }
-      try {
-        const catalogData = await fetchExerciseCatalog().catch(() => [] as CatalogExercise[]);
-        setCatalogExercises(catalogData);
-      } catch (err: any) {
-        console.error("Erro ao carregar catálogo externo:", err?.message || err);
-      }
-    })();
+    Promise.all([
+      Promise.all([getWorkoutsDb(), getDietsDb(), getHabitsDb()])
+        .then(([workoutsBaseData, dietsBaseData, habitsBaseData]) => {
+          setWorkouts(workoutsBaseData);
+          setDiets(dietsBaseData);
+          setHabits(habitsBaseData);
+        })
+        .catch((err: any) => console.error("Erro ao carregar catálogo base:", err?.message || err)),
+      fetchExerciseCatalog()
+        .then(setCatalogExercises)
+        .catch(() => setCatalogExercises([])),
+    ]);
   }, []);
 
 
@@ -1362,6 +1354,8 @@ export default function Goals() {
   }, [workoutModalOpen, workoutMinimized, workoutStartTime]);
 
   // Update Live Activity label when the current exercise or its series change
+  const _currentExId = userWorkouts[currentWorkoutIndex ?? 0]?.workout_id;
+  const _currentSeriesKey = JSON.stringify(workoutSeries[_currentExId ?? ""] ?? []);
   React.useEffect(() => {
     const isActive = workoutModalOpen || workoutMinimized;
     if (!isActive || workoutStartTime === null) return;
@@ -1375,7 +1369,8 @@ export default function Goals() {
       pausedElapsedSeconds: Math.floor((Date.now() - workoutStartTime) / 1000),
       isPaused: false,
     });
-  }, [currentWorkoutIndex, workoutSeries, workoutModalOpen, workoutMinimized]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWorkoutIndex, _currentSeriesKey, workoutModalOpen, workoutMinimized]);
 
   // Initialize workoutSeries with one series for each exercise when modal opens
   React.useEffect(() => {
@@ -2433,7 +2428,7 @@ export default function Goals() {
       let totalSeries = 0;
       const exerciseNames: string[] = [];
       const exercises: CompletedRoutineExercise[] = [];
-      const prs: Array<{ exerciseName: string; kg: number; reps: number }> = [];
+      const prs: Array<{ exerciseName: string; kg: number; reps: number; isCardio?: boolean }> = [];
       let allCardio = true;
 
       for (const [workoutId, series] of Object.entries(workoutSeries)) {
@@ -3472,10 +3467,16 @@ export default function Goals() {
                   </div>
                 </div>
 
-                {/* Save Button — always go to schedule step first */}
+                {/* Save Button — skip schedule step when adding to an existing routine */}
                 {selectedItems.size > 0 && (
                   <Button
-                    onClick={() => setShowExecuteAtStep(true)}
+                    onClick={() => {
+                      if (addToRoutineCardId !== null || isAddingFromWorkout) {
+                        handleSaveRoutines();
+                      } else {
+                        setShowExecuteAtStep(true);
+                      }
+                    }}
                     disabled={isAddingRoutine}
                     className="w-full rounded-full"
                   >
@@ -3501,90 +3502,9 @@ export default function Goals() {
       {/* Workout Modal */}
       <Drawer shouldScaleBackground={false} open={workoutModalOpen} onOpenChange={(open) => { if (!open) { setWorkoutModalSearchQuery(""); setWorkoutModalMuscleFilter(null); if (workoutStartTime !== null) { setWorkoutModalOpen(false); setTimeout(() => setWorkoutMinimized(true), 300); } else { setWorkoutModalOpen(false); setWorkoutDuration(0); setWorkoutStartTime(null); } } }}>
         <DrawerContent className="max-h-[100dvh] h-[100dvh] mt-0 rounded-none overflow-hidden flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
-          <DrawerHeader className="shrink-0 pb-2" style={{ paddingTop: "calc(env(safe-area-inset-top) + 1rem)" }}>
-            <DrawerTitle>{t("goals_register_workout")}</DrawerTitle>
-            {/* Search Field */}
-            <div className="relative mt-2">
-              <svg
-                className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.35-4.35" />
-              </svg>
-              <input
-                type="text"
-                placeholder={t("goals_search_exercise")}
-                value={workoutModalSearchQuery}
-                onChange={(e) => setWorkoutModalSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 h-9 text-sm bg-muted/50 border border-border/60 rounded-full focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/30 transition-all placeholder:text-muted-foreground/60"
-                style={{ fontSize: '16px' }}
-              />
-              {workoutModalSearchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setWorkoutModalSearchQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-                  </svg>
-                </button>
-              )}
-            </div>
-
-            {/* Muscle Group Filter Chips */}
-            {(() => {
-              const muscleGroups = Array.from(
-                new Set(
-                  userWorkouts
-                    .filter((w) => {
-                      if (!selectedRoutineName) return true;
-                      if (selectedRoutineName === "__unnamed__") return !w.name;
-                      return w.name === selectedRoutineName;
-                    })
-                    .map((w) => w.muscle_group)
-                    .filter(Boolean)
-                )
-              ) as string[];
-              if (muscleGroups.length < 2) return null;
-              return (
-                <div className="flex gap-2 mt-2 overflow-x-auto scrollbar-none pb-0.5">
-                  <button
-                    onClick={() => setWorkoutModalMuscleFilter(null)}
-                    className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${workoutModalMuscleFilter === null
-                      ? "bg-brand text-white"
-                      : "bg-muted/60 text-muted-foreground hover:bg-muted"
-                      }`}
-                  >
-                    {t("goals_all")}
-                  </button>
-                  {muscleGroups.map((mg) => (
-                    <button
-                      key={mg}
-                      onClick={() => setWorkoutModalMuscleFilter(workoutModalMuscleFilter === mg ? null : mg)}
-                      className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${workoutModalMuscleFilter === mg
-                        ? "bg-brand text-white"
-                        : "bg-muted/60 text-muted-foreground hover:bg-muted"
-                        }`}
-                    >
-                      {mg}
-                    </button>
-                  ))}
-                </div>
-              );
-            })()}
-          </DrawerHeader>
-
           {/* Header and Stats */}
           {userWorkouts.length > 0 && (
-            <div className="shrink-0 border-b border-border/40 px-4 py-4">
+            <div className="shrink-0 border-b border-border/40 px-4 py-4" style={{ paddingTop: "calc(env(safe-area-inset-top) + 1rem)" }}>
               <div className="flex items-center gap-2 mb-3">
                 <ChevronDown className="h-5 w-5 text-muted-foreground" />
                 <span className="text-base font-semibold">{t("goals_training")}</span>
@@ -3676,6 +3596,86 @@ export default function Goals() {
           {/* Exercises List - Scrollable */}
           {userWorkouts.length > 0 ? (
             <div className="flex-1 overflow-y-auto">
+              {/* Search Field */}
+              <div className="px-4 pt-3 pb-2 space-y-2">
+                <div className="relative">
+                  <svg
+                    className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="m21 21-4.35-4.35" />
+                  </svg>
+                  <input
+                    type="text"
+                    placeholder={t("goals_search_exercise")}
+                    value={workoutModalSearchQuery}
+                    onChange={(e) => setWorkoutModalSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-4 h-9 text-sm bg-muted/50 border border-border/60 rounded-full focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/30 transition-all placeholder:text-muted-foreground/60"
+                    style={{ fontSize: '16px' }}
+                  />
+                  {workoutModalSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setWorkoutModalSearchQuery("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+
+                {/* Muscle Group Filter Chips */}
+                {(() => {
+                  const muscleGroups = Array.from(
+                    new Set(
+                      userWorkouts
+                        .filter((w) => {
+                          if (!selectedRoutineName) return true;
+                          if (selectedRoutineName === "__unnamed__") return !w.name;
+                          return w.name === selectedRoutineName;
+                        })
+                        .map((w) => w.muscle_group)
+                        .filter(Boolean)
+                    )
+                  ) as string[];
+                  if (muscleGroups.length < 2) return null;
+                  return (
+                    <div className="flex gap-2 overflow-x-auto scrollbar-none pb-0.5">
+                      <button
+                        onClick={() => setWorkoutModalMuscleFilter(null)}
+                        className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${workoutModalMuscleFilter === null
+                          ? "bg-brand text-white"
+                          : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                          }`}
+                      >
+                        {t("goals_all")}
+                      </button>
+                      {muscleGroups.map((mg) => (
+                        <button
+                          key={mg}
+                          onClick={() => setWorkoutModalMuscleFilter(workoutModalMuscleFilter === mg ? null : mg)}
+                          className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${workoutModalMuscleFilter === mg
+                            ? "bg-brand text-white"
+                            : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                            }`}
+                        >
+                          {mg}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+
               {userWorkouts
                 .map((workout, originalIndex) => ({ workout, originalIndex }))
                 .filter(({ workout }) => {
@@ -5740,37 +5740,6 @@ export default function Goals() {
                                     />
                                   )}
                                 </button>
-                                {goalRoutineModalMode === "view" && (
-                                  <button
-                                    onClick={async () => {
-                                      try {
-                                        for (const id of groupIds) {
-                                          await updateRoutineGoalDb(id, null);
-                                        }
-                                        setRoutines((prev) =>
-                                          prev.map((r) =>
-                                            groupIds.includes(r.id)
-                                              ? { ...r, goal_id: null }
-                                              : r,
-                                          ),
-                                        );
-                                        toast({
-                                          title: "Rotina desvinculada",
-                                          description: `"${groupName}" foi desvinculada da meta.`,
-                                        });
-                                      } catch {
-                                        toast({
-                                          title: "Erro ao desvincular rotina",
-                                          variant: "destructive",
-                                        });
-                                      }
-                                    }}
-                                    className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                                    title="Desvincular rotina"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                )}
                               </div>
 
                               {/* Sub-items dropdown */}

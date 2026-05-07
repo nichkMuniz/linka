@@ -16,6 +16,7 @@ import {
   type UserGoal,
 } from "@/lib/ritmofit-db";
 import { useLanguage } from "@/lib/language-context";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 const GOAL_TYPES = [
   { value: 1 as const, emoji: "💪", label: "Fitness", color: "bg-blue-500/10 text-blue-600 border-blue-300 dark:border-blue-700" },
@@ -47,6 +48,7 @@ export function CreateGoalDrawer({
   onCreated,
 }: CreateGoalDrawerProps) {
   const { t } = useLanguage();
+  const viewportHeight = useKeyboardAwareHeight();
   const [description, setDescription] = React.useState("");
   const [type, setType] = React.useState<1 | 2 | 3>(1);
   const [duration, setDuration] = React.useState(30);
@@ -100,7 +102,7 @@ export function CreateGoalDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[85dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(85dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0 pb-2">
           <DrawerTitle>{t("goals_create_title")}</DrawerTitle>
           <p className="text-xs text-muted-foreground mt-0.5">{t("goals_create_subtitle")}</p>

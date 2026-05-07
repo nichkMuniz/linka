@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { X, Plus, ChevronLeft, ChevronRight, Image } from "lucide-react";
 import { updateGroupCheckInDb, uploadCheckInPhotoDb, type GroupCheckIn } from "@/lib/ritmofit-db";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 interface EditCheckInDrawerProps {
   open: boolean;
@@ -36,6 +37,7 @@ export function EditCheckInDrawer({
   const [activeIndex, setActiveIndex] = React.useState(0);
   const [isSaving, setIsSaving] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const viewportHeight = useKeyboardAwareHeight();
 
   React.useEffect(() => {
     if (open && checkIn) {
@@ -123,7 +125,7 @@ export function EditCheckInDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent className="flex flex-col z-[100]" style={{ maxHeight: `min(90dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Editar Check-in</DrawerTitle>
           <DrawerDescription className="sr-only">Edite as informações do seu check-in</DrawerDescription>

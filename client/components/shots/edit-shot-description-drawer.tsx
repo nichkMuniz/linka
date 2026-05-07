@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { updateShotDb, type ShotWithUser } from "@/lib/ritmofit-db";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 
 interface EditShotDescriptionDrawerProps {
   open: boolean;
@@ -25,6 +26,7 @@ export function EditShotDescriptionDrawer({
 }: EditShotDescriptionDrawerProps) {
   const [description, setDescription] = React.useState("");
   const [isSaving, setIsSaving] = React.useState(false);
+  const viewportHeight = useKeyboardAwareHeight();
 
   React.useEffect(() => {
     if (open && shot) {
@@ -53,7 +55,7 @@ export function EditShotDescriptionDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent className="flex flex-col z-[100]" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
         <DrawerHeader className="shrink-0">
           <DrawerTitle>Editar descrição</DrawerTitle>
         </DrawerHeader>

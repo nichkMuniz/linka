@@ -33,7 +33,8 @@ import {
   type StoryComment,
   type FlowViewer,
 } from "@/lib/ritmofit-db";
-import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Heart, Flame, Trophy, TrendingUp, Dumbbell, Zap, MoreHorizontal, Pencil, Check } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, MoreHorizontal, Pencil, Check } from "lucide-react";
+import { renderIncentiveIcon } from "@/lib/incentive-config";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -877,17 +878,9 @@ export function FlowViewerModal({
                   </div>
                   {viewer.incentiveTypes.length > 0 && (
                     <div className="flex gap-0.5">
-                      {viewer.incentiveTypes.map((t, i) => {
-                        const iconMap: Record<number, React.ReactNode> = {
-                          1: <Heart key={i} className="h-3.5 w-3.5 text-rose-500 fill-rose-500" />,
-                          2: <Flame key={i} className="h-3.5 w-3.5 text-orange-500 fill-orange-500" />,
-                          3: <Trophy key={i} className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />,
-                          4: <TrendingUp key={i} className="h-3.5 w-3.5 text-emerald-500" />,
-                          5: <Dumbbell key={i} className="h-3.5 w-3.5 text-blue-500 fill-blue-500" />,
-                          6: <Zap key={i} className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500" />,
-                        };
-                        return iconMap[t] ?? null;
-                      })}
+                      {viewer.incentiveTypes.map((t, i) =>
+                        renderIncentiveIcon(t, "h-3.5 w-3.5", i)
+                      )}
                     </div>
                   )}
                 </div>

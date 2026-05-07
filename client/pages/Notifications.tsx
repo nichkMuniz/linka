@@ -1,10 +1,10 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, MessageCircle, UserPlus, Zap, Flame, Trophy, TrendingUp, Dumbbell, Swords, Video, SmilePlus } from "lucide-react";
+import { MessageCircle, UserPlus, Zap, Swords, Video, SmilePlus } from "lucide-react";
+import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { LoadingSpinner } from "@/components/shared/animated-loading";
@@ -20,10 +20,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/lib/language-context";
 
 export default function Notifications() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [isClearing, setIsClearing] = React.useState(false);
@@ -86,27 +88,17 @@ export default function Notifications() {
   }, [user]);
 
   const getIncentiveTypeName = (type: number): string => {
-    const incentiveNames: { [key: number]: string } = {
-      1: "Amei",
-      2: "Pode mais!",
-      3: "Vencedor!",
-      4: "Evolução!",
-      5: "Boa execução!",
-      6: "Intensifique!",
+    const map: Record<number, Parameters<typeof t>[0]> = {
+      1: "incentive_1", 2: "incentive_2", 3: "incentive_3",
+      4: "incentive_4", 5: "incentive_5", 6: "incentive_6",
     };
-    return incentiveNames[type] || "Incentivo";
+    return map[type] ? t(map[type]) : t("incentive_default");
   };
 
   const getIncentiveIcon = (type: number) => {
-    const incentiveIcons: { [key: number]: { Icon: React.ComponentType<React.SVGProps<SVGSVGElement>>, color: string } } = {
-      1: { Icon: Heart, color: "text-rose-500" },
-      2: { Icon: Flame, color: "text-orange-500" },
-      3: { Icon: Trophy, color: "text-amber-500" },
-      4: { Icon: TrendingUp, color: "text-emerald-500" },
-      5: { Icon: Dumbbell, color: "text-blue-500" },
-      6: { Icon: Zap, color: "text-yellow-500" },
-    };
-    return incentiveIcons[type];
+    const cfg = INCENTIVE_CONFIG[type as keyof typeof INCENTIVE_CONFIG];
+    if (!cfg) return undefined;
+    return { Icon: cfg.Icon, color: cfg.color };
   };
 
   const getNotificationContent = (notification: NotificationItem) => {
@@ -481,9 +473,7 @@ export default function Notifications() {
                         {groupNotifs.map((notification) => {
                           const grouped = (notification as any);
                           const groupedCount: number = grouped.groupedCount ?? 1;
-                          const groupedNicknames: string[] = grouped.groupedNicknames ?? [notification.userNickname];
-                          const groupedIncentiveTypes: number[] = grouped.groupedIncentiveTypes ?? (notification.incentiveType ? [notification.incentiveType] : []);
-                          const groupedUsers: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }> = grouped.groupedUsers ?? [];
+                          const groupedUsers: Array<{ userId: string; userNickname: string; userPhoto?: string; userGender?: string | null; incentiveTypes: number[] }> = grouped.groupedUsers ?? [];
                           const rawContent = getNotificationContent(notification);
                           const context = notification.shotId ? "no seu shots" : (notification.flowId ? "no seu flow" : "na sua postagem");
 
