@@ -1,11 +1,3 @@
-import { registerPlugin } from "@capacitor/core";
-
-export interface BiometricPlugin {
-  isAvailable(options: { useFallback?: boolean }): Promise<{ isAvailable: boolean; biometryType?: string; errorCode?: number }>;
-  verifyIdentity(options: { reason?: string; title?: string; useFallback?: boolean }): Promise<void>;
-  setCredentials(options: { username: string; password: string; server: string }): Promise<void>;
-  getCredentials(options: { server: string }): Promise<{ username: string; password: string }>;
-  deleteCredentials(options: { server: string }): Promise<void>;
-}
-
-export const NativeBiometric = registerPlugin<BiometricPlugin>("LinkaBiometric");
+// Re-exports the official `capacitor-native-biometric` plugin.
+// API matches the previous custom plugin shape, so call sites remain unchanged.
+export { NativeBiometric } from "capacitor-native-biometric";

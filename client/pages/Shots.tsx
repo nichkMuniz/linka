@@ -54,7 +54,7 @@ import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
 
-export default function Shots({ footerHeight = 0, isDesktop = false }: { footerHeight?: number; isDesktop?: boolean }) {
+export default function Shots() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -530,15 +530,13 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
 
   return (
     <div
-      className={isDesktop ? "bg-black w-full h-full flex flex-col overflow-hidden" : "bg-black fixed inset-0 flex flex-col overflow-hidden"}
-      style={isDesktop ? { overflow: "hidden" } : {
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: `${footerHeight}px`,
-        width: "100vw",
-        overflow: "hidden",
+      className="bg-black w-full flex flex-col overflow-hidden relative"
+      style={{
+        // Header é ocultado em /shots — altura ocupa do topo (com safe-area) até a bottom nav fixa (~4.25rem + safe-area-bottom)
+        height:
+          "calc(100dvh - env(safe-area-inset-top) - 4.25rem - env(safe-area-inset-bottom) - 0.5rem)",
         paddingTop: "env(safe-area-inset-top)",
+        overflow: "hidden",
       }}
     >
       {/* Shots Container - Scroll Snap com overflow-y-scroll */}
@@ -720,9 +718,7 @@ export default function Shots({ footerHeight = 0, isDesktop = false }: { footerH
               <div
                 className="absolute left-0 right-0 z-10 flex items-end px-4 gap-3"
                 style={{
-                  bottom: isDesktop
-                    ? "1rem"
-                    : "calc(env(safe-area-inset-bottom) + 0.75rem)",
+                  bottom: "0.75rem",
                 }}
               >
                 {/* Description - Bottom Left */}

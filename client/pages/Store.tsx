@@ -1770,7 +1770,7 @@ export default function Store() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header — only title + action button stays sticky */}
-      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border/50" style={{ paddingTop: "max(0.25rem, env(safe-area-inset-top))" }}>
+      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border/50">
         <div className="max-w-2xl mx-auto px-4 py-1 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Tag className="h-5 w-5 text-brand" />

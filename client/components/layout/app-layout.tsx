@@ -351,17 +351,26 @@ export function AppLayout() {
     loadProfilePhoto();
   }, [user]);
 
-  // Full-screen mode: driven by data-fullscreen-step on document.body (set by NewPost)
-  const [isFullscreenPage, setIsFullscreenPage] = React.useState(
+  // Full-screen mode: driven by data-fullscreen-step on document.body (set by NewPost).
+  // We also treat /postar as fullscreen by default to avoid a flash of header/footer
+  // before NewPost's layout effect has a chance to set the dataset (notably when
+  // navigating from /shots → /postar, where AppLayout is mounting fresh).
+  const isPostarRoute = location.pathname === "/postar";
+  const [bodyFullscreen, setBodyFullscreen] = React.useState(
     () => document.body.dataset.fullscreenStep === "true"
   );
   React.useEffect(() => {
     const observer = new MutationObserver(() => {
-      setIsFullscreenPage(document.body.dataset.fullscreenStep === "true");
+      setBodyFullscreen(document.body.dataset.fullscreenStep === "true");
     });
     observer.observe(document.body, { attributes: true, attributeFilter: ["data-fullscreen-step"] });
     return () => observer.disconnect();
   }, []);
+  // On /postar, start fullscreen (matches NewPost's initial step="select"); once
+  // NewPost sets the dataset, follow its value (it may switch to "caption"=false).
+  const isFullscreenPage = isPostarRoute
+    ? (document.body.dataset.fullscreenStep === undefined ? true : bodyFullscreen)
+    : bodyFullscreen;
 
   // Scroll hide header — mobile only, only on feed and shots pages
   const isScrollHidePage = location.pathname === "/" || location.pathname === "/shots";
@@ -555,7 +564,7 @@ export function AppLayout() {
       </aside>
 
       {/* ── MOBILE HEADER (< md) ── */}
-      {!isFullscreenPage && <header
+      {!isFullscreenPage && location.pathname !== "/shots" && <header
         className={cn(
           "md:hidden sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55 transition-transform duration-200",
           headerHidden ? "-translate-y-full pointer-events-none" : "translate-y-0",
@@ -645,14 +654,20 @@ export function AppLayout() {
             "w-full",
             isFullscreenPage
               ? "pt-0 px-0 pb-0"
-              : cn(
-                  "pt-6 px-4",
-                  layoutMode === "default" && !hideNav
-                    ? "pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)]"
-                    : "pb-6",
-                ),
+              : location.pathname === "/shots"
+                // /shots: full-bleed (no padding) but bottom-nav and header remain visible.
+                // Shots renderiza seu próprio container com altura calculada para a área visível.
+                ? "pt-0 px-0 pb-0"
+                : cn(
+                    "pt-6 px-4",
+                    layoutMode === "default" && !hideNav
+                      ? "pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)]"
+                      : "pb-6",
+                  ),
             // Desktop overrides (sidebar layout — not affected by fullscreen flag)
-            "md:px-0 md:pb-6 md:pt-6 md:max-w-[680px] md:mx-auto md:min-h-dvh",
+            location.pathname === "/shots"
+              ? "md:px-0 md:pb-0 md:pt-0 md:max-w-[680px] md:mx-auto md:min-h-dvh"
+              : "md:px-0 md:pb-6 md:pt-6 md:max-w-[680px] md:mx-auto md:min-h-dvh",
           )}
         >
           <PageTransition>

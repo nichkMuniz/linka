@@ -654,8 +654,10 @@ export default function NewPost() {
 
   const canAdvance = mediaType === "post" ? previewUrls.length > 0 : !!videoPreview;
 
-  // Signal AppLayout to hide/show header+nav based on current step
-  React.useEffect(() => {
+  // Signal AppLayout to hide/show header+nav based on current step.
+  // Use useLayoutEffect so the body dataset is set synchronously before paint,
+  // preventing a flash of the header/footer when navigating from /shots → /postar.
+  React.useLayoutEffect(() => {
     document.body.dataset.fullscreenStep = step === "select" ? "true" : "false";
     return () => { delete document.body.dataset.fullscreenStep; };
   }, [step]);

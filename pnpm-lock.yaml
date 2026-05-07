@@ -11,6 +11,9 @@ importers:
       '@capacitor-community/apple-sign-in':
         specifier: ^7.1.0
         version: 7.1.0(@capacitor/core@7.6.2)
+      '@capacitor-community/background-geolocation':
+        specifier: ^1.2.26
+        version: 1.2.26(@capacitor/core@7.6.2)
       '@capacitor/app':
         specifier: ^7.0.0
         version: 7.1.2(@capacitor/core@7.6.2)
@@ -39,11 +42,14 @@ importers:
         specifier: ^7.0.0
         version: 7.0.4(@capacitor/core@7.6.2)
       '@capgo/capacitor-photo-library':
-        specifier: ^8.0.11
-        version: 8.0.11(@capacitor/core@7.6.2)
+        specifier: ^7.2.11
+        version: 7.2.11(@capacitor/core@7.6.2)
       '@supabase/supabase-js':
         specifier: ^2.91.0
         version: 2.91.0
+      capacitor-native-biometric:
+        specifier: ^4.2.2
+        version: 4.2.2
       dotenv:
         specifier: ^17.2.1
         version: 17.2.3
@@ -804,6 +810,11 @@ packages:
     peerDependencies:
       '@capacitor/core': '>=7.0.0'
 
+  '@capacitor-community/background-geolocation@1.2.26':
+    resolution: {integrity: sha512-kuva8VQ6zM+uIKgHUJTP87IYbmGKhX7DZw62JYfGZ888h4Xr5zeN+UTR6KBRHQVrGBpzSfbv+6/HQVuHYa7W5A==}
+    peerDependencies:
+      '@capacitor/core': '>=3.0.0'
+
   '@capacitor/app@7.1.2':
     resolution: {integrity: sha512-d4I/oF/PRu4megL7/IGKYfe5j7yzSON1FRFgq6kH+m5kH6g7V+wyjHRLauCzGNjdRx4S+nWOumINds0qcRBtKg==}
     peerDependencies:
@@ -828,6 +839,9 @@ packages:
     resolution: {integrity: sha512-uPm+GDVhdWrM/DBWZ/L6c8uBVaEcge4MAXhqrIJWSkwad/9vNoVfUjtHaVgXxPE1g399PhlGm4kU8U7Qdfmwow==}
     engines: {node: '>=20.0.0'}
     hasBin: true
+
+  '@capacitor/core@3.9.0':
+    resolution: {integrity: sha512-j1lL0+/7stY8YhIq1Lm6xixvUqIn89vtyH5ZpJNNmcZ0kwz6K9eLkcG6fvq1UWMDgSVZg9JrRGSFhb4LLoYOsw==}
 
   '@capacitor/core@7.6.2':
     resolution: {integrity: sha512-8HRKEUlYpCOeRec8bCHZwEA4o/E2q5dhHSd0v/Cr6+ume08fZY/gniF+ZCKF+6DO0T/nRaBeNRQn6Up+45J1mg==}
@@ -860,10 +874,10 @@ packages:
   '@capacitor/synapse@1.0.4':
     resolution: {integrity: sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==}
 
-  '@capgo/capacitor-photo-library@8.0.11':
-    resolution: {integrity: sha512-rrkNVMjuWChaj+hFhvZFiOeJVlWl8fkjgfa1xPasxbxSnvPkrRBBamWwff7qgoGG0Zxp1dwqoKuYc7zmNFKzDQ==}
+  '@capgo/capacitor-photo-library@7.2.11':
+    resolution: {integrity: sha512-vOekTKpBLoIdT+tcC1Z25N3uXySdNQzLxeogh4Rk5eSQ5YeAlmO+fesMhX/rBhclqJMR+tP3YegpU8Vzotchaw==}
     peerDependencies:
-      '@capacitor/core': '>=8.0.0'
+      '@capacitor/core': '>=7.0.0'
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -2712,6 +2726,9 @@ packages:
 
   caniuse-lite@1.0.30001765:
     resolution: {integrity: sha512-LWcNtSyZrakjECqmpP4qdg0MMGdN368D7X8XvvAqOcqMv0RxnlqVKZl2V6/mBR68oYMxOZPLw/gO7DuisMHUvQ==}
+
+  capacitor-native-biometric@4.2.2:
+    resolution: {integrity: sha512-stg0h48UxgkNuNcCAgCXLp2DUspRQs79bCBPntpCBhsDxk2bhDRUu+J/QpFtDQHG4M4DioSUcYaAsVw2N6N7wA==}
 
   chai@5.3.3:
     resolution: {integrity: sha512-4zNhdJD/iOjSH0A05ea+Ke6MU5mmpQcbQsSOkgdaUMJ9zTlDTD/GYlwohmIE2u0gaxHYiVHEn1Fw9mZ/ktJWgw==}
@@ -6363,6 +6380,10 @@ snapshots:
       '@types/scriptjs': 0.0.2
       scriptjs: 2.5.9
 
+  '@capacitor-community/background-geolocation@1.2.26(@capacitor/core@7.6.2)':
+    dependencies:
+      '@capacitor/core': 7.6.2
+
   '@capacitor/app@7.1.2(@capacitor/core@7.6.2)':
     dependencies:
       '@capacitor/core': 7.6.2
@@ -6440,6 +6461,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@capacitor/core@3.9.0':
+    dependencies:
+      tslib: 2.8.1
+
   '@capacitor/core@7.6.2':
     dependencies:
       tslib: 2.8.1
@@ -6467,7 +6492,7 @@ snapshots:
 
   '@capacitor/synapse@1.0.4': {}
 
-  '@capgo/capacitor-photo-library@8.0.11(@capacitor/core@7.6.2)':
+  '@capgo/capacitor-photo-library@7.2.11(@capacitor/core@7.6.2)':
     dependencies:
       '@capacitor/core': 7.6.2
 
@@ -8372,6 +8397,10 @@ snapshots:
       three: 0.176.0
 
   caniuse-lite@1.0.30001765: {}
+
+  capacitor-native-biometric@4.2.2:
+    dependencies:
+      '@capacitor/core': 3.9.0
 
   chai@5.3.3:
     dependencies:
