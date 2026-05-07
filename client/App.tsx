@@ -2,6 +2,33 @@ import * as React from "react";
 
 import "./global.css";
 
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24, color: "#fff", background: "#111", minHeight: "100dvh", fontFamily: "monospace" }}>
+          <p style={{ fontWeight: "bold", fontSize: 16, marginBottom: 8 }}>App error</p>
+          <p style={{ fontSize: 13, color: "#f87171" }}>{this.state.error.message}</p>
+          <pre style={{ fontSize: 11, marginTop: 12, color: "#aaa", whiteSpace: "pre-wrap" }}>
+            {this.state.error.stack}
+          </pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot, type Root } from "react-dom/client";
 import {
@@ -292,4 +319,4 @@ const existingRoot = (container as unknown as { __ritmofitRoot?: Root })
 const root = existingRoot ?? createRoot(container);
 (container as unknown as { __ritmofitRoot?: Root }).__ritmofitRoot = root;
 
-root.render(<App />);
+root.render(<ErrorBoundary><App /></ErrorBoundary>);
