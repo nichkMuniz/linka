@@ -32,6 +32,7 @@ import {
   getCheckInHistoryDb,
   getWorkoutHistoriesBatchDb,
   getRoutineLastDatesBatchDb,
+  getRoutineIdsWithHistoryDb,
   saveWorkoutHistoryDb,
   updateWorkoutNotesDb,
   getLastWorkoutSessionSeriesDb,
@@ -152,7 +153,7 @@ import {
 } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
-import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { GoalsSkeleton } from "@/components/shared/animated-loading";
 import { InsigniasDrawer } from "@/components/profile/insignias-drawer";
 import { GoalsTab } from "@/components/goals/goals-tab";
 import { WorkoutHistoryDrawer } from "@/components/goals/workout-history-drawer";
@@ -591,6 +592,7 @@ export default function Goals() {
 
   // Map of user_workout_id → last date_completed ISO string
   const [routineLastDates, setRoutineLastDates] = React.useState<Record<string, string>>({});
+  const [routineIdsWithHistory, setRoutineIdsWithHistory] = React.useState<Set<string>>(new Set());
 
   // Workout history modal state
   const [workoutHistoryModalOpen, setWorkoutHistoryModalOpen] = React.useState(false);
@@ -1149,6 +1151,7 @@ export default function Goals() {
           if (uwIds.length > 0) {
             getRoutineLastDatesBatchDb(user.id, uwIds).then(setRoutineLastDates);
           }
+          getRoutineIdsWithHistoryDb(user.id).then(setRoutineIdsWithHistory);
           const loadedDiets = criticalResults[4];
           const loadedHabits = criticalResults[5];
           setUserDiets(loadedDiets);
@@ -1359,6 +1362,9 @@ export default function Goals() {
   React.useEffect(() => {
     const isActive = workoutModalOpen || workoutMinimized;
     if (!isActive || workoutStartTime === null) return;
+    // Don't override the rest-phase state from the working-phase effect —
+    // the rest start/end branches below own the activity state while resting.
+    if (globalRestTimerActive) return;
     const ex = userWorkouts[currentWorkoutIndex ?? 0];
     if (!ex) return;
     const done = (workoutSeries[ex.workout_id] ?? []).filter((s) => s.completed).length;
@@ -1366,11 +1372,15 @@ export default function Goals() {
     updateWorkoutLiveActivity({
       exerciseName: ex.workoutName ?? selectedRoutineName ?? "Treino",
       seriesLabel: `Série ${done}/${total}`,
+      phase: "working",
       pausedElapsedSeconds: Math.floor((Date.now() - workoutStartTime) / 1000),
       isPaused: false,
+      restEndsAtMs: null,
+      restTotalSeconds: 0,
+      nextSeriesLabel: "",
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentWorkoutIndex, _currentSeriesKey, workoutModalOpen, workoutMinimized]);
+  }, [currentWorkoutIndex, _currentSeriesKey, workoutModalOpen, workoutMinimized, globalRestTimerActive]);
 
   // Initialize workoutSeries with one series for each exercise when modal opens
   React.useEffect(() => {
@@ -1540,14 +1550,16 @@ export default function Goals() {
     if (!scheduledTimeTarget) return;
     setIsSavingScheduledTime(true);
     try {
-      const granted = scheduledTime ? await requestNotificationPermission() : true;
-      if (scheduledTime && !granted) {
-        toast({
-          title: "Permissão necessária",
-          description: "Ative as notificações nas configurações do navegador para receber lembretes.",
-          variant: "destructive",
-        });
-        return;
+      if (scheduledTime) {
+        const permission = await requestNotificationPermission();
+        if (permission === "denied") {
+          toast({
+            title: t("goals_permission_needed"),
+            description: t("goals_permission_needed_desc"),
+            variant: "destructive",
+          });
+          return;
+        }
       }
       await updateRoutineScheduledTimeDb(scheduledTimeTarget.type, scheduledTimeTarget.id, scheduledTime);
       // Update local state optimistically
@@ -1567,11 +1579,11 @@ export default function Goals() {
       await syncRoutineNotifications();
       toast({
         title: scheduledTime
-          ? `Lembrete definido para ${formatScheduledTime(scheduledTime)}`
-          : "Lembrete removido",
+          ? t("goals_reminder_set").replace("{name}", formatScheduledTime(scheduledTime))
+          : t("goals_reminder_removed"),
       });
     } catch {
-      toast({ title: "Erro ao salvar lembrete", variant: "destructive" });
+      toast({ title: t("goals_save_reminder_error"), variant: "destructive" });
     } finally {
       setIsSavingScheduledTime(false);
     }
@@ -2059,6 +2071,7 @@ export default function Goals() {
     seriesIndex: number,
     field: "kg" | "reps",
     value: number | string,
+    rowKey?: string,
   ) => {
     const currentSeries = workoutSeries[workoutId] || [];
     const updated = [...currentSeries];
@@ -2080,13 +2093,14 @@ export default function Goals() {
       [workoutId]: updated,
     });
 
+    const mpKey = rowKey ?? workoutId;
     // Show machine-plated prompt when kg exceeds 120 (only if user hasn't answered yet)
     if (field === "kg" && numValue > 120) {
-      if (!(workoutId in machinePlated)) setShowMachinePlatedFor(workoutId);
+      if (!(mpKey in machinePlated)) setShowMachinePlatedFor(mpKey);
     } else if (field === "kg" && numValue <= 120) {
       // Hide if user reduced below threshold and no other series > 120
       const stillAbove = updated.some((s, i) => i !== seriesIndex ? (s.kg > 120) : false);
-      if (!stillAbove) setShowMachinePlatedFor(null);
+      if (!stillAbove && showMachinePlatedFor === mpKey) setShowMachinePlatedFor(null);
     }
   };
 
@@ -2107,6 +2121,7 @@ export default function Goals() {
   const handleToggleSerieCompleted = (
     workoutId: string,
     seriesIndex: number,
+    rowKey?: string,
   ) => {
     const currentSeries = workoutSeries[workoutId] || [];
     const updated = [...currentSeries];
@@ -2121,11 +2136,12 @@ export default function Goals() {
       [workoutId]: updated,
     });
 
+    const mpKey = rowKey ?? workoutId;
     // Machine plated: show prompt when completing a series with kg > 120 (only if not answered yet)
     if (isMarking) {
       const serie = updated[seriesIndex];
-      if (serie.kg > 120 && !(workoutId in machinePlated)) {
-        setShowMachinePlatedFor(workoutId);
+      if (serie.kg > 120 && !(mpKey in machinePlated)) {
+        setShowMachinePlatedFor(mpKey);
       }
     }
 
@@ -2162,6 +2178,26 @@ export default function Goals() {
         setGlobalRestTimerKey((prev) => prev + 1);
         setRestBannerVisible(true);
         setTimeout(() => setRestTimerModalOpen(true), 50);
+
+        // Push rest phase to the iOS Live Activity so the lock-screen widget
+        // shows the countdown + next-series preview (image 2 mock).
+        const ex = userWorkouts.find((w) => w.workout_id === workoutId);
+        const exName = ex?.workoutName ?? selectedRoutineName ?? "Treino";
+        const completedCount = updated.filter((s) => s.completed).length;
+        const totalCount = updated.length;
+        const nextSerie = updated.find((s) => !s.completed);
+        const nextLabel = nextSerie
+          ? `A seguir: série ${completedCount + 1} de ${totalCount} (${nextSerie.kg} kg x ${nextSerie.reps} rep)`
+          : `Última série concluída`;
+        updateWorkoutLiveActivity({
+          exerciseName: exName,
+          seriesLabel: `Série ${completedCount}/${totalCount}`,
+          phase: "resting",
+          restEndsAtMs: Date.now() + restSeconds * 1000,
+          restTotalSeconds: restSeconds,
+          nextSeriesLabel: nextLabel,
+          isPaused: false,
+        });
       }
     }
   };
@@ -2204,6 +2240,23 @@ export default function Goals() {
         toast({
           title: "Tempo de descanso terminou!",
           description: "Pronto para a próxima série?",
+        });
+      }
+
+      // Switch the Live Activity back to the working phase
+      if (workoutStartTime !== null) {
+        const ex = userWorkouts[currentWorkoutIndex ?? 0];
+        const done = ex ? (workoutSeries[ex.workout_id] ?? []).filter((s) => s.completed).length : 0;
+        const total = ex ? (workoutSeries[ex.workout_id] ?? []).length : 0;
+        updateWorkoutLiveActivity({
+          exerciseName: ex?.workoutName ?? selectedRoutineName ?? "Treino",
+          seriesLabel: `Série ${done}/${total}`,
+          phase: "working",
+          pausedElapsedSeconds: Math.floor((Date.now() - workoutStartTime) / 1000),
+          isPaused: false,
+          restEndsAtMs: null,
+          restTotalSeconds: 0,
+          nextSeriesLabel: "",
         });
       }
     }
@@ -2412,6 +2465,7 @@ export default function Goals() {
                 isCardioExercise
                   ? (serie.reps ? String(serie.reps) : null)
                   : (serie.reps ? `${serie.reps} reps` : null),
+                userWorkoutRow?.routine_id ?? null,
               );
             } catch (historyErr) {
               console.error("Error saving workout history:", historyErr);
@@ -2473,12 +2527,14 @@ export default function Goals() {
       }
 
       // Collect machine-plated exercises (user confirmed they maxed the machine)
+      // Keys are user_workout row ids (workout.id), so multiple cards with the
+      // same template workout_id each track their own state.
       const machinePlatedExercises: Array<{ name: string; kg: number }> = [];
-      for (const [workoutId, confirmed] of Object.entries(machinePlated)) {
+      for (const [rowId, confirmed] of Object.entries(machinePlated)) {
         if (!confirmed) continue;
-        const match = userWorkouts.find((w) => w.workout_id === workoutId);
+        const match = userWorkouts.find((w) => w.id === rowId);
         if (!match?.workoutName) continue;
-        const series = workoutSeries[workoutId] || [];
+        const series = workoutSeries[match.workout_id] || [];
         const bestKg = Math.max(0, ...series.filter((s) => s.completed).map((s) => s.kg || 0));
         machinePlatedExercises.push({ name: match.workoutName, kg: bestKg });
       }
@@ -2579,6 +2635,7 @@ export default function Goals() {
         if (uwIds.length > 0) {
           getRoutineLastDatesBatchDb(user.id, uwIds).then(setRoutineLastDates);
         }
+        getRoutineIdsWithHistoryDb(user.id).then(setRoutineIdsWithHistory);
       });
 
       await performAutoCheckIn();
@@ -2739,6 +2796,7 @@ export default function Goals() {
           if (uwIds2.length > 0) {
             getRoutineLastDatesBatchDb(user.id, uwIds2).then(setRoutineLastDates);
           }
+          getRoutineIdsWithHistoryDb(user.id).then(setRoutineIdsWithHistory);
         } catch (err) {
           console.error("Error refreshing routines and items:", err);
         }
@@ -2756,12 +2814,7 @@ export default function Goals() {
   };
 
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <LoadingSpinner className="h-12 w-12" />
-        <p className="text-sm text-muted-foreground">{t("goals_loading")}</p>
-      </div>
-    );
+    return <GoalsSkeleton />;
   }
 
   const hasWaterHabit = userHabits.some((h) => String(h.habit_id) === "1");
@@ -2836,7 +2889,7 @@ export default function Goals() {
         </TabsList>
 
         {/* Metas Tab */}
-        <TabsContent value="metas" className="space-y-6 fade-in">
+        <TabsContent forceMount value="metas" className="space-y-6 fade-in data-[state=inactive]:hidden">
           <GoalsTab
             goals={goals}
             selectedGoalIds={selectedGoalIds}
@@ -2867,7 +2920,7 @@ export default function Goals() {
         </TabsContent>
 
         {/* Rotinas Tab */}
-        <TabsContent value="rotinas" className="space-y-4 fade-in px-2">
+        <TabsContent forceMount value="rotinas" className="space-y-4 fade-in px-2 data-[state=inactive]:hidden">
           <RoutinesTab
             user={user}
             userWorkouts={userWorkouts}
@@ -2875,6 +2928,7 @@ export default function Goals() {
             userHabits={userHabits}
             routines={routines}
             routineLastDates={routineLastDates}
+            routineIdsWithHistory={routineIdsWithHistory}
             dailyCheckInDone={dailyCheckInDone}
             weekCheckIns={weekCheckIns}
             streakCount={streakCount}
@@ -2967,7 +3021,7 @@ export default function Goals() {
 
       {/* Add Routine Drawer Modal */}
       <Drawer open={addRoutineModalOpen} onOpenChange={(open) => { setAddRoutineModalOpen(open); if (!open) { setIsAddingFromWorkout(false); setNameStepActive(false); setCameFromTypeCard(false); } }}>
-        <DrawerContent className={`flex flex-col modal-enter ${selectedRoutineType !== null && !nameStepActive ? "h-[85dvh]" : "max-h-[80dvh]"}`} onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent className={`flex flex-col modal-enter ${selectedRoutineType !== null ? "h-[85dvh]" : "max-h-[80dvh]"}`} onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>
               {nameStepActive
@@ -3697,7 +3751,7 @@ export default function Goals() {
                 })
                 .map(({ workout, originalIndex }, filteredIndex, filteredArr) => {
                   const series = workoutSeries[workout.workout_id] || [];
-                  const isMachinePlated = !!machinePlated[workout.workout_id];
+                  const isMachinePlated = !!machinePlated[workout.id];
                   return (
                     <div key={workout.id} className="px-4 py-3">
                       <div className={`rounded-lg p-3 mb-3 transition-colors ${isMachinePlated ? "bg-gradient-to-br from-orange-500/20 via-red-500/15 to-orange-600/10 border border-orange-400/70" : "bg-card border border-brand/20"}`}>
@@ -3930,7 +3984,7 @@ export default function Goals() {
                                         min="0"
                                         value={s.kg === 0 ? "" : s.kg}
                                         onChange={(e) =>
-                                          handleUpdateSerie(workout.workout_id, 0, "kg", e.target.value)
+                                          handleUpdateSerie(workout.workout_id, 0, "kg", e.target.value, workout.id)
                                         }
                                         placeholder="0,00"
                                         className="w-full h-14 pl-3 pr-10 border-2 border-border/60 rounded-xl text-2xl font-bold bg-background text-foreground focus:border-brand focus:outline-none transition-colors"
@@ -3940,54 +3994,20 @@ export default function Goals() {
                                     </div>
                                   </div>
 
-                                  {/* Tempo — picker HH MM SS */}
+                                  {/* Tempo — picker nativo iOS (roda) */}
                                   {(() => {
                                     const totalSecs = s.reps || 0;
                                     const hh = Math.floor(totalSecs / 3600);
                                     const mm = Math.floor((totalSecs % 3600) / 60);
                                     const ss = totalSecs % 60;
+                                    const timeValue = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 
-                                    const updateTime = (newH: number, newM: number, newS: number) => {
-                                      const clamped = Math.max(0, newH) * 3600 + Math.max(0, Math.min(59, newM)) * 60 + Math.max(0, Math.min(59, newS));
-                                      handleUpdateSerie(workout.workout_id, 0, "reps", clamped);
+                                    const handleTimeChange = (v: string) => {
+                                      const parts = v.split(":").map((p) => parseInt(p, 10) || 0);
+                                      const [nh = 0, nm = 0, nsec = 0] = parts;
+                                      const clamped = Math.max(0, nh) * 3600 + Math.max(0, Math.min(59, nm)) * 60 + Math.max(0, Math.min(59, nsec));
+                                      handleUpdateSerie(workout.workout_id, 0, "reps", clamped, workout.id);
                                     };
-
-                                    const TimeUnit = ({
-                                      label, value, onInc, onDec, onChange,
-                                    }: { label: string; value: number; onInc: () => void; onDec: () => void; onChange: (v: number) => void }) => (
-                                      <div className="flex flex-col items-center gap-0.5 flex-1">
-                                        <button
-                                          type="button"
-                                          onPointerDown={onInc}
-                                          className="w-full h-9 flex items-center justify-center rounded-lg bg-muted/40 active:bg-brand/20 active:scale-95 transition-all touch-none select-none"
-                                          aria-label={`Aumentar ${label}`}
-                                        >
-                                          <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                                        </button>
-                                        <input
-                                          type="number"
-                                          inputMode="numeric"
-                                          pattern="[0-9]*"
-                                          min={0}
-                                          max={label === "hora" ? 99 : 59}
-                                          value={String(value).padStart(2, "0")}
-                                          onChange={(e) => {
-                                            const n = parseInt(e.target.value.replace(/\D/g, ""), 10);
-                                            onChange(isNaN(n) ? 0 : Math.max(0, Math.min(label === "hora" ? 99 : 59, n)));
-                                          }}
-                                          className="w-full h-12 text-center text-2xl font-bold tabular-nums leading-none rounded-xl border-2 border-border/60 bg-background focus:outline-none focus:border-brand [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                        />
-                                        <button
-                                          type="button"
-                                          onPointerDown={onDec}
-                                          className="w-full h-9 flex items-center justify-center rounded-lg bg-muted/40 active:bg-brand/20 active:scale-95 transition-all touch-none select-none"
-                                          aria-label={`Diminuir ${label}`}
-                                        >
-                                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                        </button>
-                                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mt-0.5">{label}</span>
-                                      </div>
-                                    );
 
                                     return (
                                       <div className="flex flex-col gap-1.5">
@@ -3995,31 +4015,14 @@ export default function Goals() {
                                           <Timer className="h-3 w-3" />
                                           Tempo
                                         </label>
-                                        <div className="flex items-start gap-2">
-                                          <TimeUnit
-                                            label="hora"
-                                            value={hh}
-                                            onInc={() => updateTime(hh + 1, mm, ss)}
-                                            onDec={() => updateTime(Math.max(0, hh - 1), mm, ss)}
-                                            onChange={(v) => updateTime(v, mm, ss)}
-                                          />
-                                          <div className="text-2xl font-bold text-muted-foreground self-center pb-6">:</div>
-                                          <TimeUnit
-                                            label="min"
-                                            value={mm}
-                                            onInc={() => updateTime(hh, mm === 59 ? 0 : mm + 1, ss)}
-                                            onDec={() => updateTime(hh, mm === 0 ? 59 : mm - 1, ss)}
-                                            onChange={(v) => updateTime(hh, v, ss)}
-                                          />
-                                          <div className="text-2xl font-bold text-muted-foreground self-center pb-6">:</div>
-                                          <TimeUnit
-                                            label="seg"
-                                            value={ss}
-                                            onInc={() => updateTime(hh, mm, ss === 59 ? 0 : ss + 1)}
-                                            onDec={() => updateTime(hh, mm, ss === 0 ? 59 : ss - 1)}
-                                            onChange={(v) => updateTime(hh, mm, v)}
-                                          />
-                                        </div>
+                                        <input
+                                          type="time"
+                                          step={1}
+                                          value={timeValue}
+                                          onChange={(e) => handleTimeChange(e.target.value)}
+                                          className="w-full h-14 px-3 border-2 border-border/60 rounded-xl text-2xl font-bold tabular-nums bg-background text-foreground focus:border-brand focus:outline-none transition-colors"
+                                          style={{ fontSize: '24px' }}
+                                        />
                                       </div>
                                     );
                                   })()}
@@ -4028,7 +4031,7 @@ export default function Goals() {
 
                                 {/* Confirm button */}
                                 <button
-                                  onPointerDown={(e) => { e.preventDefault(); handleToggleSerieCompleted(workout.workout_id, 0); }}
+                                  onPointerDown={(e) => { e.preventDefault(); handleToggleSerieCompleted(workout.workout_id, 0, workout.id); }}
                                   className={`w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${s.completed
                                     ? "bg-brand text-white"
                                     : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
@@ -4095,6 +4098,7 @@ export default function Goals() {
                                             index,
                                             "kg",
                                             e.target.value,
+                                            workout.id,
                                           )
                                         }
                                         placeholder="0"
@@ -4115,6 +4119,7 @@ export default function Goals() {
                                             index,
                                             "reps",
                                             e.target.value,
+                                            workout.id,
                                           )
                                         }
                                         placeholder="0"
@@ -4124,7 +4129,7 @@ export default function Goals() {
 
                                       {/* Checkbox */}
                                       <button
-                                        onPointerDown={(e) => { e.preventDefault(); handleToggleSerieCompleted(workout.workout_id, index); }}
+                                        onPointerDown={(e) => { e.preventDefault(); handleToggleSerieCompleted(workout.workout_id, index, workout.id); }}
                                         className="h-6 w-6 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors mx-auto"
                                       >
                                         {s.completed ? (
@@ -4152,7 +4157,7 @@ export default function Goals() {
                         })()}
 
                         {/* Machine Plated nudge — triggered when kg > 120 is entered or series is completed */}
-                        {showMachinePlatedFor === workout.workout_id && (
+                        {showMachinePlatedFor === workout.id && (
                           <div className="mt-2 flex items-center gap-3 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30">
                             <span className="text-base leading-none select-none">🏋️</span>
                             <span className="flex-1 text-xs font-medium text-amber-400/90 leading-snug">
@@ -4163,7 +4168,7 @@ export default function Goals() {
                                 type="button"
                                 onPointerDown={(e) => {
                                   e.preventDefault();
-                                  setMachinePlated((prev) => ({ ...prev, [workout.workout_id]: true }));
+                                  setMachinePlated((prev) => ({ ...prev, [workout.id]: true }));
                                   setShowMachinePlatedFor(null);
                                 }}
                                 className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500 text-white active:scale-95 transition-transform"
@@ -4175,7 +4180,7 @@ export default function Goals() {
                                 type="button"
                                 onPointerDown={(e) => {
                                   e.preventDefault();
-                                  setMachinePlated((prev) => ({ ...prev, [workout.workout_id]: false }));
+                                  setMachinePlated((prev) => ({ ...prev, [workout.id]: false }));
                                   setShowMachinePlatedFor(null);
                                 }}
                                 className="px-3 py-1 rounded-full text-xs font-semibold bg-muted/60 text-muted-foreground active:scale-95 transition-transform"
@@ -4188,7 +4193,7 @@ export default function Goals() {
                         )}
 
                         {/* Confirmed machine plated badge */}
-                        {machinePlated[workout.workout_id] && showMachinePlatedFor !== workout.workout_id && (
+                        {machinePlated[workout.id] && showMachinePlatedFor !== workout.id && (
                           <div className="mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
                             <CheckCircle2 className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
                             <span className="text-xs font-medium text-amber-400/80 flex-1">Máquina zerada!</span>
@@ -4196,7 +4201,7 @@ export default function Goals() {
                               type="button"
                               onPointerDown={(e) => {
                                 e.preventDefault();
-                                setMachinePlated((prev) => ({ ...prev, [workout.workout_id]: false }));
+                                setMachinePlated((prev) => ({ ...prev, [workout.id]: false }));
                               }}
                               className="text-[10px] text-muted-foreground underline"
                             >
@@ -5895,20 +5900,22 @@ export default function Goals() {
               <Button
                 className="w-full rounded-full gap-2"
                 onClick={() => {
-                  const text = `🏆 Completei minha meta no Linka: "${celebrationGoal.description}"! ${celebrationGoal.quantity} dias de dedicação. Baixe o app e junte-se a mim! 💪`;
+                  const text = t("share_goal_achievement_text")
+                    .replace("{description}", celebrationGoal.description)
+                    .replace("{days}", String(celebrationGoal.quantity));
                   setShareDrawerText(text);
                   setShareDrawerOpen(true);
                   setCelebrationGoal(null);
                 }}
               >
-                🎉 Compartilhar conquista
+                {t("share_goal_achievement_btn")}
               </Button>
               <Button
                 variant="ghost"
                 className="w-full rounded-full text-muted-foreground"
                 onClick={() => setCelebrationGoal(null)}
               >
-                Fechar
+                {t("share_close")}
               </Button>
             </div>
           </div>
@@ -5934,7 +5941,7 @@ export default function Goals() {
         open={shareDrawerOpen}
         onOpenChange={setShareDrawerOpen}
         text={shareDrawerText}
-        title="Compartilhar conquista"
+        title={t("share_goal_achievement_title")}
       />
 
       {/* Cropper para fotos de capa do treino */}

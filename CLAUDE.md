@@ -4,6 +4,28 @@ Este arquivo define como o Claude deve trabalhar neste projeto. Leia sempre ante
 
 ---
 
+## 0a. Ambiente do Desenvolvedor: Windows + Ionic Appflow (Sem Mac)
+
+> **REGRA CRÍTICA:** O desenvolvedor **não tem acesso a um Mac**. Trabalha no **Windows** e usa o **Ionic Appflow** para gerar builds iOS e enviar à Apple. Isso muda completamente o que pode e o que não pode ser pedido a ele.
+
+### Implicações práticas
+
+- **Não peça para abrir o Xcode.** "Abre o Xcode e marca tal target membership", "vai no File Inspector", "Clean Build Folder" — nada disso é executável. Se a tarefa exigir mudança no projeto Xcode, **edite `ios/App/App.xcodeproj/project.pbxproj` diretamente** (PBXBuildFile, PBXFileReference, group children, sources phase, etc.).
+- **Não peça para rodar simulador iOS / `xcodebuild` / `pod install` localmente.** Esses passos só rodam no Appflow (cloud). Validação visual de mudanças nativas só acontece via Appflow + TestFlight ou device físico.
+- **Capacitor sync (`pnpm build && npx cap sync ios`) é OK** — roda no Windows e atualiza arquivos JS/config dentro de `ios/`.
+- **Sem compilador Swift local.** Erros Swift só aparecem no log do Appflow — escreva código conservador, com tipos explícitos e `@available` correto.
+- **Edits em `.pbxproj` são primeira classe.** Formato plist OpenStep, UUIDs hex de 24 chars. Ao adicionar/remover arquivo, atualize **4 lugares**: `PBXBuildFile`, `PBXFileReference`, `PBXGroup` (children) e `PBXSourcesBuildPhase`/`PBXResourcesBuildPhase` (files). Sem isso o Appflow falha.
+- **Compartilhar um arquivo entre targets** (ex.: `ActivityAttributes` entre App e Widget Extension) = **dois `PBXBuildFile` distintos apontando para o mesmo `PBXFileReference`**, um em cada `PBXSourcesBuildPhase` dos targets. **Nunca duplicar o arquivo físico** — Live Activities falham silenciosamente se o tipo for compilado em duas cópias separadas.
+- **Capabilities/permissões** = editar `Info.plist` e `App.entitlements` direto, não via aba "Signing & Capabilities".
+- **Debug de Live Activities / widgets**: peça ao usuário para conferir Ajustes iOS → Linka → Atividades ao Vivo, e Ajustes → Face ID e Código → Atividades ao Vivo (lock screen). Console.app não está disponível — peça reprodução no aparelho.
+- **Fluxo padrão ao concluir mudanças nativas:** `pnpm build` → `npx cap sync ios` → commit → push → build no Appflow → TestFlight.
+
+### O que continua sendo possível no Windows
+
+Todo o código TypeScript/React, Swift, Info.plist, entitlements, project.pbxproj. Rodar `pnpm dev`, `pnpm build`, `npx cap sync ios`. Validar tudo que é JS/CSS/HTML no navegador.
+
+---
+
 ## 0. Plataforma Alvo: Aplicativo iOS (Apple App Store)
 
 > **REGRA CRÍTICA:** Este projeto **não é mais uma aplicação web**. É um **aplicativo mobile nativo/híbrido voltado exclusivamente para a Apple App Store (iOS)**. Toda e qualquer decisão de implementação deve ser tomada com essa premissa.

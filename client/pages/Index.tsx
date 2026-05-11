@@ -31,6 +31,7 @@ import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { ReportDrawer } from "@/components/shared/report-drawer";
 import { GoalCompletedDialog } from "@/components/goals/goal-completed-dialog";
 import { ShareDrawer } from "@/components/shared/share-drawer";
+import { postShareUrl } from "@/lib/share-url";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
 import { PostCard } from "@/components/feed/post-card";
 import {
@@ -591,12 +592,12 @@ export default function Index() {
   );
 
   const handleSharePost = React.useCallback((post: PostWithStats) => {
-    const text = `Confira o post de @${post.userNickname} no Linka! 💪${post.description ? `\n"${post.description}"` : ""}`;
-    const appOrigin = import.meta.env.VITE_APP_URL || "https://linka.app";
+    const base = t("share_post_text").replace("{handle}", post.userNickname ?? "");
+    const text = post.description ? `${base}\n"${post.description}"` : base;
     setShareDrawerText(text);
-    setShareDrawerUrl(`${appOrigin}/post/${post.id}`);
+    setShareDrawerUrl(postShareUrl(post.id));
     setShareDrawerOpen(true);
-  }, []);
+  }, [t]);
 
   const handleReportUser = React.useCallback((post: PostWithStats) => {
     setReportedPost(post);

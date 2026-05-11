@@ -2190,6 +2190,7 @@ export type UserWorkoutWithDetails = {
   created_at?: string | null;
   scheduled_time?: string | null;
   notes?: string | null;
+  routine_id?: string | null;
 };
 
 export async function getUserWorkoutsDb(
@@ -2200,7 +2201,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, name, created_at, scheduled_time, notes, workouts(name, photo, description, muscle_group, wger_id)",
+      "id, workout_id, user_id, name, created_at, scheduled_time, notes, routine_id, workouts(name, photo, description, muscle_group, wger_id)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -2223,7 +2224,7 @@ export async function getUserWorkoutsDb(
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_workouts")
         .select(
-          "id, workout_id, user_id, name, created_at",
+          "id, workout_id, user_id, name, created_at, routine_id",
         )
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
@@ -2262,6 +2263,7 @@ export async function getUserWorkoutsDb(
             created_at: row.created_at ? String(row.created_at) : null,
             scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
             notes: row.notes ? String(row.notes) : null,
+            routine_id: row.routine_id != null ? String(row.routine_id) : null,
           };
         });
       } else if (errorFallback) {
@@ -2290,6 +2292,7 @@ export async function getUserWorkoutsDb(
     created_at: row.created_at ? String(row.created_at) : null,
     scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
     notes: row.notes ? String(row.notes) : null,
+    routine_id: row.routine_id != null ? String(row.routine_id) : null,
   }));
 
   });
@@ -7057,6 +7060,7 @@ export async function saveWorkoutHistoryDb(
   workoutId: string,
   kilos: number | null = null,
   volume: string | null = null,
+  routineId: string | null = null,
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
@@ -7070,6 +7074,7 @@ export async function saveWorkoutHistoryDb(
           workout_id: workoutId,
           kilos,
           volume,
+          routine_id: routineId != null ? Number(routineId) : null,
           date_completed: new Date().toISOString(),
         },
       ]);
@@ -7260,6 +7265,35 @@ export async function getRoutineLastDatesBatchDb(
   } catch (err: any) {
     console.error("Error fetching routine last dates:", err);
     return {};
+  }
+}
+
+/**
+ * Fetch the set of routine_ids that have at least one record in user_workouts_hist
+ * for this user. Used to gate the routine summary icon.
+ */
+export async function getRoutineIdsWithHistoryDb(
+  userId: string,
+): Promise<Set<string>> {
+  if (!hasSupabaseConfig || !supabase) return new Set();
+
+  try {
+    const { data, error } = await supabase
+      .from("user_workouts_hist")
+      .select("routine_id")
+      .eq("user_id", userId)
+      .not("routine_id", "is", null);
+
+    if (error) throw error;
+
+    const result = new Set<string>();
+    (data ?? []).forEach((row: any) => {
+      if (row.routine_id != null) result.add(String(row.routine_id));
+    });
+    return result;
+  } catch (err: any) {
+    console.error("Error fetching routine ids with history:", err);
+    return new Set();
   }
 }
 

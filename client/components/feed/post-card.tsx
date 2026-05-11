@@ -69,6 +69,17 @@ export function PostCard({
   const lastTapRef = React.useRef<number>(0);
   const badgeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [descExpanded, setDescExpanded] = React.useState(false);
+  const DESC_MAX_CHARS = 30;
+  const description = post.description ?? "";
+  const firstLine = description.split("\n")[0] ?? "";
+  const isDescTruncatable =
+    description.includes("\n") || description.length > DESC_MAX_CHARS;
+  const truncatedDescription =
+    firstLine.length > DESC_MAX_CHARS
+      ? firstLine.slice(0, DESC_MAX_CHARS).trimEnd()
+      : firstLine;
+
   const totalLikes = Object.values(post.likes).reduce(
     (sum: number, val: number) => sum + val,
     0,
@@ -109,16 +120,9 @@ export function PostCard({
           }}
         >
           {post.photos && post.photos.length > 0 ? (
-            <PostCarousel photos={post.photos} alt="Post" />
+            <PostCarousel photos={post.photos} alt="Post" objectFit="contain" />
           ) : post.photo ? (
-            <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-t-xl">
-              <ImageWithFallback
-                src={post.photo}
-                alt="Post"
-                fallback="/placeholder.svg"
-                className="max-w-full max-h-full w-auto h-auto object-contain"
-              />
-            </div>
+            <PostCarousel photos={[post.photo]} alt="Post" objectFit="contain" />
           ) : (
             <div className="relative w-full min-h-[56px] bg-muted/30" />
           )}
@@ -297,9 +301,37 @@ export function PostCard({
 
         {/* Description + goal */}
         <div className="px-3 pb-3 space-y-2">
-          {post.description && (
+          {description && (
             <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-              {post.description}
+              {!isDescTruncatable || descExpanded ? (
+                <>
+                  {description}
+                  {isDescTruncatable && descExpanded && (
+                    <>
+                      {" "}
+                      <button
+                        type="button"
+                        onClick={() => setDescExpanded(false)}
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {t("feed_description_less")}
+                      </button>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  {truncatedDescription}
+                  {"... "}
+                  <button
+                    type="button"
+                    onClick={() => setDescExpanded(true)}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {t("feed_description_more")}
+                  </button>
+                </>
+              )}
             </p>
           )}
 

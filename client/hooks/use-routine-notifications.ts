@@ -1,5 +1,6 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { LocalNotifications } from "@capacitor/local-notifications";
+import { Capacitor } from "@capacitor/core";
 import { getRoutineSchedulesDb, RoutineScheduleEntry } from "@/lib/ritmofit-db";
 
 /**
@@ -24,22 +25,22 @@ function getTypeLabels(): Record<string, string> {
 
 /**
  * Requests notification permission using the native Capacitor plugin.
- * Returns true if permission is (or becomes) "granted".
+ * Returns "granted", "denied", or "unavailable".
  */
-export async function requestNotificationPermission(): Promise<boolean> {
+export async function requestNotificationPermission(): Promise<"granted" | "denied" | "unavailable"> {
   try {
     const { display } = await LocalNotifications.checkPermissions();
-    if (display === "granted") return true;
-    if (display === "denied") return false;
+    if (display === "granted") return "granted";
+    if (display === "denied") return "denied";
     const { display: result } = await LocalNotifications.requestPermissions();
-    return result === "granted";
+    return result === "granted" ? "granted" : "denied";
   } catch {
     // Fallback for web/PWA context where plugin is not available
-    if (!("Notification" in window)) return false;
-    if (Notification.permission === "granted") return true;
-    if (Notification.permission === "denied") return false;
+    if (!("Notification" in window)) return "unavailable";
+    if (Notification.permission === "granted") return "granted";
+    if (Notification.permission === "denied") return "denied";
     const result = await Notification.requestPermission();
-    return result === "granted";
+    return result === "granted" ? "granted" : "denied";
   }
 }
 
@@ -71,11 +72,16 @@ function entryToNotifId(id: string): number {
 /**
  * Schedules (or re-schedules) all routine notifications using the native plugin.
  * Cancels all previous ones first to avoid duplicates.
+ * Throws if scheduling fails so the caller can surface the error.
  */
 async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<void> {
-  const pending = await LocalNotifications.getPending();
-  if (pending.notifications.length > 0) {
-    await LocalNotifications.cancel({ notifications: pending.notifications });
+  try {
+    const pending = await LocalNotifications.getPending();
+    if (pending.notifications.length > 0) {
+      await LocalNotifications.cancel({ notifications: pending.notifications });
+    }
+  } catch {
+    // getPending/cancel may fail on first run — safe to continue
   }
 
   const toSchedule = schedules
@@ -105,24 +111,40 @@ async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<
  * Replaces the previous Service Worker + Web Notifications approach.
  */
 export function useRoutineNotifications(userId: string | null) {
+  // Tracks last sync to avoid redundant calls
+  const lastSyncRef = useRef<number>(0);
+
   const syncAll = useCallback(async () => {
     if (!userId) return;
+    // Debounce: skip if synced less than 5 seconds ago
+    const now = Date.now();
+    if (now - lastSyncRef.current < 5_000) return;
+    lastSyncRef.current = now;
+
     try {
-      const granted = await requestNotificationPermission();
-      if (!granted) return;
+      const permission = await requestNotificationPermission();
+      if (permission !== "granted") return;
       const schedules = await getRoutineSchedulesDb(userId);
       await applySchedulesNative(schedules);
-    } catch {
-      // non-critical — silent fail
+    } catch (err) {
+      console.error("[notifications] sync failed:", err);
     }
   }, [userId]);
 
+  // Sync on mount and when returning to the app (visibilitychange)
   useEffect(() => {
     syncAll();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") syncAll();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [syncAll]);
 
   // Handle notification tap → navigate to /metas
   useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
     const listener = LocalNotifications.addListener(
       "localNotificationActionPerformed",
       (action) => {

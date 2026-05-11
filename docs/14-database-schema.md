@@ -1038,6 +1038,7 @@ Histórico de treinos realizados pelo usuário.
 | `created_at` | timestamp | — | `now()` | Data de criação do registro |
 | `km` | float8 | — | - | quilometros percorridos |
 | `time` | varchar | — | - | tempo decorrido |
+| `routine_id` | bigint | FK → `routines.id` | — | Rotina à qual o treino concluído pertence. Populada ao finalizar o treino a partir de `user_workouts.routine_id`. Usada para gatear a exibição do ícone de resumo da rotina (só aparece se houver ao menos um registro com `routine_id` correspondente). |
 
 ---
 

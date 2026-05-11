@@ -4,8 +4,6 @@ import { cn } from "@/lib/utils";
 import type { PostIncentiveType } from "@/lib/ritmofit-db";
 import { INCENTIVE_CONFIG, INCENTIVE_TYPES } from "@/lib/incentive-config";
 import { useLanguage } from "@/lib/language-context";
-import { showIncentiveToast } from "@/lib/incentive-toast";
-
 interface QuickIncentiveOverlayProps {
   visible: boolean;
   userLikes: PostIncentiveType[];
@@ -29,7 +27,6 @@ export function QuickIncentiveOverlay({
   }, [visible, onDismiss]);
 
   function handleSelect(type: PostIncentiveType) {
-    showIncentiveToast(type);
     onSelect(type);
   }
 

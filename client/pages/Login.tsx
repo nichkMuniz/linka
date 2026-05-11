@@ -94,7 +94,9 @@ export default function Login() {
   const [showSplash, setShowSplash] = React.useState(true);
 
   React.useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), 1800);
+    // Reveal animation: aura/símbolo entram em ~1.5s, wordmark emerge até ~2.9s.
+    // Mantemos o lockup respirando por mais um instante antes de revelar o form.
+    const timer = setTimeout(() => setShowSplash(false), 3200);
     return () => clearTimeout(timer);
   }, []);
 
@@ -242,6 +244,8 @@ export default function Login() {
     if (!user) return;
     if (isCompletingSignup) return;
     if (showNewPassword) return;
+    // Aguarda o usuário decidir sobre registro biométrico antes de navegar.
+    if (showBiometricSetup) return;
 
     const deeplink = sessionStorage.getItem("deeplink_redirect");
     if (deeplink) {
@@ -250,7 +254,7 @@ export default function Login() {
     } else {
       navigate("/", { replace: true });
     }
-  }, [authLoading, user, navigate, isCompletingSignup, showNewPassword]);
+  }, [authLoading, user, navigate, isCompletingSignup, showNewPassword, showBiometricSetup]);
 
   const submit = async (mode: "login" | "signup") => {
     if (!hasSupabaseConfig || !supabase) {
@@ -1054,18 +1058,187 @@ export default function Login() {
   if (showSplash) {
     return (
       <div
-        className="grid min-h-dvh place-items-center"
+        className="linka-reveal-stage fixed inset-0 grid place-items-center overflow-hidden"
         style={{
-          backgroundColor: "#FCFCFF",
+          background: "radial-gradient(ellipse at center, #0b0b0e 0%, #000 70%)",
           paddingTop: "env(safe-area-inset-top)",
           paddingBottom: "env(safe-area-inset-bottom)",
+          paddingLeft: "env(safe-area-inset-left)",
+          paddingRight: "env(safe-area-inset-right)",
         }}
+        aria-label="LinKa"
       >
-        <img
-          src="/logo-animada-v2.gif"
-          alt="LinKa"
-          className="w-50 h-50 object-contain"
-        />
+        <style>{`
+          @keyframes linka-aura-in {
+            0%   { opacity: 0;   transform: scale(0.6); }
+            100% { opacity: 0.9; transform: scale(1);   }
+          }
+          @keyframes linka-aura-pulse {
+            0%   { transform: scale(1);    opacity: 0.9; }
+            50%  { transform: scale(1.18); opacity: 1;   }
+            100% { transform: scale(1.05); opacity: 0.75;}
+          }
+          @keyframes linka-aura-breathe {
+            0%, 100% { transform: scale(1.02); opacity: 0.65; }
+            50%      { transform: scale(1.10); opacity: 0.85; }
+          }
+          @keyframes linka-symbol-in {
+            0%   { opacity: 0; transform: translateY(10px) scale(0.9);
+                   filter: blur(6px)
+                           drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
+                           drop-shadow(0 4px 14px rgba(120, 80, 220, 0.10)); }
+            55%  { opacity: 1; }
+            72%  { transform: translateY(0) scale(1.012);
+                   filter: blur(0)
+                           drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
+                           drop-shadow(0 4px 14px rgba(120, 80, 220, 0.10)); }
+            100% { opacity: 1; transform: translateY(0) scale(1);
+                   filter: blur(0)
+                           drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
+                           drop-shadow(0 4px 14px rgba(120, 80, 220, 0.10)); }
+          }
+          @keyframes linka-symbol-breathe {
+            0%, 100% { filter: blur(0)
+                               drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
+                               drop-shadow(0 4px 14px rgba(120, 80, 220, 0.10)); }
+            50%      { filter: blur(0)
+                               drop-shadow(0 14px 44px rgba(255, 130, 70, 0.26))
+                               drop-shadow(0 6px 20px rgba(150, 100, 240, 0.20)); }
+          }
+          @keyframes linka-lockup-shift {
+            0%   { transform: translateX(calc((var(--linka-word-w) + var(--linka-gap)) / 2)); }
+            100% { transform: translateX(0); }
+          }
+          @keyframes linka-word-emerge {
+            0%   { opacity: 0; transform: translateX(calc(-1 * (var(--linka-word-w) + var(--linka-gap)))) scale(0.985); }
+            25%  { opacity: 0; }
+            55%  { opacity: 1; }
+            100% { opacity: 1; transform: translateX(0) scale(1); }
+          }
+          @keyframes linka-shine-in {
+            0%   { transform: translateX(-220%) skewX(-14deg); }
+            100% { transform: translateX(320%)  skewX(-14deg); }
+          }
+          @keyframes linka-shine-loop {
+            0%, 18% { transform: translateX(-220%) skewX(-14deg); }
+            38%     { transform: translateX(320%)  skewX(-14deg); }
+            100%    { transform: translateX(320%)  skewX(-14deg); }
+          }
+          .linka-reveal-stage {
+            --linka-sym: 26vmin;
+            --linka-word-w: 35.2vmin;
+            --linka-gap: 2.5vmin;
+            animation: linka-stage-fade 380ms ease-out 2820ms forwards;
+          }
+          @keyframes linka-stage-fade {
+            to { opacity: 0; }
+          }
+          .linka-aura {
+            position: absolute;
+            width: 60vmin; height: 60vmin;
+            border-radius: 50%;
+            background: radial-gradient(circle,
+              rgba(255, 130, 70, 0.18) 0%,
+              rgba(180, 90, 220, 0.12) 28%,
+              rgba(80, 140, 230, 0.08) 50%,
+              transparent 70%);
+            filter: blur(12px);
+            opacity: 0;
+            transform: scale(0.6);
+            pointer-events: none;
+            animation:
+              linka-aura-in 1400ms cubic-bezier(0.16, 1, 0.3, 1) 100ms forwards,
+              linka-aura-pulse 1100ms cubic-bezier(0.22, 1, 0.36, 1) 1500ms 1,
+              linka-aura-breathe 6s ease-in-out 3000ms infinite;
+          }
+          .linka-lockup {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: var(--linka-gap);
+            transform: translateX(calc((var(--linka-word-w) + var(--linka-gap)) / 2));
+            animation: linka-lockup-shift 1400ms cubic-bezier(0.16, 1, 0.3, 1) 1500ms forwards;
+            will-change: transform;
+          }
+          .linka-symbol {
+            position: relative;
+            z-index: 2;
+            width: var(--linka-sym);
+            height: var(--linka-sym);
+            opacity: 0;
+            transform: translateY(10px) scale(0.9);
+            filter: blur(6px)
+                    drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
+                    drop-shadow(0 4px 14px rgba(120, 80, 220, 0.10));
+            will-change: opacity, transform, filter;
+            animation:
+              linka-symbol-in 1400ms cubic-bezier(0.16, 1, 0.3, 1) 100ms forwards,
+              linka-symbol-breathe 4.6s ease-in-out 1700ms infinite;
+          }
+          .linka-symbol img {
+            width: 100%; height: 100%;
+            display: block;
+            user-select: none;
+            -webkit-user-drag: none;
+          }
+          .linka-shimmer {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            overflow: hidden;
+            -webkit-mask: url('/linka-reveal-symbol.png') center/contain no-repeat;
+                    mask: url('/linka-reveal-symbol.png') center/contain no-repeat;
+          }
+          .linka-shimmer::before {
+            content: '';
+            position: absolute;
+            top: -20%; bottom: -20%;
+            left: 0;
+            width: 55%;
+            background: linear-gradient(115deg,
+              transparent 0%,
+              rgba(255, 255, 255, 0.0) 30%,
+              rgba(255, 255, 255, 0.55) 50%,
+              rgba(255, 255, 255, 0.0) 70%,
+              transparent 100%);
+            filter: blur(3px);
+            transform: translateX(-220%) skewX(-14deg);
+            animation:
+              linka-shine-in   1700ms cubic-bezier(0.65, 0, 0.35, 1) 1300ms 1 forwards,
+              linka-shine-loop 6500ms cubic-bezier(0.65, 0, 0.35, 1) 5400ms infinite;
+          }
+          .linka-wordmark {
+            position: relative;
+            z-index: 1;
+            width: var(--linka-word-w);
+            height: calc(var(--linka-sym) / 1.18);
+            display: block;
+            opacity: 0;
+            transform: translateX(calc(-1 * (var(--linka-word-w) + var(--linka-gap)))) scale(0.985);
+            user-select: none;
+            -webkit-user-drag: none;
+            animation: linka-word-emerge 1400ms cubic-bezier(0.16, 1, 0.3, 1) 1500ms forwards;
+            will-change: transform, opacity;
+            filter: drop-shadow(0 4px 14px rgba(255, 255, 255, 0.06));
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .linka-aura, .linka-lockup, .linka-symbol, .linka-wordmark, .linka-shimmer::before, .linka-reveal-stage {
+              animation: none !important;
+              opacity: 1 !important;
+              transform: none !important;
+            }
+          }
+        `}</style>
+
+        <div className="linka-aura" aria-hidden="true" />
+
+        <div className="linka-lockup">
+          <div className="linka-symbol">
+            <img src="/linka-reveal-symbol.png" alt="LinKa" />
+            <div className="linka-shimmer" aria-hidden="true" />
+          </div>
+          <img className="linka-wordmark" src="/linka-reveal-wordmark.png" alt="" />
+        </div>
       </div>
     );
   }
@@ -1439,46 +1612,6 @@ export default function Login() {
                         </Button>
                       </div>
                     )}
-
-                    <div className="relative my-1">
-                      <div className="absolute inset-0 flex items-center">
-                        <span className="w-full border-t border-border/60" />
-                      </div>
-                      <div className="relative flex justify-center text-xs">
-                        <span className="bg-card px-2 text-muted-foreground">ou continue com</span>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3 justify-center">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="rounded-full flex-1 flex items-center justify-center h-11"
-                        disabled={busy}
-                        onClick={handleGoogleLogin}
-                        aria-label="Continuar com Google"
-                      >
-                        <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-                          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                        </svg>
-                      </Button>
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="rounded-full flex-1 flex items-center justify-center h-11"
-                        disabled={busy}
-                        onClick={handleAppleLogin}
-                        aria-label="Continuar com Apple"
-                      >
-                        <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
-                          <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
-                        </svg>
-                      </Button>
-                    </div>
 
                     <button
                       type="button"

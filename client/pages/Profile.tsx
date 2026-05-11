@@ -126,8 +126,9 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { ProfileSkeleton } from "@/components/shared/animated-loading";
 import { ShareDrawer } from "@/components/shared/share-drawer";
+import { profileShareUrl } from "@/lib/share-url";
 import {
   Edit2,
   Plus,
@@ -192,6 +193,7 @@ export default function Profile() {
   const [shots, setShots] = React.useState<ShotWithUser[]>([]);
   const [routines, setRoutines] = React.useState<Routine[]>([]);
   const [selectedPost, setSelectedPost] = React.useState<PostWithUser | null>(null);
+  const [postDescExpanded, setPostDescExpanded] = React.useState(false);
   const [isPostViewerOpen, setIsPostViewerOpen] = React.useState(false);
   const [isEditingPost, setIsEditingPost] = React.useState(false);
   const [editPostDescription, setEditPostDescription] = React.useState("");
@@ -382,6 +384,7 @@ export default function Profile() {
 
   const handleViewPost = React.useCallback(async (post: PostWithUser) => {
     setSelectedPost(post);
+    setPostDescExpanded(false);
     setEditPostDescription(post.description);
     setEditPostGoalId(post.user_goal_id || "");
     setIsPostViewerOpen(true);
@@ -1024,12 +1027,7 @@ export default function Profile() {
   };
 
   if (authLoading || loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <LoadingSpinner className="h-12 w-12" />
-        <p className="text-sm text-muted-foreground">{t("profile_loading")}</p>
-      </div>
-    );
+    return <ProfileSkeleton />;
   }
 
   if (!loading && profileError) {
@@ -1269,7 +1267,7 @@ export default function Profile() {
                 className="rounded-full gap-2"
                 onClick={() => {
                   const text = t("profile_share_other").replace("{handle}", profile?.nickname ?? "");
-                  const profileUrl = `https://linka.app/usuario/${profileUserId}`;
+                  const profileUrl = profileShareUrl(profileUserId);
                   setShareDrawerText(text);
                   setShareDrawerUrl(profileUrl);
                   setShareDrawerOpen(true);
@@ -1291,7 +1289,7 @@ export default function Profile() {
                   const tierKey = stats.points >= 1000 ? "profile_tier_elite" : stats.points >= 500 ? "profile_tier_gold" : stats.points >= 200 ? "profile_tier_silver" : "profile_tier_bronze";
                   const tier = t(tierKey as any);
                   const text = t("profile_share_text").replace("{level}", String(stats.level)).replace("{tier}", tier).replace("{points}", String(stats.points)).replace("{handle}", profile.nickname ?? "");
-                  const profileUrl = `https://linka.app/usuario/${profileUserId}`;
+                  const profileUrl = profileShareUrl(profileUserId);
                   setShareDrawerText(text);
                   setShareDrawerUrl(profileUrl);
                   setShareDrawerOpen(true);
@@ -1442,7 +1440,7 @@ export default function Profile() {
         </TabsList>
 
         {/* Posts Tab */}
-        <TabsContent value="posts" className="space-y-4 fade-in">
+        <TabsContent value="posts" className="space-y-4">
           {posts.length > 0 ? (
             <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {posts.map((post) => (
@@ -1477,7 +1475,7 @@ export default function Profile() {
         </TabsContent>
 
         {/* Shots Tab */}
-        <TabsContent value="shots" className="space-y-4 fade-in">
+        <TabsContent value="shots" className="space-y-4">
           {shots.length > 0 ? (
             <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {shots.map((shot) => (
@@ -2343,7 +2341,7 @@ export default function Profile() {
 
         {/* Serviços / Vitrine Tab */}
         {profileOffers.length > 0 && (
-          <TabsContent value="vitrine" className="space-y-4 fade-in">
+          <TabsContent value="vitrine" className="space-y-4">
             {/* Cabeçalho do negócio */}
             {commercialProfile && (
               <div className="rounded-2xl bg-card border border-border/50 overflow-hidden">
@@ -2494,6 +2492,7 @@ export default function Profile() {
                     className="h-7 w-7 border border-border/60"
                   />
                   <span className="text-sm font-medium">{selectedPost.userNickname}</span>
+                  <UserInsignias userId={selectedPost.user_id} />
                 </div>
               )}
             </div>
@@ -2530,15 +2529,7 @@ export default function Profile() {
 
                   {/* Conteúdo — scroll apenas nesta área no desktop */}
                   <div className="md:flex-1 md:overflow-y-auto px-4 pb-4 pt-3 space-y-3">
-                    {/* Insignias separadas do header no mobile */}
-                    <div className="flex items-center gap-2">
-                      <UserInsignias userId={selectedPost.user_id} />
-                      <span className="text-xs text-muted-foreground ml-auto font-mono">
-                        {formatTimeAgo(selectedPost.created_at)}
-                      </span>
-                    </div>
-
-                    {/* Description */}
+                    {/* Description (com timestamp à direita) */}
                     {isEditingPost ? (
                       <div className="space-y-1.5">
                         <label className="text-sm font-medium">{t("profile_description_label")}</label>
@@ -2550,11 +2541,53 @@ export default function Profile() {
                         />
                       </div>
                     ) : (
-                      selectedPost.description && (
-                        <p className="text-sm text-foreground leading-relaxed">
-                          {selectedPost.description}
-                        </p>
-                      )
+                      (() => {
+                        const desc = selectedPost.description ?? "";
+                        const DESC_MAX = 30;
+                        const firstLine = desc.split("\n")[0] ?? "";
+                        const truncatable = desc.includes("\n") || desc.length > DESC_MAX;
+                        const truncated = firstLine.length > DESC_MAX
+                          ? firstLine.slice(0, DESC_MAX).trimEnd()
+                          : firstLine;
+                        return (
+                          <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap flex-1 min-w-0">
+                            {!truncatable || postDescExpanded ? (
+                              <>
+                                {desc}
+                                {truncatable && postDescExpanded && (
+                                  <>
+                                    {" "}
+                                    <button
+                                      type="button"
+                                      onClick={() => setPostDescExpanded(false)}
+                                      className="text-muted-foreground hover:text-foreground transition-colors"
+                                    >
+                                      {t("feed_description_less")}
+                                    </button>
+                                  </>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                {truncated}
+                                {"... "}
+                                <button
+                                  type="button"
+                                  onClick={() => setPostDescExpanded(true)}
+                                  className="text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                  {t("feed_description_more")}
+                                </button>
+                              </>
+                            )}
+                          </p>
+                            <span className="text-xs text-muted-foreground font-mono shrink-0">
+                              {formatTimeAgo(selectedPost.created_at)}
+                            </span>
+                          </div>
+                        );
+                      })()
                     )}
 
                     {/* Goal */}

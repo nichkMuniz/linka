@@ -58,7 +58,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
-import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { LoadingSpinner, StoreSkeleton } from "@/components/shared/animated-loading";
 import {
   Tag,
   Plus,
@@ -1971,9 +1971,7 @@ export default function Store() {
 
         {activeTab === "profissionais" && (
           proLoading ? (
-            <div className="flex justify-center py-16">
-              <LoadingSpinner />
-            </div>
+            <StoreSkeleton />
           ) : filteredProfessionals.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
               <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">

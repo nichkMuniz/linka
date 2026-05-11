@@ -3,7 +3,7 @@
     "apps": [],
     "details": [
       {
-        "appIDs": ["SEU_TEAM_ID.com.linka.meuapp"],
+        "appIDs": ["VR767CPN6R.com.linka.meuapp"],
         "components": [
           { "/": "/post/*", "comment": "Deep link para post específico" },
           { "/": "/usuario/*", "comment": "Deep link para perfil de usuário" },
@@ -13,6 +13,6 @@
     ]
   },
   "webcredentials": {
-    "apps": ["SEU_TEAM_ID.com.linka.meuapp"]
+    "apps": ["VR767CPN6R.com.linka.meuapp"]
   }
 }

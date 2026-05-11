@@ -2,12 +2,7 @@ import Foundation
 import Capacitor
 import ActivityKit
 
-/// Capacitor plugin that exposes LiveActivity control to JavaScript.
-///
-/// JS API:
-///   WorkoutActivityPlugin.start({ routineName, exerciseName, seriesLabel, elapsedSeconds })
-///   WorkoutActivityPlugin.update({ exerciseName, seriesLabel, elapsedSeconds, isPaused })
-///   WorkoutActivityPlugin.stop()
+/// Capacitor plugin that exposes Live Activity control to JavaScript.
 @objc(WorkoutActivityPlugin)
 public class WorkoutActivityPlugin: CAPPlugin {
 
@@ -20,6 +15,55 @@ public class WorkoutActivityPlugin: CAPPlugin {
         set { _currentActivity = newValue }
     }
 
+    // MARK: - Helpers
+
+    @available(iOS 16.2, *)
+    private func buildState(
+        from call: CAPPluginCall,
+        fallback: LinkaWorkoutAttributes.ContentState? = nil
+    ) -> LinkaWorkoutAttributes.ContentState {
+        let exerciseName       = call.getString("exerciseName")    ?? fallback?.exerciseName ?? ""
+        let seriesLabel        = call.getString("seriesLabel")     ?? fallback?.seriesLabel ?? ""
+        let phase              = call.getString("phase")           ?? fallback?.phase ?? "working"
+        let isPaused           = call.getBool("isPaused")          ?? fallback?.isPaused ?? false
+        let pausedElapsedSecs  = call.getInt("pausedElapsedSeconds") ?? fallback?.pausedElapsedSeconds ?? 0
+        let nextSeriesLabel    = call.getString("nextSeriesLabel") ?? fallback?.nextSeriesLabel ?? ""
+        let restTotalSeconds   = call.getInt("restTotalSeconds")   ?? fallback?.restTotalSeconds ?? 0
+
+        // startDate: only set when starting; preserved on update
+        let startDate: Date = {
+            if let ms = call.getDouble("startTimeMs") {
+                return Date(timeIntervalSince1970: ms / 1000)
+            }
+            return fallback?.startDate ?? Date()
+        }()
+
+        // restEndsAt: epoch ms from JS — null clears countdown
+        let restEndsAt: Date? = {
+            if let ms = call.getDouble("restEndsAtMs"), ms > 0 {
+                return Date(timeIntervalSince1970: ms / 1000)
+            }
+            // If JS explicitly sent null, drop the previous value; if the key
+            // is absent, fall back to the previous state's value.
+            if call.hasOption("restEndsAtMs") {
+                return nil
+            }
+            return fallback?.restEndsAt
+        }()
+
+        return LinkaWorkoutAttributes.ContentState(
+            exerciseName: exerciseName,
+            seriesLabel: seriesLabel,
+            phase: phase,
+            startDate: startDate,
+            pausedElapsedSeconds: pausedElapsedSecs,
+            isPaused: isPaused,
+            restEndsAt: restEndsAt,
+            restTotalSeconds: restTotalSeconds,
+            nextSeriesLabel: nextSeriesLabel
+        )
+    }
+
     // MARK: - Start
 
     @objc func start(_ call: CAPPluginCall) {
@@ -28,21 +72,18 @@ public class WorkoutActivityPlugin: CAPPlugin {
             return
         }
 
-        let routineName   = call.getString("routineName")  ?? "Treino"
-        let exerciseName  = call.getString("exerciseName") ?? ""
-        let seriesLabel   = call.getString("seriesLabel")  ?? ""
-        // startTimeMs is Unix epoch in milliseconds from JS Date.now()
-        let startTimeMs   = call.getDouble("startTimeMs")  ?? Double(Date().timeIntervalSince1970 * 1000)
-        let startDate     = Date(timeIntervalSince1970: startTimeMs / 1000)
+        // If an activity is already running, just update it instead of starting a new one
+        if let existing = currentActivity {
+            let newState = buildState(from: call, fallback: existing.content.state)
+            let content = ActivityContent(state: newState, staleDate: nil)
+            Task { await existing.update(content) }
+            call.resolve(["id": existing.id, "supported": true, "reused": true])
+            return
+        }
 
+        let routineName = call.getString("routineName") ?? "Treino"
         let attributes = LinkaWorkoutAttributes(routineName: routineName)
-        let state = LinkaWorkoutAttributes.ContentState(
-            exerciseName:          exerciseName,
-            seriesLabel:           seriesLabel,
-            startDate:             startDate,
-            pausedElapsedSeconds:  0,
-            isPaused:              false
-        )
+        let state = buildState(from: call)
         let content = ActivityContent(state: state, staleDate: nil)
 
         do {
@@ -65,20 +106,7 @@ public class WorkoutActivityPlugin: CAPPlugin {
             return
         }
 
-        let exerciseName       = call.getString("exerciseName")      ?? activity.content.state.exerciseName
-        let seriesLabel        = call.getString("seriesLabel")       ?? activity.content.state.seriesLabel
-        let isPaused           = call.getBool("isPaused")            ?? activity.content.state.isPaused
-        let pausedElapsedSecs  = call.getInt("pausedElapsedSeconds") ?? activity.content.state.pausedElapsedSeconds
-        // startDate never changes after the activity starts — keep existing value
-        let startDate          = activity.content.state.startDate
-
-        let newState = LinkaWorkoutAttributes.ContentState(
-            exerciseName:         exerciseName,
-            seriesLabel:          seriesLabel,
-            startDate:            startDate,
-            pausedElapsedSeconds: pausedElapsedSecs,
-            isPaused:             isPaused
-        )
+        let newState = buildState(from: call, fallback: activity.content.state)
         let content = ActivityContent(state: newState, staleDate: nil)
 
         Task {

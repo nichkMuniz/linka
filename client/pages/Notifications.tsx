@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
-import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { NotificationsSkeleton } from "@/components/shared/animated-loading";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -426,10 +426,7 @@ export default function Notifications() {
         </div>
 
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-12 gap-3">
-            <LoadingSpinner className="h-8 w-8" />
-            <p className="text-sm text-muted-foreground">Carregando notificações...</p>
-          </div>
+          <NotificationsSkeleton />
         ) : notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 rounded-lg border border-border/60 bg-muted/30">
             <Zap className="h-10 w-10 text-muted-foreground/40 mb-3" />

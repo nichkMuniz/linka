@@ -23,7 +23,7 @@ import { toast } from "@/components/ui/use-toast";
 import { formatTimeAgo } from "@/lib/utils";
 import { ArrowLeft, Send, Check, CheckCheck, Plus } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { MessagesSkeleton } from "@/components/shared/animated-loading";
 
 type ViewMode = "conversations" | "conversation";
 
@@ -371,12 +371,7 @@ export default function Messages() {
   );
 
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <LoadingSpinner className="h-12 w-12" />
-        <p className="text-sm text-muted-foreground">Carregando mensagens...</p>
-      </div>
-    );
+    return <MessagesSkeleton />;
   }
 
   if (viewMode === "conversation" && selectedConversation) {

@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { LoadingSpinner, AdminSkeleton } from "@/components/shared/animated-loading";
 import { toast } from "@/components/ui/use-toast";
 import {
   AlertDialog,
@@ -578,11 +578,7 @@ export default function Admin() {
     pendingAction?.type === "delete_and_ban";
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <LoadingSpinner />
-      </div>
-    );
+    return <AdminSkeleton />;
   }
 
   const dauDelta = analytics

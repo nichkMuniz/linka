@@ -100,7 +100,7 @@ import {
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Browser } from "@capacitor/browser";
 import { supabase } from "@/lib/supabase";
-import { LoadingSpinner } from "@/components/shared/animated-loading";
+import { CommunitySkeleton } from "@/components/shared/animated-loading";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
 import { UserInsignias } from "@/components/profile/user-insignias";
@@ -929,12 +929,7 @@ export default function Community() {
   }, [searchParams, navigate]);
 
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <LoadingSpinner className="h-12 w-12" />
-        <p className="text-sm text-muted-foreground">Carregando...</p>
-      </div>
-    );
+    return <CommunitySkeleton />;
   }
 
   if (activeTab === "messages" && viewMode === "conversation" && selectedConversation) {
@@ -3519,6 +3514,7 @@ export default function Community() {
                   <PostCarousel
                     photos={selectedCheckInForDetail.photos || [selectedCheckInForDetail.photo]}
                     alt="check-in"
+                    objectFit="contain"
                   />
                 ) : selectedCheckInForDetail.photo ? (
                   <div className="relative rounded-2xl overflow-hidden aspect-square md:aspect-auto md:h-[400px] bg-slate-950/40 flex-shrink-0 flex items-center justify-center">

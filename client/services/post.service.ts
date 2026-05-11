@@ -34,12 +34,12 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
   if (!hasSupabaseConfig || !supabase)
     throw new Error("Supabase não configurado");
 
-  // Get the current user
-  const currentUser = await getUserSafe();
+  // Auth + following list em paralelo (independentes — getFollowingIdsDb usa getViewer cacheado)
+  const [currentUser, followingIds] = await Promise.all([
+    getUserSafe(),
+    getFollowingIdsDb(),
+  ]);
   if (!currentUser) throw new Error("Usuário não autenticado");
-
-  // Get the list of users the current user follows
-  const followingIds = await getFollowingIdsDb();
 
   // Include current user's own posts + posts from followed users
   const userIdsToShow = [currentUser.id, ...followingIds];
@@ -131,10 +131,11 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
   if (!hasSupabaseConfig || !supabase)
     throw new Error("Supabase não configurado");
 
-  const currentUser = await getUserSafe();
+  const [currentUser, followingIds] = await Promise.all([
+    getUserSafe(),
+    getFollowingIdsDb(),
+  ]);
   if (!currentUser) throw new Error("Usuário não autenticado");
-
-  const followingIds = await getFollowingIdsDb();
 
   // Exclude current user and followed users
   const excludedIds = [currentUser.id, ...followingIds];

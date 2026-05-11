@@ -84,7 +84,7 @@ Cada post exibe:
 | **Tempo relativo** | Ex: "há 2 horas" (via `formatTimeAgo`) |
 | **Menu de contexto** (⋮) | Opções: Editar, Excluir, Denunciar, Compartilhar |
 | **Imagem(ns)** | Componente `PostCarousel` para múltiplas imagens |
-| **Descrição** | Texto do post |
+| **Descrição** | Texto do post — truncada em até 30 caracteres ou 1 linha; com botão clicável **"mais"** para expandir e **"menos"** para recolher (estilo Instagram) |
 | **Meta vinculada** | Card mostrando a meta associada ao post (se houver) |
 | **Rotinas vinculadas** | Lista expansível das rotinas da meta |
 | **Botões de Incentivo** | 6 reações com ícones expressivos: ❤️ Apoio, 🔥 Fogo, 🏆 Vencedor, 📈 Evolução, 💪 Força, ⚡ Energia (componente `PostIncentiveButton`) |
@@ -168,4 +168,6 @@ Cada post exibe:
 - Rotinas vinculadas a posts carregam sob demanda (lazy load) ao expandir
 - Stories do usuário logado mostram contagem de visualizadores
 - Descrições de posts usam `whitespace-pre-wrap` para preservar quebras de linha
+- Descrições com mais de 30 caracteres ou múltiplas linhas são truncadas exibindo apenas a primeira linha (até 30 chars) seguida de `...` e botão **"mais"** (chave i18n `feed_description_more`); ao expandir, exibe-se o texto completo com botão **"menos"** (`feed_description_less`) para recolher. Estado de expansão é local ao `PostCard`
 - O `body` tem `padding-right: 0 !important` no CSS global para evitar layout shift ao abrir modals/drawers (Radix UI injeta padding-right ao bloquear scroll)
+- **Pinch-to-zoom em todos os posts:** Toda imagem de post (feed Seguindo, Descobrir e PostDetail) é renderizada via `PostCarousel`, que usa o componente interno `ZoomableImage` com gesto de pinça (dois dedos). Escala de 1x até 5x, origem do zoom segue o ponto médio entre os dedos; ao soltar, retorna a 1x com transição suave. Funciona inclusive para posts legados com campo único `post.photo` (encapsulado como `[post.photo]` no carrossel)

@@ -14,6 +14,7 @@ import { PostCarousel } from "@/components/post/post-carousel";
 import { formatTimeAgo } from "@/lib/utils";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
+import { PostDetailSkeleton } from "@/components/shared/animated-loading";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
 import {
@@ -164,11 +165,7 @@ export default function PostDetail() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-muted-foreground">{t("loading")}</p>
-      </div>
-    );
+    return <PostDetailSkeleton />;
   }
 
   if (!post) {
@@ -205,14 +202,7 @@ export default function PostDetail() {
               {post.photos && post.photos.length > 0 ? (
                 <PostCarousel photos={post.photos} alt="Post" />
               ) : post.photo ? (
-                <div className="relative aspect-square md:aspect-auto md:h-[450px] bg-slate-900/20 flex items-center justify-center overflow-hidden rounded-lg">
-                  <ImageWithFallback
-                    src={post.photo}
-                    alt="Post"
-                    fallback="/placeholder.svg"
-                    className="max-w-full max-h-full w-auto h-auto object-contain"
-                  />
-                </div>
+                <PostCarousel photos={[post.photo]} alt="Post" />
               ) : (
                 <div className="relative w-full min-h-[56px] bg-muted/30 rounded-lg" />
               )}

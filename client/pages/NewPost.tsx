@@ -109,6 +109,19 @@ function applyTransformToBlob(
   });
 }
 
+// ─── Module-level image decode cache ────────────────────────────────────────
+
+const decodedImageCache: Record<string, HTMLImageElement> = {};
+
+function getCachedImage(src: string): HTMLImageElement {
+  if (!decodedImageCache[src]) {
+    const img = new Image();
+    img.src = src;
+    decodedImageCache[src] = img;
+  }
+  return decodedImageCache[src];
+}
+
 // ─── Inline crop preview ────────────────────────────────────────────────────
 
 function InlineCropPreview({
@@ -137,10 +150,17 @@ function InlineCropPreview({
   React.useEffect(() => { transformRef.current = transform; }, [transform]);
 
   React.useEffect(() => {
+    const cached = getCachedImage(imageSrc);
+    if (cached.complete && cached.naturalWidth > 0) {
+      // Already decoded — draw immediately, no flash
+      imgRef.current = cached;
+      setImageLoaded(true);
+      return;
+    }
     setImageLoaded(false);
-    const img = new Image();
-    img.onload = () => { imgRef.current = img; setImageLoaded(true); };
-    img.src = imageSrc;
+    const onLoad = () => { imgRef.current = cached; setImageLoaded(true); };
+    cached.addEventListener("load", onLoad, { once: true });
+    return () => cached.removeEventListener("load", onLoad);
   }, [imageSrc]);
 
   React.useEffect(() => {
@@ -158,8 +178,8 @@ function InlineCropPreview({
     return () => ro.disconnect();
   }, []);
 
-  // Draw canvas
-  React.useEffect(() => {
+  // Draw canvas — useLayoutEffect to run synchronously after DOM update, avoiding flicker
+  React.useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const img = imgRef.current;
     if (!canvas || !img || !imageLoaded || containerW === 0) return;
@@ -328,8 +348,13 @@ export default function NewPost() {
   const [galleryHasMore, setGalleryHasMore] = React.useState(false);
   const GALLERY_PAGE_SIZE = 40;
 
+  const [multiSelectMode, setMultiSelectMode] = React.useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = React.useState<string[]>([]);
+
   const imageInputRef = React.useRef<HTMLInputElement>(null);
   const videoInputRef = React.useRef<HTMLInputElement>(null);
+  const imageCameraRef = React.useRef<HTMLInputElement>(null);
+  const videoCameraRef = React.useRef<HTMLInputElement>(null);
   // Tracks the actual pixel width of the preview frame for accurate crop export
   const cropContainerWidthRef = React.useRef<number>(
     typeof window !== "undefined" ? window.innerWidth : 375
@@ -356,6 +381,11 @@ export default function NewPost() {
     imageDraft.previews = previewUrls;
     imageDraft.transforms = cropTransforms;
   }, [selectedFiles, previewUrls, cropTransforms]);
+
+  // ── Preload all preview images into the decode cache eagerly ──
+  React.useEffect(() => {
+    previewUrls.forEach(getCachedImage);
+  }, [previewUrls]);
   React.useEffect(() => {
     videoDraft.file = selectedVideoFile;
     videoDraft.preview = videoPreview;
@@ -426,6 +456,8 @@ export default function NewPost() {
   }, []);
 
   React.useEffect(() => {
+    setMultiSelectMode(false);
+    setSelectedAssetIds([]);
     if (galleryPermission === "granted" || galleryPermission === "limited") {
       setGalleryAssets([]);
       loadGalleryPage(0, true);
@@ -462,14 +494,73 @@ export default function NewPost() {
       return;
     }
     if (mediaType === "post" && asset.type === "image") {
-      try {
-        const { webPath } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
-        const response = await fetch(webPath);
-        const blob = await response.blob();
-        const file = new File([blob], asset.fileName, { type: asset.mimeType || "image/jpeg" });
-        addImageFile(file);
-      } catch {
-        imageInputRef.current?.click();
+      const isSelected = selectedAssetIds.includes(asset.id);
+
+      if (!multiSelectMode) {
+        if (isSelected) {
+          // Deselect — clear everything
+          setSelectedFiles([]);
+          setPreviewUrls([]);
+          setCropTransforms({});
+          setCurrentPreviewIndex(0);
+          setSelectedAssetIds([]);
+        } else {
+          // Replace preview with this single photo
+          try {
+            const { webPath } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
+            const response = await fetch(webPath);
+            const blob = await response.blob();
+            const file = new File([blob], asset.fileName, { type: asset.mimeType || "image/jpeg" });
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const dataUrl = reader.result as string;
+              setSelectedFiles([file]);
+              setPreviewUrls([dataUrl]);
+              setCropTransforms({});
+              setCurrentPreviewIndex(0);
+              setSelectedAssetIds([asset.id]);
+            };
+            reader.readAsDataURL(file);
+          } catch {
+            imageInputRef.current?.click();
+          }
+        }
+      } else {
+        if (isSelected) {
+          // Toggle off — remove from carousel
+          const idx = selectedAssetIds.indexOf(asset.id);
+          setSelectedAssetIds((prev) => prev.filter((id) => id !== asset.id));
+          setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
+          setPreviewUrls((prev) => prev.filter((_, i) => i !== idx));
+          setCropTransforms((prev) => {
+            const next: Record<number, CropTransform> = {};
+            for (const [k, v] of Object.entries(prev)) {
+              const ki = Number(k);
+              if (ki < idx) next[ki] = v;
+              else if (ki > idx) next[ki - 1] = v;
+            }
+            return next;
+          });
+          setCurrentPreviewIndex((prev) => {
+            const newLen = selectedAssetIds.length - 1;
+            if (newLen <= 0) return 0;
+            if (prev > idx) return prev - 1;
+            if (prev >= newLen) return newLen - 1;
+            return prev;
+          });
+        } else {
+          // Toggle on — add to carousel
+          try {
+            const { webPath } = await PhotoLibrary.getPhotoUrl({ id: asset.id });
+            const response = await fetch(webPath);
+            const blob = await response.blob();
+            const file = new File([blob], asset.fileName, { type: asset.mimeType || "image/jpeg" });
+            setSelectedAssetIds((prev) => [...prev, asset.id]);
+            addImageFile(file);
+          } catch {
+            imageInputRef.current?.click();
+          }
+        }
       }
     }
   };
@@ -532,7 +623,7 @@ export default function NewPost() {
     imageDraft.previews = imageDraft.previews.filter((_, i) => i !== index);
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
     setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
-    // Shift transform indices
+    setSelectedAssetIds((prev) => prev.filter((_, i) => i !== index));
     setCropTransforms((prev) => {
       const next: Record<number, CropTransform> = {};
       for (const [k, v] of Object.entries(prev)) {
@@ -820,8 +911,24 @@ export default function NewPost() {
           <span className="text-sm font-semibold">{t("newpost_recents")}</span>
           {mediaType === "post" && (
             <button
-              onClick={() => imageInputRef.current?.click()}
-              className="flex items-center gap-1.5 bg-muted hover:bg-muted/80 text-foreground text-sm font-medium px-3 py-1.5 rounded-full transition-colors"
+              onClick={() => {
+                const next = !multiSelectMode;
+                setMultiSelectMode(next);
+                // Turning off multi-select: keep only the currently visible photo
+                if (!next && selectedFiles.length > 1) {
+                  const keepIdx = currentPreviewIndex;
+                  setSelectedFiles([selectedFiles[keepIdx]]);
+                  setPreviewUrls([previewUrls[keepIdx]]);
+                  setCropTransforms({ 0: cropTransforms[keepIdx] || DEFAULT_TRANSFORM });
+                  setSelectedAssetIds([selectedAssetIds[keepIdx]].filter(Boolean));
+                  setCurrentPreviewIndex(0);
+                }
+              }}
+              className={`flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full transition-colors ${
+                multiSelectMode
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted hover:bg-muted/80 text-foreground"
+              }`}
             >
               <ImagePlus className="h-4 w-4" />
               {t("newpost_select_btn")}
@@ -834,7 +941,7 @@ export default function NewPost() {
           <div className="flex-1 overflow-y-auto bg-background">
             <div className="grid grid-cols-4 gap-px bg-border/20">
               <button
-                onClick={() => imageInputRef.current?.click()}
+                onClick={() => imageCameraRef.current?.click()}
                 className="aspect-square bg-muted/60 flex items-center justify-center"
               >
                 <Camera className="h-6 w-6 text-muted-foreground" />
@@ -847,7 +954,7 @@ export default function NewPost() {
               )}
 
               {galleryAssets.map((asset) => {
-                const selectedIdx = previewUrls.findIndex((_, i) => selectedFiles[i]?.name === asset.fileName);
+                const selectedIdx = selectedAssetIds.indexOf(asset.id);
                 const isSelected = selectedIdx !== -1;
                 const thumbSrc = asset.thumbnail?.webPath;
                 return (
@@ -930,7 +1037,7 @@ export default function NewPost() {
 
             <div className="grid grid-cols-4 gap-px bg-border/20">
               <button
-                onClick={() => videoInputRef.current?.click()}
+                onClick={() => videoCameraRef.current?.click()}
                 className="aspect-square bg-muted/60 flex items-center justify-center"
               >
                 <Video className="h-6 w-6 text-muted-foreground" />
@@ -996,6 +1103,8 @@ export default function NewPost() {
         {/* Hidden file inputs */}
         <input ref={imageInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
         <input ref={videoInputRef} type="file" accept="video/*" onChange={handleVideoFileChange} className="hidden" />
+        <input ref={imageCameraRef} type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
+        <input ref={videoCameraRef} type="file" accept="video/*" capture="environment" onChange={handleVideoFileChange} className="hidden" />
       </div>
     );
   }
@@ -1055,6 +1164,14 @@ export default function NewPost() {
                     className={`h-14 w-14 rounded-lg object-cover ${i === currentPreviewIndex ? "ring-2 ring-primary" : ""}`}
                     onClick={() => setCurrentPreviewIndex(i)}
                   />
+                  {previewUrls.length > 1 && (
+                    <button
+                      onClick={() => removePhoto(i)}
+                      className="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5"
+                    >
+                      <X className="h-3 w-3 text-white" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

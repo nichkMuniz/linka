@@ -110,7 +110,7 @@ Cada post na grade:
 
 **Ao expandir um post:**
 - Carrossel de imagens (`PostCarousel`)
-- Descrição
+- Descrição — truncada em até 30 caracteres ou 1 linha; exibe `...` + botão clicável **"mais"** (chave i18n `feed_description_more`) para expandir o texto completo, e botão **"menos"** (`feed_description_less`) para recolher. Estado de expansão é resetado ao abrir um novo post
 - Botões de incentivo interativos (`PostIncentiveButton` × 6 tipos) — visíveis em modo visualização e edição
 - Botão comentários (`PostCommentsDialog`) — visível apenas em modo visualização (oculto ao editar)
 - Contador de incentivos clicável → abre `PostLikesModal`

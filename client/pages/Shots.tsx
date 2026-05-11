@@ -49,7 +49,6 @@ import { EditShotDescriptionDrawer } from "@/components/shots/edit-shot-descript
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
-import { LoadingSpinner } from "@/components/shared/animated-loading";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
@@ -501,9 +500,94 @@ export default function Shots() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-full w-full bg-black gap-4">
-        <LoadingSpinner className="h-12 w-12" />
-        <p className="text-sm text-muted-foreground">{t("shots_loading")}</p>
+      <div
+        className="bg-black w-full flex flex-col overflow-hidden relative h-[calc(100dvh-4.25rem-env(safe-area-inset-bottom)-0.5rem)] md:h-dvh"
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+        }}
+      >
+        {/* Shimmer sweep — one vertical pass over the whole frame */}
+        <style>{`
+          @keyframes shots-shimmer {
+            0%   { transform: translateY(-100%); }
+            100% { transform: translateY(200%); }
+          }
+          .shots-shimmer { animation: shots-shimmer 2s ease-in-out infinite; }
+        `}</style>
+
+        {/* Fundo escuro com gradiente inferior simulando vídeo */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/50 pointer-events-none z-10" />
+
+        {/* Barra de shimmer que percorre verticalmente */}
+        <div className="absolute inset-0 overflow-hidden z-20 pointer-events-none">
+          <div
+            className="shots-shimmer absolute inset-x-0 h-1/3"
+            style={{
+              background: "linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%)",
+            }}
+          />
+        </div>
+
+        {/* Topo esquerdo — avatar + nome skeleton */}
+        <div
+          className="absolute left-4 z-30 flex items-center gap-3"
+          style={{ top: "calc(1rem + env(safe-area-inset-top))" }}
+        >
+          <div className="h-12 w-12 rounded-full bg-white/10 animate-pulse flex-shrink-0" />
+          <div className="flex flex-col gap-2">
+            <div className="h-3 w-28 rounded-full bg-white/10 animate-pulse" />
+            <div className="h-2.5 w-20 rounded-full bg-white/[0.07] animate-pulse" />
+          </div>
+        </div>
+
+        {/* Topo direito — botão de som skeleton */}
+        <div
+          className="absolute right-4 z-30"
+          style={{ top: "calc(1rem + env(safe-area-inset-top))" }}
+        >
+          <div className="h-8 w-20 rounded-full bg-white/10 animate-pulse" />
+        </div>
+
+        {/* Centro — ícone de play pulsando */}
+        <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+          <div className="flex flex-col items-center gap-3">
+            <div className="relative">
+              {/* Anel de pulso */}
+              <div className="absolute inset-0 rounded-full bg-white/10 animate-ping" style={{ animationDuration: "1.6s" }} />
+              <div className="relative h-16 w-16 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-sm">
+                <svg className="h-7 w-7 text-white/50 ml-1" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Lado direito — botões de incentivo skeleton */}
+        <div
+          className="absolute right-4 z-30 flex flex-col gap-4"
+          style={{ bottom: "4rem" }}
+        >
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="flex flex-col items-center gap-1.5" style={{ animationDelay: `${i * 80}ms` }}>
+              <div className="h-8 w-8 rounded-full bg-white/10 animate-pulse" style={{ animationDelay: `${i * 120}ms` }} />
+              <div className="h-2 w-4 rounded-full bg-white/[0.07] animate-pulse" />
+            </div>
+          ))}
+          {/* Comentários */}
+          <div className="flex flex-col items-center gap-1.5">
+            <div className="h-8 w-8 rounded-full bg-white/10 animate-pulse" />
+          </div>
+        </div>
+
+        {/* Rodapé esquerdo — descrição skeleton */}
+        <div
+          className="absolute left-4 z-30 flex flex-col gap-2"
+          style={{ bottom: "4rem", right: "4.5rem" }}
+        >
+          <div className="h-3 w-48 rounded-full bg-white/10 animate-pulse" />
+          <div className="h-3 w-32 rounded-full bg-white/[0.07] animate-pulse" />
+        </div>
       </div>
     );
   }
@@ -530,11 +614,9 @@ export default function Shots() {
 
   return (
     <div
-      className="bg-black w-full flex flex-col overflow-hidden relative"
+      className="bg-black w-full flex flex-col overflow-hidden relative h-[calc(100dvh-4.25rem-env(safe-area-inset-bottom)-0.5rem)] md:h-dvh"
       style={{
-        // Header é ocultado em /shots — altura ocupa do topo (com safe-area) até a bottom nav fixa (~4.25rem + safe-area-bottom)
-        height:
-          "calc(100dvh - env(safe-area-inset-top) - 4.25rem - env(safe-area-inset-bottom) - 0.5rem)",
+        // Header é ocultado em /shots — div começa em y=0 (atrás do notch), paddingTop empurra o conteúdo para baixo do notch
         paddingTop: "env(safe-area-inset-top)",
         overflow: "hidden",
       }}

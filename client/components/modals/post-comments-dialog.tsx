@@ -54,7 +54,6 @@ export function PostCommentsDialog({
   const viewportHeight = useKeyboardAwareHeight();
   const savedScrollY = React.useRef(0);
 
-  // Vaul resets window.scrollY when locking scroll — capture and restore it
   const handleOpenChange = React.useCallback((nextOpen: boolean) => {
     if (nextOpen) {
       savedScrollY.current = window.scrollY;
@@ -62,12 +61,33 @@ export function PostCommentsDialog({
     setOpen(nextOpen);
   }, []);
 
+  // Manually pin the page in place while the drawer is open so iOS WebView
+  // doesn't reset scroll to the top. We use position:fixed on the body with
+  // a negative top offset, then restore the exact scroll position on close.
   React.useEffect(() => {
-    if (open) {
-      requestAnimationFrame(() => {
-        window.scrollTo(0, savedScrollY.current);
-      });
-    }
+    if (!open) return;
+    const scrollY = savedScrollY.current;
+    const body = document.body;
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    return () => {
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.left = prev.left;
+      body.style.right = prev.right;
+      body.style.width = prev.width;
+      window.scrollTo(0, scrollY);
+    };
   }, [open]);
 
   // Open automatically once when defaultOpen=true (e.g. navigated from notification)

@@ -55,6 +55,7 @@ interface RoutinesTabProps {
   userHabits: UserHabitWithDetails[];
   routines: Routine[];
   routineLastDates: Record<string, string>;
+  routineIdsWithHistory: Set<string>;
 
   // Check-in display
   dailyCheckInDone: boolean;
@@ -123,6 +124,7 @@ export function RoutinesTab({
   userHabits,
   routines,
   routineLastDates,
+  routineIdsWithHistory,
   dailyCheckInDone,
   weekCheckIns,
   streakCount,
@@ -608,13 +610,9 @@ export function RoutinesTab({
 
                       {typeCode === 1 && itemsForRoutine.length > 0 && (
                         <>
-                          {(() => {
-                            try {
-                              const routineKey = isNamed ? displayLabel : "__unnamed__";
-                              const storageKey = `lastWorkoutSummary_${user?.id}_${routineKey}`;
-                              return localStorage.getItem(storageKey) !== null;
-                            } catch (_) { return false; }
-                          })() && (
+                          {itemsForRoutine.some((i: any) =>
+                            i.routine_id != null && routineIdsWithHistory.has(String(i.routine_id))
+                          ) && (
                             <button
                               onClick={() => onShowRoutineSummary({ typeCode, name: isNamed ? displayLabel : null })}
                               className="p-2 rounded-lg hover:bg-muted/50 transition-colors flex-shrink-0"
