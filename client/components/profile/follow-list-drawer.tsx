@@ -14,7 +14,6 @@ interface FollowUser {
   id: string;
   nickname: string;
   photo?: string | null;
-  gender?: string | null;
 }
 
 interface FollowListDrawerProps {
@@ -50,8 +49,16 @@ export function FollowListDrawer({
         </DrawerHeader>
         <div className="flex-1 overflow-y-auto px-4 space-y-3 pb-6">
           {isLoading ? (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Carregando...
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 p-3">
+                  <div className="h-10 w-10 rounded-full bg-muted animate-pulse" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-1/3 rounded bg-muted animate-pulse" />
+                    <div className="h-2 w-1/4 rounded bg-muted animate-pulse" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : users.length > 0 ? (
             users.map((u) => (
@@ -68,7 +75,6 @@ export function FollowListDrawer({
                 >
                   <UserAvatar
                     photo={u.photo}
-                    gender={u.gender}
                     nickname={u.nickname}
                     size="md"
                     className="flex-shrink-0"

@@ -1,7 +1,6 @@
 import { supabase, hasSupabaseConfig, getUserSafe } from "@/lib/supabase";
 import {
-  getPostLikesBatchDb,
-  getUserPostLikesBatchDb,
+  getPostLikesWithViewerBatchDb,
   getCommentCountsBatchDb,
   getProfilesBatchDb,
   togglePostIncentiveDb,
@@ -15,7 +14,6 @@ export type PostWithStats = PostWithLikes & {
   hasActivity: boolean;
   userNickname: string;
   userPhoto: string | null;
-  userGender?: string | null;
   isVerified?: boolean;
   userGoal?: {
     id: string;
@@ -30,9 +28,15 @@ export type PostWithStats = PostWithLikes & {
   };
 };
 
-export const getFeedPosts = async (): Promise<PostWithStats[]> => {
+export const FEED_PAGE_SIZE = 20;
+
+export const getFeedPosts = async (
+  options: { limit?: number; before?: string } = {},
+): Promise<PostWithStats[]> => {
   if (!hasSupabaseConfig || !supabase)
     throw new Error("Supabase não configurado");
+
+  const limit = options.limit ?? FEED_PAGE_SIZE;
 
   // Auth + following list em paralelo (independentes — getFollowingIdsDb usa getViewer cacheado)
   const [currentUser, followingIds] = await Promise.all([
@@ -44,12 +48,16 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
   // Include current user's own posts + posts from followed users
   const userIdsToShow = [currentUser.id, ...followingIds];
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("posts")
     .select("id, description, photo, photos, created_at, user_id, user_goal_id")
     .in("user_id", userIdsToShow)
     .order("created_at", { ascending: false })
-    .limit(50);
+    .limit(limit);
+  if (options.before) {
+    query = query.lt("created_at", options.before);
+  }
+  const { data, error } = await query;
 
   if (error) throw error;
 
@@ -64,10 +72,9 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
     rows.map((p: any) => p.user_goal_id).filter(Boolean)
   )];
 
-  // Batch-fetch ALL enrichment data in parallel (4 queries total instead of N*8)
-  const [likesMap, userLikesMap, commentCountsMap, profilesMap, goalMap] = await Promise.all([
-    getPostLikesBatchDb(postIds),
-    getUserPostLikesBatchDb(postIds),
+  // Batch-fetch ALL enrichment data in parallel (3 queries total — likes + viewer-likes merged into one round-trip)
+  const [likesBundle, commentCountsMap, profilesMap, goalMap] = await Promise.all([
+    getPostLikesWithViewerBatchDb(postIds),
     getCommentCountsBatchDb(postIds),
     getProfilesBatchDb(userIds),
     (async () => {
@@ -99,6 +106,7 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
       return map;
     })(),
   ]);
+  const { likesMap, userLikesMap } = likesBundle;
 
   // Assemble posts synchronously — no more per-post queries
   const posts: PostWithStats[] = rows.map((post: any) => {
@@ -106,7 +114,7 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
     const userLikes = userLikesMap.get(post.id) ?? [];
     const commentCount = commentCountsMap.get(post.id) ?? 0;
     const profile = profilesMap.get(post.user_id);
-    const totalLikes = Object.values(likes).reduce((a: number, b: number) => a + b, 0);
+    const totalLikes = (Object.values(likes) as number[]).reduce((a, b) => a + b, 0);
     const goalData = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
     const userGoal = goalData?.visibility === 1 ? goalData : undefined;
 
@@ -118,7 +126,6 @@ export const getFeedPosts = async (): Promise<PostWithStats[]> => {
       hasActivity: totalLikes > 0 || commentCount > 0,
       userNickname: profile?.nickname || "Usuário",
       userPhoto: profile?.photo || null,
-      userGender: profile?.gender || null,
       isVerified: profile?.is_verified === true,
       userGoal,
     };
@@ -156,9 +163,8 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
   const userIds = [...new Set(rows.map((p: any) => p.user_id))];
   const goalIds = [...new Set(rows.map((p: any) => p.user_goal_id).filter(Boolean))];
 
-  const [likesMap, userLikesMap, commentCountsMap, profilesMap, goalMap] = await Promise.all([
-    getPostLikesBatchDb(postIds),
-    getUserPostLikesBatchDb(postIds),
+  const [likesBundle, commentCountsMap, profilesMap, goalMap] = await Promise.all([
+    getPostLikesWithViewerBatchDb(postIds),
     getCommentCountsBatchDb(postIds),
     getProfilesBatchDb(userIds),
     (async () => {
@@ -190,13 +196,14 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
       return map;
     })(),
   ]);
+  const { likesMap, userLikesMap } = likesBundle;
 
   const posts: PostWithStats[] = rows.map((post: any) => {
     const likes = likesMap.get(post.id) ?? { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
     const userLikes = userLikesMap.get(post.id) ?? [];
     const commentCount = commentCountsMap.get(post.id) ?? 0;
     const profile = profilesMap.get(post.user_id);
-    const totalLikes = Object.values(likes).reduce((a: number, b: number) => a + b, 0);
+    const totalLikes = (Object.values(likes) as number[]).reduce((a, b) => a + b, 0);
     const goalData = post.user_goal_id ? goalMap.get(String(post.user_goal_id)) : undefined;
     const userGoal = goalData?.visibility === 1 ? goalData : undefined;
 
@@ -208,7 +215,6 @@ export const getDiscoverPosts = async (): Promise<PostWithStats[]> => {
       hasActivity: totalLikes > 0 || commentCount > 0,
       userNickname: profile?.nickname || "Usuário",
       userPhoto: profile?.photo || null,
-      userGender: profile?.gender || null,
       isVerified: profile?.is_verified === true,
       userGoal,
     };

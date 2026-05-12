@@ -27,6 +27,7 @@ import {
   Bell,
   BellOff,
   BarChart2,
+  Loader2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -111,7 +112,7 @@ interface RoutinesTabProps {
   onDeleteRoutineType: (typeCode: number, routineCardName: string | null) => void;
   onDeleteItem: (itemId: string, typeCode: number) => Promise<void>;
   onOpenWorkoutHistory: (workout: { id: string; name: string; description?: string; photo?: string }) => void;
-  onShowRoutineSummary: (key: { typeCode: number; name: string | null }) => void;
+  onShowRoutineSummary: (key: { typeCode: number; name: string | null }) => void | Promise<void>;
   onImageZoom: (item: import("@/components/shared/image-zoom-drawer").ImageZoomItem) => void;
 
   formatScheduledTime: (time: string) => string;
@@ -164,12 +165,27 @@ export function RoutinesTab({
 }: RoutinesTabProps) {
   const { t } = useLanguage();
   const [hydrationCollapsed, setHydrationCollapsed] = React.useState(false);
+  const [loadingSummaryKey, setLoadingSummaryKey] = React.useState<string | null>(null);
+
+  const handleSummaryClick = (key: string, payload: { typeCode: number; name: string | null }) => {
+    if (loadingSummaryKey) return;
+    setLoadingSummaryKey(key);
+    setTimeout(async () => {
+      try {
+        await onShowRoutineSummary(payload);
+      } finally {
+        setLoadingSummaryKey(null);
+      }
+    }, 0);
+  };
 
   const hasWaterHabit = userHabits.some((h) => String((h as any).habit_id) === "1");
+  const hasAnyRoutine = userWorkouts.length > 0 || userDiets.length > 0 || userHabits.length > 0;
 
   return (
     <>
-      {/* Daily Check-in Block */}
+      {/* Daily Check-in Block — escondido quando ainda não há nenhuma rotina, para focar o onboarding */}
+      {hasAnyRoutine && (
       <Card className={`border-2 ${dailyCheckInDone
         ? "border-green-500/50 bg-green-500/5"
         : "border-brand/30 bg-brand/5"
@@ -312,6 +328,7 @@ export function RoutinesTab({
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* ─── Card de Hidratação ──────────────────────────────────────── */}
       {hasWaterHabit && (
@@ -440,7 +457,7 @@ export function RoutinesTab({
         </Card>
       )}
 
-      {(userWorkouts.length > 0 || userDiets.length > 0 || userHabits.length > 0) ? (
+      {hasAnyRoutine ? (
         <div className="space-y-4">
           {(() => {
             const cards: any[] = [];
@@ -614,11 +631,17 @@ export function RoutinesTab({
                             i.routine_id != null && routineIdsWithHistory.has(String(i.routine_id))
                           ) && (
                             <button
-                              onClick={() => onShowRoutineSummary({ typeCode, name: isNamed ? displayLabel : null })}
-                              className="p-2 rounded-lg hover:bg-muted/50 transition-colors flex-shrink-0"
+                              onClick={() => handleSummaryClick(key, { typeCode, name: isNamed ? displayLabel : null })}
+                              disabled={loadingSummaryKey === key}
+                              aria-label="Resumo da rotina"
+                              className="p-2 rounded-lg hover:bg-muted/50 active:bg-muted/70 transition-colors flex-shrink-0 disabled:opacity-100"
                               title="Resumo da rotina"
                             >
-                              <BarChart2 className="h-5 w-5 text-muted-foreground" />
+                              {loadingSummaryKey === key ? (
+                                <Loader2 className="h-5 w-5 text-brand animate-spin" />
+                              ) : (
+                                <BarChart2 className="h-5 w-5 text-muted-foreground" />
+                              )}
                             </button>
                           )}
                           <button
@@ -889,29 +912,46 @@ export function RoutinesTab({
 
         </div>
       ) : (
-        <div className="space-y-4 pt-4 pb-8">
-          <div className="text-center space-y-1 pb-2">
-            <p className="text-base font-bold">{t("goals_no_routines")}</p>
-            <p className="text-xs text-muted-foreground max-w-xs mx-auto">{t("goals_no_routines_onboarding")}</p>
+        <div className="space-y-6 pt-8 pb-8">
+          <div className="text-center space-y-3 px-4">
+            <span className="inline-block text-[10px] font-bold uppercase tracking-[0.12em] text-brand bg-brand/10 px-3 py-1 rounded-full">
+              {t("goals_no_routines_guide_eyebrow")}
+            </span>
+            <h2 className="text-2xl font-bold leading-tight tracking-tight">
+              {t("goals_no_routines_guide_title")}
+            </h2>
+            <p className="text-sm text-muted-foreground max-w-[280px] mx-auto leading-relaxed">
+              {t("goals_no_routines_guide_subtitle")}
+            </p>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-2.5">
             {[
-              { typeCode: 1, emoji: "🏋️", label: t("goals_routine_type_workout"), desc: t("goals_routine_type_workout_desc") },
-              { typeCode: 2, emoji: "🥗", label: t("goals_routine_type_diet"), desc: t("goals_routine_type_diet_desc") },
-              { typeCode: 3, emoji: "✨", label: t("goals_routine_type_habit"), desc: t("goals_routine_type_habit_desc") },
+              { typeCode: 1, emoji: "🏋️", label: t("goals_routine_type_workout"), desc: t("goals_routine_type_workout_desc"), badge: "bg-gradient-to-br from-orange-400/20 to-orange-500/10 ring-1 ring-orange-500/20" },
+              { typeCode: 2, emoji: "🥗", label: t("goals_routine_type_diet"), desc: t("goals_routine_type_diet_desc"), badge: "bg-gradient-to-br from-green-400/20 to-green-500/10 ring-1 ring-green-500/20" },
+              { typeCode: 3, emoji: "✨", label: t("goals_routine_type_habit"), desc: t("goals_routine_type_habit_desc"), badge: "bg-gradient-to-br from-purple-400/20 to-purple-500/10 ring-1 ring-purple-500/20" },
             ].map((item) => (
               <button
                 key={item.typeCode}
                 type="button"
                 onClick={() => onAddRoutineWithType(item.typeCode)}
-                className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-border/60 p-4 text-center hover:border-primary/40 hover:bg-primary/5 active:scale-95 transition-all"
+                className="group w-full flex items-center gap-3.5 rounded-2xl bg-card border border-border/60 p-3.5 text-left shadow-sm hover:border-brand/40 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] transition-all duration-200"
               >
-                <span className="text-3xl">{item.emoji}</span>
-                <span className="text-xs font-semibold leading-tight">{item.label}</span>
-                <span className="text-[10px] text-muted-foreground leading-tight">{item.desc}</span>
+                <div className={`flex items-center justify-center h-14 w-14 rounded-2xl text-3xl flex-shrink-0 ${item.badge}`}>
+                  {item.emoji}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[15px] font-bold leading-tight">{item.label}</p>
+                  <p className="text-xs text-muted-foreground leading-tight mt-1">{item.desc}</p>
+                </div>
+                <div className="flex items-center justify-center h-8 w-8 rounded-full bg-muted/60 group-hover:bg-brand/15 group-hover:text-brand transition-colors flex-shrink-0">
+                  <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-brand transition-colors" />
+                </div>
               </button>
             ))}
           </div>
+          <p className="text-center text-[11px] text-muted-foreground/70 px-6 leading-relaxed">
+            {t("goals_no_routines_guide_footer")}
+          </p>
         </div>
       )}
     </>

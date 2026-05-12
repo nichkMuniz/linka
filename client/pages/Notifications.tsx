@@ -219,13 +219,13 @@ export default function Notifications() {
     groupedCount?: number;
     groupedNicknames?: string[];
     groupedIncentiveTypes?: number[];
-    groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; userGender?: string | null; incentiveTypes: number[] }>;
+    groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
   }> => {
     type GroupedNotif = NotificationItem & {
       groupedCount?: number;
       groupedNicknames?: string[];
       groupedIncentiveTypes?: number[];
-      groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; userGender?: string | null; incentiveTypes: number[] }>;
+      groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
     };
 
     const result: GroupedNotif[] = [];
@@ -246,7 +246,7 @@ export default function Notifications() {
               existingUser.incentiveTypes.push(n.incentiveType!);
             }
           } else {
-            users.push({ userId: n.userId, userNickname: n.userNickname, userPhoto: n.userPhoto, userGender: n.userGender, incentiveTypes: [n.incentiveType!] });
+            users.push({ userId: n.userId, userNickname: n.userNickname, userPhoto: n.userPhoto, incentiveTypes: [n.incentiveType!] });
             existing.groupedNicknames = users.map(u => u.userNickname);
             existing.groupedCount = users.length;
           }
@@ -261,7 +261,7 @@ export default function Notifications() {
             groupedCount: 1,
             groupedNicknames: [n.userNickname],
             groupedIncentiveTypes: [n.incentiveType!],
-            groupedUsers: [{ userId: n.userId, userNickname: n.userNickname, userPhoto: n.userPhoto, userGender: n.userGender, incentiveTypes: [n.incentiveType!] }],
+            groupedUsers: [{ userId: n.userId, userNickname: n.userNickname, userPhoto: n.userPhoto, incentiveTypes: [n.incentiveType!] }],
           });
         }
       } else {
@@ -470,7 +470,7 @@ export default function Notifications() {
                         {groupNotifs.map((notification) => {
                           const grouped = (notification as any);
                           const groupedCount: number = grouped.groupedCount ?? 1;
-                          const groupedUsers: Array<{ userId: string; userNickname: string; userPhoto?: string; userGender?: string | null; incentiveTypes: number[] }> = grouped.groupedUsers ?? [];
+                          const groupedUsers: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }> = grouped.groupedUsers ?? [];
                           const rawContent = getNotificationContent(notification);
                           const context = notification.shotId ? "no seu shots" : (notification.flowId ? "no seu flow" : "na sua postagem");
 
@@ -512,14 +512,12 @@ export default function Notifications() {
                                       {/* Back avatar (second user or same user repeated) */}
                                       <UserAvatar
                                         photo={groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto}
-                                        gender={groupedUsers[1]?.userGender ?? groupedUsers[0]?.userGender}
                                         nickname={groupedUsers[1]?.userNickname ?? groupedUsers[0]?.userNickname}
                                         className={`absolute top-0 right-0 h-9 w-9 border-2 ${isRead ? "border-background/60 opacity-50" : "border-background"}`}
                                       />
                                       {/* Front avatar (first user) */}
                                       <UserAvatar
                                         photo={groupedUsers[0]?.userPhoto}
-                                        gender={groupedUsers[0]?.userGender}
                                         nickname={groupedUsers[0]?.userNickname}
                                         className={`absolute bottom-0 left-0 h-9 w-9 border-2 ${isRead ? "border-background/60 opacity-60" : "border-background"}`}
                                       />
@@ -528,7 +526,6 @@ export default function Notifications() {
                                     <div className="relative">
                                       <UserAvatar
                                         photo={notification.userPhoto}
-                                        gender={notification.userGender}
                                         nickname={notification.userNickname}
                                         className={`h-12 w-12 border ${isRead ? "border-border/20 opacity-60" : "border-border/40"}`}
                                       />

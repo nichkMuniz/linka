@@ -1085,7 +1085,6 @@ export default function Profile() {
                   >
                     <UserAvatar
                       photo={profile.photo}
-                      gender={profile.gender}
                       nickname={profile.nickname}
                       className="h-24 w-24 ring-2 ring-background"
                     />
@@ -1093,7 +1092,6 @@ export default function Profile() {
                 ) : (
                   <UserAvatar
                     photo={profile.photo}
-                    gender={profile.gender}
                     nickname={profile.nickname}
                     className="h-24 w-24 ring-2 ring-border/60"
                   />
@@ -1663,8 +1661,10 @@ export default function Profile() {
                           )}
 
                           {workoutsLoading ? (
-                            <div className="text-center py-6 text-sm text-muted-foreground">
-                              Carregando exercícios...
+                            <div className="space-y-3">
+                              {Array.from({ length: 4 }).map((_, i) => (
+                                <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />
+                              ))}
                             </div>
                           ) : filtered.length > 0 ? (
                             <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
@@ -1790,8 +1790,10 @@ export default function Profile() {
                     </DialogHeader>
 
                     {dietsLoading ? (
-                      <div className="text-center py-6 text-sm text-muted-foreground">
-                        Carregando dietas...
+                      <div className="space-y-3">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                          <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />
+                        ))}
                       </div>
                     ) : (() => {
                       const localNames = new Set(diets.map((d) => d.name.toLowerCase()));
@@ -1914,8 +1916,10 @@ export default function Profile() {
                     </DialogHeader>
 
                     {habitsLoading ? (
-                      <div className="text-center py-6 text-sm text-muted-foreground">
-                        Carregando hábitos...
+                      <div className="space-y-3">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                          <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />
+                        ))}
                       </div>
                     ) : habits.length > 0 ? (
                       <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
@@ -2486,7 +2490,6 @@ export default function Profile() {
                 <div className="flex items-center gap-2">
                   <UserAvatar
                     photo={selectedPost.userPhoto}
-                    gender={selectedPost.userGender}
                     nickname={selectedPost.userNickname}
                     size="sm"
                     className="h-7 w-7 border border-border/60"

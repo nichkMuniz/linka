@@ -21,6 +21,8 @@ interface InsigniasDrawerProps {
   totalCheckIns: number;
   /** ID do dono do perfil sendo visualizado */
   profileUserId?: string;
+  /** Callback opcional para o pai recarregar dados após troca de insígnia */
+  onSelected?: () => void | Promise<void>;
 }
 
 const BADGE_COLORS: Record<string, { active: string; check: string; bar: string; ring: string }> = {
@@ -30,10 +32,11 @@ const BADGE_COLORS: Record<string, { active: string; check: string; bar: string;
   lendario:  { active: "from-purple-500/20 to-purple-500/5 border-purple-500/40 shadow-purple-500/10", check: "text-purple-600", bar: "bg-purple-500", ring: "ring-purple-500/40" },
 };
 
-export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, totalCheckIns, profileUserId }: InsigniasDrawerProps) {
+export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, totalCheckIns, profileUserId, onSelected }: InsigniasDrawerProps) {
   const { t } = useLanguage();
   const [isSelecting, setIsSelecting] = React.useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null);
+  const [overrideActiveId, setOverrideActiveId] = React.useState<string | null>(null);
 
   // Get current user to check if we can select
   React.useEffect(() => {
@@ -43,7 +46,15 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
   // Se profileUserId foi passado e é diferente do viewer, é perfil alheio
   const isReadOnly = !!profileUserId && !!currentUserId && profileUserId !== currentUserId;
 
-  const activeBadgeId = userBadges.length > 0 ? userBadges[0].badge_id : null;
+  const activeBadgeId = overrideActiveId ?? (userBadges.length > 0 ? userBadges[0].badge_id : null);
+
+  // Reseta override quando o pai atualiza userBadges (ou ao fechar o drawer)
+  React.useEffect(() => {
+    if (!open) setOverrideActiveId(null);
+  }, [open]);
+  React.useEffect(() => {
+    setOverrideActiveId(null);
+  }, [userBadges]);
 
   // Sort badges by required_checkins to ensure correct order
   const sortedBadges = [...allBadges].sort((a, b) => a.required_checkins - b.required_checkins);
@@ -64,13 +75,19 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
 
     try {
       setIsSelecting(badge.id);
+      // Atualização otimista: marca como ativa imediatamente para feedback instantâneo
+      setOverrideActiveId(badge.id);
       await setSelectedBadgeDb(badge.id);
       toast.success(t("badges_selected").replace("{name}", badge.name));
-      // Simples refresh forçado (reload) ou o componente pai deve atualizar
-      // Como o Drawer é controlado por props, idealmente o pai deveria ter um onSelect
-      // Mas para manter simples e imediato:
-      window.location.reload();
+      // Pede ao pai para recarregar dados em segundo plano (sem reload da tela)
+      try {
+        await onSelected?.();
+      } catch {
+        // ignore
+      }
     } catch (err: any) {
+      // Reverte estado otimista em caso de erro
+      setOverrideActiveId(null);
       toast.error(err.message || t("badges_error"));
     } finally {
       setIsSelecting(null);

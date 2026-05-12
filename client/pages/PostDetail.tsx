@@ -45,7 +45,7 @@ export default function PostDetail() {
   const [postGoal, setPostGoal] = React.useState<UserGoal | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [likesModalOpen, setLikesModalOpen] = React.useState(false);
-  const [postLikes, setPostLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; userGender: string | null; type: number }>>([]);
+  const [postLikes, setPostLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; type: number }>>([]);
   const [likeStats, setLikeStats] = React.useState<PostLikeStats>({ apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 });
   const [userLikes, setUserLikes] = React.useState<PostIncentiveType[]>([]);
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<number>>(new Set());
@@ -215,7 +215,6 @@ export default function PostDetail() {
                 >
                   <UserAvatar
                     photo={post.userPhoto}
-                    gender={post.userGender ?? null}
                     nickname={post.userNickname}
                     size="sm"
                     className="border border-white/30 shrink-0"

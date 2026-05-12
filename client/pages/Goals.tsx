@@ -172,6 +172,7 @@ import { CreateWorkoutDrawer } from "@/components/goals/create-workout-drawer";
 import { CreateGoalDrawer } from "@/components/goals/create-goal-drawer";
 import { LinkGoalDrawer } from "@/components/goals/link-goal-drawer";
 import { ExecuteAtDrawer } from "@/components/goals/execute-at-drawer";
+import { LinkGoalStepDrawer } from "@/components/goals/link-goal-step-drawer";
 import { ScheduledTimeDrawer } from "@/components/goals/scheduled-time-drawer";
 import { useRoutineNotifications, requestNotificationPermission, formatScheduledTime } from "@/hooks/use-routine-notifications";
 import { startWorkoutLiveActivity, updateWorkoutLiveActivity, stopWorkoutLiveActivity } from "@/hooks/use-live-activity";
@@ -183,6 +184,32 @@ import {
 import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
 // recharts imports moved to workout-history-drawer.tsx
+
+// Format a duration in seconds as "Xh YYmin" when >= 1h, "Xmin YYs" between 1m
+// and 1h, or "Xs" below 1 minute. Used in workout summary (canvas + UI + post).
+const formatDurationHms = (totalSecs: number): string => {
+  if (!Number.isFinite(totalSecs) || totalSecs <= 0) return "0s";
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = Math.floor(totalSecs % 60);
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}min`;
+  if (m > 0) return s > 0 ? `${m}min ${String(s).padStart(2, "0")}s` : `${m}min`;
+  return `${s}s`;
+};
+
+// Format a weight (kg) — uses tons (t) when >= 1000 kg for readability.
+// 13851.8 kg → "13,9 t", 950 kg → "950 kg", 2000 kg → "2 t".
+const formatVolumeKg = (kg: number): string => {
+  if (!Number.isFinite(kg) || kg <= 0) return "—";
+  if (kg >= 1000) {
+    const tons = kg / 1000;
+    const rounded = Math.round(tons * 10) / 10;
+    const str = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1).replace(".", ",");
+    return `${str} t`;
+  }
+  const rounded = Math.round(kg * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded} kg` : `${rounded.toString().replace(".", ",")} kg`;
+};
 
 export default function Goals() {
   const navigate = useNavigate();
@@ -251,6 +278,8 @@ export default function Goals() {
   const [selectedDietCategories, setSelectedDietCategories] = React.useState<Set<string>>(new Set());
   const [routineName, setRoutineName] = React.useState("");
   const [showExecuteAtStep, setShowExecuteAtStep] = React.useState(false);
+  const [showLinkGoalStep, setShowLinkGoalStep] = React.useState(false);
+  const [pendingExecuteAtOverrides, setPendingExecuteAtOverrides] = React.useState<(string | null)[] | undefined>(undefined);
 
   // Base data for lookups
   const [workouts, setWorkouts] = React.useState<Workout[]>([]);
@@ -364,6 +393,7 @@ export default function Goals() {
   const gpsLastAltRef = React.useRef<number | null>(null);
   const gpsElevationGainRef = React.useRef(0);
   const [gpsElevationGain, setGpsElevationGain] = React.useState(0);
+  const [gpsStopConfirm, setGpsStopConfirm] = React.useState<{ workoutId: string; rowKey: string } | null>(null);
 
   const gpsHaversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371;
@@ -396,10 +426,19 @@ export default function Goals() {
 
     if (gpsElapsedIntervalRef.current) clearInterval(gpsElapsedIntervalRef.current);
     gpsElapsedIntervalRef.current = setInterval(() => {
-      setGpsElapsedSecs((prev) => prev + 1);
+      // Compute elapsed from start timestamp so the counter stays correct even
+      // if the JS interval was paused while the screen was locked.
+      const start = gpsStartTimeRef.current ?? Date.now();
+      setGpsElapsedSecs(Math.floor((Date.now() - start) / 1000));
     }, 1000);
 
     const onLocation = (point: { lat: number; lng: number; alt?: number | null }) => {
+      // Keep the elapsed counter in sync even when JS interval was paused
+      // (screen locked). The native plugin keeps firing location callbacks
+      // while in the background.
+      if (gpsStartTimeRef.current != null) {
+        setGpsElapsedSecs(Math.floor((Date.now() - gpsStartTimeRef.current) / 1000));
+      }
       const prev = gpsLastNativePosRef.current;
       // Accumulate elevation gain
       if (point.alt != null) {
@@ -418,11 +457,11 @@ export default function Goals() {
         setGpsRoute([point]);
       } else {
         const delta = gpsHaversineKm(prev.lat, prev.lng, point.lat, point.lng);
-        // Ignore GPS noise (< 5m jumps)
-        if (delta > 0.005) {
+        // Ignore GPS noise (< 2m jumps) so meters update in near real time
+        if (delta > 0.002) {
           nativeGpsAccumRef.current += delta;
           const accumulatedKm = nativeGpsAccumRef.current;
-          setGpsDistance(Math.round(accumulatedKm * 100) / 100);
+          setGpsDistance(Math.round(accumulatedKm * 1000) / 1000);
           const elapsedMins = (Date.now() - (gpsStartTimeRef.current ?? Date.now())) / 60000;
           if (accumulatedKm > 0) {
             setGpsPace(Math.round((elapsedMins / accumulatedKm) * 60));
@@ -639,6 +678,7 @@ export default function Goals() {
   const [renameRoutineOpen, setRenameRoutineOpen] = React.useState(false);
   const [renameRoutineData, setRenameRoutineData] = React.useState<{ typeCode: number; oldName: string | null } | null>(null);
   const [renameRoutineValue, setRenameRoutineValue] = React.useState("");
+  const [renameRoutineScheduledTime, setRenameRoutineScheduledTime] = React.useState<string | null>(null);
 
   // Scheduled time (notification) state
   const [scheduledTimeDrawerOpen, setScheduledTimeDrawerOpen] = React.useState(false);
@@ -683,17 +723,8 @@ export default function Goals() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const { duration, totalVolume, totalSeries, exerciseNames, routineName, isAllCardio, totalKm, totalCardioTimeSecs } = workoutSummaryData;
-    const mins = Math.floor(duration / 60);
-    const secs = duration % 60;
-    const durationStr = mins > 0 ? `${mins}m ${secs > 0 ? `${secs}s` : ""}`.trim() : `${secs}s`;
-    const fmtCardioSecs = (t: number) => {
-      const h = Math.floor(t / 3600);
-      const m = Math.floor((t % 3600) / 60);
-      const s = t % 60;
-      if (h > 0) return `${h}h ${String(m).padStart(2, "0")}min${s > 0 ? ` ${String(s).padStart(2, "0")}s` : ""}`;
-      if (s > 0) return `${m}min ${String(s).padStart(2, "0")}s`;
-      return `${m}min`;
-    };
+    const durationStr = formatDurationHms(duration);
+    const fmtCardioSecs = (t: number) => formatDurationHms(t);
     // Background
     const grad = ctx.createLinearGradient(0, 0, 800, 800);
     grad.addColorStop(0, "#0f172a");
@@ -716,23 +747,32 @@ export default function Goals() {
     ctx.beginPath(); ctx.moveTo(100, 420); ctx.lineTo(700, 420); ctx.stroke();
     // Stats
     const hasMixedCardio = !isAllCardio && (totalKm > 0 || totalCardioTimeSecs > 0);
+    // For outdoor/cardio-only workouts, omit "Séries" e "Exercícios" — esses
+    // campos só fazem sentido para treinos de força.
+    const gpsPaceSecs = workoutSummaryData?.gpsPace;
+    const gpsPaceStr = gpsPaceSecs
+      ? `${Math.floor(gpsPaceSecs / 60)}:${String(gpsPaceSecs % 60).padStart(2, "0")}`
+      : null;
+    const gpsElevStr = workoutSummaryData?.gpsElevationGain != null
+      ? `${workoutSummaryData.gpsElevationGain} m`
+      : null;
     const statsData = isAllCardio
       ? [
         { label: "Tempo", value: totalCardioTimeSecs > 0 ? fmtCardioSecs(totalCardioTimeSecs) : durationStr },
         { label: "Distância", value: totalKm > 0 ? `${totalKm} km` : "—" },
-        { label: "Séries", value: String(totalSeries) },
-        { label: "Exercícios", value: String(exerciseNames.length) },
+        { label: "Ritmo", value: gpsPaceStr ? `${gpsPaceStr}/km` : "—" },
+        { label: "Elevação", value: gpsElevStr ?? "—" },
       ]
       : hasMixedCardio
         ? [
           { label: "Duração", value: durationStr },
-          { label: "Volume", value: totalVolume > 0 ? `${totalVolume} kg` : "—" },
+          { label: "Volume", value: formatVolumeKg(totalVolume) },
           { label: "Distância", value: totalKm > 0 ? `${totalKm} km` : "—" },
           { label: "Séries", value: String(totalSeries) },
         ]
         : [
           { label: "Duração", value: durationStr },
-          { label: "Volume", value: totalVolume > 0 ? `${totalVolume} kg` : "—" },
+          { label: "Volume", value: formatVolumeKg(totalVolume) },
           { label: "Séries", value: String(totalSeries) },
           { label: "Exercícios", value: String(exerciseNames.length) },
         ];
@@ -762,14 +802,7 @@ export default function Goals() {
     if (!ctx) return;
     const { prs, isAllCardio } = workoutSummaryData;
 
-    const fmtCardioTime = (totalSecs: number) => {
-      const h = Math.floor(totalSecs / 3600);
-      const m = Math.floor((totalSecs % 3600) / 60);
-      const s = totalSecs % 60;
-      if (h > 0) return `${h}h ${String(m).padStart(2, "0")}min${s > 0 ? ` ${String(s).padStart(2, "0")}s` : ""}`;
-      if (s > 0) return `${m}min ${String(s).padStart(2, "0")}s`;
-      return `${m}min`;
-    };
+    const fmtCardioTime = (totalSecs: number) => formatDurationHms(totalSecs);
 
     // Background: dark gold gradient
     const grad = ctx.createLinearGradient(0, 0, 800, 800);
@@ -909,7 +942,9 @@ export default function Goals() {
     setMachinePlatedCanvasPreviewUrl(canvas.toDataURL("image/png"));
   }, [workoutSummaryOpen, workoutSummaryData]);
 
-  // Draw GPS route canvas card when summary opens (Corrida ao Ar Livre)
+  // Draw GPS route canvas card when summary opens (Corrida ao Ar Livre).
+  // Renderiza um mapa real (OpenStreetMap raster tiles) com o trajeto por cima,
+  // estilo Strava. Tiles vêm de https://tile.openstreetmap.org com CORS aberto.
   React.useEffect(() => {
     const route = workoutSummaryData?.gpsRoute;
     if (!workoutSummaryOpen || !route || route.length < 2) {
@@ -921,63 +956,145 @@ export default function Goals() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    let cancelled = false;
+
     const W = 800, H = 800;
-    ctx.clearRect(0, 0, W, H);
+    const mapH = H - 220; // bottom panel reservado para stats
+    const TILE = 256;
 
-    // Dark background
-    ctx.fillStyle = "#0d1117";
-    ctx.fillRect(0, 0, W, H);
+    // Web Mercator helpers (em coordenadas globais de pixel, escala = TILE * 2^z)
+    const lngToGlobalX = (lng: number, z: number) =>
+      ((lng + 180) / 360) * Math.pow(2, z) * TILE;
+    const latToGlobalY = (lat: number, z: number) => {
+      const r = (lat * Math.PI) / 180;
+      return (
+        (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) /
+        2 *
+        Math.pow(2, z) *
+        TILE
+      );
+    };
 
-    // Subtle grid
-    ctx.strokeStyle = "rgba(255,255,255,0.04)";
-    ctx.lineWidth = 1;
-    for (let i = 1; i < 4; i++) {
-      ctx.beginPath(); ctx.moveTo(W * i / 4, 0); ctx.lineTo(W * i / 4, H); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, H * i / 4); ctx.lineTo(W, H * i / 4); ctx.stroke();
-    }
-
-    // Project route to canvas coords
     const lats = route.map((p) => p.lat);
     const lngs = route.map((p) => p.lng);
     const minLat = Math.min(...lats), maxLat = Math.max(...lats);
     const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-    const PAD = 80;
-    const toX = (lng: number) => PAD + ((lng - minLng) / (maxLng - minLng || 1)) * (W - PAD * 2);
-    // Reserve bottom 220px for stats panel
-    const mapH = H - 220;
-    const toY = (lat: number) => PAD + ((maxLat - lat) / (maxLat - minLat || 1)) * (mapH - PAD * 2);
+    const PAD = 60; // padding em pixels ao redor do trajeto
 
-    // Route shadow
-    ctx.beginPath();
-    ctx.moveTo(toX(route[0].lng), toY(route[0].lat));
-    for (const p of route) ctx.lineTo(toX(p.lng), toY(p.lat));
-    ctx.strokeStyle = "rgba(251,146,60,0.25)";
-    ctx.lineWidth = 18;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.stroke();
+    // Escolhe maior zoom que ainda caiba o bbox dentro da área (W × mapH) com PAD
+    let zoom = 18;
+    for (; zoom >= 1; zoom--) {
+      const x1 = lngToGlobalX(minLng, zoom);
+      const x2 = lngToGlobalX(maxLng, zoom);
+      const y1 = latToGlobalY(maxLat, zoom);
+      const y2 = latToGlobalY(minLat, zoom);
+      if (x2 - x1 <= W - PAD * 2 && y2 - y1 <= mapH - PAD * 2) break;
+    }
+    if (zoom < 1) zoom = 1;
 
-    // Route line (orange gradient feel)
-    ctx.beginPath();
-    ctx.moveTo(toX(route[0].lng), toY(route[0].lat));
-    for (const p of route) ctx.lineTo(toX(p.lng), toY(p.lat));
-    ctx.strokeStyle = "#f97316";
-    ctx.lineWidth = 6;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.stroke();
+    const centerLat = (minLat + maxLat) / 2;
+    const centerLng = (minLng + maxLng) / 2;
+    const centerGX = lngToGlobalX(centerLng, zoom);
+    const centerGY = latToGlobalY(centerLat, zoom);
+    // Origem global do canvas (top-left): centro − metade da área de mapa
+    const originGX = centerGX - W / 2;
+    const originGY = centerGY - mapH / 2;
 
-    // Start dot (green)
-    const sx = toX(route[0].lng), sy = toY(route[0].lat);
-    ctx.beginPath(); ctx.arc(sx, sy, 12, 0, Math.PI * 2);
-    ctx.fillStyle = "#22c55e"; ctx.fill();
-    ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+    const toCanvasX = (lng: number) => lngToGlobalX(lng, zoom) - originGX;
+    const toCanvasY = (lat: number) => latToGlobalY(lat, zoom) - originGY;
 
-    // End dot (red)
-    const ex = toX(route[route.length - 1].lng), ey = toY(route[route.length - 1].lat);
-    ctx.beginPath(); ctx.arc(ex, ey, 12, 0, Math.PI * 2);
-    ctx.fillStyle = "#ef4444"; ctx.fill();
-    ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+    // Determina range de tiles a buscar
+    const tileX0 = Math.floor(originGX / TILE);
+    const tileY0 = Math.floor(originGY / TILE);
+    const tileX1 = Math.floor((originGX + W) / TILE);
+    const tileY1 = Math.floor((originGY + mapH) / TILE);
+    const maxTile = Math.pow(2, zoom) - 1;
+
+    const loadTile = (z: number, x: number, y: number) =>
+      new Promise<HTMLImageElement | null>((resolve) => {
+        if (x < 0 || y < 0 || x > maxTile || y > maxTile) {
+          resolve(null);
+          return;
+        }
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        const sub = ["a", "b", "c"][(x + y) % 3];
+        img.src = `https://${sub}.tile.openstreetmap.org/${z}/${x}/${y}.png`;
+      });
+
+    const drawRouteAndStats = () => {
+      // Sombra do trajeto
+      ctx.beginPath();
+      ctx.moveTo(toCanvasX(route[0].lng), toCanvasY(route[0].lat));
+      for (const p of route) ctx.lineTo(toCanvasX(p.lng), toCanvasY(p.lat));
+      ctx.strokeStyle = "rgba(0,0,0,0.45)";
+      ctx.lineWidth = 12;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.stroke();
+
+      // Traçado principal (laranja Strava-like)
+      ctx.beginPath();
+      ctx.moveTo(toCanvasX(route[0].lng), toCanvasY(route[0].lat));
+      for (const p of route) ctx.lineTo(toCanvasX(p.lng), toCanvasY(p.lat));
+      ctx.strokeStyle = "#fc4c02";
+      ctx.lineWidth = 7;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.stroke();
+
+      // Marcador de início (verde)
+      const sx = toCanvasX(route[0].lng), sy = toCanvasY(route[0].lat);
+      ctx.beginPath(); ctx.arc(sx, sy, 13, 0, Math.PI * 2);
+      ctx.fillStyle = "#22c55e"; ctx.fill();
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+
+      // Marcador de fim (vermelho)
+      const exx = toCanvasX(route[route.length - 1].lng);
+      const eyy = toCanvasY(route[route.length - 1].lat);
+      ctx.beginPath(); ctx.arc(exx, eyy, 13, 0, Math.PI * 2);
+      ctx.fillStyle = "#ef4444"; ctx.fill();
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+    };
+
+    (async () => {
+      ctx.clearRect(0, 0, W, H);
+      // Fundo enquanto carrega tiles
+      ctx.fillStyle = "#e5e7eb";
+      ctx.fillRect(0, 0, W, mapH);
+
+      // Clip para não pintar tiles fora da área do mapa
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, W, mapH);
+      ctx.clip();
+
+      const promises: Array<Promise<{ img: HTMLImageElement | null; x: number; y: number }>> = [];
+      for (let tx = tileX0; tx <= tileX1; tx++) {
+        for (let ty = tileY0; ty <= tileY1; ty++) {
+          promises.push(loadTile(zoom, tx, ty).then((img) => ({ img, x: tx, y: ty })));
+        }
+      }
+      const results = await Promise.all(promises);
+      if (cancelled) {
+        ctx.restore();
+        return;
+      }
+      for (const { img, x, y } of results) {
+        if (!img) continue;
+        const dx = x * TILE - originGX;
+        const dy = y * TILE - originGY;
+        ctx.drawImage(img, dx, dy, TILE, TILE);
+      }
+      // Leve overlay para escurecer e dar contraste ao traçado
+      ctx.fillStyle = "rgba(255,255,255,0.08)";
+      ctx.fillRect(0, 0, W, mapH);
+
+      ctx.restore();
+
+      drawRouteAndStats();
 
     // Stats panel background
     ctx.fillStyle = "#161b22";
@@ -1036,7 +1153,12 @@ export default function Goals() {
     ctx.textBaseline = "bottom";
     ctx.fillText("Linka", W - 24, mapH - 16);
 
-    setGpsRouteCanvasPreviewUrl(canvas.toDataURL("image/png"));
+      setGpsRouteCanvasPreviewUrl(canvas.toDataURL("image/png"));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [workoutSummaryOpen, workoutSummaryData]);
 
   // Draw goal completion celebration canvas
@@ -1839,6 +1961,16 @@ export default function Goals() {
   const handleRenameRoutine = (data: { typeCode: number; oldName: string | null }, value: string) => {
     setRenameRoutineData(data);
     setRenameRoutineValue(value);
+    const matchesName = (n: string | null | undefined) =>
+      data.oldName ? n === data.oldName : !n;
+    const items: { scheduled_time?: string | null }[] =
+      data.typeCode === 1
+        ? userWorkouts.filter((w) => matchesName(w.name))
+        : data.typeCode === 2
+          ? userDiets.filter((d) => matchesName(d.name))
+          : userHabits.filter((h) => matchesName(h.name));
+    const firstWithTime = items.find((i) => i.scheduled_time);
+    setRenameRoutineScheduledTime(firstWithTime?.scheduled_time ?? null);
     setRenameRoutineOpen(true);
   };
 
@@ -1852,7 +1984,7 @@ export default function Goals() {
     setScheduledTimeDrawerOpen(true);
   };
 
-  const handleShowRoutineSummary = (key: { typeCode: number; name: string | null }) => {
+  const handleShowRoutineSummary = async (key: { typeCode: number; name: string | null }) => {
     // Try to load the last completed workout summary from localStorage first
     try {
       const storageKey = `lastWorkoutSummary_${user?.id}_${key.name || "__unnamed__"}`;
@@ -1878,13 +2010,29 @@ export default function Goals() {
     );
     if (exercises.length === 0) return;
 
+    // Histories are only preloaded when the workout modal opens. If the user
+    // taps the summary icon without ever opening the modal, the map is empty —
+    // fetch on demand so the drawer can actually render.
+    let historiesMap = workoutHistoriesMap;
+    const needsFetch = user && exercises.every((w) => !(historiesMap[w.workout_id]?.length));
+    if (needsFetch) {
+      try {
+        const ids = exercises.map((w) => w.workout_id).filter(Boolean);
+        const fetched = await getWorkoutHistoriesBatchDb(user!.id, ids);
+        historiesMap = { ...historiesMap, ...fetched };
+        setWorkoutHistoriesMap(historiesMap);
+      } catch (err) {
+        console.error("Error loading workout histories on demand:", err);
+      }
+    }
+
     let totalVolume = 0;
     let totalSeries = 0;
     const exerciseNames: string[] = [];
     const completedExercises: CompletedRoutineExercise[] = [];
 
     for (const w of exercises) {
-      const history = workoutHistoriesMap[w.workout_id] || [];
+      const history = historiesMap[w.workout_id] || [];
       if (history.length === 0) continue;
       const isCardio = (w.muscle_group || "").toLowerCase() === "cardio";
       const bestKg = Math.max(...history.slice(0, 5).map((h) => h.kilos || 0));
@@ -1903,7 +2051,13 @@ export default function Goals() {
       }
     }
 
-    if (completedExercises.length === 0) return;
+    if (completedExercises.length === 0) {
+      toast({
+        title: "Sem histórico ainda",
+        description: "Finalize um treino desta rotina para ver o resumo.",
+      });
+      return;
+    }
 
     setWorkoutSummaryData({
       duration: 0,
@@ -2575,27 +2729,18 @@ export default function Goals() {
       if (user) {
         const rName = selectedRoutineName === "__unnamed__" ? null : selectedRoutineName;
         const rStr = rName ? `Treino de ${rName}` : "Treino concluído";
-        const mins2 = Math.floor(workoutDuration / 60);
-        const secs2 = workoutDuration % 60;
-        const dStrBase = mins2 > 0 ? `${mins2}m ${secs2 > 0 ? `${secs2}s` : ""}`.trim() : `${secs2}s`;
-        const cardioH2 = Math.floor(totalCardioTimeSecs / 3600);
-        const cardioM2 = Math.floor((totalCardioTimeSecs % 3600) / 60);
-        const cardioS2 = totalCardioTimeSecs % 60;
-        const cardioTimeStr2 = totalCardioTimeSecs > 0
-          ? cardioH2 > 0
-            ? `${cardioH2}h ${String(cardioM2).padStart(2, "0")}min${cardioS2 > 0 ? ` ${String(cardioS2).padStart(2, "0")}s` : ""}`
-            : cardioS2 > 0 ? `${cardioM2}min ${String(cardioS2).padStart(2, "0")}s` : `${cardioM2}min`
-          : null;
+        const dStrBase = formatDurationHms(workoutDuration);
+        const cardioTimeStr2 = totalCardioTimeSecs > 0 ? formatDurationHms(totalCardioTimeSecs) : null;
         const dStr = (allCardio && exerciseNames.length > 0 && cardioTimeStr2) ? cardioTimeStr2 : dStrBase;
         const exList = exerciseNames.length > 0 ? `\n🏋️ ${exerciseNames.join(" · ")}` : "";
-        const volStr = Math.round(totalVolume * 10) / 10 > 0 ? `\n📦 Volume: ${Math.round(totalVolume * 10) / 10} kg` : "";
+        const volStr = totalVolume > 0 ? `\n📦 Volume: ${formatVolumeKg(totalVolume)}` : "";
         if (prs.length > 0) {
           const prLines = prs
             .map((pr) => `🏆 ${pr.exerciseName}: ${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`)
             .join("\n");
           const prVolumeStr = (allCardio && exerciseNames.length > 0)
             ? (Math.round(totalKm * 10) / 10 > 0 ? `📍 Distância: ${Math.round(totalKm * 10) / 10} km` : "")
-            : (Math.round(totalVolume * 10) / 10 > 0 ? `📦 Volume: ${Math.round(totalVolume * 10) / 10} kg` : "");
+            : (totalVolume > 0 ? `📦 Volume: ${formatVolumeKg(totalVolume)}` : "");
           const prStats = [`⏱️ Duração: ${dStr}`, prVolumeStr, `✅ Séries: ${Math.round(totalSeries)}`]
             .filter(Boolean)
             .join("  ·  ");
@@ -2682,7 +2827,7 @@ export default function Goals() {
     }
   };
 
-  const handleSaveRoutines = async (executeAtOverrides?: (string | null)[]) => {
+  const handleSaveRoutines = async (executeAtOverrides?: (string | null)[], linkGoalId?: string | null) => {
     if (!user || selectedRoutineType === null || selectedItems.size === 0) {
       toast({
         title: "Selecione pelo menos um item",
@@ -2792,6 +2937,34 @@ export default function Goals() {
           setUserWorkouts(userWorkoutsData);
           setUserDiets(userDietsData);
           setUserHabits(userHabitsData);
+
+          // Vincula a rotina recém-criada à meta escolhida no step final (se houver)
+          if (linkGoalId && selectedRoutineType !== null) {
+            const targetName = (routineName.trim() || null);
+            const matching = routinesData.filter(
+              (r: any) =>
+                r.type === selectedRoutineType &&
+                (targetName ? r.name === targetName : !r.name),
+            );
+            // Pega a mais recente (assume ordenação) — fallback para todas com mesmo nome/tipo
+            const sorted = [...matching].sort((a: any, b: any) => {
+              const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+              const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+              return tb - ta;
+            });
+            const newest = sorted[0];
+            if (newest) {
+              try {
+                await updateRoutineGoalDb(newest.id, linkGoalId);
+                // Refresh routines para refletir o goal_id atualizado
+                const refreshed = await getUserRoutinesDb(user.id);
+                setRoutines(refreshed);
+              } catch (linkErr) {
+                console.error("Error linking goal to new routine:", linkErr);
+              }
+            }
+          }
+
           const uwIds2 = userWorkoutsData.map((w: any) => w.id).filter(Boolean);
           if (uwIds2.length > 0) {
             getRoutineLastDatesBatchDb(user.id, uwIds2).then(setRoutineLastDates);
@@ -3548,8 +3721,30 @@ export default function Goals() {
         onOpenChange={(v) => { if (!v) setShowExecuteAtStep(false); }}
         isSaving={isAddingRoutine}
         onConfirm={(executeDates) => {
-          handleSaveRoutines(executeDates.length > 0 ? executeDates : [null]);
+          const overrides = executeDates.length > 0 ? executeDates : [null];
+          const activeUserGoals = userGoals.filter((g) => (g.perc ?? 0) < 100);
+          const isNewRoutine = addToRoutineCardId === null && !isAddingFromWorkout;
           setShowExecuteAtStep(false);
+          if (activeUserGoals.length > 0 && isNewRoutine) {
+            // Step final: vincular meta (apenas quando há metas e é rotina nova)
+            setPendingExecuteAtOverrides(overrides);
+            setShowLinkGoalStep(true);
+          } else {
+            handleSaveRoutines(overrides);
+          }
+        }}
+      />
+
+      <LinkGoalStepDrawer
+        open={showLinkGoalStep}
+        onOpenChange={(v) => { if (!v) setShowLinkGoalStep(false); }}
+        userGoals={userGoals}
+        goals={goals}
+        isSaving={isAddingRoutine}
+        onConfirm={(goalId) => {
+          setShowLinkGoalStep(false);
+          handleSaveRoutines(pendingExecuteAtOverrides, goalId);
+          setPendingExecuteAtOverrides(undefined);
         }}
       />
 
@@ -3560,7 +3755,21 @@ export default function Goals() {
           {userWorkouts.length > 0 && (
             <div className="shrink-0 border-b border-border/40 px-4 py-4" style={{ paddingTop: "calc(env(safe-area-inset-top) + 1rem)" }}>
               <div className="flex items-center gap-2 mb-3">
-                <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (workoutStartTime !== null) {
+                      setWorkoutModalOpen(false);
+                      setTimeout(() => setWorkoutMinimized(true), 300);
+                    } else {
+                      setWorkoutModalOpen(false);
+                    }
+                  }}
+                  className="p-1 -ml-1 rounded-md hover:bg-muted/50 active:bg-muted/70 transition-colors"
+                  aria-label={t("goals_training")}
+                >
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                </button>
                 <span className="text-base font-semibold">{t("goals_training")}</span>
               </div>
 
@@ -3597,18 +3806,22 @@ export default function Goals() {
                           }
                         </p>
                       </div>
-                      <div className="flex flex-col">
-                        <p className="text-xs text-muted-foreground mb-0.5">{t("goals_series")}</p>
-                        <p className="text-base font-bold text-foreground">
-                          {activeWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).filter((s) => s.completed).length, 0)}
-                        </p>
-                      </div>
-                      <div className="flex flex-col">
-                        <p className="text-xs text-muted-foreground mb-0.5">{t("goals_exercises")}</p>
-                        <p className="text-base font-bold text-foreground">
-                          {activeWorkouts.filter((workout) => (workoutSeries[workout.workout_id] || []).some((s) => s.completed)).length}
-                        </p>
-                      </div>
+                      {!allWorkoutsCardio && (
+                        <>
+                          <div className="flex flex-col">
+                            <p className="text-xs text-muted-foreground mb-0.5">{t("goals_series")}</p>
+                            <p className="text-base font-bold text-foreground">
+                              {activeWorkouts.reduce((total, workout) => total + (workoutSeries[workout.workout_id] || []).filter((s) => s.completed).length, 0)}
+                            </p>
+                          </div>
+                          <div className="flex flex-col">
+                            <p className="text-xs text-muted-foreground mb-0.5">{t("goals_exercises")}</p>
+                            <p className="text-base font-bold text-foreground">
+                              {activeWorkouts.filter((workout) => (workoutSeries[workout.workout_id] || []).some((s) => s.completed)).length}
+                            </p>
+                          </div>
+                        </>
+                      )}
                     </>
                   );
                 })()}
@@ -3832,6 +4045,7 @@ export default function Goals() {
                         </div>
 
                         {/* Rest Time Selector */}
+                        {(workout.muscle_group || "").toLowerCase() !== "cardio" && (
                         <div className="mb-2">
                           <div className="flex items-center gap-2 mb-1.5">
                             <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
@@ -3863,6 +4077,7 @@ export default function Goals() {
                             ))}
                           </div>
                         </div>
+                        )}
 
                         {/* Load suggestion: best kg from last session */}
                         {(() => {
@@ -3917,7 +4132,7 @@ export default function Goals() {
                                       </div>
                                       <button
                                         type="button"
-                                        onClick={() => gpsActive ? stopGpsTracking() : startGpsTracking(workout.workout_id)}
+                                        onClick={() => gpsActive ? setGpsStopConfirm({ workoutId: workout.workout_id, rowKey: workout.id }) : startGpsTracking(workout.workout_id)}
                                         className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${gpsActive ? "bg-red-500/10 text-red-500 hover:bg-red-500/20" : "bg-brand/10 text-brand hover:bg-brand/20"}`}
                                       >
                                         {gpsActive ? "Parar GPS" : "Iniciar GPS"}
@@ -3926,8 +4141,14 @@ export default function Goals() {
                                     {(gpsActive || gpsDistance > 0) && (
                                       <div className="flex items-center gap-4 mt-1">
                                         <div className="flex flex-col items-center">
-                                          <span className="text-xl font-bold tabular-nums text-foreground">{gpsDistance.toFixed(2)}</span>
-                                          <span className="text-[10px] text-muted-foreground font-medium">km</span>
+                                          <span className="text-xl font-bold tabular-nums text-foreground">
+                                            {gpsDistance >= 1
+                                              ? gpsDistance.toFixed(2)
+                                              : Math.round(gpsDistance * 1000)}
+                                          </span>
+                                          <span className="text-[10px] text-muted-foreground font-medium">
+                                            {gpsDistance >= 1 ? "km" : "m"}
+                                          </span>
                                         </div>
                                         {gpsPace !== null && (
                                           <>
@@ -4407,18 +4628,9 @@ export default function Goals() {
 
       {/* Workout Summary Screen */}
       {workoutSummaryOpen && workoutSummaryData && (() => {
-        const mins = Math.floor(workoutSummaryData.duration / 60);
-        const secs = workoutSummaryData.duration % 60;
-        const durationStr = mins > 0 ? `${mins}m ${secs > 0 ? `${secs}s` : ""}`.trim() : `${secs}s`;
+        const durationStr = formatDurationHms(workoutSummaryData.duration);
         const cardioSecs = workoutSummaryData.totalCardioTimeSecs;
-        const cardioH = Math.floor(cardioSecs / 3600);
-        const cardioM = Math.floor((cardioSecs % 3600) / 60);
-        const cardioS = cardioSecs % 60;
-        const cardioTimeStr = cardioSecs > 0
-          ? cardioH > 0
-            ? `${cardioH}h ${String(cardioM).padStart(2, "0")}min${cardioS > 0 ? ` ${String(cardioS).padStart(2, "0")}s` : ""}`
-            : cardioS > 0 ? `${cardioM}min ${String(cardioS).padStart(2, "0")}s` : `${cardioM}min`
-          : null;
+        const cardioTimeStr = cardioSecs > 0 ? formatDurationHms(cardioSecs) : null;
         const displayDurationStr = workoutSummaryData.isAllCardio && cardioTimeStr ? cardioTimeStr : durationStr;
         const routineStr = workoutSummaryData.routineName
           ? `Treino de ${workoutSummaryData.routineName}`
@@ -4604,7 +4816,7 @@ export default function Goals() {
                   .join("\n");
                 const prVolumeStr = workoutSummaryData.isAllCardio
                   ? (workoutSummaryData.totalKm > 0 ? `📍 Distância: ${workoutSummaryData.totalKm} km` : "")
-                  : (workoutSummaryData.totalVolume > 0 ? `📦 Volume: ${workoutSummaryData.totalVolume} kg` : "");
+                  : (workoutSummaryData.totalVolume > 0 ? `📦 Volume: ${formatVolumeKg(workoutSummaryData.totalVolume)}` : "");
                 const prStats = [`⏱️ Duração: ${displayDurationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`]
                   .filter(Boolean)
                   .join("  ·  ");
@@ -4614,7 +4826,7 @@ export default function Goals() {
                 ? `\n🏋️ ${workoutSummaryData.exerciseNames.join(" · ")}`
                 : "";
               const volumeStr = workoutSummaryData.totalVolume > 0
-                ? `\n📦 Volume: ${workoutSummaryData.totalVolume} kg`
+                ? `\n📦 Volume: ${formatVolumeKg(workoutSummaryData.totalVolume)}`
                 : "";
               return `💪 ${routineStr}!\n⏱️ ${displayDurationStr}${volumeStr}\n✅ ${workoutSummaryData.totalSeries} séries${exerciseList}\n\n#Linka #Fitness #Treino`;
             })();
@@ -4651,7 +4863,27 @@ export default function Goals() {
               }
             }
 
-            // 3. Upload the PR canvas card after user photos (if there's a PR)
+            // 3. Upload the GPS route map canvas (Corrida ao Ar Livre)
+            const gpsCanvas = gpsRouteCanvasRef.current;
+            if (
+              gpsCanvas &&
+              workoutSummaryData.gpsRoute &&
+              workoutSummaryData.gpsRoute.length >= 2
+            ) {
+              const blob = await new Promise<Blob | null>((res) => gpsCanvas.toBlob(res, "image/png"));
+              if (blob) {
+                const filePath = `${user.id}/${Date.now()}-gps-route.png`;
+                const { error: uploadError } = await supabase.storage
+                  .from("posts")
+                  .upload(filePath, blob, { contentType: "image/png", upsert: false });
+                if (!uploadError) {
+                  const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
+                  photoUrls.push(urlData.publicUrl);
+                }
+              }
+            }
+
+            // 4. Upload the PR canvas card after user photos (if there's a PR)
             const prCanvas = prCanvasRef.current;
             if (prCanvas && workoutSummaryData.prs.length > 0) {
               const blob = await new Promise<Blob | null>((res) => prCanvas.toBlob(res, "image/png"));
@@ -4718,7 +4950,7 @@ export default function Goals() {
               .join("\n");
             const prVolumeStr = workoutSummaryData.isAllCardio
               ? (workoutSummaryData.totalKm > 0 ? `📍 Distância: ${workoutSummaryData.totalKm} km` : "")
-              : (workoutSummaryData.totalVolume > 0 ? `📦 Volume: ${workoutSummaryData.totalVolume} kg` : "");
+              : (workoutSummaryData.totalVolume > 0 ? `📦 Volume: ${formatVolumeKg(workoutSummaryData.totalVolume)}` : "");
             const prStats = [`⏱️ Duração: ${displayDurationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`]
               .filter(Boolean)
               .join("  ·  ");
@@ -4931,7 +5163,7 @@ export default function Goals() {
                   <p className="text-sm font-bold">
                     {workoutSummaryData.isAllCardio
                       ? (workoutSummaryData.totalKm > 0 ? `${workoutSummaryData.totalKm} km` : "—")
-                      : (workoutSummaryData.totalVolume > 0 ? `${workoutSummaryData.totalVolume} kg` : "—")}
+                      : formatVolumeKg(workoutSummaryData.totalVolume)}
                   </p>
                 </div>
                 <div className="flex flex-col items-center gap-1 rounded-xl bg-card border border-border/50 p-3 md:py-2">
@@ -5234,6 +5466,21 @@ export default function Goals() {
         userBadges={userBadges}
         allBadges={allBadges}
         totalCheckIns={totalCheckIns}
+        onSelected={async () => {
+          if (!user) return;
+          try {
+            const [earned, catalog, total] = await Promise.all([
+              getUserBadgesDb(user.id),
+              getAllBadgesDb(),
+              getTotalCheckInsDb(user.id),
+            ]);
+            setUserBadges(earned);
+            setAllBadges(catalog);
+            setTotalCheckIns(total);
+          } catch {
+            // ignore
+          }
+        }}
       />
       {/* LEGACY INLINE DRAWER REMOVED — kept below as dead block for reference, delete after QA */}
       {false && <Drawer open={false} onOpenChange={() => { }}>
@@ -6007,6 +6254,7 @@ export default function Goals() {
         userId={user?.id ?? ""}
         routineData={renameRoutineData}
         initialValue={renameRoutineValue}
+        initialScheduledTime={renameRoutineScheduledTime}
         onRenamed={({ routines, userWorkouts, userDiets, userHabits }) => {
           setRoutines(routines);
           setUserWorkouts(userWorkouts);
@@ -6146,6 +6394,47 @@ export default function Goals() {
         todayMood={todayMood}
         onMoodSaved={(mood) => setTodayMood(mood)}
       />
+
+      {/* ─── Confirmação: Parar GPS / marcar treino como concluído ───────── */}
+      <Dialog open={!!gpsStopConfirm} onOpenChange={(o) => { if (!o) setGpsStopConfirm(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Encerrar corrida</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Deseja marcar este treino como concluído?
+          </p>
+          <div className="flex gap-2 mt-2">
+            <button
+              type="button"
+              onClick={() => {
+                stopGpsTracking();
+                setGpsStopConfirm(null);
+              }}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-muted/40 text-muted-foreground hover:bg-muted/60 transition-colors"
+            >
+              Não
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const ctx = gpsStopConfirm;
+                stopGpsTracking();
+                if (ctx) {
+                  const series = workoutSeries[ctx.workoutId] || [];
+                  if (series[0] && !series[0].completed) {
+                    handleToggleSerieCompleted(ctx.workoutId, 0, ctx.rowKey);
+                  }
+                }
+                setGpsStopConfirm(null);
+              }}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-brand text-white hover:opacity-90 transition-opacity"
+            >
+              Sim
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

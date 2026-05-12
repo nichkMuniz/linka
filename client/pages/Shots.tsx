@@ -101,7 +101,7 @@ export default function Shots() {
   const lastTapRef = React.useRef<{ shotId: string; time: number } | null>(null);
   const singleTapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [shotLikesModalOpen, setShotLikesModalOpen] = React.useState(false);
-  const [shotLikes, setShotLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; userGender: string | null; type: number }>>([]);
+  const [shotLikes, setShotLikes] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null; type: number }>>([]);
   const [shotLikesLoading, setShotLikesLoading] = React.useState(false);
 
   const handleOpenShotLikes = React.useCallback(async (shotId: string) => {
@@ -501,7 +501,7 @@ export default function Shots() {
   if (loading) {
     return (
       <div
-        className="bg-black w-full flex flex-col overflow-hidden relative h-[calc(100dvh-4.25rem-env(safe-area-inset-bottom)-0.5rem)] md:h-dvh"
+        className="bg-black w-full flex flex-col overflow-hidden relative h-[calc(100dvh-4.25rem-env(safe-area-inset-bottom))] md:h-dvh"
         style={{
           paddingTop: "env(safe-area-inset-top)",
         }}
@@ -614,7 +614,7 @@ export default function Shots() {
 
   return (
     <div
-      className="bg-black w-full flex flex-col overflow-hidden relative h-[calc(100dvh-4.25rem-env(safe-area-inset-bottom)-0.5rem)] md:h-dvh"
+      className="bg-black w-full flex flex-col overflow-hidden relative h-[calc(100dvh-4.25rem-env(safe-area-inset-bottom))] md:h-dvh"
       style={{
         // Header é ocultado em /shots — div começa em y=0 (atrás do notch), paddingTop empurra o conteúdo para baixo do notch
         paddingTop: "env(safe-area-inset-top)",
@@ -765,7 +765,6 @@ export default function Shots() {
                 >
                   <UserAvatar
                     photo={shot.userPhoto}
-                    gender={shot.userGender}
                     nickname={shot.userNickname || t("shots_user_fallback")}
                     size="lg"
                     className="border-2 border-white/30 shadow-lg"
@@ -978,7 +977,6 @@ export default function Shots() {
                 >
                   <UserAvatar
                     photo={comment.userPhoto}
-                    gender={comment.userGender}
                     nickname={comment.userName}
                     size="sm"
                   />

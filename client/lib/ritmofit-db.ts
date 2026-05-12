@@ -35,6 +35,8 @@ const VIEWER_TTL_MS = 30_000; // 30s — safe because auth state changes trigger
 function invalidateViewerCache() {
   _viewerCache = null;
   _queryCache.clear();
+  // Drop persisted entries too — they may contain data from a previous user.
+  persistDelete();
 }
 
 function cleanHandle(raw: string) {
@@ -69,31 +71,132 @@ export { invalidateViewerCache };
 registerViewerCacheInvalidator(invalidateViewerCache);
 
 // ─── Generic query cache ──────────────────────────────────────────────────────
-// A simple in-memory cache with TTL, keyed by string.
-// Write operations call invalidateQueryCache(prefix) to bust related entries.
+// Two-layer cache:
+//   1. Memory (Map) — fresh data, returned synchronously within TTL.
+//   2. localStorage — stale-while-revalidate. After memory TTL expires, we
+//      return the persisted value immediately and refetch in background, so
+//      revisiting a screen feels instant instead of waiting for the network.
+//
+// Write operations call invalidateQueryCache(prefix) to bust both layers.
 
 const _queryCache = new Map<string, { data: unknown; expiry: number }>();
+const _inflight = new Map<string, Promise<unknown>>();
 
 const CACHE_TTL_SHORT = 30_000;   // 30s — user-specific data that changes often
 const CACHE_TTL_MEDIUM = 60_000;  // 60s — lists, feeds
 const CACHE_TTL_LONG = 300_000;   // 5min — catalogs, programmed goals, badges
 
+// Persisted entries older than this are ignored (treated as cold miss).
+// Long enough that a returning user gets instant first paint; short enough
+// to avoid showing wildly outdated data when the network is slow.
+const PERSIST_STALE_MAX_MS = 24 * 60 * 60 * 1000; // 24h
+
+// Skip persisting payloads larger than this to protect the ~5MB localStorage quota.
+const PERSIST_MAX_BYTES = 100_000; // ~100KB per entry
+
+// Bump when the shape of cached payloads changes incompatibly so old entries are ignored.
+const PERSIST_VERSION = 1;
+const PERSIST_PREFIX = "lk:q:";
+
+type PersistedEntry = { v: number; t: number; d: unknown };
+
+function persistRead<T>(key: string): { data: T; storedAt: number } | null {
+  try {
+    const raw = localStorage.getItem(PERSIST_PREFIX + key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedEntry;
+    if (parsed.v !== PERSIST_VERSION) return null;
+    if (Date.now() - parsed.t > PERSIST_STALE_MAX_MS) {
+      localStorage.removeItem(PERSIST_PREFIX + key);
+      return null;
+    }
+    return { data: parsed.d as T, storedAt: parsed.t };
+  } catch {
+    return null;
+  }
+}
+
+function persistWrite(key: string, data: unknown) {
+  try {
+    const payload = JSON.stringify({ v: PERSIST_VERSION, t: Date.now(), d: data } satisfies PersistedEntry);
+    if (payload.length > PERSIST_MAX_BYTES) return;
+    localStorage.setItem(PERSIST_PREFIX + key, payload);
+  } catch {
+    // Quota exceeded or serialization failed — non-fatal.
+  }
+}
+
+function persistDelete(prefix?: string) {
+  try {
+    if (!prefix) {
+      const toRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(PERSIST_PREFIX)) toRemove.push(k);
+      }
+      toRemove.forEach((k) => localStorage.removeItem(k));
+      return;
+    }
+    const full = PERSIST_PREFIX + prefix;
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(full)) toRemove.push(k);
+    }
+    toRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+}
+
 async function cached<T>(key: string, ttl: number, fn: () => Promise<T>): Promise<T> {
+  // L1 — fresh memory hit.
   const hit = _queryCache.get(key);
   if (hit && Date.now() < hit.expiry) return hit.data as T;
-  const data = await fn();
-  _queryCache.set(key, { data, expiry: Date.now() + ttl });
-  return data;
+
+  // Dedup concurrent callers for the same key.
+  const inflight = _inflight.get(key) as Promise<T> | undefined;
+
+  const fetchAndStore = (): Promise<T> => {
+    if (inflight) return inflight;
+    const p = fn()
+      .then((data) => {
+        _queryCache.set(key, { data, expiry: Date.now() + ttl });
+        persistWrite(key, data);
+        return data;
+      })
+      .finally(() => {
+        _inflight.delete(key);
+      });
+    _inflight.set(key, p);
+    return p;
+  };
+
+  // L2 — stale persisted hit: serve immediately, refetch in background.
+  const persisted = persistRead<T>(key);
+  if (persisted) {
+    // Seed memory with the stale value (with a short fresh window so synchronous
+    // re-reads in the same tick don't trigger another fetch).
+    _queryCache.set(key, { data: persisted.data, expiry: Date.now() + 1_000 });
+    // Kick off background refresh but don't await it.
+    fetchAndStore().catch(() => { /* background error already logged by fn */ });
+    return persisted.data;
+  }
+
+  // Cold — must wait for the network.
+  return fetchAndStore();
 }
 
 export function invalidateQueryCache(prefix?: string) {
   if (!prefix) {
     _queryCache.clear();
+    persistDelete();
     return;
   }
   for (const key of _queryCache.keys()) {
     if (key.startsWith(prefix)) _queryCache.delete(key);
   }
+  persistDelete(prefix);
 }
 
 export type DbProfile = {
@@ -367,7 +470,6 @@ export async function getPostLikeUsersDb(postId: string): Promise<Array<{
   userId: string;
   userNickname: string;
   userPhoto: string | null;
-  userGender: string | null;
   type: number;
 }>> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -388,7 +490,7 @@ export async function getPostLikeUsersDb(postId: string): Promise<Array<{
     // Fetch user profiles
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, nickname, photo, gender")
+      .select("user_id, nickname, photo")
       .in("user_id", userIds);
 
     const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
@@ -401,7 +503,6 @@ export async function getPostLikeUsersDb(postId: string): Promise<Array<{
           userId: like.user_id,
           userNickname: profile?.nickname ?? "Usuário",
           userPhoto: profile?.photo ?? null,
-          userGender: profile?.gender ?? null,
           type: like.type,
         };
       });
@@ -450,6 +551,55 @@ export async function getPostLikesBatchDb(
   }
 
   return result;
+}
+
+/**
+ * Fetch both aggregate like stats AND the current viewer's own likes for
+ * multiple posts in a SINGLE query. Replaces the previous pair of round-trips
+ * (getPostLikesBatchDb + getUserPostLikesBatchDb) used by the feed.
+ */
+export async function getPostLikesWithViewerBatchDb(
+  postIds: string[],
+): Promise<{
+  likesMap: Map<string, PostLikeStats>;
+  userLikesMap: Map<string, PostIncentiveType[]>;
+}> {
+  const empty: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
+  const likesMap = new Map<string, PostLikeStats>();
+  const userLikesMap = new Map<string, PostIncentiveType[]>();
+  postIds.forEach((id) => {
+    likesMap.set(id, { ...empty });
+    userLikesMap.set(id, []);
+  });
+  if (!postIds.length || !hasSupabaseConfig || !supabase) {
+    return { likesMap, userLikesMap };
+  }
+
+  const viewer = await getViewer();
+  const viewerId = viewer?.id ?? null;
+
+  const { data } = await supabase
+    .from("likes")
+    .select("post_id, type, user_id")
+    .in("post_id", postIds);
+
+  const TYPE_KEY: Record<number, keyof PostLikeStats> = {
+    1: "apoio", 2: "continua", 3: "ganhador",
+    4: "consegueMais", 5: "limiteMaior", 6: "maisAlgum",
+  };
+  for (const row of data ?? []) {
+    const stats = likesMap.get(row.post_id);
+    const key = TYPE_KEY[row.type as number];
+    if (stats && key) stats[key]++;
+    if (viewerId && row.user_id === viewerId) {
+      const t = Number(row.type) as PostIncentiveType;
+      if ([1, 2, 3, 4, 5, 6].includes(t)) {
+        userLikesMap.get(row.post_id)?.push(t);
+      }
+    }
+  }
+
+  return { likesMap, userLikesMap };
 }
 
 /**
@@ -520,21 +670,20 @@ export async function getCommentCountsBatchDb(
  */
 export async function getProfilesBatchDb(
   userIds: string[],
-): Promise<Map<string, { nickname: string; photo: string | null; gender: string | null; is_verified: boolean }>> {
-  const result = new Map<string, { nickname: string; photo: string | null; gender: string | null; is_verified: boolean }>();
+): Promise<Map<string, { nickname: string; photo: string | null; is_verified: boolean }>> {
+  const result = new Map<string, { nickname: string; photo: string | null; is_verified: boolean }>();
   if (!userIds.length || !hasSupabaseConfig || !supabase) return result;
 
   const uniqueIds = [...new Set(userIds)];
   const { data } = await supabase
     .from("profiles")
-    .select("user_id, nickname, photo, gender, is_verified")
+    .select("user_id, nickname, photo, is_verified")
     .in("user_id", uniqueIds);
 
   for (const row of data ?? []) {
     result.set(row.user_id, {
       nickname: row.nickname ?? "Usuário",
       photo: row.photo ?? null,
-      gender: row.gender ?? null,
       is_verified: row.is_verified === true,
     });
   }
@@ -561,7 +710,6 @@ export type PostComment = {
   userName: string;
   userHandle: string;
   userPhoto: string | null;
-  userGender: string | null;
   text: string;
   createdAt: string;
   isVerified?: boolean;
@@ -615,11 +763,11 @@ export async function getPostCommentsDb(
   const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("user_id, nickname, handle, photo, gender, is_verified")
+    .select("user_id, nickname, handle, photo, is_verified")
     .in("user_id", userIds);
 
   const profileMap = new Map(
-    (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo ?? null, gender: p.gender ?? null, is_verified: p.is_verified === true }]),
+    (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo ?? null, is_verified: p.is_verified === true }]),
   );
 
   return rows.map(
@@ -632,7 +780,6 @@ export async function getPostCommentsDb(
         userName: profile?.nickname ?? String(row.user_name ?? "Usuário"),
         userHandle: profile?.handle ?? "",
         userPhoto: profile?.photo ?? null,
-        userGender: profile?.gender ?? null,
         text: String(row.text ?? ""),
         createdAt: String(row.created_at ?? new Date().toISOString()),
         isVerified: profile?.is_verified ?? false,
@@ -1134,7 +1281,6 @@ export type UserProfile = {
   photo: string | null;
   objectives?: string[] | null;
   handle?: string;
-  gender?: string | null;
   height?: string | null;
   weight?: string | null;
   age?: string | null;
@@ -1153,7 +1299,7 @@ export async function getUserProfileDb(
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, nickname, bio, photo, objectives, gender, height, weight, age, handle, is_verified")
+    .select("id, nickname, bio, photo, objectives, height, weight, age, handle, is_verified")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -1176,7 +1322,6 @@ export async function getUserProfileDb(
     photo: data.photo ? String(data.photo) : null,
     objectives: data.objectives ?? null,
     handle: data.handle ? String(data.handle) : undefined,
-    gender: data.gender ?? null,
     height: data.height != null ? String(data.height) : null,
     weight: data.weight != null ? String(data.weight) : null,
     age: data.age != null ? String(data.age) : null,
@@ -1189,7 +1334,7 @@ export async function getUserProfileDb(
 
 export async function updateUserProfileDb(
   userId: string,
-  updates: { nickname?: string; bio?: string; photo?: string | null; gender?: string | null; height?: number | null; weight?: number | null; age?: number | null; handle?: string; objectives?: string[] | null },
+  updates: { nickname?: string; bio?: string; photo?: string | null; height?: number | null; weight?: number | null; age?: number | null; handle?: string; objectives?: string[] | null },
 ): Promise<UserProfile | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
@@ -1200,7 +1345,7 @@ export async function updateUserProfileDb(
     .from("profiles")
     .update(updates)
     .eq("user_id", userId)
-    .select("id, nickname, bio, photo, objectives, handle, gender, height, weight, age")
+    .select("id, nickname, bio, photo, objectives, handle, height, weight, age")
     .maybeSingle();
 
   if (error) {
@@ -1222,7 +1367,6 @@ export async function updateUserProfileDb(
     photo: data.photo ? String(data.photo) : null,
     objectives: data.objectives ?? null,
     handle: data.handle ? String(data.handle) : undefined,
-    gender: data.gender ?? null,
     height: data.height != null ? String(data.height) : null,
     weight: data.weight != null ? String(data.weight) : null,
     age: data.age != null ? String(data.age) : null,
@@ -1231,12 +1375,11 @@ export async function updateUserProfileDb(
 
 export async function updateUserPersonalDataDb(
   userId: string,
-  data: { gender?: string; height?: string; weight?: string; age?: string },
+  data: { height?: string; weight?: string; age?: string },
 ): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
   const updates: Record<string, string | number | null> = {};
-  if (data.gender !== undefined) updates.gender = data.gender || null;
   if (data.height !== undefined) updates.height = data.height ? parseInt(data.height, 10) : null;
   if (data.weight !== undefined) updates.weight = data.weight ? parseFloat(data.weight) : null;
   if (data.age !== undefined) updates.age = data.age ? parseInt(data.age, 10) : null;
@@ -1267,7 +1410,6 @@ export type PostWithUser = {
   user_goal_id?: string | null;
   userNickname: string;
   userPhoto: string | null;
-  userGender?: string | null;
   isVerified?: boolean;
 };
 
@@ -1292,7 +1434,6 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
   const userProfile = await getUserProfileDb(userId);
   const userNickname = userProfile?.nickname || "Usuário";
   const userPhoto = userProfile?.photo || null;
-  const userGender = userProfile?.gender || null;
   const isVerified = userProfile?.is_verified === true;
 
   return (data ?? []).map((row: any) => ({
@@ -1304,7 +1445,6 @@ export async function getUserPostsDb(userId: string): Promise<PostWithUser[]> {
     user_id: String(row.user_id ?? ""),
     userNickname,
     userPhoto,
-    userGender,
     isVerified,
   }));
 
@@ -1335,7 +1475,6 @@ export async function getPostByIdDb(postId: string): Promise<PostWithUser | null
     user_goal_id: data.user_goal_id ?? null,
     userNickname: userProfile?.nickname || "Usuário",
     userPhoto: userProfile?.photo || null,
-    userGender: userProfile?.gender || null,
     isVerified: userProfile?.is_verified === true,
   };
 
@@ -1857,6 +1996,28 @@ export async function updateRoutineNameDb(
   }
 
   invalidateQueryCache("userRoutines");
+  return true;
+}
+
+export async function updateRoutineItemsScheduledTimeDb(
+  userId: string,
+  typeCode: number,
+  routineName: string | null | undefined,
+  scheduledTime: string | null,
+): Promise<boolean> {
+  if (!hasSupabaseConfig || !supabase) return false;
+  const table =
+    typeCode === 1 ? "user_workouts" : typeCode === 2 ? "user_diets" : "user_habits";
+  let q = supabase.from(table).update({ scheduled_time: scheduledTime }).eq("user_id", userId);
+  q = routineName ? q.eq("name", routineName) : q.is("name", null);
+  const { error } = await q;
+  if (error) {
+    console.error("Error updating routine items scheduled_time:", error);
+    return false;
+  }
+  invalidateQueryCache(
+    typeCode === 1 ? "userWorkouts:" : typeCode === 2 ? "userDiets:" : "userHabits:",
+  );
   return true;
 }
 
@@ -2780,7 +2941,6 @@ export type SearchUser = {
   nickname: string;
   bio?: string;
   photo?: string | null;
-  gender?: string | null;
 };
 
 export async function searchUsersDb(query: string): Promise<SearchUser[]> {
@@ -2791,7 +2951,7 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("user_id, nickname, bio, photo, gender")
+    .select("user_id, nickname, bio, photo")
     .ilike("nickname", searchQuery)
     .limit(20);
 
@@ -2807,7 +2967,6 @@ export async function searchUsersDb(query: string): Promise<SearchUser[]> {
     nickname: String(row.nickname ?? "Usuário"),
     bio: row.bio ? String(row.bio) : undefined,
     photo: row.photo ? String(row.photo) : null,
-    gender: row.gender ? String(row.gender) : null,
   }));
 }
 
@@ -2817,7 +2976,6 @@ export type SearchWorkout = {
   userId: string;
   userName: string;
   userPhoto?: string | null;
-  userGender?: string | null;
   workoutName: string;
   workoutDescription?: string;
   workoutPhoto?: string | null;
@@ -2932,7 +3090,6 @@ export type SearchDiet = {
   userId: string;
   userName: string;
   userPhoto?: string | null;
-  userGender?: string | null;
   dietName: string;
   dietDescription?: string;
   dietPhoto?: string | null;
@@ -2947,7 +3104,7 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
   const { data, error } = await supabase
     .from("user_diets")
     .select(
-      "id, user_id, diet_id, diets(id, name, description, photo), profiles(nickname, photo, gender)",
+      "id, user_id, diet_id, diets(id, name, description, photo), profiles(nickname, photo)",
     )
     .ilike("diets.name", searchQuery)
     .limit(20);
@@ -2987,7 +3144,7 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
         if (userIds.length > 0) {
           const { data: profilesData } = await supabase
             .from("profiles")
-            .select("user_id, nickname, photo, gender")
+            .select("user_id, nickname, photo")
             .in("user_id", userIds);
 
           if (profilesData) {
@@ -3012,7 +3169,6 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
               userId: String(row.user_id ?? ""),
               userName: String(profile?.nickname ?? "Usuário"),
               userPhoto: profile?.photo || null,
-              userGender: profile?.gender ? String(profile.gender) : null,
               dietName: String(diet?.name ?? ""),
               dietDescription: diet?.description,
               dietPhoto: diet?.photo || null,
@@ -3031,7 +3187,6 @@ export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
     userId: String(row.user_id ?? ""),
     userName: String((row.profiles as any)?.nickname ?? "Usuário"),
     userPhoto: (row.profiles as any)?.photo || null,
-    userGender: (row.profiles as any)?.gender ? String((row.profiles as any).gender) : null,
     dietName: String((row.diets as any)?.name ?? ""),
     dietDescription: (row.diets as any)?.description,
     dietPhoto: (row.diets as any)?.photo || null,
@@ -3046,7 +3201,6 @@ export type RoutineResult = {
   userId: string;
   userNickname: string;
   userPhoto: string | null;
-  userGender?: string | null;
 };
 
 export async function searchRoutinesDb(
@@ -3091,7 +3245,7 @@ export async function searchRoutinesDb(
     const userIds = [...new Set(unique.map((r: any) => String(r.user_id)))];
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, nickname, photo, gender")
+      .select("user_id, nickname, photo")
       .in("user_id", userIds);
 
     const profileMap = new Map(
@@ -3108,7 +3262,6 @@ export async function searchRoutinesDb(
           userId: String(row.user_id),
           userNickname: profile?.nickname ? String(profile.nickname) : "Usuário",
           userPhoto: profile?.photo ? String(profile.photo) : null,
-          userGender: profile?.gender ? String(profile.gender) : null,
         };
       })
       .sort((a, b) => a.userNickname.localeCompare(b.userNickname));
@@ -3327,7 +3480,7 @@ export async function getAllUsersDb(
   try {
     const { data, error } = await supabase
       .from("profiles")
-      .select("user_id, nickname, bio, photo, gender")
+      .select("user_id, nickname, bio, photo")
       .order("nickname", { ascending: true })
       .range(offset, offset + limit - 1);
 
@@ -3343,7 +3496,6 @@ export async function getAllUsersDb(
       nickname: String(row.nickname ?? "Usuário"),
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.photo ? String(row.photo) : null,
-      gender: row.gender ? String(row.gender) : null,
     }));
 
     // Filter out the current user if excludeUserId is provided
@@ -3448,20 +3600,45 @@ export async function getFollowingIdsDb(): Promise<string[]> {
 }
 
 // Stories functionality
+export type StoryTextPosition = { x: number; y: number }; // percentages 0–100
+export type StoryTextElement = { text: string; x: number; y: number }; // x/y in %
+
 export type Story = {
   id: string;
   user_id: string;
   description: string;
   media_url: string;
   background_color?: string | null;
+  text_position?: StoryTextPosition | null;
+  text_elements?: StoryTextElement[] | null;
   created_at: string;
 };
 
 export type StoryWithUser = Story & {
   userNickname: string;
   userPhoto: string | null;
-  userGender?: string | null;
 };
+
+const FLOW_COLS_FULL =
+  "id, user_id, description, media_url, background_color, text_position, text_elements, created_at";
+const FLOW_COLS_BASE =
+  "id, user_id, description, media_url, background_color, created_at";
+let flowColsCache = FLOW_COLS_FULL;
+
+// PostgREST code for "undefined column"
+const isMissingColumnError = (err: any) =>
+  err?.code === "42703" || /column .* does not exist/i.test(err?.message ?? "");
+
+async function selectFlow(builder: (cols: string) => any): Promise<{ data: any[]; error: any }> {
+  const first = await builder(flowColsCache);
+  if (first.error && isMissingColumnError(first.error) && flowColsCache !== FLOW_COLS_BASE) {
+    console.warn("[flow] new columns missing on table — falling back to base columns");
+    flowColsCache = FLOW_COLS_BASE;
+    const retry = await builder(FLOW_COLS_BASE);
+    return { data: retry.data ?? [], error: retry.error };
+  }
+  return { data: first.data ?? [], error: first.error };
+}
 
 export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -3481,15 +3658,17 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
 
     // Fetch flows and profiles in parallel
     const [flowResult, profilesResult] = await Promise.all([
-      supabase
-        .from("flow")
-        .select("id, user_id, description, media_url, background_color, created_at")
-        .in("user_id", userIdsToShow)
-        .gte("created_at", twentyFourHoursAgo)
-        .order("created_at", { ascending: false }),
+      selectFlow((cols) =>
+        supabase!
+          .from("flow")
+          .select(cols)
+          .in("user_id", userIdsToShow)
+          .gte("created_at", twentyFourHoursAgo)
+          .order("created_at", { ascending: false }),
+      ),
       supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender")
+        .select("user_id, nickname, photo")
         .in("user_id", userIdsToShow),
     ]);
 
@@ -3499,24 +3678,22 @@ export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
     }
 
     const storyList = flowResult.data ?? [];
-    const profileMap = new Map<string, { nickname: string; photo: string | null; gender: string | null }>();
+    const profileMap = new Map<string, { nickname: string; photo: string | null }>();
     (profilesResult.data ?? []).forEach((p: any) => {
       profileMap.set(String(p.user_id), {
         nickname: String(p.nickname ?? "Usuário"),
         photo: p.photo ? String(p.photo) : null,
-        gender: p.gender ? String(p.gender) : null,
       });
     });
 
     return storyList.map((story: any) => {
-      const profile = profileMap.get(story.user_id) ?? { nickname: "Usuário", photo: null, gender: null };
+      const profile = profileMap.get(story.user_id) ?? { nickname: "Usuário", photo: null};
       return {
         ...story,
         id: String(story.id),
         user_id: String(story.user_id),
         userNickname: profile.nickname,
         userPhoto: profile.photo,
-        userGender: profile.gender,
       };
     });
   } catch (err: any) {
@@ -3534,12 +3711,14 @@ export async function getUserActiveStoriesDb(userId: string): Promise<StoryWithU
 
   try {
     const [flowResult, profileResult] = await Promise.all([
-      supabase
-        .from("flow")
-        .select("id, user_id, description, media_url, background_color, created_at")
-        .eq("user_id", userId)
-        .gte("created_at", twentyFourHoursAgo)
-        .order("created_at", { ascending: true }),
+      selectFlow((cols) =>
+        supabase!
+          .from("flow")
+          .select(cols)
+          .eq("user_id", userId)
+          .gte("created_at", twentyFourHoursAgo)
+          .order("created_at", { ascending: true }),
+      ),
       supabase
         .from("profiles")
         .select("user_id, nickname, photo")
@@ -3608,6 +3787,8 @@ export async function createStoryDb(
   description: string,
   mediaUrl: string,
   backgroundColor?: string | null,
+  textPosition?: StoryTextPosition | null,
+  textElements?: StoryTextElement[] | null,
 ): Promise<Story | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
@@ -3615,16 +3796,33 @@ export async function createStoryDb(
   if (!viewer) return null;
 
   try {
-    const { data, error } = await supabase
+    const fullPayload: Record<string, any> = {
+      user_id: viewer.id,
+      description,
+      media_url: mediaUrl,
+      background_color: backgroundColor ?? null,
+      text_position: textPosition ?? null,
+      text_elements: textElements ?? null,
+    };
+
+    let { data, error } = await supabase
       .from("flow")
-      .insert({
-        user_id: viewer.id,
-        description,
-        media_url: mediaUrl,
-        background_color: backgroundColor ?? null,
-      })
+      .insert(fullPayload)
       .select()
       .maybeSingle();
+
+    // Fallback: if a new column is missing on the DB, retry without it
+    if (error && isMissingColumnError(error)) {
+      console.warn("[flow] insert failed due to missing column — retrying without new fields:", error?.message);
+      const { text_position: _tp, text_elements: _te, ...basePayload } = fullPayload;
+      const retry = await supabase!
+        .from("flow")
+        .insert(basePayload)
+        .select()
+        .maybeSingle();
+      data = retry.data as any;
+      error = retry.error;
+    }
 
     if (error) {
       const errorMsg = error?.message || String(error);
@@ -3781,7 +3979,6 @@ export type FlowViewer = {
   followerId: string;
   userNickname: string;
   userPhoto: string | null;
-  userGender: string | null;
   incentiveTypes: number[]; // empty = no incentive sent
   viewedAt: string;
 };
@@ -3794,7 +3991,6 @@ export type StoryComment = {
   userName: string;
   userHandle: string;
   userPhoto: string | null;
-  userGender: string | null;
   text: string;
   createdAt: string;
 };
@@ -3829,7 +4025,7 @@ export async function addStoryCommentDb(
     // Fetch nickname in the same round-trip as the insert result (single query)
     const { data: profileData } = await supabase
       .from("profiles")
-      .select("nickname, handle, photo, gender")
+      .select("nickname, handle, photo")
       .eq("user_id", viewer.id)
       .maybeSingle();
 
@@ -3840,7 +4036,6 @@ export async function addStoryCommentDb(
       userName: profileData?.nickname || "Usuário",
       userHandle: profileData?.handle || "",
       userPhoto: profileData?.photo || null,
-      userGender: profileData?.gender || null,
       text,
       createdAt: data?.created_at || new Date().toISOString(),
     };
@@ -3873,11 +4068,11 @@ export async function getStoryCommentsDb(
     const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, nickname, handle, photo, gender")
+      .select("user_id, nickname, handle, photo")
       .in("user_id", userIds);
 
     const profileMap = new Map(
-      (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo || null, gender: p.gender || null }]),
+      (profiles ?? []).map((p: any) => [String(p.user_id), { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo || null}]),
     );
 
     return rows.map((comment: any) => {
@@ -3889,7 +4084,6 @@ export async function getStoryCommentsDb(
         userName: profile?.nickname ?? "Usuário",
         userHandle: profile?.handle ?? "",
         userPhoto: profile?.photo ?? null,
-        userGender: profile?.gender ?? null,
         text: String(comment.text ?? ""),
         createdAt: String(comment.created_at),
       };
@@ -4049,7 +4243,7 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
     const [profilesResult, likesResult] = await Promise.all([
       supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender")
+        .select("user_id, nickname, photo")
         .in("user_id", followerIds),
       supabase
         .from("flow_likes")
@@ -4076,7 +4270,6 @@ export async function getFlowViewersDb(storyId: string): Promise<FlowViewer[]> {
         followerId: String(view.follower_id),
         userNickname: profile?.nickname ?? "Usuário",
         userPhoto: profile?.photo ?? null,
-        userGender: profile?.gender ?? null,
         incentiveTypes: likesPerUser.get(String(view.follower_id)) ?? [],
         viewedAt: String(view.updated_at ?? view.created_at),
       };
@@ -4109,7 +4302,6 @@ export type Conversation = {
   userId: string;
   userNickname: string;
   userPhoto: string | null;
-  userGender?: string | null;
   userBio?: string | null;
   lastMessage: string;
   lastMessageTime: string;
@@ -4225,19 +4417,18 @@ export async function getConversationsDb(): Promise<Conversation[]> {
 
     // Batch-fetch all conversation partner profiles in a single query
     const otherUserIds = Array.from(conversationMap.keys()).filter(Boolean);
-    const profileMap = new Map<string, { nickname: string; photo: string | null; gender: string | null; bio: string | null; is_verified: boolean }>();
+    const profileMap = new Map<string, { nickname: string; photo: string | null; bio: string | null; is_verified: boolean }>();
 
     if (otherUserIds.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender, bio, is_verified")
+        .select("user_id, nickname, photo, bio, is_verified")
         .in("user_id", otherUserIds);
 
       (profiles ?? []).forEach((p: any) => {
         profileMap.set(String(p.user_id), {
           nickname: String(p.nickname ?? "Usuário"),
           photo: p.photo ? String(p.photo) : null,
-          gender: p.gender ? String(p.gender) : null,
           bio: p.bio ? String(p.bio) : null,
           is_verified: p.is_verified === true,
         });
@@ -4248,7 +4439,7 @@ export async function getConversationsDb(): Promise<Conversation[]> {
     const conversations: Conversation[] = [];
 
     for (const [userId, msgs] of conversationMap.entries()) {
-      const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null, gender: null, bio: null, is_verified: false };
+      const profile = profileMap.get(userId) ?? { nickname: "Usuário", photo: null, bio: null, is_verified: false };
       const unreadCount = msgs.filter(
         (msg) => msg.following_id === viewer.id && msg.read === 0,
       ).length;
@@ -4257,7 +4448,6 @@ export async function getConversationsDb(): Promise<Conversation[]> {
         userId,
         userNickname: profile.nickname,
         userPhoto: profile.photo,
-        userGender: profile.gender,
         userBio: profile.bio,
         isVerified: profile.is_verified,
         lastMessage: msgs[0]?.text || "",
@@ -4641,7 +4831,7 @@ export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
     // Fetch profile data for each follower
     const { data: profiles, error: profileError } = await supabase
       .from("profiles")
-      .select("user_id, nickname, bio, photo, gender")
+      .select("user_id, nickname, bio, photo")
       .in("user_id", followerIds);
 
     if (profileError) {
@@ -4654,7 +4844,6 @@ export async function getFollowersDb(userId?: string): Promise<SearchUser[]> {
       nickname: String(row.nickname ?? "Usuário"),
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.photo ? String(row.photo) : null,
-      gender: row.gender ? String(row.gender) : null,
     }));
   } catch (err: any) {
     console.error("Error getting followers:", err);
@@ -4697,7 +4886,7 @@ export async function getFollowingDb(
     // Fetch profile data for each user being followed
     const { data: profiles, error: profileError } = await supabase!
       .from("profiles")
-      .select("user_id, nickname, bio, photo, gender")
+      .select("user_id, nickname, bio, photo")
       .in("user_id", followingIds);
 
     if (profileError) {
@@ -4710,7 +4899,6 @@ export async function getFollowingDb(
       nickname: String(row.nickname ?? "Usuário"),
       bio: row.bio ? String(row.bio) : undefined,
       photo: row.photo ? String(row.photo) : null,
-      gender: row.gender ? String(row.gender) : null,
     }));
   } catch (err: any) {
     console.error("Error getting following:", err);
@@ -4733,7 +4921,6 @@ export type ShotWithUser = Shot & {
   userNickname: string;
   userHandle?: string | null;
   userPhoto: string | null;
-  userGender?: string | null;
   commentCount?: number;
   isVerified?: boolean;
 };
@@ -4769,7 +4956,7 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
     const [profilesResult, likesResult, commentsResult] = await Promise.all([
       supabase
         .from("profiles")
-        .select("user_id, nickname, handle, photo, gender, is_verified")
+        .select("user_id, nickname, handle, photo, is_verified")
         .in("user_id", uniqueUserIds),
       supabase
         .from("shots_likes")
@@ -4794,7 +4981,7 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
     const profileMap = new Map(
       profiles.map((p: any) => [
         p.user_id,
-        { nickname: p.nickname, handle: p.handle, photo: p.photo, gender: p.gender, is_verified: p.is_verified === true },
+        { nickname: p.nickname, handle: p.handle, photo: p.photo, is_verified: p.is_verified === true },
       ]),
     );
 
@@ -4844,7 +5031,6 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
           nickname: "Usuário",
           handle: null,
           photo: null,
-          gender: null,
           is_verified: false,
         };
         const likeData = likesMap.get(String(shot.id)) || {
@@ -4864,7 +5050,6 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
           userNickname: String(userProfile.nickname ?? "Usuário"),
           userHandle: userProfile.handle ? String(userProfile.handle) : null,
           userPhoto: userProfile.photo ? String(userProfile.photo) : null,
-          userGender: userProfile.gender ? String(userProfile.gender) : null,
           isVerified: (userProfile as any).is_verified === true,
         };
       },
@@ -4980,7 +5165,6 @@ export async function getShotLikeUsersDb(shotId: string): Promise<Array<{
   userId: string;
   userNickname: string;
   userPhoto: string | null;
-  userGender: string | null;
   type: number;
 }>> {
   if (!hasSupabaseConfig || !supabase) return [];
@@ -4998,7 +5182,7 @@ export async function getShotLikeUsersDb(shotId: string): Promise<Array<{
 
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, nickname, photo, gender")
+      .select("user_id, nickname, photo")
       .in("user_id", userIds);
 
     const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
@@ -5009,7 +5193,6 @@ export async function getShotLikeUsersDb(shotId: string): Promise<Array<{
         userId: like.user_id,
         userNickname: profile?.nickname ?? "Usuário",
         userPhoto: profile?.photo ?? null,
-        userGender: profile?.gender ?? null,
         type: like.type,
       };
     });
@@ -5097,7 +5280,6 @@ export type ShotComment = {
   userName: string;
   userHandle: string;
   userPhoto: string | null;
-  userGender: string | null;
   text: string;
   createdAt: string;
 };
@@ -5202,7 +5384,6 @@ export async function getShotCommentsDb(
             userName: String(row.user_name ?? "Usuário"),
             userHandle: String(row.user_handle ?? "user"),
             userPhoto: null,
-            userGender: null,
             text: String(row.text ?? ""),
             createdAt: String(row.created_at ?? new Date().toISOString()),
           }) satisfies ShotComment,
@@ -5212,16 +5393,16 @@ export async function getShotCommentsDb(
     // Batch-fetch all commenter profiles in a single query
     const commentList = data ?? [];
     const uniqueUserIds = [...new Set(commentList.map((r: any) => r.user_id).filter(Boolean))];
-    const profileMap = new Map<string, { nickname: string; handle: string | null; photo: string | null; gender: string | null }>();
+    const profileMap = new Map<string, { nickname: string; handle: string | null; photo: string | null }>();
 
     if (uniqueUserIds.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, nickname, handle, photo, gender")
+        .select("user_id, nickname, handle, photo")
         .in("user_id", uniqueUserIds);
 
       (profiles ?? []).forEach((p: any) => {
-        profileMap.set(String(p.user_id), { nickname: p.nickname ?? "Usuário", handle: p.handle ?? null, photo: p.photo ?? null, gender: p.gender ?? null });
+        profileMap.set(String(p.user_id), { nickname: p.nickname ?? "Usuário", handle: p.handle ?? null, photo: p.photo ?? null});
       });
     }
 
@@ -5234,7 +5415,6 @@ export async function getShotCommentsDb(
         userName: profile?.nickname ?? String(row.user_name ?? "Usuário"),
         userHandle: profile?.handle ?? String(row.user_handle ?? "user"),
         userPhoto: profile?.photo ?? null,
-        userGender: profile?.gender ?? null,
         text: String(row.text ?? ""),
         createdAt: String(row.created_at ?? new Date().toISOString()),
       } satisfies ShotComment;
@@ -5318,7 +5498,6 @@ export type RankingUser = {
   userId: string;
   userNickname: string;
   userPhoto: string | null;
-  userGender?: string | null;
   points: number;
   level: number;
 };
@@ -5344,25 +5523,24 @@ export async function getRankingDb(): Promise<RankingUser[]> {
     const userIds = rankingData.map((r: any) => String(r.user_id));
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, nickname, photo, gender")
+      .select("user_id, nickname, photo")
       .in("user_id", userIds);
 
     const profileMap = new Map(
       (profiles ?? []).map((p: any) => [
         String(p.user_id),
-        { nickname: p.nickname, photo: p.photo, gender: p.gender },
+        { nickname: p.nickname, photo: p.photo},
       ]),
     );
 
     return rankingData.map((r: any) => {
       const uid = String(r.user_id);
       const points = Number(r.points) || 0;
-      const profile = profileMap.get(uid) || { nickname: "Usuário", photo: null, gender: null };
+      const profile = profileMap.get(uid) || { nickname: "Usuário", photo: null};
       return {
         userId: uid,
         userNickname: String(profile.nickname),
         userPhoto: profile.photo ? String(profile.photo) : null,
-        userGender: profile.gender ? String(profile.gender) : null,
         points,
         level: Math.floor(points / 7) + 1,
       };
@@ -5574,7 +5752,6 @@ export type NotificationItem = {
   userId: string;
   userNickname: string;
   userPhoto: string | null;
-  userGender?: string | null;
   isVerified?: boolean;
   postId?: string;
   shotId?: string; // Present when notification relates to a shot (from shots_id column in notifications)
@@ -5642,7 +5819,7 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
     const [profilesResult, postsResult, shotNotifResult, groupsResult, flowsResult] = await Promise.all([
       safeQuery(supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender, is_verified")
+        .select("user_id, nickname, photo, is_verified")
         .in("user_id", followerIds)),
       postIds.length > 0
         ? safeQuery(supabase
@@ -5844,7 +6021,6 @@ export async function getNotificationsDb(): Promise<NotificationItem[]> {
           userId: notif.follower_id,
           userNickname: profile.nickname,
           userPhoto: profile.photo,
-          userGender: profile.gender ?? null,
           isVerified: profile.is_verified === true,
           createdAt: notif.created_at,
           read: notif.read ?? false,
@@ -6332,7 +6508,7 @@ export async function getUserShotsDb(userId: string): Promise<ShotWithUser[]> {
     // Get user profile
     const { data: profileData, error: profileError } = await supabase
       .from("profiles")
-      .select("user_id, nickname, handle, photo, gender")
+      .select("user_id, nickname, handle, photo")
       .eq("user_id", userId)
       .single();
 
@@ -6407,7 +6583,6 @@ export async function getUserShotsDb(userId: string): Promise<ShotWithUser[]> {
         userNickname: profileData?.nickname || "Usuário",
         userHandle: profileData?.handle || null,
         userPhoto: profileData?.photo || null,
-        userGender: profileData?.gender || null,
         likes,
         userLikes: [],
         commentCount: commentMap.get(shot.id) ?? 0,
@@ -6975,7 +7150,6 @@ export type ProfessionalProfile = {
   user_id: string;
   nickname: string;
   photo: string | null;
-  gender: string | null;
   handle: string | null;
   business_name: string;
   business_segment: string;
@@ -7005,7 +7179,7 @@ export async function getProfessionalsDb(segment?: string): Promise<Professional
       const userIds = commercialData.map((c: any) => c.user_id);
 
       const [profilesResult, plansResult] = await Promise.all([
-        supabase.from("profiles").select("user_id, nickname, photo, handle, gender").in("user_id", userIds),
+        supabase.from("profiles").select("user_id, nickname, photo, handle").in("user_id", userIds),
         supabase.from("commercial_plans").select("*").in("user_id", userIds).order("position", { ascending: true }),
       ]);
 
@@ -7022,7 +7196,6 @@ export async function getProfessionalsDb(segment?: string): Promise<Professional
           user_id: c.user_id,
           nickname: profile?.nickname ?? "Profissional",
           photo: profile?.photo ?? null,
-          gender: profile?.gender ?? null,
           handle: profile?.handle ?? null,
           business_name: c.business_name ?? "",
           business_segment: c.business_segment ?? "",
@@ -7617,7 +7790,6 @@ export type GroupCheckIn = {
   userId: string;
   userName: string;
   userPhoto: string | null;
-  userGender?: string | null;
   photo: string;
   photos?: string[] | null;
   description: string;
@@ -7822,7 +7994,6 @@ export async function getAvailableDuelGroupsDb(userId: string): Promise<DuelGrou
 export type EnrichedDuelGroup = DuelGroup & {
   creatorNickname: string;
   creatorPhoto: string | null;
-  creatorGender?: string | null;
   participants: number;
   isAlreadyMember: boolean;
   isPending: boolean;
@@ -7882,14 +8053,14 @@ export async function getEnrichedDuelGroupsDb(
 
     // Batch-fetch creator profiles for available groups + current user (for created groups)
     const creatorIds = [...new Set([userId, ...availGroups.map((g: any) => g.created_by)].filter(Boolean))];
-    const creatorProfileMap: Record<string, { nickname: string; photo: string | null; gender: string | null }> = {};
+    const creatorProfileMap: Record<string, { nickname: string; photo: string | null }> = {};
     if (creatorIds.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender")
+        .select("user_id, nickname, photo")
         .in("user_id", creatorIds);
       (profiles ?? []).forEach((p: any) => {
-        creatorProfileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null, gender: p.gender || null };
+        creatorProfileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null};
       });
     }
 
@@ -7927,37 +8098,35 @@ export async function getEnrichedDuelGroupsDb(
 
     // Fetch creator profiles for participant groups (they have a different creator than the current user)
     const participantGroupCreatorIds = [...new Set(participantGroups.map((g: any) => g.created_by).filter(Boolean))];
-    const participantCreatorProfileMap: Record<string, { nickname: string; photo: string | null; gender: string | null }> = {};
+    const participantCreatorProfileMap: Record<string, { nickname: string; photo: string | null }> = {};
     if (participantGroupCreatorIds.length > 0) {
       const { data: pgProfiles } = await supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender")
+        .select("user_id, nickname, photo")
         .in("user_id", participantGroupCreatorIds);
       (pgProfiles ?? []).forEach((p: any) => {
-        participantCreatorProfileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null, gender: p.gender || null };
+        participantCreatorProfileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null};
       });
     }
 
     const myGroups: EnrichedDuelGroup[] = [
       ...createdGroups.map((g: any) => {
-        const creator = creatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null, gender: null };
+        const creator = creatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null};
         return {
           ...toBase(g),
           creatorNickname: creator.nickname,
           creatorPhoto: creator.photo,
-          creatorGender: creator.gender,
           participants: countMap[g.id] ?? 1,
           isAlreadyMember: true,
           isPending: false,
         };
       }),
       ...participantGroups.map((g: any) => {
-        const creator = participantCreatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null, gender: null };
+        const creator = participantCreatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null};
         return {
           ...toBase(g),
           creatorNickname: creator.nickname,
           creatorPhoto: creator.photo,
-          creatorGender: creator.gender,
           participants: countMap[g.id] ?? 1,
           isAlreadyMember: true,
           isPending: false,
@@ -7966,12 +8135,11 @@ export async function getEnrichedDuelGroupsDb(
     ];
 
     const availableGroups: EnrichedDuelGroup[] = availGroups.map((g: any) => {
-      const creator = creatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null, gender: null };
+      const creator = creatorProfileMap[g.created_by] ?? { nickname: "Usuário", photo: null};
       return {
         ...toBase(g),
         creatorNickname: creator.nickname,
         creatorPhoto: creator.photo,
-        creatorGender: creator.gender,
         participants: countMap[g.id] ?? 1,
         isAlreadyMember: memberMap[g.id] ?? false,
         isPending: pendingMap[g.id] ?? false,
@@ -8135,7 +8303,7 @@ export async function addGroupCheckInDb(
     // Fetch current profile to avoid storing stale nickname/photo
     const { data: profile } = await supabase
       .from("profiles")
-      .select("nickname, photo, gender")
+      .select("nickname, photo")
       .eq("user_id", userId)
       .single();
 
@@ -8172,7 +8340,6 @@ export async function addGroupCheckInDb(
       userId: data.user_id,
       userName: currentNickname,
       userPhoto: profile?.photo || null,
-      userGender: profile?.gender || null,
       photo: data.photo || "",
       photos: data.photos || (data.photo ? [data.photo] : []),
       description: data.description || "",
@@ -8209,16 +8376,16 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
 
     if (error || !data) return [];
 
-    // Batch-fetch current profiles (nickname + photo + gender) to avoid stale stored data
+    // Batch-fetch current profiles (nickname + photo) to avoid stale stored data
     const userIds = [...new Set(data.map((c: any) => String(c.user_id)).filter(Boolean))];
-    const profileMap = new Map<string, { nickname: string; photo: string | null; gender: string | null }>();
+    const profileMap = new Map<string, { nickname: string; photo: string | null }>();
     if (userIds.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, nickname, photo, gender")
+        .select("user_id, nickname, photo")
         .in("user_id", userIds);
       (profiles ?? []).forEach((p: any) => {
-        profileMap.set(String(p.user_id), { nickname: p.nickname || "Usuário", photo: p.photo || null, gender: p.gender || null });
+        profileMap.set(String(p.user_id), { nickname: p.nickname || "Usuário", photo: p.photo || null});
       });
     }
 
@@ -8230,7 +8397,6 @@ export async function getGroupCheckInsDb(groupId: string): Promise<GroupCheckIn[
         userId: checkIn.user_id,
         userName: profile?.nickname ?? checkIn.user_name ?? "Usuário",
         userPhoto: profile?.photo ?? null,
-        userGender: profile?.gender ?? null,
         photo: checkIn.photo || "",
         // Ensure photos is always an array, even if it's a string or null from the DB
         photos: Array.isArray(checkIn.photos)
@@ -8274,7 +8440,7 @@ export async function getGroupCheckInDetailDb(checkInId: string): Promise<GroupC
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("nickname, photo, gender")
+      .select("nickname, photo")
       .eq("user_id", data.user_id)
       .single();
 
@@ -8284,7 +8450,6 @@ export async function getGroupCheckInDetailDb(checkInId: string): Promise<GroupC
       userId: data.user_id,
       userName: profile?.nickname ?? data.user_name ?? "Usuário",
       userPhoto: profile?.photo ?? null,
-      userGender: profile?.gender ?? null,
       photo: data.photo || "",
       // Ensure photos is always an array, even if it's a string or null from the DB
       photos: Array.isArray(data.photos)
@@ -9102,7 +9267,6 @@ export type CheckInComment = {
   userId: string;
   userNickname: string;
   userPhoto: string | null;
-  userGender: string | null;
   text: string;
   createdAt: string;
 };
@@ -9124,12 +9288,12 @@ export async function getCheckInCommentsDb(checkInId: string): Promise<CheckInCo
     const userIds = [...new Set(data.map((c: any) => c.user_id))];
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, nickname, photo, gender")
+      .select("user_id, nickname, photo")
       .in("user_id", userIds);
 
-    const profileMap: Record<string, { nickname: string; photo: string | null; gender: string | null }> = {};
+    const profileMap: Record<string, { nickname: string; photo: string | null }> = {};
     for (const p of profiles ?? []) {
-      profileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null, gender: p.gender || null };
+      profileMap[p.user_id] = { nickname: p.nickname || "Usuário", photo: p.photo || null};
     }
 
     return data.map((c: any) => ({
@@ -9138,7 +9302,6 @@ export async function getCheckInCommentsDb(checkInId: string): Promise<CheckInCo
       userId: c.user_id,
       userNickname: profileMap[c.user_id]?.nickname || "Usuário",
       userPhoto: profileMap[c.user_id]?.photo || null,
-      userGender: profileMap[c.user_id]?.gender || null,
       text: c.text,
       createdAt: c.created_at,
     }));
@@ -9284,7 +9447,7 @@ export async function addCheckInCommentDb(checkInId: string, text: string): Prom
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("nickname, photo, gender")
+    .select("nickname, photo")
     .eq("user_id", viewer.id)
     .maybeSingle();
 
@@ -9312,7 +9475,6 @@ export async function addCheckInCommentDb(checkInId: string, text: string): Prom
     userId: data.user_id,
     userNickname: profile?.nickname || "Usuário",
     userPhoto: profile?.photo || null,
-    userGender: (profile as any)?.gender || null,
     text: data.text,
     createdAt: data.created_at,
   };
@@ -10178,7 +10340,6 @@ export type Promotion = {
   user_nickname?: string;
   user_handle?: string;
   user_photo?: string;
-  user_gender?: string | null;
   // stats
   likes_count?: number;
   user_liked?: boolean;
@@ -10241,7 +10402,7 @@ export async function getPromotionsDb(
     const userIds = [...new Set(rows.map((r) => r.user_id))];
     const { data: profiles } = await supabase!
       .from("profiles")
-      .select("user_id, nickname, handle, photo, gender")
+      .select("user_id, nickname, handle, photo")
       .in("user_id", userIds);
 
     const profileMap = new Map(
@@ -10323,7 +10484,6 @@ export async function getPromotionsDb(
         user_nickname: profile?.nickname ?? "Usuário",
         user_handle: profile?.handle ?? "",
         user_photo: profile?.photo ?? null,
-        user_gender: profile?.gender ?? null,
         likes_count: countMap.get(r.id) ?? 0,
         user_liked: likedSet.has(r.id),
         active_reports: activeReportsMap.get(r.id) ?? 0,
@@ -10531,7 +10691,6 @@ export type PromotionComment = {
   userName: string;
   userHandle: string;
   userPhoto: string | null;
-  userGender: string | null;
   text: string;
   createdAt: string;
 };
@@ -10559,13 +10718,13 @@ export async function getPromotionCommentsDb(
     const userIds = [...new Set(rows.map((r: any) => r.user_id).filter(Boolean))];
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("user_id, nickname, handle, photo, gender")
+      .select("user_id, nickname, handle, photo")
       .in("user_id", userIds);
 
     const profileMap = new Map(
       (profiles ?? []).map((p: any) => [
         String(p.user_id),
-        { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo ?? null, gender: p.gender ?? null },
+        { nickname: String(p.nickname ?? "Usuário"), handle: String(p.handle ?? ""), photo: p.photo ?? null},
       ]),
     );
 
@@ -10578,7 +10737,6 @@ export async function getPromotionCommentsDb(
         userName: profile?.nickname ?? "Usuário",
         userHandle: profile?.handle ?? "",
         userPhoto: profile?.photo ?? null,
-        userGender: profile?.gender ?? null,
         text: String(row.text ?? ""),
         createdAt: String(row.created_at ?? new Date().toISOString()),
       } satisfies PromotionComment;
@@ -10734,18 +10892,35 @@ export type AdminDayCount = {
   usuarios_ativos?: number;
 };
 
+export type AdminTopFollowed = {
+  user_id: string;
+  nickname: string;
+  handle: string;
+  photo: string | null;
+  followers: number;
+};
+
 export type AdminAnalytics = {
   // Usuários
   usuarios_hoje: number;
   usuarios_semana: number;
   usuarios_mes: number;
   total_usuarios: number;
+  usuarios_banidos: number;
   // Sessões
   dau_hoje: number;
   dau_ontem: number;
+  wau: number;
+  mau: number;
+  stickiness: number; // %
+  novos_ativos_hoje: number;
+  recorrentes_hoje: number;
   total_sessoes_hoje: number;
   avg_sessao_segundos_7d: number;
   total_horas_hoje: number;
+  // Retenção (%)
+  retencao_d1: number;
+  retencao_d7: number;
   // Conteúdo hoje
   posts_hoje: number;
   shots_hoje: number;
@@ -10756,8 +10931,9 @@ export type AdminAnalytics = {
   total_posts: number;
   total_shots: number;
   total_check_ins: number;
-  // Séries temporais
+  // Séries / rankings
   top_screens: AdminTopScreen[];
+  top_seguidos: AdminTopFollowed[];
   novos_usuarios_7d: AdminDayCount[];
   dau_7d: AdminDayCount[];
 };
@@ -10779,12 +10955,14 @@ export type AdminActiveUser = {
 
 export async function getAdminActiveUsersDb(): Promise<AdminActiveUser[]> {
   if (!supabase) return [];
-  const today = new Date().toISOString().slice(0, 10);
+  // Usa access_sessions (mesma fonte do DAU em get_admin_analytics) para garantir
+  // que o ranking sempre bate com o card "Usuários ativos hoje". screen_time_logs
+  // só registra tempo por tela e pode não ter linha para um usuário que abriu o
+  // app sem navegar — daí divergência entre as duas métricas.
   const { data: logs, error } = await supabase
-    .from("screen_time_logs")
+    .from("access_sessions")
     .select("user_id, duration_seconds")
-    .eq("log_date", today);
-  console.log("[activeUsers] today:", today, "logs:", logs?.length, "error:", error, "sample:", logs?.[0]);
+    .eq("session_date", new Date().toISOString().slice(0, 10));
   if (error || !logs?.length) return [];
 
   const map = new Map<string, number>();
@@ -10793,12 +10971,10 @@ export async function getAdminActiveUsersDb(): Promise<AdminActiveUser[]> {
   }
 
   const userIds = Array.from(map.keys());
-  console.log("[activeUsers] unique userIds:", userIds.length, userIds);
-  const { data: profiles, error: pErr } = await supabase
+  const { data: profiles } = await supabase
     .from("profiles")
     .select("user_id, nickname, handle, photo")
     .in("user_id", userIds);
-  console.log("[activeUsers] profiles returned:", profiles?.length, "error:", pErr);
 
   const profileMap = new Map<string, { nickname: string; handle: string; photo: string | null }>();
   for (const p of profiles ?? []) {

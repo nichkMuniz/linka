@@ -109,7 +109,6 @@ export function NewConversationDrawer({
               >
                 <UserAvatar
                   photo={user.photo}
-                  gender={user.gender}
                   nickname={user.nickname}
                   size="md"
                   className="shrink-0"

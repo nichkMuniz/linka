@@ -431,7 +431,10 @@ Posts de Flow (formato Stories, mídia efêmera).
 | `id` | bigint | PK (identity) | — | Identificador único |
 | `user_id` | uuid | FK → `auth.users` | — | Autor do Flow |
 | `description` | text | ✓ | — | Legenda do Flow |
-| `media_url` | text | ✓ | — | URL da mídia (imagem/vídeo) |
+| `media_url` | text | ✓ | — | URL da mídia (imagem/vídeo). Vazio quando o Flow é só texto/gradient. |
+| `background_color` | text | — | `null` | Gradient CSS de fundo para Flows somente-texto. |
+| `text_position` | jsonb | — | `null` | **Legado**. Posição única em flows antigos de texto: `{ "x": number, "y": number }` em % (0–100). Substituído por `text_elements`. |
+| `text_elements` | jsonb | — | `null` | Lista de textos em Flows somente-texto: `[{ "text": string, "x": number, "y": number }]` com x/y em % (0–100). Cada elemento pode ser arrastado independentemente pelo autor. |
 | `created_at` | timestamptz | ✓ | `now()` | Data de publicação |
 
 ---

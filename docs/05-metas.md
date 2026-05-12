@@ -97,7 +97,9 @@ Cada **item** dentro da rotina exibe:
   - Sino colorido (brand) = lembrete ativo; sino acinzentado = sem lembrete
   - Ao confirmar, salva `scheduled_time` (formato `HH:MM`) no banco e sincroniza com o Service Worker
 
-**Editar rotina:** Dialog para renomear. Atualiza `routines.name`, `user_workouts.name`, `user_diets.name` ou `user_habits.name` via `updateRoutineNameDb`.
+**Editar rotina:** Dialog com dois campos:
+- **Nome da rotina** — atualiza `routines.name` + `user_workouts.name`/`user_diets.name`/`user_habits.name` via `updateRoutineNameDb`
+- **Horário de execução** — input `type="time"` que define um lembrete diário comum a todos os itens da rotina. Salva o mesmo `scheduled_time` (`HH:MM` ou `null`) em todos os `user_workouts`/`user_diets`/`user_habits` daquela rotina via `updateRoutineItemsScheduledTimeDb(userId, typeCode, routineName, scheduledTime)`. Campo é pré-preenchido com o `scheduled_time` do primeiro item da rotina que tiver horário.
 
 **Lembrete diário (notificação):** Cada item de rotina pode ter um `scheduled_time` (ex: `07:30`). O `ScheduledTimeDrawer` permite definir ou remover esse horário. Ao salvar:
 1. Pede permissão de notificação ao navegador (se ainda não concedida)
@@ -287,12 +289,29 @@ Cada meta no catálogo exibe:
 - Função: `createCustomGoalAndSelectDb`
 
 **Empty state da aba Metas (GoalsTab):**
-- Quando o usuário não tem metas ativas nem concluídas, exibe um banner de onboarding com: ícone 🎯, título, descrição e link "Crie sua própria meta"
-- O accordion de metas disponíveis abre automaticamente neste estado
+- Quando o usuário não tem metas ativas nem concluídas, exibe um guia de onboarding focado:
+  - Eyebrow chip "Primeiro passo" em `text-brand`
+  - Título grande "Defina sua primeira meta" (`goals_onboarding_title`)
+  - Subtítulo curto (`goals_onboarding_desc`)
+  - 2 cards stacked full-width, cada um com badge gradiente próprio, título, descrição e `ChevronRight`:
+    - 📚 **Escolher do catálogo** — scroll suave até o accordion "Metas Disponíveis" (badge azul)
+    - ✏️ **Criar minha meta** — abre o drawer de criação (`onCreateGoalDrawerOpen`, badge esmeralda)
+  - Footer hint: "Você pode ter várias metas ativas ao mesmo tempo."
+- O accordion "Metas Disponíveis" tem `id="goals-available-anchor"` para receber o scroll do card "Escolher do catálogo"
+- O accordion abre automaticamente neste estado (já existente)
+- O botão duplicado "Crie sua própria meta" no rodapé é ocultado durante o onboarding (já existe o card acima)
 
 **Empty state da aba Rotinas (RoutinesTab):**
-- Quando o usuário não tem nenhuma rotina, exibe 3 cards de início rápido (Treino 🏋️ / Dieta 🥗 / Hábito ✨) com descrição curta + botão primário "Criar Rotina"
-- Cada card abre o modal de criação de rotina ao ser tocado
+- Quando o usuário não tem nenhuma rotina, o card de Check-in Diário é ocultado para dar foco ao onboarding (não há rotina para concluir, então o check-in seria inútil)
+- Exibe um guia visual de criação da primeira rotina:
+  - Ícone ✨ destacado em badge `bg-brand/10`
+  - Título: "Vamos criar sua primeira rotina" (`goals_no_routines_guide_title`)
+  - Subtítulo: "Escolha o tipo de rotina para começar" (`goals_no_routines_guide_subtitle`)
+- 3 opções em cards stacked (full-width, um por linha), cada um com cor própria, emoji grande, título, descrição e `ChevronRight`:
+  - 🏋️ Treino — `bg-orange-500/10 border-orange-500/30`
+  - 🥗 Dieta — `bg-green-500/10 border-green-500/30`
+  - ✨ Hábito — `bg-purple-500/10 border-purple-500/30`
+- Cada card chama `onAddRoutineWithType(typeCode)` que abre o fluxo de criação da rotina
 
 ### Criar Treino Customizado
 - Busca no catálogo de exercícios
@@ -327,8 +346,37 @@ Usuário quer adicionar dieta ou hábito
             └─ Clica "Próximo"
                  └─ Drawer de horário (execute_at — opcional)
                       └─ "Salvar" (com horário) ou "Pular" (sem horário)
-                           └─ Salva via createUserDietsDb / createUserHabitsDb
+                           └─ [Se usuário tem metas ativas E é rotina nova]
+                                Drawer "Vincular a uma meta?" (LinkGoalStepDrawer)
+                                  └─ Selecionar meta + "Vincular e concluir"
+                                       OU "Pular e concluir"
+                                            └─ Salva via createUserDietsDb / createUserHabitsDb
+                                                 └─ Se goal escolhido, updateRoutineGoalDb na rotina criada
 ```
+
+### Etapa final: vincular meta (LinkGoalStepDrawer)
+
+Após o drawer de horário (`ExecuteAtDrawer`), na criação de **qualquer** tipo de rotina nova (Treino/Dieta/Hábito), aparece o drawer `LinkGoalStepDrawer` permitindo vincular a rotina recém-criada a uma meta ativa.
+
+**Condições para aparecer:**
+- `userGoals.filter(g => g.perc < 100).length > 0` — usuário tem ao menos uma meta ativa
+- `addToRoutineCardId === null` — não está adicionando itens a uma rotina já existente
+- `!isAddingFromWorkout` — não está vindo do fluxo de adicionar do modal de treino
+
+Se qualquer condição falhar, o step é pulado e a rotina é salva direto.
+
+**UX:**
+- Eyebrow "Última etapa"
+- Título "Vincular a uma meta?" + subtítulo
+- Lista de metas ativas com badge colorido por tipo (`fitness`/`health`/`habits`), progress bar e check de seleção
+- Botão dinâmico: "Vincular e concluir" se selecionou uma meta, "Pular e concluir" se nenhuma selecionada
+- Footer: "Você pode vincular ou trocar a meta depois."
+
+**Persistência:**
+- Após `createUserWorkoutsDb`/`createUserDietsDb`/`createUserHabitsDb`, o refresh recarrega `routines`
+- A rotina mais recente correspondente (`type === selectedRoutineType && name === routineName`) é localizada
+- `updateRoutineGoalDb(routine.id, goalId)` é chamado para gravar `routines.goal_id`
+- Mais um refresh para refletir o vínculo na UI
 
 ---
 
@@ -369,12 +417,14 @@ Usuário quer adicionar dieta ou hábito
 Card exclusivo exibido no modal de treino quando o exercício ativo é **Corrida Externa** (`workout_id = '451eea08-8a29-4c8c-b7b3-5ce93bcca08f'`).
 
 - Botão "Iniciar GPS" / "Parar GPS" para controlar o rastreamento
-- Enquanto ativo: exibe distância (km), pace (min/km) e tempo decorrido em tempo real
-- A distância é calculada via `navigator.geolocation.watchPosition` com fórmula Haversine
-- Ruídos de GPS menores que 5 m são ignorados automaticamente
+- Enquanto ativo: exibe distância (em **metros** até 1 km, depois em **km** com 2 decimais), pace (min/km) e tempo decorrido em tempo real
+- A distância é calculada via plugin nativo `@capacitor-community/background-geolocation` (iOS) com fórmula Haversine
+- Ruídos de GPS menores que 2 m são ignorados automaticamente
 - **Auto-preenche o campo de distância** à medida que a corrida avança
+- O contador de tempo continua correto mesmo com a tela bloqueada — é calculado a partir do timestamp inicial e ressincronizado em cada callback de localização vinda do plugin nativo (que continua disparando em background)
+- Ao clicar em **"Parar GPS"**, um diálogo pergunta se o treino deve ser marcado como concluído. Se "Sim", a primeira série (`Marcar como concluído`) é marcada automaticamente
 - Estado parado automaticamente ao fechar o modal de treino
-- Permissão iOS: `NSLocationWhenInUseUsageDescription` (declarada no `Info.plist`)
+- Permissão iOS: `NSLocationWhenInUseUsageDescription` + `NSLocationAlwaysAndWhenInUseUsageDescription` (declaradas no `Info.plist`)
 
 Estados GPS: `gpsActive`, `gpsDistance`, `gpsPace`, `gpsElapsedSecs`
 Refs: `gpsWatchIdRef`, `gpsLastPosRef`, `gpsStartTimeRef`, `gpsElapsedIntervalRef`
@@ -415,6 +465,7 @@ Refs: `gpsWatchIdRef`, `gpsLastPosRef`, `gpsStartTimeRef`, `gpsElapsedIntervalRe
 | Dado | Função DB |
 |---|---|
 | Renomear rotina (routines + items) | `updateRoutineNameDb(userId, oldName, typeCode, newName)` |
+| Definir horário de execução da rotina (bulk) | `updateRoutineItemsScheduledTimeDb(userId, typeCode, routineName, scheduledTime)` — aplica o mesmo `scheduled_time` a todos os itens da rotina |
 | Salvar horário de lembrete | `updateRoutineScheduledTimeDb(type, id, scheduledTime)` — atualiza `scheduled_time` em `user_workouts`/`user_diets`/`user_habits` |
 | Toggle conclusão dieta (com timestamp) | `toggleUserDietCompletionDb(id, isCompleted)` — salva `completed_at` |
 | Toggle conclusão hábito (com timestamp) | `toggleUserHabitCompletionDb(id, isCompleted)` — salva `completed_at` |

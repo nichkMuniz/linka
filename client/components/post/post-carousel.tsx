@@ -1,5 +1,12 @@
 import React from "react";
 import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { cdnImg } from "@/lib/image-url";
+
+// Post photos are bounded by the post card width (max ~600px CSS on web,
+// ~430px on phones). Cap at 900px source so the WebView doesn't download the
+// 2-4MB original when the rendered box never exceeds ~900px after DPR.
+const POST_PHOTO_WIDTH = 900;
+const POST_PHOTO_QUALITY = 72;
 
 interface PostCarouselProps {
   photos: string[];
@@ -90,7 +97,7 @@ function ZoomableImage({
       onTouchEnd={handleTouchEnd}
     >
       <img
-        src={src}
+        src={cdnImg(src, { width: POST_PHOTO_WIDTH, quality: POST_PHOTO_QUALITY }) ?? src}
         alt={alt}
         className={className}
         loading={loading}
@@ -123,31 +130,20 @@ export function PostCarousel({
   const touchStartY = React.useRef<number | null>(null);
   const touchCount = React.useRef(0);
 
-  const isContain = objectFit === "contain";
-  const imgClass = isContain ? "w-full h-auto block" : "w-full h-full object-cover";
-  const coverBox =
-    "relative w-full aspect-square md:aspect-auto md:h-[450px] bg-slate-900/10 overflow-hidden rounded-lg";
+  const imgClass = "w-full h-full object-cover";
+  const frameBg = "bg-slate-900/10";
+  const coverBox = `relative w-full aspect-square md:aspect-auto md:h-[450px] ${frameBg} overflow-hidden rounded-lg`;
 
   if (!Array.isArray(photos)) {
     return photos ? (
-      isContain ? (
-        <div className="w-full bg-black rounded-lg overflow-hidden">
-          <ZoomableImage src={String(photos)} alt={alt} className={imgClass} loading="eager" />
-        </div>
-      ) : (
-        <div className={coverBox}>
-          <ZoomableImage src={String(photos)} alt={alt} className={imgClass} loading="eager" />
-        </div>
-      )
+      <div className={coverBox}>
+        <ZoomableImage src={String(photos)} alt={alt} className={imgClass} loading="eager" />
+      </div>
     ) : null;
   }
 
   if (photos.length === 1) {
-    return isContain ? (
-      <div className="w-full bg-black rounded-lg overflow-hidden">
-        <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading="lazy" />
-      </div>
-    ) : (
+    return (
       <div className={coverBox}>
         <ZoomableImage src={photos[0]} alt={alt} className={imgClass} loading="lazy" />
       </div>
@@ -216,18 +212,18 @@ export function PostCarousel({
   return (
     <div
       ref={containerRef}
-      className={`relative group overflow-hidden rounded-lg ${isContain ? "bg-black" : "bg-slate-900/10"}`}
+      className={`relative group overflow-hidden rounded-lg w-full aspect-square md:aspect-auto md:h-[450px] ${frameBg}`}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
       <div
-        className="flex transition-transform duration-200 ease-out will-change-transform"
+        className="flex h-full transition-transform duration-200 ease-out will-change-transform"
         style={{ transform: `translateX(-${currentIndex * 100}%)` }}
       >
         {photos.map((src, i) => (
           <div
             key={i}
-            className={`flex-shrink-0 ${isContain ? "w-full" : "w-full aspect-square md:aspect-auto md:h-[450px] overflow-hidden"}`}
+            className="flex-shrink-0 w-full h-full overflow-hidden"
             style={{ minWidth: "100%" }}
           >
             <ZoomableImage

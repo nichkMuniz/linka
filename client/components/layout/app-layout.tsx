@@ -126,7 +126,6 @@ export function AppLayout() {
   const [unreadCount, setUnreadCount] = React.useState(0);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = React.useState(0);
   const [profilePhoto, setProfilePhoto] = React.useState<string | null>(null);
-  const [profileGender, setProfileGender] = React.useState<string | null>(null);
 
   // Daily usage timer
   const [usageSecondsElapsed, setUsageSecondsElapsed] = React.useState(0);
@@ -340,9 +339,6 @@ export function AppLayout() {
         if (profile?.photo) {
           setProfilePhoto(profile.photo);
         }
-        if (profile?.gender) {
-          setProfileGender(String(profile.gender));
-        }
       } catch (err) {
         console.error("Error loading profile photo:", err);
       }
@@ -551,7 +547,6 @@ export function AppLayout() {
         >
           <UserAvatar
             photo={profilePhoto}
-            gender={profileGender}
             size="sm"
             className="h-9 w-9 border border-border/60 flex-shrink-0"
           />
@@ -577,7 +572,6 @@ export function AppLayout() {
             <Link to="/perfil" aria-label="Perfil" className="flex-shrink-0 rounded-full hover:opacity-80 transition">
               <UserAvatar
                 photo={profilePhoto}
-                gender={profileGender}
                 size="md"
                 className="border-2 border-border/60"
               />

@@ -30,7 +30,6 @@
     "@capacitor/share": "^7.0.0",
     "@capgo/capacitor-photo-library": "^7.2.11",
     "@supabase/supabase-js": "^2.91.0",
-    "capacitor-native-biometric": "^4.2.2",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "vite-plugin-pwa": "^1.2.0",

@@ -184,7 +184,6 @@ export function PostCommentsDialog({
         userName: profile?.nickname || t("comments_you"),
         userHandle: profile?.handle || "",
         userPhoto: profile?.photo || null,
-        userGender: profile?.gender || null,
         text: commentText,
         createdAt: new Date().toISOString(),
         isVerified: profile?.is_verified || false,
@@ -326,7 +325,6 @@ export function PostCommentsDialog({
                   <div className="flex items-start gap-2.5 flex-1 min-w-0">
                     <UserAvatar
                       photo={comment.userPhoto}
-                      gender={comment.userGender}
                       nickname={comment.userName}
                       size="sm"
                     />

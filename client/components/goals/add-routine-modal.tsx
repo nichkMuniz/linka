@@ -175,7 +175,6 @@ export function AddRoutineModal({
           if (!o) onIsAddingFromWorkoutChange(false);
         }}
         snapPoints={[0.9, 1]}
-        defaultSnapPoint={0.9}
       >
         <DrawerContent
           className="flex flex-col modal-enter"

@@ -58,8 +58,13 @@ export function WorkoutHistoryDrawer({
 
         <div className="flex-1 overflow-y-auto px-4 pb-6">
           {isLoading ? (
-            <div className="text-center py-6 text-sm text-muted-foreground">
-              Carregando histórico...
+            <div className="space-y-4 py-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="space-y-2">
+                  <div className="h-3 w-24 rounded bg-muted animate-pulse" />
+                  <div className="h-12 rounded-lg bg-muted animate-pulse" />
+                </div>
+              ))}
             </div>
           ) : history.length > 0 ? (
             sortedDates.map((dateKey) => {

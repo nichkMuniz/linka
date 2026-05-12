@@ -16,7 +16,6 @@ export interface PostLike {
   userId: string;
   userNickname: string;
   userPhoto: string | null;
-  userGender?: string | null;
   type: number;
 }
 
@@ -134,7 +133,6 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <UserAvatar
                         photo={like.userPhoto}
-                        gender={like.userGender}
                         nickname={like.userNickname}
                       />
                       <p className="text-sm font-medium text-foreground truncate">

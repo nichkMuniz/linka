@@ -29,27 +29,28 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
   const [loading, setLoading] = React.useState(true);
   const [modalOpen, setModalOpen] = React.useState(false);
 
-  React.useEffect(() => {
-    const load = async () => {
-      try {
-        const [top, earned, all, total] = await Promise.all([
-          getTopUserBadgeDb(userId),
-          getUserBadgesDb(userId),
-          getAllBadgesDb(),
-          getTotalCheckInsDb(userId),
-        ]);
-        setTopBadge(top);
-        setUserBadges(earned);
-        setAllBadges(all);
-        setTotalCheckIns(total);
-      } catch {
-        // fail silently
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+  const load = React.useCallback(async () => {
+    try {
+      const [top, earned, all, total] = await Promise.all([
+        getTopUserBadgeDb(userId),
+        getUserBadgesDb(userId),
+        getAllBadgesDb(),
+        getTotalCheckInsDb(userId),
+      ]);
+      setTopBadge(top);
+      setUserBadges(earned);
+      setAllBadges(all);
+      setTotalCheckIns(total);
+    } catch {
+      // fail silently
+    } finally {
+      setLoading(false);
+    }
   }, [userId]);
+
+  React.useEffect(() => {
+    load();
+  }, [load]);
 
   if (loading) return null;
   if (!topBadge) return null;
@@ -95,6 +96,7 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
         allBadges={allBadges}
         totalCheckIns={totalCheckIns}
         profileUserId={userId}
+        onSelected={load}
       />
     </>
   );

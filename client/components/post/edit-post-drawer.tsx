@@ -164,7 +164,11 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
               Meta vinculada
             </label>
             {isLoadingGoals ? (
-              <div className="text-xs text-muted-foreground">Carregando metas...</div>
+              <div className="space-y-2">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="h-10 rounded-lg bg-muted animate-pulse" />
+                ))}
+              </div>
             ) : userGoals.length === 0 ? (
               <div className="text-xs text-muted-foreground">Nenhuma meta ativa encontrada.</div>
             ) : (

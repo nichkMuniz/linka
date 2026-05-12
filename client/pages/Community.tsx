@@ -951,7 +951,6 @@ export default function Community() {
           >
             <UserAvatar
               photo={selectedConversation.userPhoto}
-              gender={selectedConversation.userGender}
               nickname={selectedConversation.userNickname}
               size="md"
               className="flex-shrink-0"
@@ -969,7 +968,6 @@ export default function Community() {
           <div className="flex flex-col items-center gap-3 py-6 mb-2">
             <UserAvatar
               photo={selectedConversation.userPhoto}
-              gender={selectedConversation.userGender}
               nickname={selectedConversation.userNickname}
               className="w-20 h-20 ring-2 ring-border"
             />
@@ -1423,7 +1421,6 @@ export default function Community() {
                       <div className="relative shrink-0">
                         <UserAvatar
                           photo={conversation.userPhoto}
-                          gender={conversation.userGender}
                           nickname={conversation.userNickname}
                           size="lg"
                         />
@@ -1468,13 +1465,12 @@ export default function Community() {
                 {searchQuery && filteredFollowers.filter(f => !conversations.some(c => c.userId === f.id)).map((follower) => (
                   <button
                     key={follower.id}
-                    onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, userGender: follower.gender, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
+                    onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
                     className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors text-left"
                   >
                     <div className="shrink-0">
                       <UserAvatar
                         photo={follower.photo}
-                        gender={follower.gender}
                         nickname={follower.nickname}
                         size="lg"
                       />
@@ -1500,7 +1496,7 @@ export default function Community() {
                   {filteredFollowers.map((follower) => (
                     <button
                       key={follower.id}
-                      onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, userGender: follower.gender, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
+                      onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
                       className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors text-left"
                     >
                       <div className="shrink-0">
@@ -1789,7 +1785,6 @@ export default function Community() {
                                   {/* Avatar */}
                                   <UserAvatar
                                     photo={checkIn.userPhoto}
-                                    gender={checkIn.userGender}
                                     nickname={checkIn.userName}
                                     className="w-8 h-8 flex-shrink-0"
                                   />
@@ -2165,7 +2160,6 @@ export default function Community() {
                         <div className="flex items-center gap-1.5 mb-3">
                           <UserAvatar
                             photo={group.creatorPhoto}
-                            gender={group.creatorGender}
                             nickname={group.creatorNickname}
                             className="h-5 w-5 flex-shrink-0"
                           />
@@ -2289,7 +2283,6 @@ export default function Community() {
                           <div className="flex items-center gap-3 flex-1">
                             <UserAvatar
                               photo={rankUser.userPhoto}
-                              gender={rankUser.userGender}
                               nickname={rankUser.userNickname}
                               size="lg"
                             />
@@ -3424,7 +3417,6 @@ export default function Community() {
                       <div key={u.userId} className="flex items-center gap-3">
                         <UserAvatar
                           photo={u.userPhoto}
-                          gender={undefined}
                           nickname={u.userName}
                           className="w-9 h-9 flex-shrink-0"
                         />
@@ -3492,7 +3484,6 @@ export default function Community() {
                 <div className="flex items-center gap-2">
                   <UserAvatar
                     photo={selectedCheckInForDetail.userPhoto}
-                    gender={selectedCheckInForDetail.userGender}
                     nickname={selectedCheckInForDetail.userName}
                     className="h-8 w-8 flex-shrink-0"
                   />
@@ -3674,7 +3665,6 @@ export default function Community() {
                         <div key={comment.id} className="flex gap-2">
                           <UserAvatar
                             photo={comment.userPhoto}
-                            gender={comment.userGender}
                             nickname={comment.userNickname}
                             className="w-7 h-7 flex-shrink-0"
                           />

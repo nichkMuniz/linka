@@ -27,6 +27,13 @@ import {
   Search,
   X,
   ArrowLeft,
+  Ban,
+  Repeat,
+  Sparkles,
+  CalendarDays,
+  CalendarRange,
+  Target,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -646,6 +653,13 @@ export default function Admin() {
             icon={BarChart3}
             accent="text-purple-400"
           />
+          <StatCard
+            label="Usuários banidos"
+            value={analytics?.usuarios_banidos ?? 0}
+            icon={Ban}
+            accent="text-rose-400"
+            className="col-span-2"
+          />
         </div>
 
         {analytics && analytics.novos_usuarios_7d.length > 0 && (
@@ -690,6 +704,36 @@ export default function Admin() {
             value={analytics ? `${analytics.total_horas_hoje}h` : "—"}
             icon={Clock}
           />
+          <StatCard
+            label="WAU (7 dias)"
+            value={analytics?.wau ?? 0}
+            icon={CalendarDays}
+            accent="text-blue-400"
+          />
+          <StatCard
+            label="MAU (30 dias)"
+            value={analytics?.mau ?? 0}
+            icon={CalendarRange}
+            accent="text-purple-400"
+          />
+          <StatCard
+            label="Stickiness"
+            value={analytics ? `${analytics.stickiness}%` : "—"}
+            sub="DAU / MAU"
+            icon={Sparkles}
+            accent="text-amber-400"
+          />
+          <StatCard
+            label="Novos ativos hoje"
+            value={analytics?.novos_ativos_hoje ?? 0}
+            sub={
+              analytics
+                ? `${analytics.recorrentes_hoje} recorrentes`
+                : undefined
+            }
+            icon={Repeat}
+            accent="text-emerald-400"
+          />
         </div>
 
         {analytics && analytics.dau_7d.length > 0 && (
@@ -699,6 +743,68 @@ export default function Admin() {
           </div>
         )}
       </section>
+
+      {/* ── Retenção ───────────────────────────────────────────────────────── */}
+      {analytics && (
+        <section>
+          <SectionHeader icon={Target} label="Retenção" />
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard
+              label="Retenção D1"
+              value={`${analytics.retencao_d1}%`}
+              sub="cohort 14 dias"
+              icon={CalendarDays}
+              accent="text-emerald-400"
+            />
+            <StatCard
+              label="Retenção D7"
+              value={`${analytics.retencao_d7}%`}
+              sub="cohort 30 dias"
+              icon={CalendarRange}
+              accent="text-sky-400"
+            />
+          </div>
+        </section>
+      )}
+
+      {/* ── Top usuários mais seguidos ─────────────────────────────────────── */}
+      {analytics && analytics.top_seguidos.length > 0 && (
+        <section>
+          <SectionHeader icon={Star} label="Usuários mais seguidos" />
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            {analytics.top_seguidos.map((u, i) => (
+              <div
+                key={u.user_id}
+                className={`flex items-center gap-3 px-4 py-3 ${
+                  i < analytics.top_seguidos.length - 1 ? "border-b border-border/50" : ""
+                }`}
+              >
+                <span className="text-xs text-muted-foreground font-mono w-6 text-center shrink-0">
+                  {i + 1}
+                </span>
+                <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
+                  {u.photo ? (
+                    <img src={u.photo} alt={u.nickname} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <UserCircle className="w-5 h-5 text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{u.nickname}</p>
+                  {u.handle && (
+                    <p className="text-xs text-muted-foreground truncate">@{u.handle}</p>
+                  )}
+                </div>
+                <span className="text-xs font-semibold text-primary shrink-0">
+                  {u.followers} {u.followers === 1 ? "seguidor" : "seguidores"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── Ranking usuários mais ativos hoje ─────────────────────────────── */}
       <section>

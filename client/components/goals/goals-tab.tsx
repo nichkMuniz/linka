@@ -12,7 +12,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Edit2, Plus, Search } from "lucide-react";
+import { Edit2, Plus, Search, ChevronRight } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import type {
   ProgrammedGoal,
@@ -72,20 +72,60 @@ export function GoalsTab({
     <>
       {goals.length ? (
         <>
-          {/* Onboarding banner — shown only when user has no active goals yet */}
+          {/* Onboarding guide — shown only when user has no active or completed goals yet */}
           {activeGoals.length === 0 && completedGoals.length === 0 && (
-            <div className="rounded-2xl border-2 border-dashed border-primary/30 bg-primary/5 p-5 text-center space-y-2">
-              <p className="text-2xl">🎯</p>
-              <p className="text-sm font-bold">{t("goals_onboarding_title")}</p>
-              <p className="text-xs text-muted-foreground">{t("goals_onboarding_desc")}</p>
-              <button
-                type="button"
-                onClick={onCreateGoalDrawerOpen}
-                className="inline-flex items-center gap-1.5 mt-1 text-xs font-semibold text-primary hover:underline"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {t("goals_create_own")}
-              </button>
+            <div className="space-y-6 pt-4 pb-4">
+              <div className="text-center space-y-3 px-4">
+                <span className="inline-block text-[10px] font-bold uppercase tracking-[0.12em] text-brand bg-brand/10 px-3 py-1 rounded-full">
+                  {t("goals_onboarding_eyebrow")}
+                </span>
+                <h2 className="text-2xl font-bold leading-tight tracking-tight">
+                  {t("goals_onboarding_title")}
+                </h2>
+                <p className="text-sm text-muted-foreground max-w-[280px] mx-auto leading-relaxed">
+                  {t("goals_onboarding_desc")}
+                </p>
+              </div>
+              <div className="space-y-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById("goals-available-anchor");
+                    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  className="group w-full flex items-center gap-3.5 rounded-2xl bg-card border border-border/60 p-3.5 text-left shadow-sm hover:border-brand/40 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] transition-all duration-200"
+                >
+                  <div className="flex items-center justify-center h-14 w-14 rounded-2xl text-3xl flex-shrink-0 bg-gradient-to-br from-blue-400/20 to-blue-500/10 ring-1 ring-blue-500/20">
+                    📚
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[15px] font-bold leading-tight">{t("goals_onboarding_pick_title")}</p>
+                    <p className="text-xs text-muted-foreground leading-tight mt-1">{t("goals_onboarding_pick_desc")}</p>
+                  </div>
+                  <div className="flex items-center justify-center h-8 w-8 rounded-full bg-muted/60 group-hover:bg-brand/15 transition-colors flex-shrink-0">
+                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-brand transition-colors" />
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={onCreateGoalDrawerOpen}
+                  className="group w-full flex items-center gap-3.5 rounded-2xl bg-card border border-border/60 p-3.5 text-left shadow-sm hover:border-brand/40 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] transition-all duration-200"
+                >
+                  <div className="flex items-center justify-center h-14 w-14 rounded-2xl text-3xl flex-shrink-0 bg-gradient-to-br from-emerald-400/20 to-emerald-500/10 ring-1 ring-emerald-500/20">
+                    ✏️
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[15px] font-bold leading-tight">{t("goals_onboarding_create_title")}</p>
+                    <p className="text-xs text-muted-foreground leading-tight mt-1">{t("goals_onboarding_create_desc")}</p>
+                  </div>
+                  <div className="flex items-center justify-center h-8 w-8 rounded-full bg-muted/60 group-hover:bg-brand/15 transition-colors flex-shrink-0">
+                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-brand transition-colors" />
+                  </div>
+                </button>
+              </div>
+              <p className="text-center text-[11px] text-muted-foreground/70 px-6 leading-relaxed">
+                {t("goals_onboarding_footer")}
+              </p>
             </div>
           )}
 
@@ -223,7 +263,7 @@ export function GoalsTab({
           {/* Available Goals Section - Accordion */}
           {goals.filter((g) => !selectedGoalIds.includes(g.id)).length > 0 && (
             <Accordion type="single" collapsible defaultValue={activeGoals.length === 0 && completedGoals.length === 0 ? "available-goals" : ""}>
-              <AccordionItem value="available-goals" className="border-border/60">
+              <AccordionItem id="goals-available-anchor" value="available-goals" className="border-border/60 scroll-mt-4">
                 <AccordionTrigger className="hover:no-underline">
                   <div className="flex items-center justify-between w-full pr-4">
                     <h3 className="text-sm font-semibold">{t("goals_available")}</h3>
@@ -459,18 +499,20 @@ export function GoalsTab({
             </Accordion>
           )}
 
-          {/* Create custom goal button */}
-          <div className="flex justify-center pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full gap-2 text-sm"
-              onClick={onCreateGoalDrawerOpen}
-            >
-              <Plus className="h-4 w-4" />
-              {t("goals_create_own")}
-            </Button>
-          </div>
+          {/* Create custom goal button — escondido no estado onboarding pois já temos o card "Criar minha meta" acima */}
+          {!(activeGoals.length === 0 && completedGoals.length === 0) && (
+            <div className="flex justify-center pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full gap-2 text-sm"
+                onClick={onCreateGoalDrawerOpen}
+              >
+                <Plus className="h-4 w-4" />
+                {t("goals_create_own")}
+              </Button>
+            </div>
+          )}
         </>
       ) : (
         <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">

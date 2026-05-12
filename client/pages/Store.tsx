@@ -506,7 +506,6 @@ function PromotionCard({
           >
             <UserAvatar
               photo={promo.user_photo}
-              gender={promo.user_gender}
               nickname={promo.user_nickname}
               className="h-5 w-5 flex-shrink-0"
             />
@@ -1405,7 +1404,6 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
         ) : null}
         <UserAvatar
           photo={pro.photo}
-          gender={pro.gender}
           nickname={pro.nickname}
           className="relative z-10 h-14 w-14 border-2 border-border flex-shrink-0"
         />

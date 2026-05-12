@@ -361,7 +361,7 @@ export function ImageCropperDrawer({
   const frameH = containerSize.width > 0 ? containerSize.width / aspectRatio : 300;
 
   return (
-    <Drawer open={!!imageSrc} onOpenChange={(open) => { if (!open) onCancel(); }} dismissible={false} shouldScaleBg={false}>
+    <Drawer open={!!imageSrc} onOpenChange={(open) => { if (!open) onCancel(); }} dismissible={false} shouldScaleBackground={false}>
       <DrawerContent
         className="h-[100dvh] mt-0 rounded-none flex flex-col bg-black !z-[200]"
         overlayClassName="!z-[190] bg-black/90"

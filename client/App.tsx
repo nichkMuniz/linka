@@ -54,7 +54,6 @@ import { FloatingActionMenu } from "@/components/layout/floating-action-menu";
 import { useAuthContext as useAuth, AuthProvider } from "@/lib/auth-context";
 import { useLanguage } from "@/lib/language-context";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
-import { useTheme } from "next-themes";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 
 // Lazy-load heavy pages to split the initial bundle
@@ -68,6 +67,60 @@ const Community = React.lazy(() => import("@/pages/Community"));
 const Notifications = React.lazy(() => import("@/pages/Notifications"));
 const Store = React.lazy(() => import("@/pages/Store"));
 const Shots = React.lazy(() => import("@/pages/Shots"));
+
+import {
+  CommunitySkeleton,
+  GoalsSkeleton,
+  ProfileSkeleton,
+  NotificationsSkeleton,
+  PostDetailSkeleton,
+  StoreSkeleton,
+  PostSkeleton,
+  SkeletonLoader,
+} from "@/components/shared/animated-loading";
+
+function FeedSkeleton() {
+  return (
+    <div className="mx-auto w-full max-w-2xl flex flex-col">
+      <div className="bg-background border-b border-border/60 px-3 py-3">
+        <div className="flex gap-3 overflow-hidden">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex flex-col items-center gap-1 shrink-0">
+              <div className="w-14 h-14 rounded-full bg-muted animate-pulse" />
+              <div className="w-10 h-2 rounded bg-muted animate-pulse" />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="grid w-full gap-3 py-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <PostSkeleton key={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ShotsSkeleton() {
+  return (
+    <div
+      className="bg-black w-full h-[calc(100dvh-4.25rem-env(safe-area-inset-bottom))] md:h-dvh"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    />
+  );
+}
+
+function GenericPageSkeleton() {
+  return (
+    <div className="mx-auto w-full max-w-2xl p-4">
+      <SkeletonLoader lines={6} />
+    </div>
+  );
+}
+
+function Lazy({ skeleton, children }: { skeleton: React.ReactNode; children: React.ReactNode }) {
+  return <React.Suspense fallback={skeleton}>{children}</React.Suspense>;
+}
 
 // Kept eager — tiny files needed on first paint or error boundaries
 import Login from "@/pages/Login";
@@ -163,17 +216,7 @@ function DeepLinkHandler() {
 const queryClient = new QueryClient();
 
 function AuthLoadingScreen() {
-  const { resolvedTheme } = useTheme();
-  const { t } = useLanguage();
-  const logoSrc = resolvedTheme === "dark" ? "/logo-branco.png" : "/logo.png";
-  return (
-    <div className="grid min-h-dvh place-items-center bg-background p-6">
-      <div className="text-center">
-        <img src={logoSrc} alt="LinKa" className="h-12 mx-auto" />
-        <div className="mt-1 text-sm text-muted-foreground">{t("app_loading")}</div>
-      </div>
-    </div>
-  );
+  return <div className="min-h-dvh bg-background" />;
 }
 
 function RequireAuth() {
@@ -195,11 +238,7 @@ function RequireAuth() {
     );
   }
 
-  return (
-    <React.Suspense fallback={<AuthLoadingScreen />}>
-      <Outlet />
-    </React.Suspense>
-  );
+  return <Outlet />;
 }
 
 function RequireAdmin() {
@@ -272,18 +311,18 @@ const App = () => {
 
                   <Route element={<RequireAuth />}>
                     <Route element={<AppLayout />}>
-                      <Route path="/" element={<Index />} />
-                      <Route path="/shots" element={<Shots />} />
-                      <Route path="/postar" element={<NewPost />} />
-                      <Route path="/metas" element={<Goals />} />
-                      <Route path="/vitrine" element={<Store />} />
-                      <Route path="/perfil" element={<Profile />} />
-                      <Route path="/usuario/:userId" element={<Profile />} />
-                      <Route path="/post/:postId" element={<PostDetail />} />
-                      <Route path="/buscar" element={<Search />} />
-                      <Route path="/comunidade" element={<Community />} />
+                      <Route path="/" element={<Lazy skeleton={<FeedSkeleton />}><Index /></Lazy>} />
+                      <Route path="/shots" element={<Lazy skeleton={<ShotsSkeleton />}><Shots /></Lazy>} />
+                      <Route path="/postar" element={<Lazy skeleton={<GenericPageSkeleton />}><NewPost /></Lazy>} />
+                      <Route path="/metas" element={<Lazy skeleton={<GoalsSkeleton />}><Goals /></Lazy>} />
+                      <Route path="/vitrine" element={<Lazy skeleton={<StoreSkeleton />}><Store /></Lazy>} />
+                      <Route path="/perfil" element={<Lazy skeleton={<ProfileSkeleton />}><Profile /></Lazy>} />
+                      <Route path="/usuario/:userId" element={<Lazy skeleton={<ProfileSkeleton />}><Profile /></Lazy>} />
+                      <Route path="/post/:postId" element={<Lazy skeleton={<PostDetailSkeleton />}><PostDetail /></Lazy>} />
+                      <Route path="/buscar" element={<Lazy skeleton={<GenericPageSkeleton />}><Search /></Lazy>} />
+                      <Route path="/comunidade" element={<Lazy skeleton={<CommunitySkeleton />}><Community /></Lazy>} />
                       <Route path="/mensagens" element={<Navigate to="/comunidade" replace />} />
-                      <Route path="/notificacoes" element={<Notifications />} />
+                      <Route path="/notificacoes" element={<Lazy skeleton={<NotificationsSkeleton />}><Notifications /></Lazy>} />
 
                       {/* compatibility */}
                       <Route

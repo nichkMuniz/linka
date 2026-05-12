@@ -15,7 +15,6 @@ interface FlowCarouselProps {
   onStoryClick: (story: StoryWithUser) => void;
   currentUserId: string;
   currentUserPhoto?: string | null;
-  currentUserGender?: string | null;
   currentUserNickname?: string | null;
   isOwnerViewing?: boolean;
   viewedStoryIds?: Set<string>;
@@ -27,7 +26,6 @@ export function FlowCarousel({
   onStoryClick,
   currentUserId,
   currentUserPhoto,
-  currentUserGender,
   currentUserNickname,
   isOwnerViewing,
   viewedStoryIds,
@@ -72,7 +70,6 @@ export function FlowCarousel({
                   <div className="h-full w-full rounded-full overflow-hidden ring-[2.5px] ring-background">
                     <UserAvatar
                       photo={currentUserPhoto ?? userStory.userPhoto}
-                      gender={currentUserGender ?? userStory.userGender}
                       nickname={currentUserNickname ?? userStory.userNickname}
                       className="h-full w-full"
                     />
@@ -102,7 +99,6 @@ export function FlowCarousel({
             <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-transparent group-hover:ring-brand transition-all">
               <UserAvatar
                 photo={currentUserPhoto}
-                gender={currentUserGender}
                 nickname={currentUserNickname ?? "Seu flow"}
                 className="h-full w-full"
               />
@@ -136,7 +132,6 @@ export function FlowCarousel({
                   <div className="h-full w-full rounded-full overflow-hidden ring-[2.5px] ring-background">
                     <UserAvatar
                       photo={story.userPhoto}
-                      gender={story.userGender}
                       nickname={story.userNickname}
                       className="h-full w-full"
                     />

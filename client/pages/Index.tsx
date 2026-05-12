@@ -1,5 +1,5 @@
 import * as React from "react";
-import { getFeedPosts, getDiscoverPosts, togglePostLike } from "../services/post.service";
+import { getFeedPosts, getDiscoverPosts, togglePostLike, FEED_PAGE_SIZE } from "../services/post.service";
 import {
   Drawer,
   DrawerContent,
@@ -91,6 +91,8 @@ export default function Index() {
   const [loading, setLoading] = React.useState(true);
   const [discoverLoading, setDiscoverLoading] = React.useState(false);
   const [discoverLoaded, setDiscoverLoaded] = React.useState(false);
+  const [hasMoreFeed, setHasMoreFeed] = React.useState(true);
+  const [loadingMoreFeed, setLoadingMoreFeed] = React.useState(false);
 
   const togglingIncentivesRef = React.useRef<Set<string>>(new Set());
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<string>>(new Set());
@@ -109,7 +111,6 @@ export default function Index() {
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
   const [currentUserNickname, setCurrentUserNickname] = React.useState<string | null>(null);
-  const [currentUserGender, setCurrentUserGender] = React.useState<string | null>(null);
   const [ownerHasViewedFlow, setOwnerHasViewedFlow] = React.useState(false);
   const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(new Set());
   const [activeViewerStories, setActiveViewerStories] = React.useState<StoryWithUser[]>([]);
@@ -135,7 +136,6 @@ export default function Index() {
     userId: string;
     userNickname: string;
     userPhoto: string | null;
-    userGender: string | null;
     type: number;
   }>>([]);
 
@@ -165,6 +165,8 @@ export default function Index() {
       ]);
       setPosts(postsData);
       setStories(storiesData);
+      setHasMoreFeed(postsData.length >= FEED_PAGE_SIZE);
+      setLoadingMoreFeed(false);
       setLoading(false);
 
       const userStory = storiesData.find((s: StoryWithUser) => s.user_id === user?.id);
@@ -213,19 +215,85 @@ export default function Index() {
     return () => window.removeEventListener("ritmofit-refresh-feed", handler);
   }, [loadFeed]);
 
-  // Pre-load discover posts in the background once the following feed is loaded
-  React.useEffect(() => {
-    if (!loading && !discoverLoaded) {
-      setDiscoverLoading(true);
-      getDiscoverPosts()
-        .then((data) => {
-          setDiscoverPosts(data);
-          setDiscoverLoaded(true);
-        })
-        .catch((err) => console.error("Erro ao pré-carregar posts populares:", err))
-        .finally(() => setDiscoverLoading(false));
+  // Infinite scroll: load more following-feed posts as the user approaches the
+  // end of the current page. Cursor is the created_at of the oldest post.
+  const feedBottomSentinelRef = React.useRef<HTMLDivElement | null>(null);
+  const loadMoreFeed = React.useCallback(async () => {
+    if (loadingMoreFeed || !hasMoreFeed) return;
+    const oldest = postsRef.current[postsRef.current.length - 1];
+    if (!oldest) return;
+    setLoadingMoreFeed(true);
+    try {
+      const more = await getFeedPosts({ before: oldest.created_at });
+      if (more.length === 0) {
+        setHasMoreFeed(false);
+      } else {
+        setPosts((prev) => {
+          const seen = new Set(prev.map((p) => p.id));
+          const merged = [...prev];
+          for (const p of more) if (!seen.has(p.id)) merged.push(p);
+          return merged;
+        });
+        if (more.length < FEED_PAGE_SIZE) setHasMoreFeed(false);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar mais posts:", err);
+    } finally {
+      setLoadingMoreFeed(false);
     }
-  }, [loading, discoverLoaded]);
+  }, [loadingMoreFeed, hasMoreFeed]);
+
+  React.useEffect(() => {
+    if (loading || !hasMoreFeed) return;
+    const node = feedBottomSentinelRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMoreFeed();
+      },
+      { rootMargin: "800px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [loading, hasMoreFeed, loadMoreFeed]);
+
+  // Discover posts are loaded lazily — only when the user scrolls close to
+  // the divider, or right after onboarding for new users. This saves the
+  // initial render from paying for an extra ~30-post enrichment query that
+  // most users never see on first visit.
+  const discoverSentinelRef = React.useRef<HTMLDivElement | null>(null);
+  const loadDiscover = React.useCallback(() => {
+    if (discoverLoaded || discoverLoading) return;
+    setDiscoverLoading(true);
+    getDiscoverPosts()
+      .then((data) => {
+        setDiscoverPosts(data);
+        setDiscoverLoaded(true);
+      })
+      .catch((err) => console.error("Erro ao carregar posts populares:", err))
+      .finally(() => setDiscoverLoading(false));
+  }, [discoverLoaded, discoverLoading]);
+
+  React.useEffect(() => {
+    if (loading || discoverLoaded) return;
+    const node = discoverSentinelRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      // Fallback: trigger on idle after 2s if observer isn't available
+      const timer = setTimeout(loadDiscover, 2000);
+      return () => clearTimeout(timer);
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          loadDiscover();
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [loading, discoverLoaded, loadDiscover]);
 
   // Load current user's profile photo
   React.useEffect(() => {
@@ -238,7 +306,6 @@ export default function Index() {
       .then((profile) => {
         if (profile?.photo) setCurrentUserPhoto(profile.photo);
         if (profile?.nickname) setCurrentUserNickname(profile.nickname);
-        if (profile?.gender) setCurrentUserGender(profile.gender);
       })
       .catch((err) => console.error("Erro ao carregar foto do perfil:", err));
   }, [user?.id]);
@@ -247,20 +314,19 @@ export default function Index() {
     const flag = localStorage.getItem("new_user_open_discover");
     if (flag === "1" && user?.id) {
       localStorage.removeItem("new_user_open_discover");
-      // Trigger immediate discover pre-load if not yet done
-      if (!discoverLoaded) {
-        setDiscoverLoading(true);
-        getDiscoverPosts()
-          .then((data) => { setDiscoverPosts(data); setDiscoverLoaded(true); })
-          .catch(console.error)
-          .finally(() => setDiscoverLoading(false));
-      }
+      loadDiscover();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
   const handleCreateStory = React.useCallback(
-    async (mediaDataUrl: string, description: string, backgroundColor?: string | null) => {
+    async (
+      mediaDataUrl: string,
+      description: string,
+      backgroundColor?: string | null,
+      textPosition?: { x: number; y: number } | null,
+      textElements?: { text: string; x: number; y: number }[] | null,
+    ) => {
       setIsCreatingStory(true);
       try {
         if (!user || !supabase) throw new Error("User not authenticated");
@@ -287,7 +353,7 @@ export default function Index() {
           publicUrl = url;
         }
 
-        const newStory = await createStoryDb(description, publicUrl, backgroundColor);
+        const newStory = await createStoryDb(description, publicUrl, backgroundColor, textPosition, textElements);
         if (newStory && user) {
           const enrichedStory: StoryWithUser = {
             ...newStory,
@@ -715,7 +781,6 @@ export default function Index() {
           onStoryClick={handleStoryClick}
           currentUserId={user?.id || ""}
           currentUserPhoto={currentUserPhoto}
-          currentUserGender={currentUserGender}
           currentUserNickname={currentUserNickname}
           isOwnerViewing={ownerHasViewedFlow}
           viewedStoryIds={viewedStoryIds}
@@ -744,8 +809,20 @@ export default function Index() {
           </div>
         )}
 
-        {/* Discover section divider */}
-        <div className="flex items-center gap-3 py-2">
+        {/* Infinite-scroll sentinel + skeletons for the next page */}
+        {hasMoreFeed && posts.length > 0 && (
+          <div ref={feedBottomSentinelRef}>
+            {loadingMoreFeed && (
+              <div className="grid gap-3">
+                {[1, 2].map((i) => <PostSkeleton key={`more-${i}`} />)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Discover section divider — also the intersection sentinel that
+            triggers lazy loading of discover posts when scrolled near. */}
+        <div ref={discoverSentinelRef} className="flex items-center gap-3 py-2">
           <div className="flex-1 h-px bg-border/60" />
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest px-1">
             {t("feed_discover_label")}

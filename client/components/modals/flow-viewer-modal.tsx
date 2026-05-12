@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { cdnImg } from "@/lib/image-url";
 
 interface FlowViewerModalProps {
   story: StoryWithUser | null;
@@ -455,7 +456,7 @@ export function FlowViewerModal({
                 ) : prevStory.media_url?.includes(".mp4") || prevStory.media_url?.includes(".webm") ? (
                   <video src={prevStory.media_url} muted loop playsInline className="w-full h-full object-cover" />
                 ) : (
-                  <img src={prevStory.media_url} className="w-full h-full object-cover" alt="" />
+                  <img src={cdnImg(prevStory.media_url, { width: 800, quality: 70 }) ?? prevStory.media_url} className="w-full h-full object-cover" alt="" />
                 )}
                 <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-2">
                   <ChevronLeft className="h-8 w-8 text-white/80" />
@@ -588,20 +589,58 @@ export function FlowViewerModal({
                       >
                         {story.background_color && !story.media_url ? (
                           <div
-                            className="w-full h-full flex items-center justify-center p-8"
+                            className="relative w-full h-full"
                             style={{ background: story.background_color }}
                           >
-                            <p
-                              className="text-white text-center font-semibold text-xl leading-snug break-words"
-                              style={{ textShadow: "0 1px 6px rgba(0,0,0,0.5)" }}
-                            >
-                              {story.description}
-                            </p>
+                            {Array.isArray(story.text_elements) && story.text_elements.length > 0 ? (
+                              story.text_elements.map((el, idx) => (
+                                <div
+                                  key={idx}
+                                  className="absolute px-6 max-w-[90%]"
+                                  style={{
+                                    left: `${el.x}%`,
+                                    top: `${el.y}%`,
+                                    transform: "translate(-50%, -50%)",
+                                  }}
+                                >
+                                  <p
+                                    className="text-white text-center font-bold text-3xl leading-tight break-words whitespace-pre-wrap"
+                                    style={{ textShadow: "0 1px 6px rgba(0,0,0,0.5)" }}
+                                  >
+                                    {el.text}
+                                  </p>
+                                </div>
+                              ))
+                            ) : (
+                              <div
+                                className="absolute px-6 max-w-[90%]"
+                                style={
+                                  story.text_position
+                                    ? {
+                                        left: `${story.text_position.x}%`,
+                                        top: `${story.text_position.y}%`,
+                                        transform: "translate(-50%, -50%)",
+                                      }
+                                    : {
+                                        left: "50%",
+                                        top: "50%",
+                                        transform: "translate(-50%, -50%)",
+                                      }
+                                }
+                              >
+                                <p
+                                  className="text-white text-center font-bold text-3xl leading-tight break-words"
+                                  style={{ textShadow: "0 1px 6px rgba(0,0,0,0.5)" }}
+                                >
+                                  {story.description}
+                                </p>
+                              </div>
+                            )}
                           </div>
                         ) : isVideo ? (
                           <video ref={videoRef} src={story.media_url} className="w-full h-full object-cover" autoPlay loop muted playsInline preload="auto" />
                         ) : (
-                          <img src={story.media_url} alt="Flow" className="w-full h-full object-cover" />
+                          <img src={cdnImg(story.media_url, { width: 1080, quality: 75 }) ?? story.media_url} alt="Flow" className="w-full h-full object-cover" />
                         )}
                       </motion.div>
                     </AnimatePresence>
@@ -645,7 +684,6 @@ export function FlowViewerModal({
                             <div className="shrink-0 h-6 w-6 rounded-full overflow-hidden ring-1 ring-white/30">
                               <UserAvatar
                                 photo={comment.userPhoto}
-                                gender={comment.userGender}
                                 nickname={comment.userName}
                                 className="h-full w-full"
                               />
@@ -768,7 +806,6 @@ export function FlowViewerModal({
                       <div className="shrink-0 h-8 w-8 rounded-full overflow-hidden">
                         <UserAvatar
                           photo={comment.userPhoto}
-                          gender={comment.userGender}
                           nickname={comment.userName}
                           className="h-full w-full"
                         />
@@ -867,7 +904,6 @@ export function FlowViewerModal({
                   <div className="h-10 w-10 rounded-full overflow-hidden shrink-0">
                     <UserAvatar
                       photo={viewer.userPhoto}
-                      gender={viewer.userGender}
                       nickname={viewer.userNickname}
                       className="h-full w-full"
                     />

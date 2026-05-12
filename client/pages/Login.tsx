@@ -1083,26 +1083,15 @@ export default function Login() {
             50%      { transform: scale(1.10); opacity: 0.85; }
           }
           @keyframes linka-symbol-in {
-            0%   { opacity: 0; transform: translateY(10px) scale(0.9);
-                   filter: blur(6px)
-                           drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
-                           drop-shadow(0 4px 14px rgba(120, 80, 220, 0.10)); }
+            0%   { opacity: 0; transform: translateY(10px) scale(0.9); }
             55%  { opacity: 1; }
-            72%  { transform: translateY(0) scale(1.012);
-                   filter: blur(0)
-                           drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
-                           drop-shadow(0 4px 14px rgba(120, 80, 220, 0.10)); }
-            100% { opacity: 1; transform: translateY(0) scale(1);
-                   filter: blur(0)
-                           drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
-                           drop-shadow(0 4px 14px rgba(120, 80, 220, 0.10)); }
+            72%  { opacity: 1; transform: translateY(0) scale(1.012); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
           }
           @keyframes linka-symbol-breathe {
-            0%, 100% { filter: blur(0)
-                               drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
+            0%, 100% { filter: drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
                                drop-shadow(0 4px 14px rgba(120, 80, 220, 0.10)); }
-            50%      { filter: blur(0)
-                               drop-shadow(0 14px 44px rgba(255, 130, 70, 0.26))
+            50%      { filter: drop-shadow(0 14px 44px rgba(255, 130, 70, 0.26))
                                drop-shadow(0 6px 20px rgba(150, 100, 240, 0.20)); }
           }
           @keyframes linka-lockup-shift {
@@ -1167,13 +1156,15 @@ export default function Login() {
             height: var(--linka-sym);
             opacity: 0;
             transform: translateY(10px) scale(0.9);
-            filter: blur(6px)
-                    drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
+            will-change: opacity, transform;
+            animation: linka-symbol-in 1400ms cubic-bezier(0.16, 1, 0.3, 1) 100ms forwards;
+          }
+          .linka-symbol-fx {
+            position: absolute;
+            inset: 0;
+            filter: drop-shadow(0 8px 28px rgba(255, 110, 60, 0.14))
                     drop-shadow(0 4px 14px rgba(120, 80, 220, 0.10));
-            will-change: opacity, transform, filter;
-            animation:
-              linka-symbol-in 1400ms cubic-bezier(0.16, 1, 0.3, 1) 100ms forwards,
-              linka-symbol-breathe 4.6s ease-in-out 1700ms infinite;
+            animation: linka-symbol-breathe 4.6s ease-in-out 1700ms infinite;
           }
           .linka-symbol img {
             width: 100%; height: 100%;
@@ -1222,7 +1213,7 @@ export default function Login() {
             filter: drop-shadow(0 4px 14px rgba(255, 255, 255, 0.06));
           }
           @media (prefers-reduced-motion: reduce) {
-            .linka-aura, .linka-lockup, .linka-symbol, .linka-wordmark, .linka-shimmer::before, .linka-reveal-stage {
+            .linka-aura, .linka-lockup, .linka-symbol, .linka-symbol-fx, .linka-wordmark, .linka-shimmer::before, .linka-reveal-stage {
               animation: none !important;
               opacity: 1 !important;
               transform: none !important;
@@ -1234,8 +1225,10 @@ export default function Login() {
 
         <div className="linka-lockup">
           <div className="linka-symbol">
-            <img src="/linka-reveal-symbol.png" alt="LinKa" />
-            <div className="linka-shimmer" aria-hidden="true" />
+            <div className="linka-symbol-fx">
+              <img src="/linka-reveal-symbol.png" alt="LinKa" />
+              <div className="linka-shimmer" aria-hidden="true" />
+            </div>
           </div>
           <img className="linka-wordmark" src="/linka-reveal-wordmark.png" alt="" />
         </div>

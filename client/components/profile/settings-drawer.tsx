@@ -355,7 +355,6 @@ export function SettingsDrawer({
 
   // --- Personal Data ---
   const [personalDataForm, setPersonalDataForm] = React.useState({
-    gender: profile.gender ?? "",
     height: profile.height ?? "",
     weight: profile.weight ?? "",
     age: profile.age ?? "",
@@ -544,18 +543,6 @@ export function SettingsDrawer({
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">{t("settings_gender_label")}</label>
-                        <Select value={personalDataForm.gender} onValueChange={(v) => setPersonalDataForm((prev) => ({ ...prev, gender: v }))}>
-                          <SelectTrigger><SelectValue placeholder={t("settings_gender_select")} /></SelectTrigger>
-                          <SelectContent position="popper" className="z-[200]">
-                            <SelectItem value="male">{t("settings_gender_male")}</SelectItem>
-                            <SelectItem value="female">{t("settings_gender_female")}</SelectItem>
-                            <SelectItem value="other">{t("settings_gender_other")}</SelectItem>
-                            <SelectItem value="prefer_not_to_say">{t("settings_gender_prefer_not")}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
                       <div className="space-y-2">
                         <label className="text-sm font-medium">{t("settings_height_label")}</label>
                         <Input type="number" min={100} max={250} step={1} value={personalDataForm.height} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 175" />

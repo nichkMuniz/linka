@@ -76,7 +76,6 @@ function RoutineCard({
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
             <UserAvatar
               photo={routine.userPhoto}
-              gender={routine.userGender}
               nickname={routine.userNickname}
               className="h-5 w-5 flex-shrink-0"
             />
@@ -348,7 +347,6 @@ export default function Search() {
                   <div className="flex items-start gap-3 flex-1">
                     <UserAvatar
                       photo={u.photo}
-                      gender={u.gender}
                       nickname={u.nickname}
                       size="lg"
                       className="flex-shrink-0"

@@ -1,10 +1,8 @@
-import * as React from "react";
 import { cn } from "@/lib/utils";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 
 interface UserAvatarProps {
   photo?: string | null;
-  gender?: string | null;
   nickname?: string | null;
   className?: string;
   size?: "sm" | "md" | "lg" | "xl";
@@ -17,27 +15,26 @@ const sizeClasses = {
   xl: "h-16 w-16",
 };
 
-function getGenderAvatar(gender: string | null | undefined): string {
-  if (!gender) return "/avatar-neutral.svg";
-  const normalized = gender.toLowerCase().trim();
-  if (normalized === "male" || normalized === "masculino" || normalized === "homem" || normalized === "m") return "/avatar-male.svg";
-  if (normalized === "female" || normalized === "feminino" || normalized === "mulher" || normalized === "f") return "/avatar-female.svg";
-  return "/avatar-neutral.svg";
-}
+const sizePx = {
+  sm: 32,
+  md: 40,
+  lg: 48,
+  xl: 64,
+};
 
-/**
- * Avatar component that shows the user's photo, or a gender-based generic avatar
- * when no photo is available. Falls back to a neutral placeholder if gender is unknown.
- */
-export function UserAvatar({ photo, gender, nickname, className, size = "md" }: UserAvatarProps) {
+const DEFAULT_AVATAR = "/avatar-neutral.svg";
+
+export function UserAvatar({ photo, nickname, className, size = "md" }: UserAvatarProps) {
   const sizeClass = sizeClasses[size];
-  const fallbackSrc = getGenderAvatar(gender);
+  const px = sizePx[size];
 
   return (
     <ImageWithFallback
-      src={photo ?? fallbackSrc}
+      src={photo ?? DEFAULT_AVATAR}
       alt={nickname ?? "Avatar"}
-      fallback={fallbackSrc}
+      fallback={DEFAULT_AVATAR}
+      cdnWidth={px}
+      cdnHeight={px}
       className={cn(sizeClass, "rounded-full object-cover flex-shrink-0", className)}
     />
   );

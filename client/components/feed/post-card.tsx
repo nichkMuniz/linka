@@ -180,7 +180,6 @@ export function PostCard({
             >
               <UserAvatar
                 photo={post.userPhoto}
-                gender={post.userGender}
                 nickname={post.userNickname}
                 size="sm"
                 className="border border-white/30 shrink-0"

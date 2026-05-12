@@ -166,8 +166,14 @@ export function PromotionCommentsDrawer({
           {/* Comments list */}
           <div className="flex-1 space-y-3 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
             {loading ? (
-              <div className="py-6 text-center text-sm text-muted-foreground">
-                Carregando comentários...
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="rounded-lg border border-border/30 bg-background/50 p-3 space-y-2">
+                    <div className="h-3 w-1/3 rounded bg-muted animate-pulse" />
+                    <div className="h-2 w-full rounded bg-muted animate-pulse" />
+                    <div className="h-2 w-4/5 rounded bg-muted animate-pulse" />
+                  </div>
+                ))}
               </div>
             ) : comments.length > 0 ? (
               comments.map((comment) => (
@@ -181,7 +187,6 @@ export function PromotionCommentsDrawer({
                     <div className="flex items-start gap-2.5 flex-1 min-w-0">
                       <UserAvatar
                         photo={comment.userPhoto}
-                        gender={comment.userGender}
                         nickname={comment.userName}
                         size="sm"
                       />

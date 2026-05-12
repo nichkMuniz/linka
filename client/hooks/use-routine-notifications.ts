@@ -84,21 +84,37 @@ async function applySchedulesNative(schedules: RoutineScheduleEntry[]): Promise<
     // getPending/cancel may fail on first run — safe to continue
   }
 
-  const toSchedule = schedules
-    .filter((e) => !!e.scheduled_time)
-    .map((e) => ({
-      id: entryToNotifId(e.id),
-      title: `${TYPE_ICONS[e.type] || "🔔"} ${e.name}`,
-      body: `${getTypeLabels()[e.type] || "item"}: ${e.name}`,
-      schedule: {
-        at: nextOccurrence(e.scheduled_time!),
-        repeats: true,
-        every: "day" as const,
-      },
-      extra: { url: "/metas" },
-      smallIcon: "ic_stat_icon_config_sample",
-      iconColor: "#f97316",
-    }));
+  // Group by routine (type + name + time) so 15 items of the same routine
+  // produce a single notification instead of 15.
+  const groups = new Map<string, { type: string; name: string; time: string; count: number }>();
+  for (const e of schedules) {
+    if (!e.scheduled_time) continue;
+    const time = e.scheduled_time.slice(0, 5);
+    const key = `${e.type}|${e.name ?? ""}|${time}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      groups.set(key, { type: e.type, name: e.name, time, count: 1 });
+    }
+  }
+
+  const labels = getTypeLabels();
+  const toSchedule = Array.from(groups.values()).map((g) => ({
+    id: entryToNotifId(`${g.type}|${g.name}|${g.time}`),
+    title: `${TYPE_ICONS[g.type] || "🔔"} ${g.name || labels[g.type] || "Rotina"}`,
+    body: g.count > 1
+      ? `Hora da sua rotina (${g.count} ${labels[g.type] || "itens"})`
+      : `Hora da sua rotina: ${labels[g.type] || "item"}`,
+    schedule: {
+      at: nextOccurrence(g.time),
+      repeats: true,
+      every: "day" as const,
+    },
+    extra: { url: "/metas" },
+    smallIcon: "ic_stat_icon_config_sample",
+    iconColor: "#f97316",
+  }));
 
   if (toSchedule.length > 0) {
     await LocalNotifications.schedule({ notifications: toSchedule });
