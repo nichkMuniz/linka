@@ -170,6 +170,12 @@ export function PostCommentsDialog({
     }
 
     try {
+      // Blur the focused field BEFORE the async work so iOS dismisses the keyboard
+      // and the drawer can restore to its full size by the time the new comment renders.
+      const active = document.activeElement as HTMLElement | null;
+      if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) {
+        active.blur();
+      }
       setSubmitting(true);
       const commentText = draft.trim();
       await addPostCommentDb(postId, commentText);
@@ -420,9 +426,12 @@ export function PostCommentsDialog({
           )}
         </div>
 
-        {/* Comment input */}
+        {/* Comment input — floats above the iOS keyboard via --keyboard-offset */}
         {user ? (
-          <div className="space-y-2 shrink-0">
+          <div
+            className="space-y-2 shrink-0 transition-[margin] duration-200 ease-out"
+            style={{ marginBottom: "var(--keyboard-offset, 0px)" }}
+          >
             <div className="relative">
               <Textarea
                 placeholder={t("comments_placeholder")}

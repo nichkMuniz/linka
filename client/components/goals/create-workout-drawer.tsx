@@ -19,7 +19,6 @@ interface CreateWorkoutDrawerProps {
   onOpenChange: (open: boolean) => void;
   muscleGroups: string[];
   onCreated: (workout: Workout) => void;
-  initialName?: string;
 }
 
 export function CreateWorkoutDrawer({
@@ -27,9 +26,8 @@ export function CreateWorkoutDrawer({
   onOpenChange,
   muscleGroups,
   onCreated,
-  initialName = "",
 }: CreateWorkoutDrawerProps) {
-  const [name, setName] = React.useState(initialName);
+  const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [muscleGroup, setMuscleGroup] = React.useState("");
   const [isCreating, setIsCreating] = React.useState(false);
@@ -40,13 +38,13 @@ export function CreateWorkoutDrawer({
 
   React.useEffect(() => {
     if (open) {
-      setName(initialName);
+      setName("");
       setDescription("");
       setMuscleGroup("");
       setPhotoFile(null);
       setPhotoPreview(null);
     }
-  }, [open, initialName]);
+  }, [open]);
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -39,6 +39,7 @@ import { CommentReactions } from "@/components/shared/comment-reactions";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
+import { showIncentiveToast } from "@/lib/incentive-toast";
 import { toast } from "@/components/ui/use-toast";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -118,6 +119,55 @@ export function FlowViewerModal({
     height: typeof window !== "undefined" ? (window.visualViewport?.height ?? window.innerHeight) : 800,
     offsetTop: typeof window !== "undefined" ? (window.visualViewport?.offsetTop ?? 0) : 0,
   }));
+
+  React.useEffect(() => {
+    if (!open) return;
+    const scrollY = window.scrollY;
+    const body = document.body;
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      overflow: body.style.overflow,
+      htmlOverflow: document.documentElement.style.overflow,
+      touchAction: body.style.touchAction,
+      overscroll: body.style.overscrollBehavior,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    body.style.touchAction = "none";
+    body.style.overscrollBehavior = "none";
+    document.documentElement.style.overflow = "hidden";
+
+    const preventTouchMove = (e: TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (!target.closest("[data-flow-viewer-root]") && !target.closest("[data-vaul-drawer]")) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener("touchmove", preventTouchMove, { passive: false });
+
+    return () => {
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.left = prev.left;
+      body.style.right = prev.right;
+      body.style.width = prev.width;
+      body.style.overflow = prev.overflow;
+      body.style.touchAction = prev.touchAction;
+      body.style.overscrollBehavior = prev.overscroll;
+      document.documentElement.style.overflow = prev.htmlOverflow;
+      document.removeEventListener("touchmove", preventTouchMove);
+      window.scrollTo(0, scrollY);
+    };
+  }, [open]);
 
   React.useEffect(() => {
     const vv = window.visualViewport;
@@ -292,6 +342,7 @@ export function FlowViewerModal({
         await toggleStoryLikeDb(story.id, incentiveType);
         const wasActive = userLikes.includes(incentiveType);
         setUserLikes(prev => wasActive ? prev.filter(t => t !== incentiveType) : [...prev, incentiveType]);
+        if (!wasActive) showIncentiveToast(incentiveType);
       } catch (err: any) {
         console.error("Error toggling like:", err);
         toast({ title: "Erro ao reagir", description: err?.message || "Tente novamente." });
@@ -427,6 +478,7 @@ export function FlowViewerModal({
             style={{ top: vp.offsetTop, height: vp.height }}
           />
           <DialogPrimitive.Content
+            data-flow-viewer-root
             className="fixed left-0 right-0 z-50 bg-black overflow-hidden flex items-center justify-center"
             style={{ top: vp.offsetTop, height: vp.height }}
             onOpenAutoFocus={(e) => e.preventDefault()}

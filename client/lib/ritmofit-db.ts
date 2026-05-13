@@ -1598,7 +1598,7 @@ export async function createCustomWorkoutDb(
 ): Promise<Workout> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
 
-  const insertData: Record<string, any> = { name, description, muscle_group: muscleGroup || null };
+  const insertData: Record<string, any> = { name, description, muscle_group: muscleGroup || null, created_by_user: true };
   if (photo) insertData.photo = photo;
 
   const { data, error } = await supabase
@@ -2352,6 +2352,7 @@ export type UserWorkoutWithDetails = {
   scheduled_time?: string | null;
   notes?: string | null;
   routine_id?: string | null;
+  time_to_rest?: number | null;
 };
 
 export async function getUserWorkoutsDb(
@@ -2362,7 +2363,7 @@ export async function getUserWorkoutsDb(
   const { data, error } = await supabase
     .from("user_workouts")
     .select(
-      "id, workout_id, user_id, name, created_at, scheduled_time, notes, routine_id, workouts(name, photo, description, muscle_group, wger_id)",
+      "id, workout_id, user_id, name, created_at, scheduled_time, notes, routine_id, time_to_rest, workouts(name, photo, description, muscle_group, wger_id)",
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
@@ -2385,7 +2386,7 @@ export async function getUserWorkoutsDb(
       const { data: dataFallback, error: errorFallback } = await supabase
         .from("user_workouts")
         .select(
-          "id, workout_id, user_id, name, created_at, routine_id",
+          "id, workout_id, user_id, name, created_at, routine_id, time_to_rest",
         )
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
@@ -2425,6 +2426,7 @@ export async function getUserWorkoutsDb(
             scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
             notes: row.notes ? String(row.notes) : null,
             routine_id: row.routine_id != null ? String(row.routine_id) : null,
+            time_to_rest: row.time_to_rest != null ? Number(row.time_to_rest) : null,
           };
         });
       } else if (errorFallback) {
@@ -2454,6 +2456,7 @@ export async function getUserWorkoutsDb(
     scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
     notes: row.notes ? String(row.notes) : null,
     routine_id: row.routine_id != null ? String(row.routine_id) : null,
+    time_to_rest: row.time_to_rest != null ? Number(row.time_to_rest) : null,
   }));
 
   });

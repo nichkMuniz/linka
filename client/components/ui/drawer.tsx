@@ -5,6 +5,11 @@ import { cn } from "@/lib/utils";
 
 // Tracks the keyboard height on iOS via visualViewport API.
 // Returns the number of pixels the keyboard is occupying above the bottom of the window.
+// Uses a threshold to ignore tiny residual offsets that iOS sometimes leaves after the
+// keyboard dismisses, and re-checks on focusout so the drawer reliably returns to its
+// full size when an input loses focus (e.g. after submitting a comment).
+const KEYBOARD_OPEN_THRESHOLD = 80;
+
 function useKeyboardOffset() {
   const [offset, setOffset] = React.useState(0);
 
@@ -12,18 +17,32 @@ function useKeyboardOffset() {
     const vv = window.visualViewport;
     if (!vv) return;
 
-    const update = () => {
-      // On iOS, when the keyboard opens the visualViewport height shrinks.
-      // offsetTop accounts for any scrolling of the viewport itself.
-      const keyboardHeight = window.innerHeight - vv.height - vv.offsetTop;
-      setOffset(Math.max(0, keyboardHeight));
+    let recheckId: number | null = null;
+
+    const compute = () => {
+      const raw = window.innerHeight - vv.height - vv.offsetTop;
+      const next = raw > KEYBOARD_OPEN_THRESHOLD ? Math.max(0, raw) : 0;
+      setOffset((prev) => (prev === next ? prev : next));
     };
 
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
+    const scheduleRecheck = () => {
+      if (recheckId !== null) window.clearTimeout(recheckId);
+      recheckId = window.setTimeout(() => {
+        compute();
+        recheckId = null;
+      }, 180);
+    };
+
+    const onFocusOut = () => scheduleRecheck();
+
+    vv.addEventListener("resize", compute);
+    vv.addEventListener("scroll", compute);
+    document.addEventListener("focusout", onFocusOut, true);
     return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
+      if (recheckId !== null) window.clearTimeout(recheckId);
+      vv.removeEventListener("resize", compute);
+      vv.removeEventListener("scroll", compute);
+      document.removeEventListener("focusout", onFocusOut, true);
     };
   }, []);
 
@@ -68,33 +87,6 @@ const DrawerContent = React.forwardRef<
 
   React.useImperativeHandle(ref, () => innerRef.current as HTMLDivElement);
 
-  // When the keyboard opens, ensure the focused field is visible inside the
-  // drawer's scrollable area. We delay slightly so the layout settles after the
-  // visualViewport resize event.
-  React.useEffect(() => {
-    if (keyboardOffset <= 0) return;
-    const el = document.activeElement as HTMLElement | null;
-    if (!el) return;
-    const tag = el.tagName;
-    const editable =
-      tag === "INPUT" ||
-      tag === "TEXTAREA" ||
-      tag === "SELECT" ||
-      el.isContentEditable;
-    if (!editable) return;
-    if (!innerRef.current?.contains(el)) return;
-    const id = window.setTimeout(() => {
-      try {
-        el.scrollIntoView({ block: "center", behavior: "smooth" });
-      } catch {
-        el.scrollIntoView();
-      }
-    }, 80);
-    return () => window.clearTimeout(id);
-  }, [keyboardOffset]);
-
-  const keyboardOpen = keyboardOffset > 0;
-
   return (
     <DrawerPortal>
       <DrawerOverlay className={overlayClassName} />
@@ -109,23 +101,12 @@ const DrawerContent = React.forwardRef<
           paddingBottom: "env(safe-area-inset-bottom)",
           paddingLeft: "env(safe-area-inset-left)",
           paddingRight: "env(safe-area-inset-right)",
-          transition:
-            "bottom 0.25s ease-out, max-height 0.25s ease-out, padding-bottom 0.25s ease-out",
-          // Consumer styles (e.g. maxHeight) come first so we can override them
-          // when the keyboard is open and the drawer must shrink to fit.
+          // Expose the keyboard height as a CSS var so consumers can lift fixed
+          // input bars above the keyboard (e.g. `marginBottom: var(--keyboard-offset)`)
+          // without resizing the drawer itself — matching native iOS behavior where
+          // the keyboard overlays the sheet instead of shrinking it.
+          ["--keyboard-offset" as any]: `${keyboardOffset}px`,
           ...style,
-          ...(keyboardOpen
-            ? {
-                bottom: `${keyboardOffset}px`,
-                // Cap the drawer height to the space above the keyboard so the
-                // top of the sheet (drag handle, header) never goes off-screen
-                // when consumers also set maxHeight (e.g. min(80dvh, ...)).
-                maxHeight: `calc(100dvh - ${keyboardOffset}px - env(safe-area-inset-top) - 8px)`,
-                // The keyboard already provides bottom inset; safe-area would
-                // double-pad and push the last input out of view.
-                paddingBottom: 0,
-              }
-            : null),
         }}
         {...props}
       >

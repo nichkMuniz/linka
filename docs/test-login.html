@@ -490,10 +490,6 @@ const BLOCKS = [
       { id:"3.3.2", scenario:"Enviar com email válido", steps:"Digitar email cadastrado → Enviar link", expected:"Toast de sucesso" },
       { id:"3.3.3", scenario:"Enviar com email inválido", steps:"Digitar 'abc' → Enviar link", expected:"Toast de erro ou botão desabilitado" },
       { id:"3.3.4", scenario:"Voltar ao login", steps:"Clicar no link Voltar", expected:"Formulário de recuperação some, login aparece" },
-      { id:"3.4.1", scenario:"Botão biometria oculto sem suporte", steps:"Abrir em dispositivo sem WebAuthn", expected:"Botão Entrar com biometria não aparece" },
-      { id:"3.4.2", scenario:"Botão biometria visível com cadastro", steps:"Abrir em dispositivo com biometria registrada", expected:"Botão Entrar com biometria visível" },
-      { id:"3.4.3", scenario:"Login biométrico bem-sucedido", steps:"Clicar no botão e autenticar", expected:"Redireciona para /" },
-      { id:"3.4.4", scenario:"Oferta de cadastro pós-login", steps:"Login normal em dispositivo com WebAuthn disponível", expected:"Modal/prompt para cadastrar biometria aparece" },
     ]
   },
   {

@@ -22,7 +22,7 @@ Você pensa como um **adversário construtivo**: tenta quebrar o produto antes q
 - **App**: Linka (fitness social) — PWA mobile-first instalável
 - **Público**: Brasileiros 18–40 anos, mobile-first
 - **Plataforma**: Supabase (PostgreSQL + Auth + Realtime), React/Vite
-- **Auth**: Supabase Auth (email/senha + biometria)
+- **Auth**: Supabase Auth (email/senha)
 - **Dados**: RLS ativa, dados isolados por `user_id`
 - **Deploy**: PWA instalável (não está em App Store — sem review gate)
 - **Funcionalidades críticas**:

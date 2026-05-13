@@ -94,7 +94,7 @@ export function FlowCreationDialog({
         throw new Error("Câmera não suportada neste dispositivo");
       }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: mode }, width: { ideal: 1080 }, height: { ideal: 1920 } },
+        video: { facingMode: { ideal: mode } },
         audio: false,
       });
       streamRef.current = stream;
@@ -120,6 +120,55 @@ export function FlowCreationDialog({
     }
     return () => stopStream();
   }, [open, step, facingMode, startStream, stopStream]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const scrollY = window.scrollY;
+    const body = document.body;
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      overflow: body.style.overflow,
+      htmlOverflow: document.documentElement.style.overflow,
+      touchAction: body.style.touchAction,
+      overscroll: body.style.overscrollBehavior,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    body.style.touchAction = "none";
+    body.style.overscrollBehavior = "none";
+    document.documentElement.style.overflow = "hidden";
+
+    const preventTouchMove = (e: TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (!target.closest("[data-flow-dialog-root]")) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener("touchmove", preventTouchMove, { passive: false });
+
+    return () => {
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.left = prev.left;
+      body.style.right = prev.right;
+      body.style.width = prev.width;
+      body.style.overflow = prev.overflow;
+      body.style.touchAction = prev.touchAction;
+      body.style.overscrollBehavior = prev.overscroll;
+      document.documentElement.style.overflow = prev.htmlOverflow;
+      document.removeEventListener("touchmove", preventTouchMove);
+      window.scrollTo(0, scrollY);
+    };
+  }, [open]);
 
   const handleFlipCamera = () => {
     setFacingMode((m) => (m === "user" ? "environment" : "user"));
@@ -348,6 +397,7 @@ export function FlowCreationDialog({
   const overlay = (
     <>
       <div
+        data-flow-dialog-root
         className="fixed inset-0 z-[100] bg-black flex flex-col overflow-hidden"
         style={{ height: "100dvh", width: "100vw" }}
         role="dialog"

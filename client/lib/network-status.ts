@@ -51,6 +51,61 @@ export function getNetworkStatus(): NetworkStatus {
   return { ...networkStatus };
 }
 
+function isTransientNetworkError(err: unknown): boolean {
+  if (!err) return false;
+  const anyErr = err as any;
+  const name = String(anyErr?.name ?? "").toLowerCase();
+  const msg = String(anyErr?.message ?? anyErr ?? "").toLowerCase();
+  if (name.includes("authretryablefetcherror") || name === "typeerror" || name === "aborterror") {
+    return true;
+  }
+  return (
+    msg.includes("fetch") ||
+    msg.includes("network") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("load failed") ||
+    msg.includes("timeout") ||
+    msg.includes("timed out") ||
+    msg.includes("connection") ||
+    msg.includes("offline")
+  );
+}
+
+// Wrap a Supabase call (or any async network op) with a one-shot retry for the
+// iOS WKWebView cold-start race, where the first request after launch can fail
+// before the network stack is ready. Detects both thrown errors and Supabase's
+// `{ error }` return shape.
+export async function withNetworkRetry<T>(
+  op: () => Promise<T>,
+  opts: { retries?: number; delayMs?: number } = {},
+): Promise<T> {
+  const retries = opts.retries ?? 1;
+  const delayMs = opts.delayMs ?? 1500;
+
+  let lastThrown: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const result = await op();
+      const errField = (result as any)?.error;
+      if (errField && isTransientNetworkError(errField) && attempt < retries) {
+        await checkSupabaseReachability().catch(() => false);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      return result;
+    } catch (err) {
+      lastThrown = err;
+      if (attempt < retries && isTransientNetworkError(err)) {
+        await checkSupabaseReachability().catch(() => false);
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastThrown;
+}
+
 export async function checkSupabaseReachability(): Promise<boolean> {
   if (!hasSupabaseConfig) {
     return false;

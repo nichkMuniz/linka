@@ -597,7 +597,6 @@ export function AddRoutineModal({
         open={createWorkoutDrawerOpen}
         onOpenChange={setCreateWorkoutDrawerOpen}
         muscleGroups={uniqueMuscleGroups}
-        initialName={createWorkoutInitialName}
         onCreated={(workout) => {
           onWorkoutCreated(workout);
           onSelectedItemsChange(new Set([...selectedItems, workout.id]));

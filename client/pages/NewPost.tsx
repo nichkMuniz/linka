@@ -12,6 +12,7 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
+import { withNetworkRetry } from "@/lib/network-status";
 import {
   getUserGoalsDb,
   createPostDb,
@@ -669,15 +670,17 @@ export default function NewPost() {
 
         const timestamp = Date.now();
         const filePath = `${user.id}/${timestamp}-${i}.jpg`;
-        const { error: uploadError } = await supabase.storage
-          .from("posts")
-          .upload(filePath, croppedFile, { contentType: "image/jpeg", upsert: false });
+        const { error: uploadError } = await withNetworkRetry(() =>
+          supabase!.storage
+            .from("posts")
+            .upload(filePath, croppedFile, { contentType: "image/jpeg", upsert: false }),
+        );
         if (uploadError) throw new Error(`${t("newpost_upload_error_file").replace("{name}", file.name)}: ${uploadError.message}`);
         uploadedPaths.push(filePath);
         const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
         uploadedUrls.push(urlData.publicUrl);
       }
-      await createPostDb(uploadedUrls, description, selectedGoalId || null);
+      await withNetworkRetry(() => createPostDb(uploadedUrls, description, selectedGoalId || null));
       if (selectedGoalId) {
         try { await incrementGoalProgressDb(selectedGoalId); } catch {}
       }
@@ -721,12 +724,14 @@ export default function NewPost() {
         webm: "video/webm", avi: "video/x-msvideo", mkv: "video/x-matroska", "3gp": "video/3gpp",
       };
       const contentType = selectedVideoFile.type || contentTypeMap[extension] || "video/mp4";
-      const { error: uploadError } = await supabase.storage
-        .from("posts")
-        .upload(filePath, selectedVideoFile, { contentType, upsert: false });
+      const { error: uploadError } = await withNetworkRetry(() =>
+        supabase!.storage
+          .from("posts")
+          .upload(filePath, selectedVideoFile, { contentType, upsert: false }),
+      );
       if (uploadError) throw new Error(`${t("newpost_upload_error_video")}: ${uploadError.message}`);
       const { data: urlData } = supabase.storage.from("posts").getPublicUrl(filePath);
-      await createShotDb(urlData.publicUrl, videoDescription, null);
+      await withNetworkRetry(() => createShotDb(urlData.publicUrl, videoDescription, null));
       toast({ title: t("newpost_success"), description: t("newpost_shot_published") });
       videoDraft.file = null;
       if (videoDraft.preview?.startsWith("blob:")) URL.revokeObjectURL(videoDraft.preview);

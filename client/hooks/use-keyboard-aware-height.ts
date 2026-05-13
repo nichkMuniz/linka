@@ -1,27 +1,25 @@
 import * as React from "react";
 
 /**
- * Returns the current visual viewport height in px.
- * On iOS, this shrinks when the software keyboard appears, allowing
- * drawers/modals to cap their height and keep inputs visible.
+ * Returns the full window height, ignoring the iOS software keyboard.
+ *
+ * Drawers/modals using this value keep their size constant when the keyboard
+ * opens — matching native iOS behavior where the keyboard overlays the sheet.
+ * Inner input bars that need to stay visible should lift themselves above the
+ * keyboard via `marginBottom: var(--keyboard-offset)` (set by `DrawerContent`).
  */
 export function useKeyboardAwareHeight() {
   const [height, setHeight] = React.useState<number>(() =>
-    typeof window !== "undefined"
-      ? (window.visualViewport?.height ?? window.innerHeight)
-      : 800,
+    typeof window !== "undefined" ? window.innerHeight : 800,
   );
 
   React.useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-
-    const update = () => setHeight(vv.height);
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
+    const update = () => setHeight(window.innerHeight);
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
     return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
     };
   }, []);
 

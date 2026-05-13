@@ -1021,6 +1021,7 @@ Treinos salvos / atribuídos a um usuário.
 | `scheduled_time` | time | — | — | Horário diário de lembrete (ex: `07:30:00`) |
 | `routine_id` | bigint | FK → `routines.id` ON DELETE SET NULL | — | Rotina à qual este exercício pertence |
 | `notes` | text | — | — | Notas livres do usuário para este exercício |
+| `time_to_rest` | integer | — | — | Tempo de descanso entre séries (em segundos) escolhido pelo usuário para este exercício |
 
 ---
 
@@ -1059,6 +1060,7 @@ Catálogo de treinos disponíveis na plataforma.
 | `muscle_group` | text | — | — | Grupo muscular principal |
 | `equipment` | text | — | — | Equipamentos necessários |
 | `wger_id` | integer | — | — | ID de referência no wger |
+| `created_by_user` | boolean | — | `false` | `true` quando o exercício foi criado manualmente pelo usuário via "Criar Exercício Personalizado" |
 
 ---
 

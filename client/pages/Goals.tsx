@@ -175,7 +175,6 @@ import { ExecuteAtDrawer } from "@/components/goals/execute-at-drawer";
 import { LinkGoalStepDrawer } from "@/components/goals/link-goal-step-drawer";
 import { ScheduledTimeDrawer } from "@/components/goals/scheduled-time-drawer";
 import { useRoutineNotifications, requestNotificationPermission, formatScheduledTime } from "@/hooks/use-routine-notifications";
-import { startWorkoutLiveActivity, updateWorkoutLiveActivity, stopWorkoutLiveActivity } from "@/hooks/use-live-activity";
 import { GpsTracking, isNativeGpsSupported, requestLocationPermission } from "@/hooks/use-native-gps";
 import {
   updateRoutineScheduledTimeDb,
@@ -1269,6 +1268,15 @@ export default function Goals() {
           setRoutines(criticalResults[2]);
           const loadedUserWorkouts = criticalResults[3];
           setUserWorkouts(loadedUserWorkouts);
+          setWorkoutExerciseRestTimes((prev) => {
+            const next = { ...prev };
+            for (const w of loadedUserWorkouts as any[]) {
+              if (w?.workout_id && w?.time_to_rest != null && next[w.workout_id] == null) {
+                next[w.workout_id] = Number(w.time_to_rest);
+              }
+            }
+            return next;
+          });
           const uwIds = loadedUserWorkouts.map((w: any) => w.id).filter(Boolean);
           if (uwIds.length > 0) {
             getRoutineLastDatesBatchDb(user.id, uwIds).then(setRoutineLastDates);
@@ -1445,64 +1453,6 @@ export default function Goals() {
       .then(setRoutineCompletedTodayStatus)
       .catch(() => setRoutineCompletedTodayStatus(false));
   }, [user]);
-
-  // Live Activity: start when workout begins; keep alive while minimized; stop only on finish
-  React.useEffect(() => {
-    const isActive = workoutModalOpen || workoutMinimized;
-    if (!isActive || workoutStartTime === null) return;
-
-    const firstExercise = userWorkouts[currentWorkoutIndex ?? 0];
-    const exerciseName = firstExercise?.workoutName ?? selectedRoutineName ?? "Treino";
-    const completedSeries = firstExercise
-      ? (workoutSeries[firstExercise.workout_id] ?? []).filter((s) => s.completed).length
-      : 0;
-    const totalSeries = firstExercise
-      ? (workoutSeries[firstExercise.workout_id] ?? []).length
-      : 0;
-    const seriesLabel = `Série ${completedSeries}/${totalSeries}`;
-
-    // Pass the real start timestamp so the lock-screen timer auto-advances
-    // without needing JS updates while the app is backgrounded.
-    startWorkoutLiveActivity({
-      routineName: selectedRoutineName ?? "Treino",
-      exerciseName,
-      seriesLabel,
-      startTimeMs: workoutStartTime,
-    });
-
-    // Only update when exercise/series data changes — timer advances on its own.
-    return () => {
-      // Do NOT stop the Live Activity here — it should stay visible on lock screen
-      // while workout is minimized. stopWorkoutLiveActivity() is called explicitly
-      // when the workout is finished or cancelled.
-    };
-  }, [workoutModalOpen, workoutMinimized, workoutStartTime]);
-
-  // Update Live Activity label when the current exercise or its series change
-  const _currentExId = userWorkouts[currentWorkoutIndex ?? 0]?.workout_id;
-  const _currentSeriesKey = JSON.stringify(workoutSeries[_currentExId ?? ""] ?? []);
-  React.useEffect(() => {
-    const isActive = workoutModalOpen || workoutMinimized;
-    if (!isActive || workoutStartTime === null) return;
-    // Don't override the rest-phase state from the working-phase effect —
-    // the rest start/end branches below own the activity state while resting.
-    if (globalRestTimerActive) return;
-    const ex = userWorkouts[currentWorkoutIndex ?? 0];
-    if (!ex) return;
-    const done = (workoutSeries[ex.workout_id] ?? []).filter((s) => s.completed).length;
-    const total = (workoutSeries[ex.workout_id] ?? []).length;
-    updateWorkoutLiveActivity({
-      exerciseName: ex.workoutName ?? selectedRoutineName ?? "Treino",
-      seriesLabel: `Série ${done}/${total}`,
-      phase: "working",
-      pausedElapsedSeconds: Math.floor((Date.now() - workoutStartTime) / 1000),
-      isPaused: false,
-      restEndsAtMs: null,
-      restTotalSeconds: 0,
-      nextSeriesLabel: "",
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentWorkoutIndex, _currentSeriesKey, workoutModalOpen, workoutMinimized, globalRestTimerActive]);
 
   // Initialize workoutSeries with one series for each exercise when modal opens
   React.useEffect(() => {
@@ -2263,6 +2213,22 @@ export default function Goals() {
       ...workoutExerciseRestTimes,
       [workoutId]: seconds,
     });
+    if (user) {
+      supabase
+        .from("user_workouts")
+        .update({ time_to_rest: seconds })
+        .eq("user_id", user.id)
+        .eq("workout_id", workoutId)
+        .then(({ error }) => {
+          if (error) {
+            console.error("Error saving rest time:", error);
+            toast({
+              title: t("goals_save_error") || "Erro ao salvar",
+              variant: "destructive",
+            });
+          }
+        });
+    }
   };
 
   const handleSetExerciseNote = (workoutId: string, note: string) => {
@@ -2332,26 +2298,6 @@ export default function Goals() {
         setGlobalRestTimerKey((prev) => prev + 1);
         setRestBannerVisible(true);
         setTimeout(() => setRestTimerModalOpen(true), 50);
-
-        // Push rest phase to the iOS Live Activity so the lock-screen widget
-        // shows the countdown + next-series preview (image 2 mock).
-        const ex = userWorkouts.find((w) => w.workout_id === workoutId);
-        const exName = ex?.workoutName ?? selectedRoutineName ?? "Treino";
-        const completedCount = updated.filter((s) => s.completed).length;
-        const totalCount = updated.length;
-        const nextSerie = updated.find((s) => !s.completed);
-        const nextLabel = nextSerie
-          ? `A seguir: série ${completedCount + 1} de ${totalCount} (${nextSerie.kg} kg x ${nextSerie.reps} rep)`
-          : `Última série concluída`;
-        updateWorkoutLiveActivity({
-          exerciseName: exName,
-          seriesLabel: `Série ${completedCount}/${totalCount}`,
-          phase: "resting",
-          restEndsAtMs: Date.now() + restSeconds * 1000,
-          restTotalSeconds: restSeconds,
-          nextSeriesLabel: nextLabel,
-          isPaused: false,
-        });
       }
     }
   };
@@ -2394,23 +2340,6 @@ export default function Goals() {
         toast({
           title: "Tempo de descanso terminou!",
           description: "Pronto para a próxima série?",
-        });
-      }
-
-      // Switch the Live Activity back to the working phase
-      if (workoutStartTime !== null) {
-        const ex = userWorkouts[currentWorkoutIndex ?? 0];
-        const done = ex ? (workoutSeries[ex.workout_id] ?? []).filter((s) => s.completed).length : 0;
-        const total = ex ? (workoutSeries[ex.workout_id] ?? []).length : 0;
-        updateWorkoutLiveActivity({
-          exerciseName: ex?.workoutName ?? selectedRoutineName ?? "Treino",
-          seriesLabel: `Série ${done}/${total}`,
-          phase: "working",
-          pausedElapsedSeconds: Math.floor((Date.now() - workoutStartTime) / 1000),
-          isPaused: false,
-          restEndsAtMs: null,
-          restTotalSeconds: 0,
-          nextSeriesLabel: "",
         });
       }
     }
@@ -4637,7 +4566,6 @@ export default function Goals() {
           : "Treino concluído";
 
         const closeSummary = () => {
-          stopWorkoutLiveActivity();
           setWorkoutSummaryOpen(false);
           setWorkoutSummaryData(null);
           setSelectedRoutineName(null);
@@ -6096,7 +6024,6 @@ export default function Goals() {
         open={createWorkoutDrawerOpen}
         onOpenChange={setCreateWorkoutDrawerOpen}
         muscleGroups={uniqueMuscleGroups}
-        initialName={createWorkoutInitialName}
         onCreated={(workout) => {
           setWorkouts((prev) => [workout, ...prev]);
           setSelectedItems((prev) => new Set([...prev, workout.id]));

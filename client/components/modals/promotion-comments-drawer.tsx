@@ -75,6 +75,10 @@ export function PromotionCommentsDrawer({
       return;
     }
     try {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) {
+        active.blur();
+      }
       setSubmitting(true);
       await addPromotionCommentDb(promotionId, draft);
       setDraft("");
@@ -289,9 +293,12 @@ export function PromotionCommentsDrawer({
             )}
           </div>
 
-          {/* Input */}
+          {/* Input — floats above the iOS keyboard via --keyboard-offset */}
           {user ? (
-            <div className="space-y-2 shrink-0">
+            <div
+              className="space-y-2 shrink-0 transition-[margin] duration-200 ease-out"
+              style={{ marginBottom: "var(--keyboard-offset, 0px)" }}
+            >
               <Textarea
                 placeholder="A promoção tá boa? Já expirou? Compartilhe com a galera..."
                 value={draft}

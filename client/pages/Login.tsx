@@ -1,6 +1,5 @@
 import * as React from "react";
 
-import { NativeBiometric } from "@/lib/biometric-plugin";
 import { App as CapApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { SignInWithApple, type SignInWithAppleResponse } from "@capacitor-community/apple-sign-in";
@@ -27,8 +26,9 @@ import {
   addNetworkStatusListener,
   checkSupabaseReachability,
   getNetworkStatus,
+  withNetworkRetry,
 } from "@/lib/network-status";
-import { Fingerprint, Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, Chrome } from "lucide-react";
+import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, Chrome } from "lucide-react";
 import { useTheme } from "next-themes";
 import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb } from "@/lib/ritmofit-db";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
@@ -107,9 +107,6 @@ export default function Login() {
   const [displayName, setDisplayName] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [networkStatus, setNetworkStatus] = React.useState(getNetworkStatus());
-  const [biometricAvailable, setBiometricAvailable] = React.useState(false);
-  const [hasBiometricRegistered, setHasBiometricRegistered] = React.useState(false);
-  const [showBiometricSetup, setShowBiometricSetup] = React.useState(false);
 
   // Multi-step signup states
   const [signupStep, setSignupStep] = React.useState(1);
@@ -156,8 +153,6 @@ export default function Login() {
   // true quando o usuário autenticou via OAuth (Google/Apple) mas ainda não tem perfil completo
   const [isOAuthSignup, setIsOAuthSignup] = React.useState(false);
 
-  const BIOMETRIC_SERVER = "linka.app";
-
   const canSubmit =
     !busy &&
     email.trim().length > 0 &&
@@ -171,43 +166,6 @@ export default function Login() {
     });
 
     return unsubscribe;
-  }, []);
-
-  const biometricAutoTriggeredRef = React.useRef(false);
-  // Ref to avoid stale-closure issues when auto-triggering from useEffect
-  const biometricAvailableRef = React.useRef(false);
-
-  React.useEffect(() => {
-    const checkBiometric = async () => {
-      try {
-        const result = await NativeBiometric.isAvailable({ useFallback: false });
-        setBiometricAvailable(result.isAvailable);
-        biometricAvailableRef.current = result.isAvailable;
-        if (result.isAvailable) {
-          // Check Keychain directly instead of relying on localStorage (survives reinstalls)
-          try {
-            await NativeBiometric.getCredentials({ server: BIOMETRIC_SERVER });
-            setHasBiometricRegistered(true);
-            localStorage.setItem("biometric_registered", "true");
-            // Auto-trigger Face ID on app open if credentials exist
-            if (!biometricAutoTriggeredRef.current) {
-              biometricAutoTriggeredRef.current = true;
-              // Small delay to let the UI render first, then trigger Face ID prompt directly
-              setTimeout(() => triggerBiometricLogin(), 600);
-            }
-          } catch {
-            // No credentials in Keychain — reset localStorage flag
-            localStorage.removeItem("biometric_registered");
-            setHasBiometricRegistered(false);
-          }
-        }
-      } catch {
-        setBiometricAvailable(false);
-        biometricAvailableRef.current = false;
-      }
-    };
-    checkBiometric();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Check if signup email already exists — debounced 600ms
@@ -244,8 +202,6 @@ export default function Login() {
     if (!user) return;
     if (isCompletingSignup) return;
     if (showNewPassword) return;
-    // Aguarda o usuário decidir sobre registro biométrico antes de navegar.
-    if (showBiometricSetup) return;
 
     const deeplink = sessionStorage.getItem("deeplink_redirect");
     if (deeplink) {
@@ -254,7 +210,7 @@ export default function Login() {
     } else {
       navigate("/", { replace: true });
     }
-  }, [authLoading, user, navigate, isCompletingSignup, showNewPassword, showBiometricSetup]);
+  }, [authLoading, user, navigate, isCompletingSignup, showNewPassword]);
 
   const submit = async (mode: "login" | "signup") => {
     if (!hasSupabaseConfig || !supabase) {
@@ -288,19 +244,12 @@ export default function Login() {
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
 
-        const attemptLogin = () =>
+        const { error } = await withNetworkRetry(() =>
           supabase!.auth.signInWithPassword({
             email: trimmedEmail,
             password: trimmedPassword,
-          });
-
-        let { error } = await attemptLogin();
-
-        // Auto-retry once on network/fetch errors (common on iOS cold start)
-        if (error && (error.message.toLowerCase().includes("fetch") || error.message.toLowerCase().includes("network") || error.message.toLowerCase().includes("failed"))) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          ({ error } = await attemptLogin());
-        }
+          }),
+        );
 
         if (error) {
           if (isEmailNotConfirmed(error.message)) {
@@ -332,12 +281,6 @@ export default function Login() {
           title: "Login feito",
           description: "Bem-vindo de volta.",
         });
-
-        // Offer biometric registration if available and not yet registered
-        if (biometricAvailable && !hasBiometricRegistered) {
-          setShowBiometricSetup(true);
-          return;
-        }
 
         navigate("/", { replace: true });
         return;
@@ -487,20 +430,13 @@ export default function Login() {
           await new Promise((resolve) => setTimeout(resolve, 500));
         }
 
-        const attemptSignUp = () =>
+        const { error: signUpError } = await withNetworkRetry(() =>
           supabase!.auth.signUp({
             email: trimmedEmail,
             password: trimmedPassword,
             options: { data: signUpMeta },
-          });
-
-        let { error: signUpError } = await attemptSignUp();
-
-        // Auto-retry once on network errors (common on iOS cold start)
-        if (signUpError && (signUpError.message.toLowerCase().includes("fetch") || signUpError.message.toLowerCase().includes("network") || signUpError.message.toLowerCase().includes("failed"))) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          ({ error: signUpError } = await attemptSignUp());
-        }
+          }),
+        );
 
         if (signUpError) {
           const signUpErrMsg = signUpError.message?.toLowerCase() || "";
@@ -518,10 +454,12 @@ export default function Login() {
         }
 
         // Sign in after signup
-        const { error: signInError } = await supabase!.auth.signInWithPassword({
-          email: trimmedEmail,
-          password: trimmedPassword,
-        });
+        const { error: signInError } = await withNetworkRetry(() =>
+          supabase!.auth.signInWithPassword({
+            email: trimmedEmail,
+            password: trimmedPassword,
+          }),
+        );
 
         if (signInError && !isEmailNotConfirmed(signInError.message)) {
           toast({ title: "Conta criada, mas não foi possível entrar", description: signInError.message });
@@ -759,108 +697,6 @@ export default function Login() {
     setIsCompletingSignup(false);
     setIsOAuthSignup(false);
     navigate("/", { replace: true });
-  };
-
-  const handleRegisterBiometric = async (redirectAfter: boolean = false) => {
-    if (!biometricAvailable) {
-      toast({ title: "Biometria não disponível", description: "Seu dispositivo não suporta autenticação biométrica." });
-      return;
-    }
-    setBusy(true);
-    try {
-      // Verify identity with Face ID / Touch ID before storing credentials
-      await NativeBiometric.verifyIdentity({
-        reason: "Confirme sua identidade para registrar o Face ID",
-        title: "Registro biométrico",
-        useFallback: true,
-      });
-
-      // Store credentials securely in the iOS Keychain
-      await NativeBiometric.setCredentials({
-        username: email,
-        password: password,
-        server: BIOMETRIC_SERVER,
-      });
-
-      localStorage.setItem("biometric_registered", "true");
-      localStorage.setItem("biometric_email", email);
-
-      toast({ title: "Biometria registrada", description: "Você pode usar Face ID para próximos logins." });
-
-      if (redirectAfter) {
-        setShowBiometricSetup(false);
-        navigate("/", { replace: true });
-      }
-    } catch (err: any) {
-      console.error("Biometric registration error:", err);
-      // User cancelled — don't show error toast
-      if (err?.code !== 16 && err?.message !== "User cancelled") {
-        toast({ title: "Erro ao registrar biometria", description: err?.message || "Tente novamente." });
-      }
-      if (redirectAfter) {
-        setShowBiometricSetup(false);
-        navigate("/", { replace: true });
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Core biometric login logic — called both from button click and auto-trigger on app open.
-  // Uses ref for biometricAvailable to avoid stale-closure issues when called from setTimeout.
-  const triggerBiometricLogin = async () => {
-    if (!biometricAvailableRef.current) return;
-    setBusy(true);
-    try {
-      // Step 1: show Face ID / Touch ID prompt to authenticate the user
-      await NativeBiometric.verifyIdentity({
-        reason: "Autentique-se para acessar sua conta",
-        title: "Face ID",
-        useFallback: true,
-      });
-
-      // Step 2: retrieve stored credentials from Keychain (only reached if step 1 succeeded)
-      const credentials = await NativeBiometric.getCredentials({ server: BIOMETRIC_SERVER });
-
-      if (!supabase) throw new Error("Supabase não configurado");
-      const { error } = await supabase.auth.signInWithPassword({
-        email: credentials.username,
-        password: credentials.password,
-      });
-
-      if (error) {
-        // Password changed — clear keychain entry so user re-registers
-        await NativeBiometric.deleteCredentials({ server: BIOMETRIC_SERVER }).catch(() => {});
-        localStorage.removeItem("biometric_registered");
-        localStorage.removeItem("biometric_email");
-        setHasBiometricRegistered(false);
-        toast({
-          title: "Falha no login biométrico",
-          description: "Sua senha pode ter sido alterada. Faça login com email e senha para reativar o Face ID.",
-        });
-        return;
-      }
-
-      toast({ title: "Bem-vindo!", description: "Login com Face ID realizado com sucesso." });
-      navigate("/", { replace: true });
-    } catch (err: any) {
-      console.error("Biometric login error:", err);
-      // User cancelled (code -2 / LAError.userCancel) — silent
-      const code = err?.code ?? err?.errorCode;
-      if (code !== -2 && code !== 16 && err?.message !== "User cancelled") {
-        toast({ title: "Erro na autenticação biométrica", description: err?.message || "Tente novamente." });
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleBiometricLogin = async () => {
-    if (!biometricAvailableRef.current) {
-      toast({ title: "Biometria não disponível", description: "Seu dispositivo não suporta autenticação biométrica." });
-      return;
-    }
-    await triggerBiometricLogin();
   };
 
   // Deep link handler para callback do OAuth (Google)
@@ -1253,9 +1089,7 @@ export default function Login() {
               <CardTitle className="text-base">Acessar conta</CardTitle>
               <CardDescription>
                 {hasSupabaseConfig
-                  ? biometricAvailable
-                    ? "Use email e biometria."
-                    : "Use email e senha."
+                  ? "Use email e senha."
                   : "Supabase ainda não foi configurado neste projeto."}
               </CardDescription>
             </CardHeader>
@@ -1464,44 +1298,6 @@ export default function Login() {
                   {isResettingPassword ? "Enviando..." : "Enviar Email"}
                 </Button>
               </div>
-            ) : showBiometricSetup && biometricAvailable ? (
-              <div className="grid gap-4">
-                <div className="rounded-2xl border border-border/60 bg-muted/20 p-6 text-center space-y-4">
-                  <Fingerprint className="h-12 w-12 mx-auto text-brand" />
-                  <div>
-                    <h3 className="text-lg font-semibold">
-                      Registrar Biometria?
-                    </h3>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      Você pode usar sua face ou impressão digital para fazer login de forma mais rápida e segura.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid gap-2">
-                  <Button
-                    type="button"
-                    className="rounded-full"
-                    onClick={() => handleRegisterBiometric(true)}
-                    disabled={busy}
-                  >
-                    <Fingerprint className="h-4 w-4 mr-2" />
-                    Registrar Biometria
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-full"
-                    onClick={() => {
-                      setShowBiometricSetup(false);
-                      navigate("/", { replace: true });
-                    }}
-                    disabled={busy}
-                  >
-                    Pular
-                  </Button>
-                </div>
-              </div>
             ) : (
               <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
                 <TabsList className="grid w-full grid-cols-2 rounded-full bg-muted/40 p-1 shadow-sm ring-1 ring-border/60">
@@ -1534,9 +1330,6 @@ export default function Login() {
                         type="text"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        onFocus={() => {
-                          if (hasBiometricRegistered && !busy) handleBiometricLogin();
-                        }}
                         placeholder="voce@exemplo.com"
                         autoComplete="email"
                         className={email.length > 0 && !isValidEmail(email) ? "border-red-500" : ""}
@@ -1554,9 +1347,6 @@ export default function Login() {
                           type={showPassword ? "text" : "password"}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
-                          onFocus={() => {
-                            if (hasBiometricRegistered && !busy) handleBiometricLogin();
-                          }}
                           placeholder="••••••••"
                           autoComplete="current-password"
                           className="pr-10"
@@ -1584,27 +1374,8 @@ export default function Login() {
                       className="mt-1 rounded-full"
                       disabled={!canSubmit}
                     >
-                      <Fingerprint className="h-4 w-4 mr-2" />
                       {busy ? "Entrando..." : "Entrar"}
                     </Button>
-
-                    {hasBiometricRegistered && (
-                      <div className="flex flex-col items-center gap-1">
-                        <p className="text-xs text-muted-foreground text-center">
-                          Suas credenciais estão salvas. Toque para autenticar com Face ID / Touch ID.
-                        </p>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          className="rounded-full w-full"
-                          disabled={busy}
-                          onClick={handleBiometricLogin}
-                        >
-                          <Fingerprint className="h-4 w-4 mr-2" />
-                          Entrar com Biometria
-                        </Button>
-                      </div>
-                    )}
 
                     <button
                       type="button"

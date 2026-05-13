@@ -15,9 +15,7 @@ Este arquivo define como o Claude deve trabalhar neste projeto. Leia sempre ante
 - **Capacitor sync (`pnpm build && npx cap sync ios`) é OK** — roda no Windows e atualiza arquivos JS/config dentro de `ios/`.
 - **Sem compilador Swift local.** Erros Swift só aparecem no log do Appflow — escreva código conservador, com tipos explícitos e `@available` correto.
 - **Edits em `.pbxproj` são primeira classe.** Formato plist OpenStep, UUIDs hex de 24 chars. Ao adicionar/remover arquivo, atualize **4 lugares**: `PBXBuildFile`, `PBXFileReference`, `PBXGroup` (children) e `PBXSourcesBuildPhase`/`PBXResourcesBuildPhase` (files). Sem isso o Appflow falha.
-- **Compartilhar um arquivo entre targets** (ex.: `ActivityAttributes` entre App e Widget Extension) = **dois `PBXBuildFile` distintos apontando para o mesmo `PBXFileReference`**, um em cada `PBXSourcesBuildPhase` dos targets. **Nunca duplicar o arquivo físico** — Live Activities falham silenciosamente se o tipo for compilado em duas cópias separadas.
 - **Capabilities/permissões** = editar `Info.plist` e `App.entitlements` direto, não via aba "Signing & Capabilities".
-- **Debug de Live Activities / widgets**: peça ao usuário para conferir Ajustes iOS → Linka → Atividades ao Vivo, e Ajustes → Face ID e Código → Atividades ao Vivo (lock screen). Console.app não está disponível — peça reprodução no aparelho.
 - **Fluxo padrão ao concluir mudanças nativas:** `pnpm build` → `npx cap sync ios` → commit → push → build no Appflow → TestFlight.
 
 ### O que continua sendo possível no Windows

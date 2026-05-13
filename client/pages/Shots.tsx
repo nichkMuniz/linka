@@ -313,6 +313,9 @@ export default function Shots() {
       };
 
       let previousShots: ShotWithUser[] = [];
+      const currentShot = shots.find((r) => r.id === shot.id);
+      const wasActive = (currentShot?.userLikes || []).includes(type);
+      if (!wasActive) showIncentiveToast(type);
       try {
         // Optimistic update — apply immediately before server responds
         setShots((prev) => {
@@ -349,7 +352,7 @@ export default function Shots() {
         });
       }
     },
-    [user, togglingIncentives, t]
+    [user, togglingIncentives, t, shots]
   );
 
   const handleOpenComments = React.useCallback(
@@ -649,7 +652,13 @@ export default function Shots() {
             >
               {/* Video */}
               {shot.video_url ? (
-                <div className="h-full w-full relative" onClick={() => handleVideoTap(shot.id)}>
+                <div
+                  className="h-full w-full relative cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleVideoTap(shot.id)}
+                  style={{ WebkitTapHighlightColor: "transparent" }}
+                >
                   <QuickIncentiveOverlay
                     visible={quickOverlayShotId === shot.id}
                     userLikes={shot.userLikes}
