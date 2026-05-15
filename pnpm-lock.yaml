@@ -30,8 +30,8 @@ importers:
         specifier: ^7.0.0
         version: 7.1.8(@capacitor/core@7.6.2)
       '@capacitor/haptics':
-        specifier: ^8.0.2
-        version: 8.0.2(@capacitor/core@7.6.2)
+        specifier: ^7.0.0
+        version: 7.0.5(@capacitor/core@7.6.2)
       '@capacitor/ios':
         specifier: ^7.0.0
         version: 7.6.2(@capacitor/core@7.6.2)
@@ -45,8 +45,8 @@ importers:
         specifier: ^7.0.0
         version: 7.0.4(@capacitor/core@7.6.2)
       '@capacitor/status-bar':
-        specifier: ^8.0.2
-        version: 8.0.2(@capacitor/core@7.6.2)
+        specifier: ^7.0.0
+        version: 7.0.6(@capacitor/core@7.6.2)
       '@capgo/capacitor-photo-library':
         specifier: ^7.2.11
         version: 7.2.11(@capacitor/core@7.6.2)
@@ -857,10 +857,10 @@ packages:
     peerDependencies:
       '@capacitor/core': '>=7.0.0'
 
-  '@capacitor/haptics@8.0.2':
-    resolution: {integrity: sha512-c2hZzRR5Fk1tbTvhG1jhh2XBAf3EhnIerMIb2sl7Mt41Gxx1fhBJFDa0/BI1IbY4loVepyyuqNC9820/GZuoWQ==}
+  '@capacitor/haptics@7.0.5':
+    resolution: {integrity: sha512-ujXuUkL8UG1YLhuJo/q+jiHr0K5JmclGZHmV1RttmiUBRG1XpC4Fc4gXUJyEX+6IoyfwWhgtPvJFRUB31HYnRQ==}
     peerDependencies:
-      '@capacitor/core': '>=8.0.0'
+      '@capacitor/core': '>=7.0.0'
 
   '@capacitor/ios@7.6.2':
     resolution: {integrity: sha512-TZOXn7ZSEMsetrIEb8EHT4X9Nwsed1itqMwe+z5QOCDvm9XZ7i2YsjnrinUC1ZOIgva9IE2l+azus7qOpQ0aCg==}
@@ -882,10 +882,10 @@ packages:
     peerDependencies:
       '@capacitor/core': '>=7.0.0'
 
-  '@capacitor/status-bar@8.0.2':
-    resolution: {integrity: sha512-WXs8YB8B9eEaPZz+bcdY6t2nForF1FLoj/JU0Dl9RRgQnddnS98FEEyDooQhaY7wivr000j4+SC1FyeJkrFO7A==}
+  '@capacitor/status-bar@7.0.6':
+    resolution: {integrity: sha512-7AVqj46b26QikImQzWfsJmzG8NUJZBGkrVSuoeTo+SX/YH3hXH0MqwwFgMqMGHfa/BICDgSvTjM9miVFlq0+RQ==}
     peerDependencies:
-      '@capacitor/core': '>=8.0.0'
+      '@capacitor/core': '>=7.0.0'
 
   '@capacitor/synapse@1.0.4':
     resolution: {integrity: sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==}
@@ -6490,7 +6490,7 @@ snapshots:
       '@capacitor/core': 7.6.2
       '@capacitor/synapse': 1.0.4
 
-  '@capacitor/haptics@8.0.2(@capacitor/core@7.6.2)':
+  '@capacitor/haptics@7.0.5(@capacitor/core@7.6.2)':
     dependencies:
       '@capacitor/core': 7.6.2
 
@@ -6510,7 +6510,7 @@ snapshots:
     dependencies:
       '@capacitor/core': 7.6.2
 
-  '@capacitor/status-bar@8.0.2(@capacitor/core@7.6.2)':
+  '@capacitor/status-bar@7.0.6(@capacitor/core@7.6.2)':
     dependencies:
       '@capacitor/core': 7.6.2
 
