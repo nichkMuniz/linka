@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { PostIncentiveType } from "@/lib/ritmofit-db";
 import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
 import { useLanguage } from "@/lib/language-context";
+import { hapticLight } from "@/lib/haptics";
 
 export function PostIncentiveButton({
   type,
@@ -41,12 +42,11 @@ export function PostIncentiveButton({
       type="button"
       disabled={loading}
       aria-label={label}
-      onClick={onClick}
+      onClick={() => { hapticLight(); onClick(); }}
       animate={controls}
-      whileHover={{ scale: 1.18 }}
       whileTap={{ scale: 0.85 }}
       className={cn(
-        "inline-flex items-center justify-center p-1.5 rounded-full transition-all",
+        "inline-flex items-center justify-center p-2.5 rounded-full transition-all",
         loading && "opacity-50 cursor-not-allowed",
         isActive && "scale-110",
       )}

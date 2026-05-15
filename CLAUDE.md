@@ -110,6 +110,7 @@ O projeto tem agentes especializados na pasta `skills/`. **Use o agente que faz 
 | Testar funcionalidade, validar fluxos, encontrar bugs | `qa-senior-agent` | `skills/qa-senior-agent.md` |
 | Lógica de backend, rotas de API, queries no Supabase, segurança | `backend-senior-agent` | `skills/backend-senior-agent.md` |
 | Remover código morto, imports/variáveis não usadas, melhorias cirúrgicas em código ativo | `frontend-cleanup-agent` | `skills/frontend-cleanup-agent.md` |
+| Implementar feature completa end-to-end (UI + backend + nativo iOS), diagnosticar bugs iOS, editar Info.plist/pbxproj, integrar plugins Capacitor | `fullstack-ios-agent` | `skills/fullstack-ios-agent.md` |
 
 ### Como usar uma skill
 

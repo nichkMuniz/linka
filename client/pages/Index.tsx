@@ -1,5 +1,6 @@
 import * as React from "react";
 import { getFeedPosts, getDiscoverPosts, togglePostLike, FEED_PAGE_SIZE } from "../services/post.service";
+import { withNetworkRetry, checkSupabaseReachability } from "@/lib/network-status";
 import {
   Drawer,
   DrawerContent,
@@ -49,11 +50,11 @@ import { PostSkeleton } from "@/components/shared/animated-loading";
 import type { PostWithStats } from "../services/post.service";
 import { FlowCarousel } from "@/components/feed/flow-carousel";
 import { FlowCreationDialog } from "@/components/modals/flow-creation-dialog";
-import { FlowViewerModal } from "@/components/modals/flow-viewer-modal";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language-context";
+import { hapticLight } from "@/lib/haptics";
 
 function sortStoriesInstagram(storiesList: StoryWithUser[]): StoryWithUser[] {
   const groups: Record<string, StoryWithUser[]> = {};
@@ -106,14 +107,10 @@ export default function Index() {
   const [expandedRoutines, setExpandedRoutines] = React.useState(false);
 
   const [storyCreationOpen, setStoryCreationOpen] = React.useState(false);
-  const [selectedStory, setSelectedStory] = React.useState<StoryWithUser | null>(null);
-  const [storyViewerOpen, setStoryViewerOpen] = React.useState(false);
   const [isCreatingStory, setIsCreatingStory] = React.useState(false);
   const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
   const [currentUserNickname, setCurrentUserNickname] = React.useState<string | null>(null);
-  const [ownerHasViewedFlow, setOwnerHasViewedFlow] = React.useState(false);
   const [viewedStoryIds, setViewedStoryIds] = React.useState<Set<string>>(new Set());
-  const [activeViewerStories, setActiveViewerStories] = React.useState<StoryWithUser[]>([]);
 
   const [shareDrawerOpen, setShareDrawerOpen] = React.useState(false);
   const [shareDrawerText, setShareDrawerText] = React.useState("");
@@ -200,8 +197,7 @@ export default function Index() {
     navigate(location.pathname, { replace: true, state: {} });
     const targetStory = stories.find((s) => String(s.id) === String(state.openFlow));
     if (targetStory) {
-      setSelectedStory(targetStory);
-      setStoryViewerOpen(true);
+      navigate(`/flows/${targetStory.id}`);
     }
   }, [stories, location.state?.openFlow]);
 
@@ -334,6 +330,9 @@ export default function Index() {
         let publicUrl = "";
 
         if (mediaDataUrl) {
+          // Pre-warm network stack on iOS WKWebView to prevent "Load failed" on first attempt
+          await checkSupabaseReachability().catch(() => {});
+
           const response = await fetch(mediaDataUrl);
           const blob = await response.blob();
 
@@ -343,9 +342,10 @@ export default function Index() {
           const fileName = `${Date.now()}-story.${extension}`;
           const filePath = `${user.id}/stories/${fileName}`;
 
-          const { error: uploadError } = await supabase.storage
-            .from("posts")
-            .upload(filePath, blob);
+          const { error: uploadError } = await withNetworkRetry(() =>
+            supabase!.storage.from("posts").upload(filePath, blob),
+            { retries: 2, delayMs: 2000 },
+          );
 
           if (uploadError) throw uploadError;
 
@@ -358,19 +358,13 @@ export default function Index() {
           const enrichedStory: StoryWithUser = {
             ...newStory,
             id: String(newStory.id),
-            userNickname: currentUserNickname || user.email?.split("@")[0] || "Você",
+            userNickname: currentUserNickname || user.email?.split("@")[0] || t("nav_you"),
             userPhoto: currentUserPhoto,
           };
 
-          const currentStories = stories;
           setStories((prev) => [enrichedStory, ...prev]);
-          setOwnerHasViewedFlow(false);
           setStoryCreationOpen(false);
-
-          const ownerStories = [enrichedStory, ...currentStories.filter((s) => s.user_id === user.id)];
-          setActiveViewerStories(ownerStories);
-          setSelectedStory(enrichedStory);
-          setStoryViewerOpen(true);
+          navigate(`/flows/${enrichedStory.id}`);
         }
       } catch (err) {
         console.error("Error creating story:", err);
@@ -382,64 +376,6 @@ export default function Index() {
     [user, currentUserNickname, currentUserPhoto, stories],
   );
 
-  const handleStoryClick = React.useCallback((story: StoryWithUser) => {
-    setSelectedStory(story);
-
-    const isOwner = story.user_id === user?.id;
-    // When viewing own stories: show only own stories.
-    // When viewing another user's stories: show only that user's stories.
-    const storiesList = stories.filter((s) => s.user_id === story.user_id);
-
-    setActiveViewerStories(storiesList.length > 0 ? storiesList : [story]);
-    setStoryViewerOpen(true);
-
-    if (isOwner) {
-      setOwnerHasViewedFlow(true);
-    } else {
-      setViewedStoryIds((prev) => new Set(prev).add(story.id));
-      recordFlowViewDb(story.id, story.user_id).catch((err) => {
-        console.error("Error recording flow view:", err);
-        // Revert optimistic viewed state so the ring reappears on next load
-        setViewedStoryIds((prev) => { const next = new Set(prev); next.delete(story.id); return next; });
-      });
-    }
-  }, [stories, user?.id]);
-
-  const viewerStoriesRef = React.useRef(activeViewerStories);
-  const selectedStoryRef = React.useRef(selectedStory);
-  React.useEffect(() => { viewerStoriesRef.current = activeViewerStories; }, [activeViewerStories]);
-  React.useEffect(() => { selectedStoryRef.current = selectedStory; }, [selectedStory]);
-
-  const handleSkipStory = React.useCallback(() => {
-    const current = selectedStoryRef.current;
-    if (!current) return;
-    const sortedStories = sortStoriesInstagram(viewerStoriesRef.current);
-    const currentIndex = sortedStories.findIndex((s) => s.id === current.id);
-    if (currentIndex === -1) { setStoryViewerOpen(false); return; }
-    if (currentIndex < sortedStories.length - 1) {
-      const next = sortedStories[currentIndex + 1];
-      setSelectedStory(next);
-      // Record view for the story we're navigating to (if not already viewed)
-      if (next.user_id !== user?.id) {
-        setViewedStoryIds((prev) => new Set(prev).add(next.id));
-        recordFlowViewDb(next.id, next.user_id).catch((err) => {
-          console.error("Error recording flow view:", err);
-          setViewedStoryIds((prev) => { const s = new Set(prev); s.delete(next.id); return s; });
-        });
-      }
-    } else {
-      setStoryViewerOpen(false);
-    }
-  }, [user?.id]);
-
-  const handlePrevStory = React.useCallback(() => {
-    const current = selectedStoryRef.current;
-    if (!current) return;
-    const sortedStories = sortStoriesInstagram(viewerStoriesRef.current);
-    const currentIndex = sortedStories.findIndex((s) => s.id === current.id);
-    if (currentIndex <= 0) return;
-    setSelectedStory(sortedStories[currentIndex - 1]);
-  }, []);
 
   const handleAddStoryClick = React.useCallback(() => {
     setStoryCreationOpen(true);
@@ -748,6 +684,37 @@ export default function Index() {
 
   const feedScrollRef = React.useRef<HTMLDivElement>(null);
 
+  // Pull-to-refresh
+  const pullStartY = React.useRef(0);
+  const [pullDistance, setPullDistance] = React.useState(0);
+  const [isPulling, setIsPulling] = React.useState(false);
+  const PULL_THRESHOLD = 72;
+
+  const onTouchStart = React.useCallback((e: React.TouchEvent) => {
+    const scrollEl = feedScrollRef.current?.closest("[data-feed-scroll]") as HTMLElement | null;
+    const scrollTop = scrollEl ? scrollEl.scrollTop : window.scrollY;
+    if (scrollTop > 0) return;
+    pullStartY.current = e.touches[0].clientY;
+    setIsPulling(true);
+  }, []);
+
+  const onTouchMove = React.useCallback((e: React.TouchEvent) => {
+    if (!isPulling) return;
+    const delta = e.touches[0].clientY - pullStartY.current;
+    if (delta > 0) setPullDistance(Math.min(delta * 0.4, PULL_THRESHOLD + 20));
+  }, [isPulling]);
+
+  const onTouchEnd = React.useCallback(() => {
+    if (!isPulling) return;
+    if (pullDistance >= PULL_THRESHOLD) {
+      hapticLight();
+      setDiscoverLoaded(false);
+      loadFeed(true);
+    }
+    setPullDistance(0);
+    setIsPulling(false);
+  }, [isPulling, pullDistance, loadFeed]);
+
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-2xl flex flex-col">
@@ -772,17 +739,36 @@ export default function Index() {
   }
 
   return (
-    <div ref={feedScrollRef} className="mx-auto w-full max-w-2xl flex flex-col">
+    <div
+      ref={feedScrollRef}
+      className="mx-auto w-full max-w-2xl flex flex-col"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      {/* Pull-to-refresh indicator */}
+      {pullDistance > 0 && (
+        <div
+          className="flex items-center justify-center overflow-hidden transition-all"
+          style={{ height: `${pullDistance}px` }}
+        >
+          <div
+            className="h-6 w-6 rounded-full border-2 border-brand border-t-transparent transition-transform"
+            style={{
+              transform: `rotate(${(pullDistance / PULL_THRESHOLD) * 360}deg)`,
+              opacity: pullDistance / PULL_THRESHOLD,
+            }}
+          />
+        </div>
+      )}
       {/* Stories Carousel */}
       <div className="bg-background border-b border-border/60">
         <FlowCarousel
           stories={stories}
           onAddStoryClick={handleAddStoryClick}
-          onStoryClick={handleStoryClick}
           currentUserId={user?.id || ""}
           currentUserPhoto={currentUserPhoto}
           currentUserNickname={currentUserNickname}
-          isOwnerViewing={ownerHasViewedFlow}
           viewedStoryIds={viewedStoryIds}
         />
       </div>
@@ -871,33 +857,6 @@ export default function Index() {
         isLoading={isCreatingStory}
       />
 
-      {/* Flow Viewer Modal */}
-      <FlowViewerModal
-        story={selectedStory}
-        stories={activeViewerStories}
-        open={storyViewerOpen}
-        onOpenChange={setStoryViewerOpen}
-        onNextStory={handleSkipStory}
-        onPrevStory={handlePrevStory}
-        onSelectStory={(s) => {
-          setSelectedStory(s);
-          const storiesList = stories.filter((st) => st.user_id === s.user_id);
-          setActiveViewerStories(storiesList.length > 0 ? storiesList : [s]);
-        }}
-        onDeleted={() => {
-          const deletedId = selectedStory?.id;
-          setStoryViewerOpen(false);
-          setSelectedStory(null);
-          setActiveViewerStories([]);
-          // Remove otimisticamente antes do reload para evitar flash visual
-          if (deletedId) setStories((prev) => prev.filter((s) => s.id !== deletedId));
-          getActiveStoriesDb()
-            .then(setStories)
-            .catch(() => {
-              toast({ title: t("error"), description: t("retry"), variant: "destructive" });
-            });
-        }}
-      />
 
       {/* Goal Progress Drawer */}
       <Drawer open={goalModalOpen} onOpenChange={setGoalModalOpen}>

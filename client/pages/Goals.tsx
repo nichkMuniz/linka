@@ -555,6 +555,12 @@ export default function Goals() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workoutModalOpen]);
 
+  // Signal layout to hide header/footer during workout session
+  React.useEffect(() => {
+    document.body.dataset.fullscreenStep = workoutModalOpen ? "true" : "false";
+    return () => { document.body.dataset.fullscreenStep = "false"; };
+  }, [workoutModalOpen]);
+
   // Edit goal modal state
   const [editGoalModalOpen, setEditGoalModalOpen] = React.useState(false);
   const [editingGoal, setEditingGoal] = React.useState<UserGoal | null>(null);
@@ -3677,9 +3683,11 @@ export default function Goals() {
         }}
       />
 
-      {/* Workout Modal */}
-      <Drawer shouldScaleBackground={false} open={workoutModalOpen} onOpenChange={(open) => { if (!open) { setWorkoutModalSearchQuery(""); setWorkoutModalMuscleFilter(null); if (workoutStartTime !== null) { setWorkoutModalOpen(false); setTimeout(() => setWorkoutMinimized(true), 300); } else { setWorkoutModalOpen(false); setWorkoutDuration(0); setWorkoutStartTime(null); } } }}>
-        <DrawerContent className="max-h-[100dvh] h-[100dvh] mt-0 rounded-none overflow-hidden flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+      {/* Workout Screen — full-screen portal (bypasses Framer Motion transform context, avoids iOS keyboard breaking layout) */}
+      {workoutModalOpen && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[200] bg-background flex flex-col overflow-hidden"
+        >
           {/* Header and Stats */}
           {userWorkouts.length > 0 && (
             <div className="shrink-0 border-b border-border/40 px-4 py-4" style={{ paddingTop: "calc(env(safe-area-inset-top) + 1rem)" }}>
@@ -3767,7 +3775,7 @@ export default function Goals() {
           )}
 
           {/* Rest Timer Banner */}
-          {restBannerVisible && (
+          {restBannerVisible && globalRestTimerRemaining > 0 && (
             <div className="shrink-0 mx-4 mt-3 mb-1 flex items-center gap-3 rounded-xl bg-brand/10 border border-brand/30 px-4 py-3">
               <div className="flex items-center justify-center w-10 h-10 rounded-full bg-brand/20 shrink-0">
                 <svg className="h-5 w-5 text-brand" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -4391,8 +4399,9 @@ export default function Goals() {
               {t("goals_add_exercise_btn")}
             </button>
           </div>
-        </DrawerContent>
-      </Drawer>
+        </div>,
+        document.body
+      )}
 
       {/* PR Celebration Banner — floats above everything during workout */}
       {prCelebration && typeof document !== "undefined" && createPortal(

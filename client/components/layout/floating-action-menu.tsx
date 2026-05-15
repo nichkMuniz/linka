@@ -1,5 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
+import { hapticLight, hapticMedium } from "@/lib/haptics";
 import {
   Home,
   PlusSquare,
@@ -67,13 +68,15 @@ export function FloatingActionMenu() {
       let newX = e.clientX - dragStart.x;
       let newY = e.clientY - dragStart.y;
 
-      // Keep button within viewport
+      // Keep button within viewport respecting safe areas
       const buttonWidth = 64;
       const buttonHeight = 64;
       const padding = 16;
+      const sabRaw = getComputedStyle(document.documentElement).getPropertyValue("--sab").trim();
+      const safeAreaBottom = parseFloat(sabRaw) || 0;
 
       newX = Math.max(padding, Math.min(newX, window.innerWidth - buttonWidth - padding));
-      newY = Math.max(padding, Math.min(newY, window.innerHeight - buttonHeight - padding));
+      newY = Math.max(padding, Math.min(newY, window.innerHeight - buttonHeight - padding - safeAreaBottom));
 
       setFabPosition({ x: newX, y: newY });
     };
@@ -134,7 +137,7 @@ export function FloatingActionMenu() {
                       delay: reverseIndex * 0.045,
                     }}
                   >
-                    <Link to={item.to} onClick={handleClose} className="block">
+                    <Link to={item.to} onClick={() => { hapticLight(); handleClose(); }} className="block">
                       <button
                         className={cn(
                           "flex flex-col items-center gap-1 px-3 py-2 rounded-2xl transition-all duration-200 text-xs font-medium whitespace-nowrap active:scale-95",
@@ -157,7 +160,7 @@ export function FloatingActionMenu() {
         {/* Main FAB Button */}
         <motion.button
           onMouseDown={handleMouseDown}
-          onClick={() => !isDragging && setIsOpen(!isOpen)}
+          onClick={() => { if (!isDragging) { hapticMedium(); setIsOpen(!isOpen); } }}
           whileTap={{ scale: 0.9 }}
           animate={{ rotate: isOpen ? 90 : 0 }}
           transition={{ type: "spring", stiffness: 400, damping: 22 }}

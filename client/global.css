@@ -12,6 +12,7 @@
    * A different format will require also updating the theme in tailwind.config.ts.
   */
   :root {
+    --sab: env(safe-area-inset-bottom);
     --background: 214 40% 97%;
     --foreground: 214 35% 10%;
 
@@ -124,6 +125,19 @@
     overflow-x: hidden;
     /* Prevent Radix UI from injecting padding-right when locking scroll on modal open */
     padding-right: 0 !important;
+  }
+
+  /* Remove tap highlight on all interactive elements (iOS WebView shows grey flash) */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Native momentum scroll on all scrollable containers */
+  .overflow-y-auto,
+  .overflow-x-auto,
+  .overflow-auto,
+  .overflow-scroll {
+    -webkit-overflow-scrolling: touch;
   }
 
   :where(p, span, li, h1, h2, h3, h4, h5, h6, a, button, label, td, th) {

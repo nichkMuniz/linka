@@ -19,7 +19,7 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-black/80  data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      "fixed inset-0 z-[300] bg-black/80  data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className,
     )}
     {...props}
@@ -36,7 +36,7 @@ const DialogContent = React.forwardRef<
       <DialogOverlay />
       {/* Safe-area centering wrapper — ensures dialog never overlaps notch/home-indicator */}
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none md:ml-[122px]"
+        className="fixed inset-0 z-[310] flex items-center justify-center pointer-events-none md:ml-[122px]"
         style={{
           paddingTop: "max(1rem, env(safe-area-inset-top))",
           paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
@@ -47,7 +47,7 @@ const DialogContent = React.forwardRef<
         <DialogPrimitive.Content
           ref={ref}
           className={cn(
-            "pointer-events-auto relative z-50 grid w-full max-w-[600px] gap-4 border bg-background p-6 shadow-lg duration-200 rounded-lg overflow-y-auto",
+            "pointer-events-auto relative z-[310] grid w-full max-w-[600px] gap-4 border bg-background p-6 shadow-lg duration-200 rounded-lg overflow-y-auto",
             "max-h-full",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
             className,

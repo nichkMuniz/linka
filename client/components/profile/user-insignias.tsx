@@ -96,6 +96,7 @@ export function UserInsignias({ userId, showStreak = false }: UserInsigniasProps
         allBadges={allBadges}
         totalCheckIns={totalCheckIns}
         profileUserId={userId}
+        currentActiveBadgeId={topBadge?.id}
         onSelected={load}
       />
     </>

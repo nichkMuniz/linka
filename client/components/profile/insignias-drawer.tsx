@@ -21,6 +21,8 @@ interface InsigniasDrawerProps {
   totalCheckIns: number;
   /** ID do dono do perfil sendo visualizado */
   profileUserId?: string;
+  /** ID da insígnia atualmente ativa/selecionada */
+  currentActiveBadgeId?: string | null;
   /** Callback opcional para o pai recarregar dados após troca de insígnia */
   onSelected?: () => void | Promise<void>;
 }
@@ -32,7 +34,7 @@ const BADGE_COLORS: Record<string, { active: string; check: string; bar: string;
   lendario:  { active: "from-purple-500/20 to-purple-500/5 border-purple-500/40 shadow-purple-500/10", check: "text-purple-600", bar: "bg-purple-500", ring: "ring-purple-500/40" },
 };
 
-export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, totalCheckIns, profileUserId, onSelected }: InsigniasDrawerProps) {
+export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, totalCheckIns, profileUserId, currentActiveBadgeId, onSelected }: InsigniasDrawerProps) {
   const { t } = useLanguage();
   const [isSelecting, setIsSelecting] = React.useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null);
@@ -46,7 +48,7 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
   // Se profileUserId foi passado e é diferente do viewer, é perfil alheio
   const isReadOnly = !!profileUserId && !!currentUserId && profileUserId !== currentUserId;
 
-  const activeBadgeId = overrideActiveId ?? (userBadges.length > 0 ? userBadges[0].badge_id : null);
+  const activeBadgeId = overrideActiveId ?? currentActiveBadgeId ?? (userBadges.length > 0 ? userBadges[0].badge_id : null);
 
   // Reseta override quando o pai atualiza userBadges (ou ao fechar o drawer)
   React.useEffect(() => {

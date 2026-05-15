@@ -52,6 +52,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
+import { hapticLight, hapticMedium } from "@/lib/haptics";
 
 export default function Shots() {
   const { user } = useAuth();
@@ -301,6 +302,7 @@ export default function Shots() {
       const incentiveKey = `${shot.id}-${type}`;
       if (togglingIncentives.has(incentiveKey)) return;
 
+      hapticMedium();
       setTogglingIncentives((prev) => new Set(prev).add(incentiveKey));
 
       const typeKeyMap: Record<number, keyof ShotWithUser["likes"]> = {
@@ -340,8 +342,8 @@ export default function Shots() {
         // Revert optimistic update on failure
         if (previousShots.length > 0) setShots(previousShots);
         toast({
-          title: "Erro ao enviar incentivo",
-          description: err?.message || "Tente novamente.",
+          title: t("shots_incentive_error"),
+          description: err?.message || t("shots_retry"),
           variant: "destructive",
         });
       } finally {
@@ -687,6 +689,7 @@ export default function Shots() {
                     {...({ "webkit-playsinline": "true", "x-webkit-airplay": "deny" } as React.VideoHTMLAttributes<HTMLVideoElement>)}
                     preload="metadata"
                     className="h-full w-full object-cover"
+                    style={{ pointerEvents: "none" }}
                   />
                   {/* Tap feedback icon */}
                   {showPauseIcon && visibleShotId === shot.id && (
@@ -716,6 +719,7 @@ export default function Shots() {
               >
                 <button
                   onClick={() => {
+                    hapticLight();
                     const newMuted = !isMuted;
                     setIsMuted(newMuted);
                     Object.values(videoRefsMap.current).forEach((v) => { v.muted = newMuted; });
@@ -847,7 +851,7 @@ export default function Shots() {
                   })}
                   {/* Comments Button */}
                   <button
-                    onClick={() => handleOpenComments(shot)}
+                    onClick={() => { hapticLight(); handleOpenComments(shot); }}
                     aria-label={`Comentários (${shot.commentCount || 0})`}
                     className="inline-flex shrink-0 items-center gap-1 transition-opacity hover:opacity-80 min-h-[44px] min-w-[44px] justify-center"
                   >

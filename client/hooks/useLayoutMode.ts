@@ -12,6 +12,13 @@ const DEFAULT_FAB_POSITION: FABPosition = {
   y: -1, // Will be calculated on mount
 };
 
+function getSafeAreaBottom(): number {
+  if (typeof window === "undefined") return 0;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--sab").trim();
+  const px = parseFloat(raw);
+  return isNaN(px) ? 0 : px;
+}
+
 export function getDefaultFABPosition(): FABPosition {
   if (typeof window === "undefined") {
     return DEFAULT_FAB_POSITION;
@@ -19,10 +26,11 @@ export function getDefaultFABPosition(): FABPosition {
   const buttonWidth = 64;
   const buttonHeight = 64;
   const padding = 24;
+  const safeAreaBottom = getSafeAreaBottom();
 
   return {
     x: window.innerWidth - buttonWidth - padding,
-    y: window.innerHeight - buttonHeight - padding,
+    y: window.innerHeight - buttonHeight - padding - safeAreaBottom,
   };
 }
 

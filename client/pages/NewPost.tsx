@@ -182,8 +182,12 @@ function InlineCropPreview({
   // Draw canvas — useLayoutEffect to run synchronously after DOM update, avoiding flicker
   React.useLayoutEffect(() => {
     const canvas = canvasRef.current;
-    const img = imgRef.current;
-    if (!canvas || !img || !imageLoaded || containerW === 0) return;
+    if (!canvas || containerW === 0) return;
+    // Always look up the image directly from cache so we get the correct image
+    // even when imageSrc changes but imageLoaded stays true (avoiding stale imgRef).
+    const img = getCachedImage(imageSrc);
+    if (!img.complete || img.naturalWidth === 0) return;
+    imgRef.current = img;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(containerW * dpr);
     canvas.height = Math.round(containerW * dpr);
@@ -199,7 +203,7 @@ function InlineCropPreview({
     const drawW = baseW * scale;
     const drawH = baseH * scale;
     ctx.drawImage(img, (containerW - drawW) / 2 + offsetX, (containerW - drawH) / 2 + offsetY, drawW, drawH);
-  }, [transform, imageLoaded, containerW]);
+  }, [transform, imageLoaded, containerW, imageSrc]);
 
   const getClampedOffset = (scale: number, ox: number, oy: number) => {
     if (!imgRef.current || containerW === 0) return { offsetX: ox, offsetY: oy };
@@ -1152,7 +1156,7 @@ export default function NewPost() {
               mediaType === "post" ? setDescription(e.target.value) : setVideoDescription(e.target.value)
             }
             maxLength={500}
-            className="flex-1 resize-none border-0 shadow-none focus-visible:ring-0 p-0 text-sm leading-relaxed bg-transparent min-h-[80px]"
+            className="flex-1 resize-none border-0 shadow-none focus-visible:ring-0 p-0 text-base leading-relaxed bg-transparent min-h-[80px]"
             rows={4}
           />
         </div>

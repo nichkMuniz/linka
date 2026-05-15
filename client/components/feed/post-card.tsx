@@ -25,6 +25,7 @@ import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
 import { useNavigate } from "react-router-dom";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
+import { hapticLight, hapticMedium } from "@/lib/haptics";
 
 interface PostCardProps {
   post: PostWithStats;
@@ -70,6 +71,16 @@ export function PostCard({
   const badgeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [descExpanded, setDescExpanded] = React.useState(false);
+
+  function renderWithHashtags(text: string) {
+    return text.split(/(\s+)/).map((token, i) =>
+      token.startsWith("#") && token.length > 1 ? (
+        <span key={i} className="text-brand font-medium">{token}</span>
+      ) : (
+        token
+      )
+    );
+  }
   const DESC_MAX_CHARS = 30;
   const description = post.description ?? "";
   const firstLine = description.split("\n")[0] ?? "";
@@ -175,8 +186,8 @@ export function PostCard({
           {/* User info overlay */}
           <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-2 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
             <button
-              onClick={() => navigate(`/usuario/${post.user_id}`)}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity min-w-0 flex-1"
+              onClick={() => { hapticLight(); navigate(`/usuario/${post.user_id}`); }}
+              className="flex items-center gap-2 active:opacity-70 transition-opacity min-w-0 flex-1"
             >
               <UserAvatar
                 photo={post.userPhoto}
@@ -209,7 +220,7 @@ export function PostCard({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-white hover:bg-white/20"
+                    className="h-11 w-11 text-white active:bg-white/20"
                   >
                     <MoreVertical className="h-4 w-4" />
                   </Button>
@@ -288,7 +299,7 @@ export function PostCard({
             <button
               onClick={() => onOpenLikes(post)}
               disabled={likesLoading}
-              className="text-xs font-semibold text-foreground hover:text-brand transition-colors disabled:opacity-50 disabled:cursor-wait"
+              className="text-xs font-semibold text-foreground active:text-brand transition-colors disabled:opacity-50 disabled:cursor-wait"
             >
               {totalLikes} incentivos
             </button>
@@ -304,14 +315,14 @@ export function PostCard({
             <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
               {!isDescTruncatable || descExpanded ? (
                 <>
-                  {description}
+                  {renderWithHashtags(description)}
                   {isDescTruncatable && descExpanded && (
                     <>
                       {" "}
                       <button
                         type="button"
                         onClick={() => setDescExpanded(false)}
-                        className="text-muted-foreground hover:text-foreground transition-colors"
+                        className="text-muted-foreground active:text-foreground transition-colors"
                       >
                         {t("feed_description_less")}
                       </button>
@@ -320,12 +331,12 @@ export function PostCard({
                 </>
               ) : (
                 <>
-                  {truncatedDescription}
+                  {renderWithHashtags(truncatedDescription)}
                   {"... "}
                   <button
                     type="button"
                     onClick={() => setDescExpanded(true)}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    className="text-muted-foreground active:text-foreground transition-colors"
                   >
                     {t("feed_description_more")}
                   </button>
@@ -336,8 +347,8 @@ export function PostCard({
 
           {post.userGoal && (
             <button
-              onClick={() => onOpenGoal(post)}
-              className="w-full text-left group"
+              onClick={() => { hapticMedium(); onOpenGoal(post); }}
+              className="w-full text-left active:opacity-80 transition-opacity"
             >
               <div className="flex items-center gap-1.5 mb-1">
                 <Target className="h-3 w-3 text-brand flex-shrink-0" />

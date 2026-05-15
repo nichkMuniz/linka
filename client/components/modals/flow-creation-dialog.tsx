@@ -94,7 +94,11 @@ export function FlowCreationDialog({
         throw new Error("Câmera não suportada neste dispositivo");
       }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: mode } },
+        video: {
+          facingMode: { ideal: mode },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
         audio: false,
       });
       streamRef.current = stream;

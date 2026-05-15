@@ -14,18 +14,15 @@ function getRouteIndex(path: string) {
 const variants = {
   initial: (dir: number) => ({
     opacity: 0,
-    x: dir * 30,
-    scale: 0.98,
+    x: dir * 16,
   }),
   animate: {
     opacity: 1,
     x: 0,
-    scale: 1,
   },
   exit: (dir: number) => ({
     opacity: 0,
-    x: -dir * 18,
-    scale: 0.98,
+    x: -dir * 10,
   }),
 };
 
@@ -45,7 +42,7 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AnimatePresence mode="wait" initial={false} custom={directionRef.current}>
+    <AnimatePresence mode="popLayout" initial={false} custom={directionRef.current}>
       <motion.div
         key={location.pathname}
         custom={directionRef.current}
@@ -53,7 +50,7 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
         initial="initial"
         animate="animate"
         exit="exit"
-        transition={{ duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
+        transition={{ type: "spring", stiffness: 380, damping: 32, mass: 0.8 }}
         style={{ willChange: "opacity, transform" }}
       >
         {children}

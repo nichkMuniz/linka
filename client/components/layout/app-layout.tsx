@@ -22,6 +22,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { PageTransition } from "@/components/layout/page-transition";
 
 import { Button } from "@/components/ui/button";
+import { hapticLight } from "@/lib/haptics";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -606,13 +607,13 @@ export function AppLayout() {
 
           {/* Right: actions */}
           <div className="absolute right-4 flex items-center gap-1">
-            <Link to="/buscar">
-              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full" aria-label="Buscar">
+            <Link to="/buscar" onClick={() => hapticLight()}>
+              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full active:scale-95 transition-transform" aria-label="Buscar">
                 <Search className="h-5 w-5" />
               </Button>
             </Link>
-            <Link to="/notificacoes">
-              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative" aria-label="Notificações">
+            <Link to="/notificacoes" onClick={() => hapticLight()}>
+              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative active:scale-95 transition-transform" aria-label="Notificações">
                 <Bell className="h-5 w-5" />
                 {unreadNotificationsCount > 0 && (
                   <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand text-white text-xs font-semibold">
@@ -621,8 +622,8 @@ export function AppLayout() {
                 )}
               </Button>
             </Link>
-            <Link to="/comunidade">
-              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative" aria-label="Comunidade">
+            <Link to="/comunidade" onClick={() => hapticLight()}>
+              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative active:scale-95 transition-transform" aria-label="Comunidade">
                 <Users2 className="h-5 w-5" />
                 {unreadCount > 0 && (
                   <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand-2 text-white text-xs font-semibold">
@@ -690,6 +691,7 @@ export function AppLayout() {
                   aria-label={item.label}
                   className="relative flex flex-col items-center justify-center py-2 text-[11px]"
                   onClick={(e) => {
+                    hapticLight();
                     if (isHome && location.pathname === "/") {
                       e.preventDefault();
                       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -698,7 +700,7 @@ export function AppLayout() {
                   }}
                 >
                   <motion.span
-                    whileTap={{ scale: 0.72 }}
+                    whileTap={{ scale: 0.82 }}
                     animate={active ? { y: -4, scale: 1 } : { y: 0, scale: 1 }}
                     transition={{ type: "spring", stiffness: 500, damping: 22 }}
                     className={cn(

@@ -41,6 +41,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { App as CapApp } from "@capacitor/app";
+import { StatusBar, Style as StatusBarStyle } from "@capacitor/status-bar";
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { ThemeProvider } from "@/components/layout/theme-provider";
@@ -67,6 +68,7 @@ const Community = React.lazy(() => import("@/pages/Community"));
 const Notifications = React.lazy(() => import("@/pages/Notifications"));
 const Store = React.lazy(() => import("@/pages/Store"));
 const Shots = React.lazy(() => import("@/pages/Shots"));
+const FlowViewer = React.lazy(() => import("@/pages/FlowViewer"));
 
 import {
   CommunitySkeleton,
@@ -266,6 +268,10 @@ function GlobalFABContainer() {
 
 const App = () => {
   React.useEffect(() => {
+    // Configure native status bar for iOS
+    StatusBar.setStyle({ style: StatusBarStyle.Dark }).catch(() => {});
+    StatusBar.setOverlaysWebView({ overlay: true }).catch(() => {});
+
     // Handle unhandled promise rejections from network errors
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       const reason = event.reason;
@@ -310,6 +316,7 @@ const App = () => {
                   <Route path="/login" element={<Login />} />
 
                   <Route element={<RequireAuth />}>
+                    <Route path="/flows/:storyId" element={<React.Suspense fallback={<div className="fixed inset-0 bg-black" />}><FlowViewer /></React.Suspense>} />
                     <Route element={<AppLayout />}>
                       <Route path="/" element={<Lazy skeleton={<FeedSkeleton />}><Index /></Lazy>} />
                       <Route path="/shots" element={<Lazy skeleton={<ShotsSkeleton />}><Shots /></Lazy>} />

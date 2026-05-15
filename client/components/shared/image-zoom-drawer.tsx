@@ -88,7 +88,7 @@ export function ImageZoomDrawer({ item, onClose }: ImageZoomDrawerProps) {
 
   return (
     <Drawer open={!!item} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DrawerContent className={`flex flex-col modal-enter !z-[150] ${item?.description ? "h-[100dvh] mt-0 rounded-none" : "max-h-[70dvh]"}`} overlayClassName="!z-[140]" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent className={`flex flex-col modal-enter !z-[350] ${item?.description ? "h-[100dvh] mt-0 rounded-none" : "max-h-[70dvh]"}`} overlayClassName="!z-[340]" onOpenAutoFocus={(e) => e.preventDefault()}>
         {item && (
           <>
             <button

@@ -1,4 +1,4 @@
-import * as React from "react";
+import { useNavigate } from "react-router-dom";
 import { StoryWithUser } from "@/lib/ritmofit-db";
 import {
   DropdownMenu,
@@ -8,28 +8,26 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Plus } from "lucide-react";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import { hapticLight } from "@/lib/haptics";
 
 interface FlowCarouselProps {
   stories: StoryWithUser[];
   onAddStoryClick: () => void;
-  onStoryClick: (story: StoryWithUser) => void;
   currentUserId: string;
   currentUserPhoto?: string | null;
   currentUserNickname?: string | null;
-  isOwnerViewing?: boolean;
   viewedStoryIds?: Set<string>;
 }
 
 export function FlowCarousel({
   stories,
   onAddStoryClick,
-  onStoryClick,
   currentUserId,
   currentUserPhoto,
   currentUserNickname,
-  isOwnerViewing,
   viewedStoryIds,
 }: FlowCarouselProps) {
+  const navigate = useNavigate();
   // Group stories by user — always overwrite so the last entry (oldest, since array is newest-first) is stored.
   // This ensures clicking opens from the first (oldest) story posted.
   const storyMap = new Map<string, StoryWithUser>();
@@ -49,13 +47,7 @@ export function FlowCarousel({
   const otherStories = uniqueStories.filter((s) => s.user_id !== currentUserId);
 
   const handleViewFlow = () => {
-    if (userStory) {
-      onStoryClick(userStory);
-    }
-  };
-
-  const handleNewFlow = () => {
-    onAddStoryClick();
+    if (userStory) navigate(`/flows/${userStory.id}`);
   };
 
   return (
@@ -85,18 +77,18 @@ export function FlowCarousel({
             <DropdownMenuItem onClick={handleViewFlow}>
               Ver flow
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleNewFlow}>
+            <DropdownMenuItem onClick={onAddStoryClick}>
               Novo flow
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       ) : (
         <button
-          onClick={onAddStoryClick}
-          className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer hover:opacity-80 transition-opacity"
+          onClick={() => { hapticLight(); onAddStoryClick(); }}
+          className="shrink-0 flex flex-col items-center gap-1 active:scale-95 transition-transform"
         >
           <div className="relative h-14 w-14">
-            <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-transparent group-hover:ring-brand transition-all">
+            <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-transparent transition-all">
               <UserAvatar
                 photo={currentUserPhoto}
                 nickname={currentUserNickname ?? "Seu flow"}
@@ -120,8 +112,8 @@ export function FlowCarousel({
           return (
             <button
               key={story.id}
-              onClick={() => onStoryClick(story)}
-              className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer"
+              onClick={() => { hapticLight(); navigate(`/flows/${story.id}`); }}
+              className="shrink-0 flex flex-col items-center gap-1 active:scale-95 transition-transform"
             >
               <div className="relative">
                 <div className={`h-[60px] w-[60px] rounded-full p-[3px] transition-all ${

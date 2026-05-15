@@ -437,6 +437,8 @@ export const translations = {
     shots_login_desc: "Você precisa estar logado para usar incentivos.",
     shots_options_label: "Opções do clipe",
     shots_user_fallback: "Usuário",
+    shots_incentive_error: "Erro ao enviar incentivo",
+    shots_retry: "Tente novamente.",
     // NewPost page
     newpost_title: "Criar Conteúdo",
     newpost_subtitle: "Inspire a comunidade com sua jornada",
@@ -740,6 +742,7 @@ export const translations = {
     goals_add_series: "Adicionar Série",
     goals_no_exercises_added: "Nenhum exercício adicionado",
     goals_add_exercise_btn: "Adicionar Exercício",
+    goals_save_error: "Erro ao salvar",
     goals_move_up: "Mover para cima",
     goals_move_down: "Mover para baixo",
     goals_remove_from_routine: "Remover da rotina",
@@ -1405,6 +1408,8 @@ export const translations = {
     shots_login_desc: "You need to be logged in to use incentives.",
     shots_options_label: "Clip options",
     shots_user_fallback: "User",
+    shots_incentive_error: "Error sending incentive",
+    shots_retry: "Please try again.",
     // NewPost page
     newpost_title: "Create Content",
     newpost_subtitle: "Inspire the community with your journey",
@@ -1707,6 +1712,7 @@ export const translations = {
     goals_add_series: "Add Set",
     goals_no_exercises_added: "No exercises added",
     goals_add_exercise_btn: "Add Exercise",
+    goals_save_error: "Error saving",
     goals_move_up: "Move up",
     goals_move_down: "Move down",
     goals_remove_from_routine: "Remove from routine",
