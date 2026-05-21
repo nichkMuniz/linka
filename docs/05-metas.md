@@ -99,7 +99,7 @@ Cada **item** dentro da rotina exibe:
 
 **Editar rotina:** Dialog com dois campos:
 - **Nome da rotina** — atualiza `routines.name` + `user_workouts.name`/`user_diets.name`/`user_habits.name` via `updateRoutineNameDb`
-- **Horário de execução** — input `type="time"` que define um lembrete diário comum a todos os itens da rotina. Salva o mesmo `scheduled_time` (`HH:MM` ou `null`) em todos os `user_workouts`/`user_diets`/`user_habits` daquela rotina via `updateRoutineItemsScheduledTimeDb(userId, typeCode, routineName, scheduledTime)`. Campo é pré-preenchido com o `scheduled_time` do primeiro item da rotina que tiver horário.
+- **Horário de execução** — input `type="time"` que define um lembrete diário comum a todos os itens da rotina. Salva o mesmo `scheduled_time` (`HH:MM` ou `null`) em todos os `user_workouts`/`user_diets`/`user_habits` daquela rotina via `updateRoutineItemsScheduledTimeDb(userId, typeCode, routineName, scheduledTime)`. Campo é pré-preenchido com o `scheduled_time` do primeiro item da rotina que tiver horário. Quando há horário definido, aparece um botão **Desativar lembrete** (`BellOff`) ao lado do input que limpa o horário (`scheduled_time = null`) — necessário porque o input `type="time"` do WebView iOS não oferece como apagar um valor já preenchido. Ao salvar com horário limpo, `onRenamed` dispara `syncRoutineNotifications()` para cancelar as notificações nativas agendadas.
 
 **Lembrete diário (notificação):** Cada item de rotina pode ter um `scheduled_time` (ex: `07:30`). O `ScheduledTimeDrawer` permite definir ou remover esse horário. Ao salvar:
 1. Pede permissão de notificação ao navegador (se ainda não concedida)

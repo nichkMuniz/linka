@@ -618,8 +618,9 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | `post_id` | uuid | — | — | Post relacionado; também usado para `promotion_id` quando type=8 |
 | `read` | boolean | — | `false` | Notificação lida ou não |
 | `shots_id` | uuid | — | — | Shot relacionado (se aplicável) |
-| `flow_id` | uuid | — | — | Flow relacionado (se aplicável) |
+| `flow_id` | bigint | — | — | Flow relacionado (se aplicável). FK lógica → `flow.id` (bigint, **não** uuid) |
 | `duel_check_in_id` | uuid | — | — | Check-in relacionado (se aplicável) |
+| `incentive_type` | smallint | — | — | Tipo de incentivo (1–6) quando type=2; evita lookup nas tabelas de likes |
 
 **Tipos de notificação:**
 
@@ -633,6 +634,21 @@ Notificações geradas para os usuários (follows, likes, comentários, duelos).
 | 6 | Reação em comentário | `follower_id`, `post_id` ou `shots_id` ou `flow_id` |
 | 7 | Reação em check-in de duelo | `follower_id`, `duel_check_in_id` |
 | 8 | Comentário em promoção | `follower_id`, `post_id` (= promotion_id) |
+
+**Como as notificações são criadas:** por **triggers AFTER INSERT** nas tabelas de origem (não pelo código do cliente). Funções `SECURITY DEFINER` que buscam o dono do conteúdo e inserem em `notifications`:
+
+| Tabela de origem | Trigger | Function | Notif gerada |
+|---|---|---|---|
+| `followers` | `trigger_notify_follow` | `notify_follow()` | type 1 |
+| `likes` | `trg_notify_on_post_incentive` | `notify_on_incentive()` | type 2 (post) |
+| `shots_likes` | `trg_notify_on_shot_incentive` | `notify_on_shot_incentive()` | type 2 (shot) |
+| `flow_likes` | `trg_notify_on_flow_incentive` | `notify_on_flow_incentive()` | type 2 (flow) |
+| `comments` | `trigger_notify_post_comment` | `notify_post_comment()` | type 3 (post) |
+| `shots_comments` | `notify_shots_comment` | `notify_shots_comment()` | type 3 (shot) |
+| `flow_comments` | `trg_notify_flow_comment` | `notify_flow_comment()` | type 3 (flow) |
+
+> A trigger `notify-push-on-notification` (AFTER INSERT em `notifications`) chama a edge function `send-push-notification` para qualquer linha inserida — ou seja, o push é automático.
+> As triggers de flow foram adicionadas em `docs/migrations/20260521-flow-notifications.sql`.
 
 ---
 

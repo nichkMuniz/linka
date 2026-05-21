@@ -1,4 +1,5 @@
 import * as React from "react";
+import * as ReactDOM from "react-dom";
 import { Smile } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -8,7 +9,8 @@ import {
   type CommentReactionSummary,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { toast } from "@/components/ui/use-toast";
+import { useLanguage } from "@/lib/language-context";
 
 const QUICK_EMOJIS = ["❤️", "🔥", "💪", "😂", "👏", "🥇"];
 
@@ -27,9 +29,12 @@ interface CommentReactionsProps {
 
 export function CommentReactions({ commentType, commentId, commentOwnerId, sourceId, dark = false, isOwnComment = false }: CommentReactionsProps) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [reactions, setReactions] = React.useState<CommentReactionSummary[]>([]);
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState<string | null>(null);
+  const [popoverStyle, setPopoverStyle] = React.useState<React.CSSProperties>({});
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -40,7 +45,38 @@ export function CommentReactions({ commentType, commentId, commentOwnerId, sourc
     return () => { cancelled = true; };
   }, [commentType, commentId, user?.id]);
 
+  // Posiciona o popover via portal fixo para não ser cortado/bloqueado pelos drawers (Radix/Vaul)
+  const updatePopoverPosition = React.useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPopoverStyle({
+      position: "fixed",
+      bottom: window.innerHeight - rect.top + 8,
+      left: rect.left,
+      zIndex: 9999,
+      // Drawers/dialogs modais do Radix aplicam pointer-events:none no body;
+      // sem isto o popover aparece mas não recebe cliques.
+      pointerEvents: "auto",
+    });
+  }, []);
 
+  // Fecha ao clicar fora
+  React.useEffect(() => {
+    if (!open) return;
+    updatePopoverPosition();
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      const popoverEl = document.getElementById("comment-reaction-portal");
+      if (
+        triggerRef.current && !triggerRef.current.contains(target) &&
+        !(popoverEl && popoverEl.contains(target))
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open, updatePopoverPosition]);
 
   const handleReact = async (emoji: string) => {
     if (!user) return;
@@ -70,6 +106,10 @@ export function CommentReactions({ commentType, commentId, commentOwnerId, sourc
       // Reverte em caso de erro — rebusca do servidor
       getCommentReactionsDb(commentType, [commentId]).then((records) => {
         setReactions(groupCommentReactions(records, user?.id ?? null));
+      });
+      toast({
+        title: t("comment_reaction_error"),
+        description: t("retry"),
       });
     } finally {
       setLoading(null);
@@ -104,50 +144,58 @@ export function CommentReactions({ commentType, commentId, commentOwnerId, sourc
 
       {/* Botão para abrir o picker de emojis rápidos — oculto no próprio comentário */}
       {user && !isOwnComment && (
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                "inline-flex items-center justify-center rounded-full p-0.5 transition-colors",
-                dark
-                  ? "text-white/50 hover:text-white hover:bg-white/10"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
-              )}
-              aria-label="Reagir ao comentário"
-            >
-              <Smile className="h-3.5 w-3.5" />
-            </button>
-          </PopoverTrigger>
-
-          <PopoverContent
-            side="top"
-            align="start"
-            sideOffset={8}
+        <>
+          <button
+            ref={triggerRef}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((v) => !v);
+            }}
             className={cn(
-              "z-[300] flex w-auto gap-1 rounded-full px-2 py-1.5 shadow-xl border-0 p-0",
-              dark ? "bg-zinc-800" : "bg-popover",
+              "inline-flex items-center justify-center rounded-full p-0.5 transition-colors",
+              dark
+                ? "text-white/50 hover:text-white hover:bg-white/10"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
             )}
+            aria-label="Reagir ao comentário"
           >
-            {QUICK_EMOJIS.map((emoji) => {
-              const reaction = reactions.find((r) => r.emoji === emoji);
-              return (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => handleReact(emoji)}
-                  className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-full text-base transition-all hover:scale-125",
-                    reaction?.userReacted && "scale-110",
-                  )}
-                  aria-label={emoji}
-                >
-                  {emoji}
-                </button>
-              );
-            })}
-          </PopoverContent>
-        </Popover>
+            <Smile className="h-3.5 w-3.5" />
+          </button>
+
+          {open && ReactDOM.createPortal(
+            <div
+              id="comment-reaction-portal"
+              style={popoverStyle}
+              className={cn(
+                "flex w-auto gap-1 rounded-full px-2 py-1.5 shadow-xl",
+                dark ? "bg-zinc-800" : "bg-popover border border-border/60",
+              )}
+            >
+              {QUICK_EMOJIS.map((emoji) => {
+                const reaction = reactions.find((r) => r.emoji === emoji);
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleReact(emoji);
+                    }}
+                    className={cn(
+                      "flex h-7 w-7 items-center justify-center rounded-full text-base transition-all hover:scale-125",
+                      reaction?.userReacted && "scale-110",
+                    )}
+                    aria-label={emoji}
+                  >
+                    {emoji}
+                  </button>
+                );
+              })}
+            </div>,
+            document.body,
+          )}
+        </>
       )}
     </div>
   );

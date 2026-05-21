@@ -1,5 +1,6 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   getProgrammedGoalsDb,
@@ -169,6 +170,7 @@ import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { ShareDrawer } from "@/components/shared/share-drawer";
 import { FabButton } from "@/components/shared/fab-button";
 import { CreateWorkoutDrawer } from "@/components/goals/create-workout-drawer";
+import { AddRoutineModal } from "@/components/goals/add-routine-modal";
 import { CreateGoalDrawer } from "@/components/goals/create-goal-drawer";
 import { LinkGoalDrawer } from "@/components/goals/link-goal-drawer";
 import { ExecuteAtDrawer } from "@/components/goals/execute-at-drawer";
@@ -310,6 +312,11 @@ export default function Goals() {
   const [finishWorkoutConfirmOpen, setFinishWorkoutConfirmOpen] = React.useState(false);
   const [workoutModalSearchQuery, setWorkoutModalSearchQuery] = React.useState("");
   const [workoutModalMuscleFilter, setWorkoutModalMuscleFilter] = React.useState<string | null>(null);
+  const [workoutExpandedExercise, setWorkoutExpandedExercise] = React.useState<string | null>(null);
+  const [restTimeChipsVisible, setRestTimeChipsVisible] = React.useState<string | null>(null);
+  const restTimeHideTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [goalLabelVisible, setGoalLabelVisible] = React.useState<string | null>(null);
+  const goalLabelHideTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [workoutSummaryOpen, setWorkoutSummaryOpen] = React.useState(false);
   const [workoutRating, setWorkoutRating] = React.useState(0);
   const [workoutSummaryData, setWorkoutSummaryData] = React.useState<{
@@ -354,6 +361,9 @@ export default function Goals() {
     exerciseName: string;
     kg: number;
     reps: number;
+    isCardio?: boolean;
+    km?: number;
+    secs?: number;
   } | null>(null);
   const [machinePlated, setMachinePlated] = React.useState<Record<string, boolean>>({});
   const [showMachinePlatedFor, setShowMachinePlatedFor] = React.useState<string | null>(null);
@@ -393,6 +403,37 @@ export default function Goals() {
   const gpsElevationGainRef = React.useRef(0);
   const [gpsElevationGain, setGpsElevationGain] = React.useState(0);
   const [gpsStopConfirm, setGpsStopConfirm] = React.useState<{ workoutId: string; rowKey: string } | null>(null);
+  const [gpsPaused, setGpsPaused] = React.useState(false);
+  const gpsPausedRef = React.useRef(false);
+  const gpsPausedAccumMsRef = React.useRef(0);
+  const gpsPauseStartedAtRef = React.useRef<number | null>(null);
+
+  const computeGpsElapsedSecs = () => {
+    const start = gpsStartTimeRef.current;
+    if (start == null) return 0;
+    let pausedMs = gpsPausedAccumMsRef.current;
+    if (gpsPausedRef.current && gpsPauseStartedAtRef.current != null) {
+      pausedMs += Date.now() - gpsPauseStartedAtRef.current;
+    }
+    return Math.max(0, Math.floor((Date.now() - start - pausedMs) / 1000));
+  };
+
+  const pauseGpsTracking = () => {
+    if (gpsPausedRef.current) return;
+    gpsPausedRef.current = true;
+    gpsPauseStartedAtRef.current = Date.now();
+    setGpsPaused(true);
+  };
+
+  const resumeGpsTracking = () => {
+    if (!gpsPausedRef.current) return;
+    if (gpsPauseStartedAtRef.current != null) {
+      gpsPausedAccumMsRef.current += Date.now() - gpsPauseStartedAtRef.current;
+      gpsPauseStartedAtRef.current = null;
+    }
+    gpsPausedRef.current = false;
+    setGpsPaused(false);
+  };
 
   const gpsHaversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371;
@@ -422,21 +463,31 @@ export default function Goals() {
     gpsElevationGainRef.current = 0;
     setGpsElevationGain(0);
     gpsStartTimeRef.current = Date.now();
+    gpsPausedRef.current = false;
+    gpsPausedAccumMsRef.current = 0;
+    gpsPauseStartedAtRef.current = null;
+    setGpsPaused(false);
 
     if (gpsElapsedIntervalRef.current) clearInterval(gpsElapsedIntervalRef.current);
     gpsElapsedIntervalRef.current = setInterval(() => {
-      // Compute elapsed from start timestamp so the counter stays correct even
-      // if the JS interval was paused while the screen was locked.
-      const start = gpsStartTimeRef.current ?? Date.now();
-      setGpsElapsedSecs(Math.floor((Date.now() - start) / 1000));
+      // Compute elapsed from start timestamp (minus paused time) so the counter
+      // stays correct even if the JS interval was paused while the screen locked.
+      setGpsElapsedSecs(computeGpsElapsedSecs());
     }, 1000);
 
     const onLocation = (point: { lat: number; lng: number; alt?: number | null }) => {
+      // While paused, freeze distance/elapsed: just track the latest position so
+      // movement during the pause isn't counted when tracking resumes.
+      if (gpsPausedRef.current) {
+        gpsLastNativePosRef.current = point;
+        if (point.alt != null) gpsLastAltRef.current = point.alt;
+        return;
+      }
       // Keep the elapsed counter in sync even when JS interval was paused
       // (screen locked). The native plugin keeps firing location callbacks
       // while in the background.
       if (gpsStartTimeRef.current != null) {
-        setGpsElapsedSecs(Math.floor((Date.now() - gpsStartTimeRef.current) / 1000));
+        setGpsElapsedSecs(computeGpsElapsedSecs());
       }
       const prev = gpsLastNativePosRef.current;
       // Accumulate elevation gain
@@ -546,6 +597,9 @@ export default function Goals() {
       clearInterval(gpsElapsedIntervalRef.current);
       gpsElapsedIntervalRef.current = null;
     }
+    gpsPausedRef.current = false;
+    gpsPauseStartedAtRef.current = null;
+    setGpsPaused(false);
     setGpsActive(false);
   };
 
@@ -754,19 +808,16 @@ export default function Goals() {
     const hasMixedCardio = !isAllCardio && (totalKm > 0 || totalCardioTimeSecs > 0);
     // For outdoor/cardio-only workouts, omit "Séries" e "Exercícios" — esses
     // campos só fazem sentido para treinos de força.
-    const gpsPaceSecs = workoutSummaryData?.gpsPace;
+    const gpsPaceSecs = workoutSummaryData?.gpsPace
+      ?? (totalKm > 0 && totalCardioTimeSecs > 0 ? Math.round(totalCardioTimeSecs / totalKm) : null);
     const gpsPaceStr = gpsPaceSecs
       ? `${Math.floor(gpsPaceSecs / 60)}:${String(gpsPaceSecs % 60).padStart(2, "0")}`
-      : null;
-    const gpsElevStr = workoutSummaryData?.gpsElevationGain != null
-      ? `${workoutSummaryData.gpsElevationGain} m`
       : null;
     const statsData = isAllCardio
       ? [
         { label: "Tempo", value: totalCardioTimeSecs > 0 ? fmtCardioSecs(totalCardioTimeSecs) : durationStr },
         { label: "Distância", value: totalKm > 0 ? `${totalKm} km` : "—" },
         { label: "Ritmo", value: gpsPaceStr ? `${gpsPaceStr}/km` : "—" },
-        { label: "Elevação", value: gpsElevStr ?? "—" },
       ]
       : hasMixedCardio
         ? [
@@ -782,7 +833,9 @@ export default function Goals() {
           { label: "Exercícios", value: String(exerciseNames.length) },
         ];
     statsData.forEach((s, i) => {
-      const x = 100 + i * 200;
+      const step = statsData.length > 3 ? 200 : 230;
+      const startX = 400 - step * (statsData.length - 1) / 2;
+      const x = startX + i * step;
       ctx.fillStyle = "#86efac"; ctx.font = "bold 40px system-ui, sans-serif"; ctx.fillText(s.value, x, 510);
       ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = "22px system-ui, sans-serif"; ctx.fillText(s.label, x, 548);
     });
@@ -2244,6 +2297,18 @@ export default function Goals() {
     });
   };
 
+  // For cardio: pace = seconds per km (lower = faster). Returns null if no valid entry.
+  const cardioBestPace = (entries: Array<{ km: number; secs: number }>): number | null => {
+    let best: number | null = null;
+    for (const e of entries) {
+      if (e.km > 0 && e.secs > 0) {
+        const pace = e.secs / e.km;
+        if (best === null || pace < best) best = pace;
+      }
+    }
+    return best;
+  };
+
   const handleToggleSerieCompleted = (
     workoutId: string,
     seriesIndex: number,
@@ -2262,6 +2327,11 @@ export default function Goals() {
       [workoutId]: updated,
     });
 
+    // Auto-stop GPS when the outdoor run is marked as completed.
+    if (isMarking && workoutId === CORRIDA_EXTERNA_ID && gpsActive) {
+      stopGpsTracking();
+    }
+
     const mpKey = rowKey ?? workoutId;
     // Machine plated: show prompt when completing a series with kg > 120 (only if not answered yet)
     if (isMarking) {
@@ -2274,12 +2344,25 @@ export default function Goals() {
     // PR detection: check if this series beats the historical record
     if (isMarking) {
       const serie = updated[seriesIndex];
+      const workout = userWorkouts.find((w) => w.workout_id === workoutId);
+      const isCardioEx = (workout?.muscle_group || "").toLowerCase() === "cardio";
       const history = workoutHistoriesMap[workoutId] || [];
-      const bestHistoricalKg = Math.max(0, ...history.map((h) => h.kilos || 0));
-      // It's a PR if kg > 0 and exceeds all historical records
-      if (serie.kg > 0 && serie.kg > bestHistoricalKg && bestHistoricalKg > 0) {
-        const workout = userWorkouts.find((w) => w.workout_id === workoutId);
-        if (workout?.workoutName) {
+      if (isCardioEx) {
+        // Cardio PR: covering distance at a faster pace (less time per km).
+        const km = serie.kg || 0;
+        const secs = serie.reps || 0;
+        if (km > 0 && secs > 0) {
+          const currentPace = secs / km;
+          const histPace = cardioBestPace(history.map((h) => ({ km: h.kilos || 0, secs: Number(h.volume) || 0 })));
+          if (histPace !== null && currentPace < histPace && workout?.workoutName) {
+            setPrCelebration({ exerciseName: workout.workoutName, kg: km, reps: secs, isCardio: true, km, secs });
+            setTimeout(() => setPrCelebration(null), 4000);
+          }
+        }
+      } else {
+        const bestHistoricalKg = Math.max(0, ...history.map((h) => h.kilos || 0));
+        // It's a PR if kg > 0 and exceeds all historical records
+        if (serie.kg > 0 && serie.kg > bestHistoricalKg && bestHistoricalKg > 0 && workout?.workoutName) {
           setPrCelebration({ exerciseName: workout.workoutName, kg: serie.kg, reps: serie.reps });
           setTimeout(() => setPrCelebration(null), 4000);
         }
@@ -2287,9 +2370,12 @@ export default function Goals() {
     }
 
     // If marking as completed, open rest timer only if user set a time.
+    // Cardio exercises don't use rest timers.
     // setTimeout defers the modal open to after the current pointer event cycle
     // completes, preventing the backdrop from receiving the iOS pointerup click.
-    if (isMarking) {
+    const toggledWorkout = userWorkouts.find((w) => w.workout_id === workoutId);
+    const toggledIsCardio = (toggledWorkout?.muscle_group || "").toLowerCase() === "cardio";
+    if (isMarking && !toggledIsCardio) {
       const restSeconds = workoutExerciseRestTimes[workoutId] || 0;
       if (restSeconds > 0) {
         // Close modal first to ensure clean state before resetting the timer.
@@ -2605,12 +2691,23 @@ export default function Goals() {
           }
 
           // PR detection: best set in this session vs best historical
-          const bestSessionKg = bestKg;
           const history = workoutHistoriesMap[workoutId] || [];
-          const bestHistoricalKg = history.length > 0 ? Math.max(...history.map((h) => h.kilos || 0)) : 0;
-          if (bestSessionKg > 0 && bestSessionKg > bestHistoricalKg && match?.workoutName) {
-            const bestSet = completed.find((s) => s.kg === bestSessionKg)!;
-            prs.push({ exerciseName: match.workoutName, kg: bestSessionKg, reps: bestSet.reps || 0, isCardio: isCardioExercise });
+          if (isCardioExercise) {
+            // Cardio PR: faster pace (less time per km) than any past session.
+            const sessionPace = cardioBestPace(completed.map((s) => ({ km: s.kg || 0, secs: s.reps || 0 })));
+            const histPace = cardioBestPace(history.map((h) => ({ km: h.kilos || 0, secs: Number(h.volume) || 0 })));
+            if (sessionPace !== null && histPace !== null && sessionPace < histPace && match?.workoutName) {
+              const valid = completed.filter((s) => (s.kg || 0) > 0 && (s.reps || 0) > 0);
+              const bestSet = valid.reduce((a, b) => ((b.reps! / b.kg!) < (a.reps! / a.kg!) ? b : a));
+              prs.push({ exerciseName: match.workoutName, kg: bestSet.kg || 0, reps: bestSet.reps || 0, isCardio: true });
+            }
+          } else {
+            const bestSessionKg = bestKg;
+            const bestHistoricalKg = history.length > 0 ? Math.max(...history.map((h) => h.kilos || 0)) : 0;
+            if (bestSessionKg > 0 && bestSessionKg > bestHistoricalKg && match?.workoutName) {
+              const bestSet = completed.find((s) => s.kg === bestSessionKg)!;
+              prs.push({ exerciseName: match.workoutName, kg: bestSessionKg, reps: bestSet.reps || 0, isCardio: isCardioExercise });
+            }
           }
         }
       }
@@ -2671,15 +2768,20 @@ export default function Goals() {
         const volStr = totalVolume > 0 ? `\n📦 Volume: ${formatVolumeKg(totalVolume)}` : "";
         if (prs.length > 0) {
           const prLines = prs
-            .map((pr) => `🏆 ${pr.exerciseName}: ${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`)
+            .map((pr) => pr.isCardio
+              ? `🏆 ${pr.exerciseName}: ${pr.kg > 0 ? `${Math.round(pr.kg * 10) / 10} km` : ""}${pr.kg > 0 && pr.reps > 0 ? "  ·  " : ""}${pr.reps > 0 ? formatDurationHms(pr.reps) : ""}`
+              : `🏆 ${pr.exerciseName}: ${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`)
             .join("\n");
           const prVolumeStr = (allCardio && exerciseNames.length > 0)
             ? (Math.round(totalKm * 10) / 10 > 0 ? `📍 Distância: ${Math.round(totalKm * 10) / 10} km` : "")
             : (totalVolume > 0 ? `📦 Volume: ${formatVolumeKg(totalVolume)}` : "");
-          const prStats = [`⏱️ Duração: ${dStr}`, prVolumeStr, `✅ Séries: ${Math.round(totalSeries)}`]
-            .filter(Boolean)
-            .join("  ·  ");
+          const prStats = (allCardio && exerciseNames.length > 0)
+            ? [`⏱️ Duração: ${dStr}`, prVolumeStr].filter(Boolean).join("  ·  ")
+            : [`⏱️ Duração: ${dStr}`, prVolumeStr, `✅ Séries: ${Math.round(totalSeries)}`].filter(Boolean).join("  ·  ");
           setWorkoutPostDescription(`🔥 Novo recorde pessoal!\n\n${prLines}\n\n${prStats}\n\n#Linka #PR #RecordePessoal #Fitness`);
+        } else if (allCardio && exerciseNames.length > 0) {
+          const kmStr = Math.round(totalKm * 10) / 10 > 0 ? `\n📍 Distância: ${Math.round(totalKm * 10) / 10} km` : "";
+          setWorkoutPostDescription(`🏃 ${rStr}!\n⏱️ ${dStr}${kmStr}${exList}\n\n#Linka #Fitness #Cardio`);
         } else {
           setWorkoutPostDescription(`💪 ${rStr}!\n⏱️ ${dStr}${volStr}\n✅ ${Math.round(totalSeries)} séries${exList}\n\n#Linka #Fitness #Treino`);
         }
@@ -3127,529 +3229,58 @@ export default function Goals() {
         />
       )}
 
-      {/* Add Routine Drawer Modal */}
-      <Drawer open={addRoutineModalOpen} onOpenChange={(open) => { setAddRoutineModalOpen(open); if (!open) { setIsAddingFromWorkout(false); setNameStepActive(false); setCameFromTypeCard(false); } }}>
-        <DrawerContent className={`flex flex-col modal-enter ${selectedRoutineType !== null ? "h-[85dvh]" : "max-h-[80dvh]"}`} onOpenAutoFocus={(e) => e.preventDefault()}>
-          <DrawerHeader className="shrink-0">
-            <DrawerTitle>
-              {nameStepActive
-                ? (selectedRoutineType === 1 ? `🏋️ ${t("goals_rt_exercises")}` : selectedRoutineType === 2 ? `🥗 ${t("goals_rt_diets")}` : `✅ ${t("goals_rt_habits")}`)
-                : t("goals_add_routine_title")}
-            </DrawerTitle>
-          </DrawerHeader>
-
-          <div className="flex flex-col flex-1 gap-4 overflow-hidden px-4 pb-4">
-            {/* Context banner when adding to an existing named routine */}
-            {addToRoutineCardName && selectedRoutineType !== null && !nameStepActive && (
-              <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-brand/10 border border-brand/20 rounded-lg">
-                <span className="text-xs text-brand">{t("goals_adding_to")}</span>
-                <span className="text-xs font-semibold text-brand">{addToRoutineCardName}</span>
-              </div>
-            )}
-
-            {/* Name step — shown when coming from type cards in empty state */}
-            {nameStepActive ? (
-              <div className="space-y-5 pt-1">
-                <p className="text-xs text-muted-foreground">{t("goals_name_step_hint")}</p>
-                <div className="space-y-2">
-                  <Label htmlFor="routine_name_step" className="text-sm font-semibold">
-                    {t("goals_routine_name_label")}
-                  </Label>
-                  <Input
-                    id="routine_name_step"
-                    type="text"
-                    placeholder={
-                      selectedRoutineType === 2
-                        ? t("goals_routine_name_placeholder_diets")
-                        : selectedRoutineType === 3
-                        ? t("goals_routine_name_placeholder_habits")
-                        : t("goals_routine_name_placeholder_exercises")
-                    }
-                    value={routineName}
-                    onChange={(e) => setRoutineName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { setNameStepActive(false); setSearchQuery(""); } }}
-                    className="h-11"
-                    style={{ fontSize: "16px" }}
-                    autoFocus
-                  />
-                </div>
-                <Button
-                  className="w-full rounded-full h-11 gap-2"
-                  onClick={() => { setNameStepActive(false); setSearchQuery(""); }}
-                >
-                  {t("goals_name_step_next")}
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            ) : selectedRoutineType === null ? (
-              <div className="space-y-5">
-                {/* Nome da rotina — destacado */}
-                <div className="rounded-xl border-2 border-brand/40 bg-brand/5 p-4 space-y-2">
-                  <Label htmlFor="routine_name" className="text-sm font-semibold text-brand">
-                    {t("goals_routine_name_label")}
-                  </Label>
-                  <Input
-                    id="routine_name"
-                    type="text"
-                    value={routineName}
-                    onChange={(e) => setRoutineName(e.target.value)}
-                    className="h-10 border-brand/30 focus:border-brand bg-background"
-                    placeholder={
-                      selectedRoutineType === 2
-                        ? t("goals_routine_name_placeholder_diets")
-                        : selectedRoutineType === 3
-                        ? t("goals_routine_name_placeholder_habits")
-                        : t("goals_routine_name_placeholder_exercises")
-                    }
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-muted-foreground">{t("goals_select_type")}</p>
-                  <div className="grid grid-cols-1 gap-2">
-                    {[
-                      { code: 1, label: t("goals_rt_exercises"), emoji: "🏋️", desc: t("goals_rt_exercises_desc") },
-                      { code: 2, label: t("goals_rt_diets"), emoji: "🥗", desc: t("goals_rt_diets_desc") },
-                      { code: 3, label: t("goals_rt_habits"), emoji: "✅", desc: t("goals_rt_habits_desc") },
-                    ].map(({ code, label, emoji, desc }) => (
-                      <button
-                        key={code}
-                        onClick={() => { setSelectedRoutineType(code); setSearchQuery(""); }}
-                        className="p-4 border border-border/60 rounded-lg hover:bg-muted/50 hover:border-border transition-colors text-left flex items-center gap-3"
-                      >
-                        <span className="text-2xl">{emoji}</span>
-                        <div>
-                          <p className="font-semibold text-sm">{label}</p>
-                          <p className="text-xs text-muted-foreground">{desc}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <>
-                {/* Item Selection */}
-                <div className="space-y-3 flex-1 overflow-y-auto">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">
-                      {selectedRoutineType === 1
-                        ? t("goals_rt_exercises")
-                        : selectedRoutineType === 2
-                          ? t("goals_rt_diets")
-                          : t("goals_rt_habits")}
-                    </p>
-                    {!isAddingFromWorkout && (
-                      <button
-                        onClick={() => {
-                          if (cameFromTypeCard) {
-                            setNameStepActive(true);
-                          } else {
-                            setSelectedRoutineType(null);
-                          }
-                          setSelectedItems(new Set());
-                          setSearchQuery("");
-                          setSelectedMuscleGroups(new Set());
-                          setSelectedDietCategories(new Set());
-                        }}
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {t("goals_back")}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Search for Habits */}
-                  {selectedRoutineType === 3 && (
-                    <div className="relative shrink-0">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        type="text"
-                        placeholder={t("goals_search_habit")}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10 h-9"
-                      />
-                    </div>
-                  )}
-
-                  {/* Search and Filter for Diets */}
-                  {selectedRoutineType === 2 && (
-                    <div className="space-y-3">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          type="text"
-                          placeholder={t("goals_search_diet")}
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="pl-10 h-9"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <button
-                            type="button"
-                            onClick={() => setShowMuscleFilterPanel((v) => !v)}
-                            className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-                          >
-                            <Filter className={`h-3.5 w-3.5 ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
-                            <p className={`text-xs font-medium ${selectedDietCategories.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
-                              {t("goals_category")} {selectedDietCategories.size > 0 ? `(${selectedDietCategories.size})` : ""}
-                            </p>
-                            <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
-                          </button>
-                          {selectedDietCategories.size > 0 && (
-                            <button
-                              onClick={() => setSelectedDietCategories(new Set())}
-                              className="text-xs text-brand hover:underline"
-                            >
-                              {t("goals_clear")}
-                            </button>
-                          )}
-                        </div>
-                        {showMuscleFilterPanel && (
-                          <div className="flex flex-wrap gap-2">
-                            {uniqueDietCategories.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">{t("goals_categories_loading")}</p>
-                            ) : (
-                              uniqueDietCategories.map((cat) => (
-                                <button
-                                  key={cat}
-                                  onClick={() => handleToggleDietCategory(cat)}
-                                  className={`px-3 py-1.5 text-xs rounded-full border transition-all ${selectedDietCategories.has(cat)
-                                    ? "border-brand bg-brand/20 text-brand"
-                                    : "border-border/60 text-muted-foreground hover:border-border/80"
-                                    }`}
-                                >
-                                  {cat}
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Search and Filter for Exercises */}
-                  {selectedRoutineType === 1 && (
-                    <div className="space-y-3">
-                      {/* Search Bar */}
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          type="text"
-                          placeholder={t("goals_search_exercise")}
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="pl-10 h-9"
-                        />
-                      </div>
-
-                      {/* Workout Type Filter */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground font-medium">{t("goals_type_label")}</span>
-                        {[
-                          { value: null, label: t("goals_all") },
-                          { value: 1, label: t("goals_gym") },
-                          { value: 2, label: t("goals_home") },
-                        ].map((opt) => (
-                          <button
-                            key={String(opt.value)}
-                            type="button"
-                            onClick={() => setSelectedWorkoutType(opt.value)}
-                            className={`text-xs px-3 py-1 rounded-full border transition-all ${selectedWorkoutType === opt.value
-                              ? "border-brand bg-brand/15 text-brand font-medium"
-                              : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
-                              }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Muscle Group Filter */}
-                      {uniqueMuscleGroups.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <button
-                              type="button"
-                              onClick={() => setShowMuscleFilterPanel((v) => !v)}
-                              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-                            >
-                              <Filter className={`h-3.5 w-3.5 ${selectedMuscleGroups.size > 0 ? "text-brand" : "text-muted-foreground"}`} />
-                              <p className={`text-xs font-medium ${selectedMuscleGroups.size > 0 ? "text-brand" : "text-muted-foreground"}`}>
-                                {t("goals_muscle_group")} {selectedMuscleGroups.size > 0 ? `(${selectedMuscleGroups.size})` : ""}
-                              </p>
-                              <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${showMuscleFilterPanel ? "rotate-180" : ""}`} />
-                            </button>
-                            {selectedMuscleGroups.size > 0 && (
-                              <button
-                                onClick={() => setSelectedMuscleGroups(new Set())}
-                                className="text-xs text-brand hover:underline"
-                              >
-                                {t("goals_clear")}
-                              </button>
-                            )}
-                          </div>
-                          {showMuscleFilterPanel && (
-                            <div className="grid grid-cols-4 gap-1.5">
-                              {uniqueMuscleGroups.map((muscleGroup) => {
-                                const isActive = selectedMuscleGroups.has(muscleGroup);
-                                return (
-                                  <button
-                                    key={muscleGroup}
-                                    onClick={() => handleToggleMuscleGroup(muscleGroup)}
-                                    className={`flex items-center justify-center py-2 px-1 rounded-xl border text-center transition-all ${isActive
-                                      ? "border-brand bg-brand/15 text-brand shadow-sm"
-                                      : "border-border/50 text-muted-foreground hover:border-brand/40 hover:bg-muted/60"
-                                      }`}
-                                  >
-                                    <span className="text-[10px] font-medium leading-tight">{muscleGroup}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Items List */}
-                  <div className="space-y-2">
-                    {selectedRoutineType === 1 &&
-                      filteredWorkouts.map((exercise) => {
-                        const isAlreadySelected = userWorkouts.some(
-                          (uw) => uw.workout_id === exercise.id
-                        );
-                        const isNewSelection = selectedItems.has(exercise.id);
-
-                        return (
-                          <button
-                            key={exercise.key}
-                            onClick={async () => {
-                              if (!exercise.isLocal && !selectedItems.has(exercise.id)) {
-                                // Create catalog exercise in DB first
-                                try {
-                                  const created = await createCustomWorkoutDb(
-                                    exercise.name,
-                                    exercise.description,
-                                    exercise.muscleGroup || "",
-                                    exercise.catalogImage,
-                                  );
-                                  exercise.id = created.id;
-                                  exercise.isLocal = true;
-                                  handleSelectItem(created.id);
-                                } catch (err: any) {
-                                  toast({
-                                    title: "Erro ao adicionar exercício",
-                                    description: err?.message || "Tente novamente.",
-                                    variant: "destructive",
-                                  });
-                                }
-                              } else {
-                                handleSelectItem(exercise.id);
-                              }
-                            }}
-                            className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
-                              ? "border-brand bg-brand/10"
-                              : isAlreadySelected
-                                ? "border-green-500/40 bg-green-500/5"
-                                : "border-border/60 hover:border-border/80"
-                              }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div
-                                className="flex-shrink-0 rounded overflow-hidden cursor-pointer"
-                                onClick={(e) => { e.stopPropagation(); setImageZoom({ src: exercise.photo || null, name: exercise.name, description: exercise.description || undefined }); }}
-                              >
-                                <ExerciseImage
-                                  photo={exercise.photo}
-                                  name={exercise.name}
-                                  muscleGroup={exercise.muscleGroup}
-                                />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-sm font-medium">
-                                    {exercise.name}
-                                  </span>
-                                  {isAlreadySelected && !isNewSelection && (
-                                    <p className="text-xs text-green-600 dark:text-green-400 font-medium">
-                                      {t("goals_already_added")}
-                                    </p>
-                                  )}
-                                </div>
-                                {exercise.description && (
-                                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                                    {exercise.description}
-                                  </p>
-                                )}
-                                {exercise.muscleGroup && (
-                                  <span className="inline-block text-[10px] font-medium text-brand bg-brand/10 px-2 py-0.5 rounded-full mt-1">
-                                    {exercise.muscleGroup}
-                                  </span>
-                                )}
-                              </div>
-                              <input
-                                type="checkbox"
-                                checked={isNewSelection}
-                                onChange={() => { }}
-                                className="h-4 w-4 flex-shrink-0"
-                              />
-                            </div>
-                          </button>
-                        );
-                      })}
-
-                    {selectedRoutineType === 1 && (
-                      <div className="flex justify-center pt-1">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="rounded-full gap-2 text-xs"
-                          onClick={() => {
-                            setCreateWorkoutInitialName(addToRoutineCardName || routineName.trim() || "");
-                            setCreateWorkoutDrawerOpen(true);
-                          }}
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          {t("goals_not_found_exercise")}
-                        </Button>
-                      </div>
-                    )}
-
-                    {selectedRoutineType === 2 &&
-                      filteredDiets.map((diet) => {
-                        const isAlreadyInRoutine = userDiets.some(
-                          (ud) =>
-                            ud.diet_id === diet.id &&
-                            (addToRoutineCardName
-                              ? ud.name === addToRoutineCardName
-                              : !ud.name),
-                        );
-                        const isNewSelection = selectedItems.has(diet.id);
-                        return (
-                          <button
-                            key={diet.id}
-                            onClick={() => handleSelectItem(diet.id)}
-                            className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
-                              ? "border-brand bg-brand/10"
-                              : isAlreadyInRoutine
-                                ? "border-green-500/40 bg-green-500/5"
-                                : "border-border/60 hover:border-border/80"
-                              }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div
-                                className="flex-shrink-0 rounded overflow-hidden cursor-pointer"
-                                onClick={(e) => { e.stopPropagation(); setImageZoom({ src: (diet as any).photo || (diet as any).image || null, name: diet.name, description: diet.description || undefined, category: diet.category }); }}
-                              >
-                                <DietImage
-                                  photo={diet.photo}
-                                  name={diet.name}
-                                  category={diet.category}
-                                />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-sm font-medium truncate">{diet.name}</span>
-                                  <input
-                                    type="checkbox"
-                                    checked={isNewSelection}
-                                    onChange={() => { }}
-                                    className="h-4 w-4 flex-shrink-0"
-                                  />
-                                </div>
-                                {diet.category && (
-                                  <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground mt-1">
-                                    {diet.category}
-                                  </span>
-                                )}
-                                {isAlreadyInRoutine && !isNewSelection && (
-                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium block mt-1">
-                                    {t("goals_already_added")}
-                                  </span>
-                                )}
-                                {(diet.calories ?? 0) > 0 && (
-                                  <p className="text-xs text-muted-foreground mt-1">{diet.calories} cal</p>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-
-                    {selectedRoutineType === 3 &&
-                      habits.filter((h) => h.name.toLowerCase().includes(searchQuery.toLowerCase())).map((habit) => {
-                        const isAlreadyInRoutine = userHabits.some(
-                          (uh) =>
-                            uh.habit_id === habit.id &&
-                            (addToRoutineCardName
-                              ? uh.name === addToRoutineCardName
-                              : !uh.name),
-                        );
-                        const isNewSelection = selectedItems.has(habit.id);
-                        return (
-                          <button
-                            key={habit.id}
-                            onClick={() => handleSelectItem(habit.id)}
-                            className={`w-full p-3 rounded-lg border transition-all text-left ${isNewSelection
-                              ? "border-brand bg-brand/10"
-                              : isAlreadyInRoutine
-                                ? "border-green-500/40 bg-green-500/5"
-                                : "border-border/60 hover:border-border/80"
-                              }`}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
-                                <span className="text-sm font-medium truncate">{habit.name}</span>
-                                {isAlreadyInRoutine && !isNewSelection && (
-                                  <span className="text-xs text-green-600 dark:text-green-400 font-medium flex-shrink-0">
-                                    {t("goals_already_added")}
-                                  </span>
-                                )}
-                              </div>
-                              <input
-                                type="checkbox"
-                                checked={isNewSelection}
-                                onChange={() => { }}
-                                className="h-4 w-4 flex-shrink-0"
-                              />
-                            </div>
-                            {habit.description && (
-                              <p className="text-xs text-muted-foreground mt-1">{habit.description}</p>
-                            )}
-                          </button>
-                        );
-                      })}
-                  </div>
-                </div>
-
-                {/* Save Button — skip schedule step when adding to an existing routine */}
-                {selectedItems.size > 0 && (
-                  <Button
-                    onClick={() => {
-                      if (addToRoutineCardId !== null || isAddingFromWorkout) {
-                        handleSaveRoutines();
-                      } else {
-                        setShowExecuteAtStep(true);
-                      }
-                    }}
-                    disabled={isAddingRoutine}
-                    className="w-full rounded-full"
-                  >
-                    {`Próximo (${selectedItems.size})`}
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
-        </DrawerContent>
-      </Drawer>
+      {/* Add Routine Fullscreen */}
+      <AddRoutineModal
+        open={addRoutineModalOpen}
+        onOpenChange={(open) => {
+          setAddRoutineModalOpen(open);
+          if (!open) {
+            setIsAddingFromWorkout(false);
+            setNameStepActive(false);
+            setCameFromTypeCard(false);
+          }
+        }}
+        isAddingFromWorkout={isAddingFromWorkout}
+        onIsAddingFromWorkoutChange={setIsAddingFromWorkout}
+        selectedRoutineType={selectedRoutineType}
+        onSelectedRoutineTypeChange={setSelectedRoutineType}
+        selectedItems={selectedItems}
+        onSelectedItemsChange={setSelectedItems}
+        routineName={routineName}
+        onRoutineNameChange={setRoutineName}
+        addToRoutineCardName={addToRoutineCardName}
+        searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
+        selectedMuscleGroups={selectedMuscleGroups}
+        onSelectedMuscleGroupsChange={setSelectedMuscleGroups}
+        selectedWorkoutType={selectedWorkoutType}
+        onSelectedWorkoutTypeChange={setSelectedWorkoutType}
+        selectedDietCategories={selectedDietCategories}
+        onSelectedDietCategoriesChange={setSelectedDietCategories}
+        showMuscleFilterPanel={showMuscleFilterPanel}
+        onShowMuscleFilterPanelChange={setShowMuscleFilterPanel}
+        filteredWorkouts={filteredWorkouts}
+        filteredDiets={filteredDiets}
+        habits={habits}
+        uniqueMuscleGroups={uniqueMuscleGroups}
+        uniqueDietCategories={uniqueDietCategories}
+        userWorkouts={userWorkouts}
+        userDiets={userDiets}
+        userHabits={userHabits}
+        imageZoom={imageZoom}
+        onImageZoomChange={setImageZoom}
+        onNext={() => {
+          if (addToRoutineCardId !== null || isAddingFromWorkout) {
+            handleSaveRoutines();
+          } else {
+            setShowExecuteAtStep(true);
+          }
+        }}
+        onWorkoutCreated={(workout) => {
+          setWorkouts((prev) => [workout, ...prev]);
+          setSelectedItems((prev) => new Set([...prev, workout.id]));
+        }}
+      />
 
       <ExecuteAtDrawer
         open={showExecuteAtStep}
@@ -3799,589 +3430,621 @@ export default function Goals() {
 
           {/* Exercises List - Scrollable */}
           {userWorkouts.length > 0 ? (
-            <div className="flex-1 overflow-y-auto">
-              {/* Search Field */}
-              <div className="px-4 pt-3 pb-2 space-y-2">
-                <div className="relative">
-                  <svg
-                    className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="11" cy="11" r="8" />
-                    <path d="m21 21-4.35-4.35" />
-                  </svg>
-                  <input
-                    type="text"
-                    placeholder={t("goals_search_exercise")}
-                    value={workoutModalSearchQuery}
-                    onChange={(e) => setWorkoutModalSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-4 h-9 text-sm bg-muted/50 border border-border/60 rounded-full focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/30 transition-all placeholder:text-muted-foreground/60"
-                    style={{ fontSize: '16px' }}
-                  />
-                  {workoutModalSearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setWorkoutModalSearchQuery("")}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* ── Minimalist filter bar ── */}
+              {(() => {
+                const routineWorkouts = userWorkouts.filter((w) => {
+                  if (!selectedRoutineName) return true;
+                  if (selectedRoutineName === "__unnamed__") return !w.name;
+                  return w.name === selectedRoutineName;
+                });
+                const muscleGroups = Array.from(new Set(routineWorkouts.map((w) => w.muscle_group).filter(Boolean))) as string[];
+                const showBar = muscleGroups.length >= 2;
+                if (!showBar && !workoutModalSearchQuery) return null;
+                return (
+                  <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-b border-border/20">
+                    <AnimatePresence mode="wait">
+                      {workoutModalSearchQuery !== null && workoutModalSearchQuery !== undefined && (
+                        <>
+                          {/* Search icon button — expands to input */}
+                          <button
+                            type="button"
+                            onClick={() => setWorkoutModalSearchQuery(workoutModalSearchQuery === "" ? " " : "")}
+                            className={`flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full transition-colors ${workoutModalSearchQuery.trim() ? "bg-brand text-white" : "bg-muted/60 text-muted-foreground hover:bg-muted"}`}
+                            aria-label="Buscar exercício"
+                          >
+                            <svg className="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                          </button>
 
-                {/* Muscle Group Filter Chips */}
-                {(() => {
-                  const muscleGroups = Array.from(
-                    new Set(
-                      userWorkouts
-                        .filter((w) => {
-                          if (!selectedRoutineName) return true;
-                          if (selectedRoutineName === "__unnamed__") return !w.name;
-                          return w.name === selectedRoutineName;
-                        })
-                        .map((w) => w.muscle_group)
-                        .filter(Boolean)
-                    )
-                  ) as string[];
-                  if (muscleGroups.length < 2) return null;
-                  return (
-                    <div className="flex gap-2 overflow-x-auto scrollbar-none pb-0.5">
-                      <button
-                        onClick={() => setWorkoutModalMuscleFilter(null)}
-                        className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${workoutModalMuscleFilter === null
-                          ? "bg-brand text-white"
-                          : "bg-muted/60 text-muted-foreground hover:bg-muted"
-                          }`}
-                      >
-                        {t("goals_all")}
-                      </button>
-                      {muscleGroups.map((mg) => (
-                        <button
-                          key={mg}
-                          onClick={() => setWorkoutModalMuscleFilter(workoutModalMuscleFilter === mg ? null : mg)}
-                          className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${workoutModalMuscleFilter === mg
-                            ? "bg-brand text-white"
-                            : "bg-muted/60 text-muted-foreground hover:bg-muted"
-                            }`}
-                        >
-                          {mg}
-                        </button>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
+                          {workoutModalSearchQuery.trim() || workoutModalSearchQuery === " " ? (
+                            /* Expanded search input */
+                            <motion.div
+                              key="search-input"
+                              initial={{ opacity: 0, width: 0 }}
+                              animate={{ opacity: 1, width: "auto" }}
+                              exit={{ opacity: 0, width: 0 }}
+                              className="flex-1 relative"
+                            >
+                              <input
+                                autoFocus
+                                type="text"
+                                placeholder={t("goals_search_exercise")}
+                                value={workoutModalSearchQuery.trim()}
+                                onChange={(e) => setWorkoutModalSearchQuery(e.target.value)}
+                                className="w-full h-8 px-3 pr-8 text-sm bg-muted/50 border border-border/60 rounded-full focus:outline-none focus:border-brand transition-all placeholder:text-muted-foreground/60"
+                                style={{ fontSize: "16px" }}
+                              />
+                              {workoutModalSearchQuery.trim() && (
+                                <button
+                                  type="button"
+                                  onClick={() => setWorkoutModalSearchQuery("")}
+                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                                >
+                                  <svg className="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                                </button>
+                              )}
+                            </motion.div>
+                          ) : (
+                            /* Muscle group chips */
+                            <motion.div
+                              key="chips"
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              className="flex-1 flex gap-1.5 overflow-x-auto scrollbar-none"
+                            >
+                              <button
+                                onClick={() => setWorkoutModalMuscleFilter(null)}
+                                className={`flex-shrink-0 px-3 h-8 rounded-full text-xs font-medium transition-colors ${workoutModalMuscleFilter === null ? "bg-brand text-white" : "bg-muted/60 text-muted-foreground"}`}
+                              >
+                                {t("goals_all")}
+                              </button>
+                              {muscleGroups.map((mg) => (
+                                <button
+                                  key={mg}
+                                  onClick={() => setWorkoutModalMuscleFilter(workoutModalMuscleFilter === mg ? null : mg)}
+                                  className={`flex-shrink-0 px-3 h-8 rounded-full text-xs font-medium transition-colors ${workoutModalMuscleFilter === mg ? "bg-brand text-white" : "bg-muted/60 text-muted-foreground"}`}
+                                >
+                                  {mg}
+                                </button>
+                              ))}
+                            </motion.div>
+                          )}
+                        </>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })()}
 
+              <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
               {userWorkouts
                 .map((workout, originalIndex) => ({ workout, originalIndex }))
                 .filter(({ workout }) => {
-                  // Filter by search query
                   if (workoutModalSearchQuery.trim()) {
-                    const query = workoutModalSearchQuery.toLowerCase().trim();
-                    if (!workout.workoutName?.toLowerCase().includes(query)) return false;
+                    if (!workout.workoutName?.toLowerCase().includes(workoutModalSearchQuery.toLowerCase().trim())) return false;
                   }
-                  // Filter by muscle group
                   if (workoutModalMuscleFilter && workout.muscle_group !== workoutModalMuscleFilter) return false;
-                  // If no routine selected, show all workouts
                   if (!selectedRoutineName) return true;
-                  // If showing unnamed routines, show only workouts without a name
-                  if (selectedRoutineName === "__unnamed__") {
-                    return !workout.name;
-                  }
-                  // If routine selected, show only workouts with matching name
+                  if (selectedRoutineName === "__unnamed__") return !workout.name;
                   return workout.name === selectedRoutineName;
                 })
                 .map(({ workout, originalIndex }, filteredIndex, filteredArr) => {
                   const series = workoutSeries[workout.workout_id] || [];
                   const isMachinePlated = !!machinePlated[workout.id];
+                  const isExpanded = workoutExpandedExercise === workout.workout_id;
+                  const isCardio = (workout.muscle_group || "").toLowerCase() === "cardio";
+                  const completedCount = series.filter((s) => s.completed).length;
+                  const totalCount = series.length;
+                  const isFullyDone = totalCount > 0 && completedCount === totalCount;
+                  const progressPct = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+
                   return (
-                    <div key={workout.id} className="px-4 py-3">
-                      <div className={`rounded-lg p-3 mb-3 transition-colors ${isMachinePlated ? "bg-gradient-to-br from-orange-500/20 via-red-500/15 to-orange-600/10 border border-orange-400/70" : "bg-card border border-brand/20"}`}>
-                        {/* Exercise Header */}
-                        <div className="flex items-center gap-3 mb-2">
+                    <div
+                      key={workout.id}
+                      className="rounded-2xl overflow-hidden transition-all"
+                    >
+                      {/* ── Hero image area — full-width, tappable ── */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = isExpanded ? null : workout.workout_id;
+                          setWorkoutExpandedExercise(next);
+                          if (next) {
+                            if (!isCardio && !workoutExerciseRestTimes[next]) handleSetExerciseRestTime(next, 60);
+                            setRestTimeChipsVisible(next);
+                            if (restTimeHideTimerRef.current) clearTimeout(restTimeHideTimerRef.current);
+                            restTimeHideTimerRef.current = setTimeout(() => setRestTimeChipsVisible(null), 3000);
+                            setGoalLabelVisible(next);
+                            if (goalLabelHideTimerRef.current) clearTimeout(goalLabelHideTimerRef.current);
+                            goalLabelHideTimerRef.current = setTimeout(() => setGoalLabelVisible(null), 3000);
+                          } else {
+                            setRestTimeChipsVisible(null);
+                            if (restTimeHideTimerRef.current) clearTimeout(restTimeHideTimerRef.current);
+                            setGoalLabelVisible(null);
+                            if (goalLabelHideTimerRef.current) clearTimeout(goalLabelHideTimerRef.current);
+                          }
+                        }}
+                        className="relative w-full block active:opacity-90 transition-opacity"
+                        aria-label={workout.workoutName || ""}
+                      >
+                        {/* Image — 16:9 hero */}
+                        <div className="relative w-full aspect-video overflow-hidden bg-card">
+                          <ExerciseImage
+                            photo={workout.workoutPhoto || null}
+                            name={workout.workoutName || ""}
+                            muscleGroup={workout.muscle_group || null}
+                            className="w-full h-full object-cover rounded-none"
+                          />
+
+                          {/* Gradient overlay at bottom */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent pointer-events-none" />
+
+                          {/* Progress badge — top right */}
+                          <div className={`absolute top-2.5 right-2.5 flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold backdrop-blur-sm pointer-events-none ${
+                            isFullyDone
+                              ? "bg-brand text-white shadow-lg shadow-brand/40"
+                              : completedCount > 0
+                                ? "bg-black/50 text-brand border border-brand/40"
+                                : "bg-black/50 text-white/80 border border-white/20"
+                          }`}>
+                            {isFullyDone && <CheckCircle2 className="h-3 w-3" />}
+                            {isFullyDone ? `${completedCount} séries` : `${completedCount}/${totalCount}`}
+                          </div>
+
+                          {/* ⓘ detail button — top left */}
                           <button
                             type="button"
-                            className="flex-shrink-0 rounded-lg overflow-hidden"
-                            onClick={(e) => { e.stopPropagation(); setImageZoom({ src: workout.workoutPhoto || null, name: workout.workoutName || "", description: workout.workoutDescription || undefined }); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setImageZoom({ src: workout.workoutPhoto || null, name: workout.workoutName || "", description: workout.workoutDescription || undefined });
+                            }}
+                            className="absolute top-2.5 left-2.5 flex items-center justify-center w-7 h-7 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 text-white hover:bg-black/60 active:scale-90 transition-all"
+                            aria-label={`Ver detalhes de ${workout.workoutName}`}
                           >
-                            <ExerciseImage
-                              photo={workout.workoutPhoto || null}
-                              name={workout.workoutName || ""}
-                              muscleGroup={workout.muscle_group || null}
-                              className="h-12 w-12 flex-shrink-0"
-                            />
+                            <svg className="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="12" cy="12" r="10"/>
+                              <line x1="12" y1="16" x2="12" y2="12"/>
+                              <line x1="12" y1="8" x2="12.01" y2="8"/>
+                            </svg>
                           </button>
-                          <button
-                            onClick={() => handleOpenWorkoutHistory({
-                              id: workout.workout_id,
-                              name: workout.workoutName,
-                              description: workout.workoutDescription || undefined,
-                              photo: workout.workoutPhoto || undefined,
-                            })}
-                            className="flex-1 text-left hover:opacity-80 transition-opacity"
-                          >
-                            <h3 className="text-sm font-semibold text-brand">
+
+                          {/* Name + muscle group — bottom center overlay */}
+                          <div className="absolute bottom-0 left-0 right-0 px-3 pb-2.5 pt-8 flex flex-col items-center pointer-events-none bg-gradient-to-t from-black/60 via-black/20 to-transparent">
+                            <p className="text-sm font-bold text-white leading-snug drop-shadow-sm line-clamp-1 text-center">
                               {workout.workoutName}
-                            </h3>
+                            </p>
                             {workout.muscle_group && (
-                              <p className="text-xs text-muted-foreground mt-0.5">{workout.muscle_group}</p>
+                              <span className="inline-block text-[10px] font-semibold text-white/80 bg-white/15 backdrop-blur-sm px-2 py-0.5 rounded-full mt-1 border border-white/20">
+                                {workout.muscle_group}
+                              </span>
                             )}
-                          </button>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <button className="p-1 hover:bg-muted/50 rounded transition-colors flex-shrink-0">
-                                <MoreVertical className="h-4 w-4 text-muted-foreground" />
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
-                              {filteredIndex > 0 && (
-                                <DropdownMenuItem
-                                  onClick={() => handleReorderExercises(originalIndex, filteredArr[filteredIndex - 1].originalIndex)}
-                                >
-                                  <ArrowUp className="h-4 w-4 mr-2" />
-                                  Mover para cima
-                                </DropdownMenuItem>
-                              )}
-                              {filteredIndex < filteredArr.length - 1 && (
-                                <DropdownMenuItem
-                                  onClick={() => handleReorderExercises(originalIndex, filteredArr[filteredIndex + 1].originalIndex)}
-                                >
-                                  <ArrowDown className="h-4 w-4 mr-2" />
-                                  Mover para baixo
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuItem
-                                onClick={() => handleDeleteExercise(workout.id)}
-                                className="text-red-500"
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Remover da rotina
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          </div>
                         </div>
 
-                        {/* Notes */}
-                        <div className="mb-2">
-                          <input
-                            type="text"
-                            placeholder="Adicionar notas aqui..."
-                            value={workoutExerciseNotes[workout.workout_id] ?? ""}
-                            onChange={(e) => handleSetExerciseNote(workout.workout_id, e.target.value)}
-                            className="w-full text-xs text-muted-foreground bg-transparent border-0 placeholder:text-muted-foreground/60 focus:outline-none"
-                            style={{ fontSize: '16px' }}
+                        {/* Progress bar — sits right below the image */}
+                        <div className="h-1 bg-border/40 w-full">
+                          <div
+                            className={`h-full rounded-none transition-all duration-500 ${isFullyDone ? "bg-brand" : "bg-brand/70"}`}
+                            style={{ width: `${progressPct}%` }}
                           />
                         </div>
 
-                        {/* Rest Time Selector */}
-                        {(workout.muscle_group || "").toLowerCase() !== "cardio" && (
-                        <div className="mb-2">
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                            <span className="text-xs text-muted-foreground">{t("goals_rest")}</span>
-                          </div>
-                          <div className="flex gap-1.5 flex-wrap">
-                            <button
-                              type="button"
-                              onClick={() => handleSetExerciseRestTime(workout.workout_id, 0)}
-                              className={`text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors ${!workoutExerciseRestTimes[workout.workout_id]
-                                ? "bg-brand text-white"
-                                : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
-                                }`}
-                            >
-                              {t("goals_disabled")}
-                            </button>
-                            {REST_TIME_OPTIONS.map((time) => (
-                              <button
-                                key={time}
-                                type="button"
-                                onClick={() => handleSetExerciseRestTime(workout.workout_id, time)}
-                                className={`text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors ${workoutExerciseRestTimes[workout.workout_id] === time
-                                  ? "bg-brand text-white"
-                                  : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
-                                  }`}
-                              >
-                                {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
-                              </button>
-                            ))}
+                        {/* Expand action button */}
+                        <div className={`flex items-center justify-between px-4 h-11 transition-colors ${isExpanded ? "bg-brand text-white" : "bg-card text-foreground border-t border-border/40"}`}>
+                          <span className="text-xs font-semibold">
+                            {isExpanded ? "Fechar séries" : "Ver séries"}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {!isExpanded && (
+                              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                                isFullyDone ? "bg-brand text-white" : completedCount > 0 ? "bg-brand/15 text-brand" : "bg-muted text-muted-foreground"
+                              }`}>
+                                {completedCount}/{totalCount}
+                              </span>
+                            )}
+                            <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
                           </div>
                         </div>
-                        )}
+                      </button>
 
-                        {/* Load suggestion: best kg from last session */}
-                        {(() => {
-                          const isCardio = (workout.muscle_group || "").toLowerCase() === "cardio";
-                          if (isCardio) return null;
-                          const history = workoutHistoriesMap[workout.workout_id] || [];
-                          if (history.length === 0) return null;
-                          const bestLastKg = Math.max(...history.slice(0, 3).map((h) => h.kilos || 0));
-                          if (bestLastKg <= 0) return null;
-                          const suggested = Math.round((bestLastKg + 2.5) * 10) / 10;
-                          return (
-                            <div className="flex items-center gap-2 mb-3">
-                              {/* Meta de hoje */}
-                              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-brand/10 border border-brand/30">
-                                <TrendingUp className="h-3 w-3 text-brand flex-shrink-0" />
-                                <span className="text-[11px] text-brand/70 leading-none">{t("goals_today_goal")}</span>
-                                <span className="text-[11px] font-bold text-brand leading-none">{suggested} kg</span>
-                              </div>
-                            </div>
-                          );
-                        })()}
+                      {/* ── Expanded panel: series UI ── */}
+                      <AnimatePresence initial={false}>
+                        {isExpanded && (
+                          <motion.div
+                            key="expanded"
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.22, ease: "easeInOut" }}
+                            className="overflow-hidden"
+                          >
+                            <div className="px-3 pt-3 pb-4 space-y-3">
 
-                        {/* Table Header / Cardio UI */}
-                        {(() => {
-                          const isCardio = (workout.muscle_group || "").toLowerCase() === "cardio";
+                              {/* ── Compact toolbar: tudo numa linha ── */}
+                              {(() => {
+                                const restVal = workoutExerciseRestTimes[workout.workout_id];
+                                const restLabel = restVal
+                                  ? (restVal < 60 ? `${restVal}s` : `${Math.floor(restVal / 60)}m`)
+                                  : "Off";
+                                const history = workoutHistoriesMap[workout.workout_id] || [];
+                                const bestLastKg = history.length > 0 ? Math.max(...history.slice(0, 3).map((h) => h.kilos || 0)) : 0;
+                                const suggested = bestLastKg > 0 ? Math.round((bestLastKg + 2.5) * 10) / 10 : null;
 
-                          if (isCardio) {
-                            // Cardio: use only first serie for km/tempo
-                            const s = series[0] || { kg: 0, reps: 0, completed: false };
-                            const previousRecord = workoutHistoriesMap[workout.workout_id]?.[0];
-                            const prevKm = previousRecord ? Math.round((previousRecord.kilos || 0) * 10) / 10 : null;
-                            const prevTempoSecs = previousRecord ? (Number(previousRecord.volume) || 0) : null;
-                            const formatSecs = (totalSecs: number) => {
-                              const h = Math.floor(totalSecs / 3600);
-                              const m = Math.floor((totalSecs % 3600) / 60);
-                              const s2 = totalSecs % 60;
-                              if (h > 0) return `${h}h ${String(m).padStart(2, "0")}min`;
-                              if (s2 > 0) return `${m}min ${String(s2).padStart(2, "0")}s`;
-                              return `${m}min`;
-                            };
-
-                            return (
-                              <div className="space-y-3">
-                                {/* GPS Tracker — Corrida Externa only */}
-                                {workout.workout_id === CORRIDA_EXTERNA_ID && (
-                                  <div className={`rounded-xl border-2 p-3 transition-colors ${gpsActive ? "border-brand/60 bg-brand/5" : "border-border/40 bg-muted/20"}`}>
-                                    <div className="flex items-center justify-between mb-2">
-                                      <div className="flex items-center gap-2">
-                                        <MapPin className={`h-4 w-4 ${gpsActive ? "text-brand animate-pulse" : "text-muted-foreground"}`} />
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">GPS</span>
-                                        {gpsActive && <span className="text-[10px] font-medium text-brand bg-brand/10 px-1.5 py-0.5 rounded-full">Rastreando</span>}
-                                      </div>
+                                return (
+                                  <div className="flex items-center gap-1">
+                                    {/* Meta hoje — badge compacto com label animada */}
+                                    {suggested !== null && !isCardio && (
                                       <button
                                         type="button"
-                                        onClick={() => gpsActive ? setGpsStopConfirm({ workoutId: workout.workout_id, rowKey: workout.id }) : startGpsTracking(workout.workout_id)}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${gpsActive ? "bg-red-500/10 text-red-500 hover:bg-red-500/20" : "bg-brand/10 text-brand hover:bg-brand/20"}`}
+                                        onClick={() => handleOpenWorkoutHistory({ id: workout.workout_id, name: workout.workoutName, description: workout.workoutDescription || undefined, photo: workout.workoutPhoto || undefined })}
+                                        className="flex items-center gap-1 px-2 h-7 rounded-full bg-brand/10 border border-brand/20 text-brand hover:bg-brand/15 transition-colors flex-shrink-0 overflow-hidden"
                                       >
-                                        {gpsActive ? "Parar GPS" : "Iniciar GPS"}
+                                        <TrendingUp className="h-3 w-3 flex-shrink-0" />
+                                        <AnimatePresence mode="wait" initial={false}>
+                                          {goalLabelVisible === workout.workout_id ? (
+                                            <motion.span
+                                              key="label"
+                                              initial={{ opacity: 0, width: 0 }}
+                                              animate={{ opacity: 1, width: "auto" }}
+                                              exit={{ opacity: 0, width: 0 }}
+                                              transition={{ duration: 0.2, ease: "easeInOut" }}
+                                              className="text-[11px] font-bold whitespace-nowrap overflow-hidden"
+                                            >
+                                              meta de hoje
+                                            </motion.span>
+                                          ) : (
+                                            <motion.span
+                                              key="kg"
+                                              initial={{ opacity: 0, width: 0 }}
+                                              animate={{ opacity: 1, width: "auto" }}
+                                              exit={{ opacity: 0, width: 0 }}
+                                              transition={{ duration: 0.2, ease: "easeInOut" }}
+                                              className="text-[11px] font-bold whitespace-nowrap overflow-hidden"
+                                            >
+                                              {suggested} kg
+                                            </motion.span>
+                                          )}
+                                        </AnimatePresence>
                                       </button>
-                                    </div>
-                                    {(gpsActive || gpsDistance > 0) && (
-                                      <div className="flex items-center gap-4 mt-1">
-                                        <div className="flex flex-col items-center">
-                                          <span className="text-xl font-bold tabular-nums text-foreground">
-                                            {gpsDistance >= 1
-                                              ? gpsDistance.toFixed(2)
-                                              : Math.round(gpsDistance * 1000)}
-                                          </span>
-                                          <span className="text-[10px] text-muted-foreground font-medium">
-                                            {gpsDistance >= 1 ? "km" : "m"}
-                                          </span>
-                                        </div>
-                                        {gpsPace !== null && (
-                                          <>
-                                            <div className="w-px h-8 bg-border/40" />
-                                            <div className="flex flex-col items-center">
-                                              <span className="text-xl font-bold tabular-nums text-foreground">
-                                                {`${Math.floor(gpsPace / 60)}:${String(gpsPace % 60).padStart(2, "0")}`}
-                                              </span>
-                                              <span className="text-[10px] text-muted-foreground font-medium">min/km</span>
-                                            </div>
-                                          </>
-                                        )}
-                                        <div className="w-px h-8 bg-border/40" />
-                                        <div className="flex flex-col items-center">
-                                          <span className="text-xl font-bold tabular-nums text-foreground">
-                                            {`${Math.floor(gpsElapsedSecs / 60)}:${String(gpsElapsedSecs % 60).padStart(2, "0")}`}
-                                          </span>
-                                          <span className="text-[10px] text-muted-foreground font-medium">tempo</span>
-                                        </div>
-                                      </div>
                                     )}
-                                    {!gpsActive && gpsDistance === 0 && (
-                                      <p className="text-[11px] text-muted-foreground">Inicie o GPS para rastrear sua distância automaticamente.</p>
+
+                                    {/* Histórico — só ícone quando não há meta */}
+                                    {(suggested === null || isCardio) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenWorkoutHistory({ id: workout.workout_id, name: workout.workoutName, description: workout.workoutDescription || undefined, photo: workout.workoutPhoto || undefined })}
+                                        className="flex items-center justify-center w-7 h-7 rounded-full hover:bg-muted/60 transition-colors flex-shrink-0"
+                                        aria-label="Ver histórico"
+                                      >
+                                        <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
+                                      </button>
                                     )}
-                                  </div>
-                                )}
-                                {/* Previous session reference */}
-                                {(prevKm !== null || prevTempoSecs !== null) && (
-                                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 border border-border/30">
-                                    <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                                    <span className="text-xs text-muted-foreground">Última vez:</span>
-                                    {prevKm !== null && prevKm > 0 && (
-                                      <span className="text-xs font-semibold text-foreground">{prevKm} km</span>
-                                    )}
-                                    {prevKm !== null && prevKm > 0 && prevTempoSecs !== null && prevTempoSecs > 0 && <span className="text-xs text-muted-foreground">·</span>}
-                                    {prevTempoSecs !== null && prevTempoSecs > 0 && (
-                                      <span className="text-xs font-semibold text-foreground">{formatSecs(prevTempoSecs)}</span>
-                                    )}
-                                  </div>
-                                )}
 
-                                {/* Cardio inputs: Distância + Tempo — hidden for Corrida Externa (GPS handles it) */}
-                                {workout.workout_id !== CORRIDA_EXTERNA_ID && <div className="flex flex-col gap-4">
-                                  {/* Distância */}
-                                  <div className="flex flex-col gap-1.5">
-                                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                                      <MapPin className="h-3 w-3" />
-                                      Distância
-                                    </label>
-                                    <div className="relative">
-                                      <input
-                                        type="number"
-                                        step="0.1"
-                                        min="0"
-                                        value={s.kg === 0 ? "" : s.kg}
-                                        onChange={(e) =>
-                                          handleUpdateSerie(workout.workout_id, 0, "kg", e.target.value, workout.id)
-                                        }
-                                        placeholder="0,00"
-                                        className="w-full h-14 pl-3 pr-10 border-2 border-border/60 rounded-xl text-2xl font-bold bg-background text-foreground focus:border-brand focus:outline-none transition-colors"
-                                        style={{ fontSize: '24px' }}
-                                      />
-                                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">km</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Tempo — picker nativo iOS (roda) */}
-                                  {(() => {
-                                    const totalSecs = s.reps || 0;
-                                    const hh = Math.floor(totalSecs / 3600);
-                                    const mm = Math.floor((totalSecs % 3600) / 60);
-                                    const ss = totalSecs % 60;
-                                    const timeValue = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-
-                                    const handleTimeChange = (v: string) => {
-                                      const parts = v.split(":").map((p) => parseInt(p, 10) || 0);
-                                      const [nh = 0, nm = 0, nsec = 0] = parts;
-                                      const clamped = Math.max(0, nh) * 3600 + Math.max(0, Math.min(59, nm)) * 60 + Math.max(0, Math.min(59, nsec));
-                                      handleUpdateSerie(workout.workout_id, 0, "reps", clamped, workout.id);
-                                    };
-
-                                    return (
-                                      <div className="flex flex-col gap-1.5">
-                                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                                          <Timer className="h-3 w-3" />
-                                          Tempo
-                                        </label>
-                                        <input
-                                          type="time"
-                                          step={1}
-                                          value={timeValue}
-                                          onChange={(e) => handleTimeChange(e.target.value)}
-                                          className="w-full h-14 px-3 border-2 border-border/60 rounded-xl text-2xl font-bold tabular-nums bg-background text-foreground focus:border-brand focus:outline-none transition-colors"
-                                          style={{ fontSize: '24px' }}
-                                        />
-                                      </div>
-                                    );
-                                  })()}
-
-                                </div>}
-
-                                {/* Confirm button */}
-                                <button
-                                  onPointerDown={(e) => { e.preventDefault(); handleToggleSerieCompleted(workout.workout_id, 0, workout.id); }}
-                                  className={`w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${s.completed
-                                    ? "bg-brand text-white"
-                                    : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
-                                    }`}
-                                >
-                                  {s.completed ? (
-                                    <>
-                                      <CheckCircle2 className="h-4 w-4" />
-                                      Concluído!
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Circle className="h-4 w-4" />
-                                      Marcar como concluído
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <>
-                              <div className="grid grid-cols-[40px_1fr_60px_60px_44px] gap-3 mb-1 py-1 text-xs font-semibold text-muted-foreground border-b border-border/20">
-                                <div>{t("goals_col_series")}</div>
-                                <div>{t("goals_col_previous")}</div>
-                                <div className="text-center">KG</div>
-                                <div className="text-center">REPS</div>
-                                <div className="text-center">✓</div>
-                              </div>
-
-                              {/* Series Rows */}
-                              <div className="space-y-0">
-                                {series.map((s, index) => {
-                                  const previousRecord = workoutHistoriesMap[workout.workout_id]?.[index];
-                                  return (
-                                    <div
-                                      key={index}
-                                      className={`group relative grid grid-cols-[40px_1fr_60px_60px_32px_28px] gap-2 items-center py-1.5 rounded hover:bg-muted/20 transition-colors ${s.completed ? "opacity-50" : ""
-                                        }`}
+                                    {/* Notas — ícone lápis, expande input inline */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const el = document.getElementById(`notes-${workout.workout_id}`);
+                                        el?.focus();
+                                      }}
+                                      className={`flex items-center justify-center w-7 h-7 rounded-full hover:bg-muted/60 transition-colors flex-shrink-0 ${workoutExerciseNotes[workout.workout_id] ? "text-brand" : "text-muted-foreground"}`}
+                                      aria-label="Notas"
                                     >
-                                      {/* Series Number */}
-                                      <div className="font-bold text-center text-xs">
-                                        {index + 1}
-                                      </div>
+                                      <svg className="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                                    </button>
 
-                                      {/* Previous Record */}
-                                      <div className="text-xs text-muted-foreground">
-                                        {previousRecord
-                                          ? `${Math.round((previousRecord.kilos || 0) * 10) / 10}kg × ${previousRecord.volume || 0}`
-                                          : "—"}
-                                      </div>
-
-                                      {/* KG Input */}
-                                      <input
-                                        type="number"
-                                        inputMode="decimal"
-                                        step="0.5"
-                                        min="0"
-                                        value={s.kg === 0 ? "" : s.kg}
-                                        onChange={(e) =>
-                                          handleUpdateSerie(
-                                            workout.workout_id,
-                                            index,
-                                            "kg",
-                                            e.target.value,
-                                            workout.id,
-                                          )
-                                        }
-                                        placeholder="0"
-                                        className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
-                                        style={{ fontSize: '16px' }}
-                                      />
-
-                                      {/* REPS Input */}
-                                      <input
-                                        type="number"
-                                        inputMode="numeric"
-                                        pattern="[0-9]*"
-                                        min="0"
-                                        value={s.reps === 0 ? "" : s.reps}
-                                        onChange={(e) =>
-                                          handleUpdateSerie(
-                                            workout.workout_id,
-                                            index,
-                                            "reps",
-                                            e.target.value,
-                                            workout.id,
-                                          )
-                                        }
-                                        placeholder="0"
-                                        className="w-full h-7 px-1.5 border border-border/60 rounded text-xs font-semibold bg-background text-center focus:border-brand focus:outline-none"
-                                        style={{ fontSize: '16px' }}
-                                      />
-
-                                      {/* Checkbox */}
+                                    {/* Descanso — ícone + label colapsável */}
+                                    {!isCardio && (
                                       <button
-                                        onPointerDown={(e) => { e.preventDefault(); handleToggleSerieCompleted(workout.workout_id, index, workout.id); }}
-                                        className="h-6 w-6 rounded bg-muted/40 hover:bg-muted/60 flex items-center justify-center transition-colors mx-auto"
+                                        type="button"
+                                        onClick={() => {
+                                          setRestTimeChipsVisible(workout.workout_id);
+                                          if (restTimeHideTimerRef.current) clearTimeout(restTimeHideTimerRef.current);
+                                          restTimeHideTimerRef.current = setTimeout(() => setRestTimeChipsVisible(null), 3000);
+                                        }}
+                                        className={`flex items-center gap-1 px-2 h-7 rounded-full hover:bg-muted/60 transition-colors flex-shrink-0 ${restVal ? "text-brand" : "text-muted-foreground"}`}
+                                        aria-label="Tempo de descanso"
                                       >
-                                        {s.completed ? (
-                                          <CheckCircle2 className="h-4 w-4 text-brand" />
-                                        ) : (
-                                          <Circle className="h-4 w-4 text-muted-foreground" />
-                                        )}
+                                        <Clock className="h-3.5 w-3.5" />
+                                        <span className="text-[11px] font-semibold">{restLabel}</span>
                                       </button>
+                                    )}
 
-                                      {/* Delete Serie */}
-                                      <button
-                                        onClick={() => handleDeleteSerie(workout.workout_id, index)}
-                                        className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 rounded-full bg-destructive/80 hover:bg-destructive flex items-center justify-center mx-auto"
-                                        title="Deletar série"
-                                        aria-label="Deletar série"
-                                      >
-                                        <Trash2 className="h-3 w-3 text-white" />
+                                    {/* Spacer */}
+                                    <div className="flex-1" />
+
+                                    {/* Menu ⋮ */}
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <button className="flex items-center justify-center w-7 h-7 hover:bg-muted/50 rounded-full transition-colors flex-shrink-0" aria-label="Opções">
+                                          <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                                        </button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end" className="w-44">
+                                        {filteredIndex > 0 && (
+                                          <DropdownMenuItem onClick={() => handleReorderExercises(originalIndex, filteredArr[filteredIndex - 1].originalIndex)}>
+                                            <ArrowUp className="h-4 w-4 mr-2" />Mover para cima
+                                          </DropdownMenuItem>
+                                        )}
+                                        {filteredIndex < filteredArr.length - 1 && (
+                                          <DropdownMenuItem onClick={() => handleReorderExercises(originalIndex, filteredArr[filteredIndex + 1].originalIndex)}>
+                                            <ArrowDown className="h-4 w-4 mr-2" />Mover para baixo
+                                          </DropdownMenuItem>
+                                        )}
+                                        <DropdownMenuItem onClick={() => handleDeleteExercise(workout.id)} className="text-red-500">
+                                          <Trash2 className="h-4 w-4 mr-2" />Remover da rotina
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  </div>
+                                );
+                              })()}
+
+                              {/* ── Notas — input inline oculto, aparece ao focar ── */}
+                              <div className={`overflow-hidden transition-all duration-200 ${workoutExerciseNotes[workout.workout_id] ? "max-h-10" : "max-h-0 focus-within:max-h-10"}`}>
+                                <input
+                                  id={`notes-${workout.workout_id}`}
+                                  type="text"
+                                  placeholder="Notas..."
+                                  value={workoutExerciseNotes[workout.workout_id] ?? ""}
+                                  onChange={(e) => handleSetExerciseNote(workout.workout_id, e.target.value)}
+                                  className="w-full h-9 px-3 text-xs text-foreground bg-muted/20 border border-border/30 rounded-xl placeholder:text-muted-foreground/50 focus:outline-none focus:border-brand/40 transition-colors"
+                                  style={{ fontSize: '16px' }}
+                                />
+                              </div>
+
+                              {/* ── Rest time chips — auto-hide ── */}
+                              {!isCardio && (
+                                <AnimatePresence>
+                                  {restTimeChipsVisible === workout.workout_id && (
+                                    <motion.div
+                                      key="chips"
+                                      initial={{ opacity: 0, height: 0 }}
+                                      animate={{ opacity: 1, height: "auto" }}
+                                      exit={{ opacity: 0, height: 0 }}
+                                      transition={{ duration: 0.18, ease: "easeOut" }}
+                                      className="overflow-hidden"
+                                    >
+                                      <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+                                        <button type="button" onClick={() => { handleSetExerciseRestTime(workout.workout_id, 0); if (restTimeHideTimerRef.current) clearTimeout(restTimeHideTimerRef.current); restTimeHideTimerRef.current = setTimeout(() => setRestTimeChipsVisible(null), 3000); }} className={`flex-shrink-0 text-[11px] font-semibold px-3 h-7 rounded-full transition-colors ${!workoutExerciseRestTimes[workout.workout_id] ? "bg-brand text-white" : "bg-muted/50 text-muted-foreground"}`}>Off</button>
+                                        {REST_TIME_OPTIONS.map((time) => (
+                                          <button key={time} type="button" onClick={() => { handleSetExerciseRestTime(workout.workout_id, time); if (restTimeHideTimerRef.current) clearTimeout(restTimeHideTimerRef.current); restTimeHideTimerRef.current = setTimeout(() => setRestTimeChipsVisible(null), 3000); }} className={`flex-shrink-0 text-[11px] font-semibold px-3 h-7 rounded-full transition-colors ${workoutExerciseRestTimes[workout.workout_id] === time ? "bg-brand text-white" : "bg-muted/50 text-muted-foreground"}`}>
+                                            {time < 60 ? `${time}s` : `${Math.floor(time / 60)}m`}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              )}
+
+                              {/* ── Series UI ── */}
+                              {(() => {
+                                if (isCardio) {
+                                  const s = series[0] || { kg: 0, reps: 0, completed: false };
+                                  const previousRecord = workoutHistoriesMap[workout.workout_id]?.[0];
+                                  const prevKm = previousRecord ? Math.round((previousRecord.kilos || 0) * 10) / 10 : null;
+                                  const prevTempoSecs = previousRecord ? (Number(previousRecord.volume) || 0) : null;
+                                  const formatSecs = (totalSecs: number) => {
+                                    const h = Math.floor(totalSecs / 3600);
+                                    const m = Math.floor((totalSecs % 3600) / 60);
+                                    const s2 = totalSecs % 60;
+                                    if (h > 0) return `${h}h ${String(m).padStart(2, "0")}min`;
+                                    if (s2 > 0) return `${m}min ${String(s2).padStart(2, "0")}s`;
+                                    return `${m}min`;
+                                  };
+                                  return (
+                                    <div className="space-y-3">
+                                      {workout.workout_id === CORRIDA_EXTERNA_ID && (
+                                        <div className={`rounded-xl border-2 p-3 transition-colors ${gpsActive ? "border-brand/60 bg-brand/5" : "border-border/40 bg-muted/20"}`}>
+                                          <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                              <MapPin className={`h-4 w-4 ${gpsActive && !gpsPaused ? "text-brand animate-pulse" : "text-muted-foreground"}`} />
+                                              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">GPS</span>
+                                              {gpsActive && (
+                                                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${gpsPaused ? "text-amber-500 bg-amber-500/10" : "text-brand bg-brand/10"}`}>
+                                                  {gpsPaused ? "Pausado" : "Rastreando"}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              {gpsActive && (
+                                                <button type="button" onClick={() => gpsPaused ? resumeGpsTracking() : pauseGpsTracking()} className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 text-amber-500 transition-all" aria-label={gpsPaused ? "Retomar GPS" : "Pausar GPS"}>
+                                                  {gpsPaused ? <><Play className="h-3.5 w-3.5" />Retomar</> : <><Pause className="h-3.5 w-3.5" />Pausar</>}
+                                                </button>
+                                              )}
+                                              <button type="button" onClick={() => gpsActive ? setGpsStopConfirm({ workoutId: workout.workout_id, rowKey: workout.id }) : startGpsTracking(workout.workout_id)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${gpsActive ? "bg-red-500/10 text-red-500" : "bg-brand/10 text-brand"}`}>
+                                                {gpsActive ? "Parar GPS" : "Iniciar GPS"}
+                                              </button>
+                                            </div>
+                                          </div>
+                                          {(gpsActive || gpsDistance > 0) && (
+                                            <div className="flex items-center gap-4 mt-1">
+                                              <div className="flex flex-col items-center">
+                                                <span className="text-xl font-bold tabular-nums">{gpsDistance >= 1 ? gpsDistance.toFixed(2) : Math.round(gpsDistance * 1000)}</span>
+                                                <span className="text-[10px] text-muted-foreground">{gpsDistance >= 1 ? "km" : "m"}</span>
+                                              </div>
+                                              {gpsPace !== null && (<><div className="w-px h-8 bg-border/40" /><div className="flex flex-col items-center"><span className="text-xl font-bold tabular-nums">{`${Math.floor(gpsPace / 60)}:${String(gpsPace % 60).padStart(2, "0")}`}</span><span className="text-[10px] text-muted-foreground">min/km</span></div></>)}
+                                              <div className="w-px h-8 bg-border/40" />
+                                              <div className="flex flex-col items-center">
+                                                <span className="text-xl font-bold tabular-nums">{`${Math.floor(gpsElapsedSecs / 60)}:${String(gpsElapsedSecs % 60).padStart(2, "0")}`}</span>
+                                                <span className="text-[10px] text-muted-foreground">tempo</span>
+                                              </div>
+                                            </div>
+                                          )}
+                                          {!gpsActive && gpsDistance === 0 && <p className="text-[11px] text-muted-foreground">Inicie o GPS para rastrear sua distância automaticamente.</p>}
+                                        </div>
+                                      )}
+                                      {(prevKm !== null || prevTempoSecs !== null) && (
+                                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/30 border border-border/30">
+                                          <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                                    <span className="text-xs text-muted-foreground">Última vez:</span>
+                                          {prevKm !== null && prevKm > 0 && <span className="text-xs font-semibold">{prevKm} km</span>}
+                                          {prevKm !== null && prevKm > 0 && prevTempoSecs !== null && prevTempoSecs > 0 && <span className="text-xs text-muted-foreground">·</span>}
+                                          {prevTempoSecs !== null && prevTempoSecs > 0 && <span className="text-xs font-semibold">{formatSecs(prevTempoSecs)}</span>}
+                                        </div>
+                                      )}
+                                      {workout.workout_id !== CORRIDA_EXTERNA_ID && (
+                                        <div className="flex flex-col gap-4">
+                                          <div className="flex flex-col gap-1.5">
+                                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><MapPin className="h-3 w-3" />Distância</label>
+                                            <div className="relative">
+                                              <input type="number" step="0.1" min="0" value={s.kg === 0 ? "" : s.kg} onChange={(e) => handleUpdateSerie(workout.workout_id, 0, "kg", e.target.value, workout.id)} placeholder="0,00" className="w-full h-14 pl-3 pr-10 border-2 border-border/60 rounded-xl text-2xl font-bold bg-background focus:border-brand focus:outline-none transition-colors" style={{ fontSize: '24px' }} />
+                                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">km</span>
+                                            </div>
+                                          </div>
+                                          {(() => {
+                                            const totalSecs = s.reps || 0;
+                                            const hh = Math.floor(totalSecs / 3600); const mm = Math.floor((totalSecs % 3600) / 60); const ss = totalSecs % 60;
+                                            const timeValue = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+                                            const handleTimeChange = (v: string) => { const parts = v.split(":").map((p) => parseInt(p, 10) || 0); const [nh = 0, nm = 0, nsec = 0] = parts; handleUpdateSerie(workout.workout_id, 0, "reps", Math.max(0, nh) * 3600 + Math.max(0, Math.min(59, nm)) * 60 + Math.max(0, Math.min(59, nsec)), workout.id); };
+                                            return (
+                                              <div className="flex flex-col gap-1.5">
+                                                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><Timer className="h-3 w-3" />Tempo</label>
+                                                <input type="time" step={1} value={timeValue} onChange={(e) => handleTimeChange(e.target.value)} className="w-full h-14 px-3 border-2 border-border/60 rounded-xl text-2xl font-bold tabular-nums bg-background focus:border-brand focus:outline-none transition-colors" style={{ fontSize: '24px' }} />
+                                              </div>
+                                            );
+                                          })()}
+                                        </div>
+                                      )}
+                                      <button onPointerDown={(e) => { e.preventDefault(); handleToggleSerieCompleted(workout.workout_id, 0, workout.id); }} className={`w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-all ${s.completed ? "bg-brand text-white" : "bg-muted/40 text-muted-foreground"}`}>
+                                        {s.completed ? <><CheckCircle2 className="h-4 w-4" />Concluído!</> : <><Circle className="h-4 w-4" />Marcar como concluído</>}
                                       </button>
                                     </div>
                                   );
-                                })}
-                              </div>
-                            </>
-                          );
-                        })()}
+                                }
 
-                        {/* Machine Plated nudge — triggered when kg > 120 is entered or series is completed */}
-                        {showMachinePlatedFor === workout.id && (
-                          <div className="mt-2 flex items-center gap-3 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                                // ── Strength series: column header ──
+                                return (
+                                  <div className="space-y-1.5">
+                                    {/* Column labels */}
+                                    <div className="grid grid-cols-[28px_1fr_72px_72px_44px] gap-2 px-1">
+                                      <div className="text-[10px] font-semibold text-muted-foreground/60 text-center uppercase tracking-wide">#</div>
+                                      <div className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wide">Anterior</div>
+                                      <div className="text-[10px] font-semibold text-muted-foreground/60 text-center uppercase tracking-wide">KG</div>
+                                      <div className="text-[10px] font-semibold text-muted-foreground/60 text-center uppercase tracking-wide">Reps</div>
+                                      <div />
+                                    </div>
+
+                                    {/* Series rows */}
+                                    {series.map((s, index) => {
+                                      const previousRecord = workoutHistoriesMap[workout.workout_id]?.[index];
+                                      const prevLabel = previousRecord
+                                        ? `${Math.round((previousRecord.kilos || 0) * 10) / 10} × ${previousRecord.volume || 0}`
+      : "—";
+                                      return (
+                                        <div
+                                          key={index}
+                                          className={`group grid grid-cols-[28px_1fr_72px_72px_44px] gap-2 items-center px-1 py-1.5 rounded-xl transition-colors ${s.completed ? "bg-brand/8 opacity-70" : "hover:bg-muted/20"}`}
+                                        >
+                                          {/* # badge */}
+                                          <div className={`flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-bold mx-auto ${s.completed ? "bg-brand text-white" : "bg-muted/60 text-muted-foreground"}`}>
+                                            {index + 1}
+                                          </div>
+
+                                          {/* Anterior */}
+                                          <div className="text-xs text-muted-foreground/70 font-medium tabular-nums truncate">
+                                            {prevLabel}
+                                          </div>
+
+                                          {/* KG input */}
+                                          <div className="relative">
+                                            <input
+                                              type="number"
+                                              inputMode="decimal"
+                                              step="0.5"
+                                              min="0"
+                                              value={s.kg === 0 ? "" : s.kg}
+                                              onChange={(e) => handleUpdateSerie(workout.workout_id, index, "kg", e.target.value, workout.id)}
+                                              placeholder="—"
+                                              className={`w-full h-10 px-2 rounded-xl text-sm font-bold text-center focus:outline-none transition-all border ${s.completed ? "bg-brand/10 border-brand/30 text-brand" : "bg-muted/40 border-border/40 focus:border-brand focus:bg-background"}`}
+                                              style={{ fontSize: '16px' }}
+                                            />
+                                          </div>
+
+                                          {/* REPS input */}
+                                          <div className="relative">
+                                            <input
+                                              type="number"
+                                              inputMode="numeric"
+                                              pattern="[0-9]*"
+                                              min="0"
+                                              value={s.reps === 0 ? "" : s.reps}
+                                              onChange={(e) => handleUpdateSerie(workout.workout_id, index, "reps", e.target.value, workout.id)}
+                                              placeholder="—"
+                                              className={`w-full h-10 px-2 rounded-xl text-sm font-bold text-center focus:outline-none transition-all border ${s.completed ? "bg-brand/10 border-brand/30 text-brand" : "bg-muted/40 border-border/40 focus:border-brand focus:bg-background"}`}
+                                              style={{ fontSize: '16px' }}
+                                            />
+                                          </div>
+
+                                          {/* Check + delete */}
+                                          <div className="flex items-center justify-center gap-1">
+                                            <button
+                                              onPointerDown={(e) => { e.preventDefault(); handleToggleSerieCompleted(workout.workout_id, index, workout.id); }}
+                                              className={`h-10 w-10 rounded-xl flex items-center justify-center transition-all active:scale-95 ${s.completed ? "bg-brand text-white shadow-sm shadow-brand/30" : "bg-muted/40 text-muted-foreground hover:bg-muted/70"}`}
+                                              aria-label="Marcar série"
+                                            >
+                                              {s.completed ? <CheckCircle2 className="h-5 w-5" /> : <Circle className="h-5 w-5" />}
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+
+                                    {/* Swipe-to-delete hint — long press shows delete on last series */}
+                                    {series.length > 1 && (
+                                      <button
+                                        onClick={() => handleDeleteSerie(workout.workout_id, series.length - 1)}
+                                        className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] text-muted-foreground/50 hover:text-destructive transition-colors"
+                                        aria-label="Remover última série"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                        Remover última série
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Machine Plated nudge */}
+                              {showMachinePlatedFor === workout.id && (
+                                <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30">
                             <span className="text-base leading-none select-none">🏋️</span>
-                            <span className="flex-1 text-xs font-medium text-amber-400/90 leading-snug">
-                              Zerou a máquina?
-                            </span>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onPointerDown={(e) => {
-                                  e.preventDefault();
-                                  setMachinePlated((prev) => ({ ...prev, [workout.id]: true }));
-                                  setShowMachinePlatedFor(null);
-                                }}
-                                className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500 text-white active:scale-95 transition-transform"
-                                aria-label="Sim, zerei a máquina"
-                              >
-                                Sim
-                              </button>
-                              <button
-                                type="button"
-                                onPointerDown={(e) => {
-                                  e.preventDefault();
-                                  setMachinePlated((prev) => ({ ...prev, [workout.id]: false }));
-                                  setShowMachinePlatedFor(null);
-                                }}
-                                className="px-3 py-1 rounded-full text-xs font-semibold bg-muted/60 text-muted-foreground active:scale-95 transition-transform"
-                                aria-label="Não"
-                              >
-                                Não
-                              </button>
+                                  <span className="flex-1 text-xs font-medium text-amber-400/90">Zerou a máquina?</span>
+                                  <div className="flex items-center gap-1.5">
+                                    <button type="button" onPointerDown={(e) => { e.preventDefault(); setMachinePlated((prev) => ({ ...prev, [workout.id]: true })); setShowMachinePlatedFor(null); }} className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500 text-white active:scale-95 transition-transform">Sim</button>
+                                    <button type="button" onPointerDown={(e) => { e.preventDefault(); setMachinePlated((prev) => ({ ...prev, [workout.id]: false })); setShowMachinePlatedFor(null); }} className="px-3 py-1 rounded-full text-xs font-semibold bg-muted/60 text-muted-foreground active:scale-95 transition-transform">Não</button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {machinePlated[workout.id] && showMachinePlatedFor !== workout.id && (
+                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                                  <span className="text-xs font-medium text-amber-400/80 flex-1">Máquina zerada!</span>
+                                  <button type="button" onPointerDown={(e) => { e.preventDefault(); setMachinePlated((prev) => ({ ...prev, [workout.id]: false })); }} className="text-[10px] text-muted-foreground underline">desfazer</button>
+                                </div>
+                              )}
+
+                              {/* ── Add series — ghost button ── */}
+                              {!isCardio && (
+                                <button
+                                  onClick={() => handleAddSerie(workout.workout_id)}
+                                  className="w-full h-10 rounded-xl border border-dashed border-brand/40 text-xs font-semibold text-brand/70 hover:text-brand hover:border-brand hover:bg-brand/5 transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                  {t("goals_add_series")}
+                                </button>
+                              )}
                             </div>
-                          </div>
+                          </motion.div>
                         )}
-
-                        {/* Confirmed machine plated badge */}
-                        {machinePlated[workout.id] && showMachinePlatedFor !== workout.id && (
-                          <div className="mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                            <CheckCircle2 className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
-                            <span className="text-xs font-medium text-amber-400/80 flex-1">Máquina zerada!</span>
-                            <button
-                              type="button"
-                              onPointerDown={(e) => {
-                                e.preventDefault();
-                                setMachinePlated((prev) => ({ ...prev, [workout.id]: false }));
-                              }}
-                              className="text-[10px] text-muted-foreground underline"
-                            >
-                              desfazer
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Add Series Button — hidden for cardio */}
-                        {(workout.muscle_group || "").toLowerCase() !== "cardio" && (
-                          <button
-                            onClick={() => handleAddSerie(workout.workout_id)}
-                            className="w-full mt-2 py-2 text-xs font-semibold text-white bg-brand hover:bg-brand/90 transition-colors rounded flex items-center justify-center gap-2"
-                          >
-                            <Plus className="h-3 w-3" />
-                            {t("goals_add_series")}
-                          </button>
-                        )}
-                      </div>
+                      </AnimatePresence>
                     </div>
                   );
                 })}
+              </div>
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center">
@@ -4411,8 +4074,9 @@ export default function Goals() {
             <div>
               <p className="text-xs font-semibold opacity-80 uppercase tracking-wide">{t("goals_new_record")}</p>
               <p className="text-sm font-bold leading-tight">
-                {prCelebration.exerciseName} — {prCelebration.kg} kg
-                {prCelebration.reps > 0 ? ` × ${prCelebration.reps} reps` : ""}
+                {prCelebration.isCardio
+                  ? `${prCelebration.exerciseName} — ${Math.round((prCelebration.km || 0) * 10) / 10} km${prCelebration.secs ? ` · ${Math.floor(prCelebration.secs / 60)}:${String(prCelebration.secs % 60).padStart(2, "0")}` : ""}`
+                  : `${prCelebration.exerciseName} — ${prCelebration.kg} kg${prCelebration.reps > 0 ? ` × ${prCelebration.reps} reps` : ""}`}
               </p>
             </div>
           </div>
@@ -4747,21 +4411,27 @@ export default function Goals() {
           setIsSharingWorkout(true);
           try {
             const description = workoutPostDescription || (() => {
+              const exerciseList = workoutSummaryData.exerciseNames.length > 0
+                ? `\n🏋️ ${workoutSummaryData.exerciseNames.join(" · ")}`
+                : "";
               if (workoutSummaryData.prs.length > 0) {
                 const prLines = workoutSummaryData.prs
-                  .map((pr) => `🏆 ${pr.exerciseName}: ${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`)
+                  .map((pr) => pr.isCardio
+                    ? `🏆 ${pr.exerciseName}: ${pr.kg > 0 ? `${Math.round(pr.kg * 10) / 10} km` : ""}${pr.kg > 0 && pr.reps > 0 ? "  ·  " : ""}${pr.reps > 0 ? formatDurationHms(pr.reps) : ""}`
+                    : `🏆 ${pr.exerciseName}: ${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`)
                   .join("\n");
                 const prVolumeStr = workoutSummaryData.isAllCardio
                   ? (workoutSummaryData.totalKm > 0 ? `📍 Distância: ${workoutSummaryData.totalKm} km` : "")
                   : (workoutSummaryData.totalVolume > 0 ? `📦 Volume: ${formatVolumeKg(workoutSummaryData.totalVolume)}` : "");
-                const prStats = [`⏱️ Duração: ${displayDurationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`]
-                  .filter(Boolean)
-                  .join("  ·  ");
+                const prStats = workoutSummaryData.isAllCardio
+                  ? [`⏱️ Duração: ${displayDurationStr}`, prVolumeStr].filter(Boolean).join("  ·  ")
+                  : [`⏱️ Duração: ${displayDurationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`].filter(Boolean).join("  ·  ");
                 return `🔥 Novo recorde pessoal!\n\n${prLines}\n\n${prStats}\n\n#Linka #PR #RecordePessoal #Fitness`;
               }
-              const exerciseList = workoutSummaryData.exerciseNames.length > 0
-                ? `\n🏋️ ${workoutSummaryData.exerciseNames.join(" · ")}`
-                : "";
+              if (workoutSummaryData.isAllCardio) {
+                const kmStr = workoutSummaryData.totalKm > 0 ? `\n📍 Distância: ${workoutSummaryData.totalKm} km` : "";
+                return `🏃 ${routineStr}!\n⏱️ ${displayDurationStr}${kmStr}${exerciseList}\n\n#Linka #Fitness #Cardio`;
+              }
               const volumeStr = workoutSummaryData.totalVolume > 0
                 ? `\n📦 Volume: ${formatVolumeKg(workoutSummaryData.totalVolume)}`
                 : "";
@@ -4883,14 +4553,16 @@ export default function Goals() {
           setIsSharingWorkout(true);
           try {
             const prLines = workoutSummaryData.prs
-              .map((pr) => `🏆 ${pr.exerciseName}: ${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`)
+              .map((pr) => pr.isCardio
+                ? `🏆 ${pr.exerciseName}: ${pr.kg > 0 ? `${Math.round(pr.kg * 10) / 10} km` : ""}${pr.kg > 0 && pr.reps > 0 ? "  ·  " : ""}${pr.reps > 0 ? formatDurationHms(pr.reps) : ""}`
+                : `🏆 ${pr.exerciseName}: ${pr.kg} kg${pr.reps > 0 ? ` × ${pr.reps} reps` : ""}`)
               .join("\n");
             const prVolumeStr = workoutSummaryData.isAllCardio
               ? (workoutSummaryData.totalKm > 0 ? `📍 Distância: ${workoutSummaryData.totalKm} km` : "")
               : (workoutSummaryData.totalVolume > 0 ? `📦 Volume: ${formatVolumeKg(workoutSummaryData.totalVolume)}` : "");
-            const prStats = [`⏱️ Duração: ${displayDurationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`]
-              .filter(Boolean)
-              .join("  ·  ");
+            const prStats = workoutSummaryData.isAllCardio
+              ? [`⏱️ Duração: ${displayDurationStr}`, prVolumeStr].filter(Boolean).join("  ·  ")
+              : [`⏱️ Duração: ${displayDurationStr}`, prVolumeStr, `✅ Séries: ${workoutSummaryData.totalSeries}`].filter(Boolean).join("  ·  ");
             const description = `🔥 Novo recorde pessoal!\n\n${prLines}\n\n${prStats}\n\n#Linka #PR #RecordePessoal #Fitness`;
 
             // Generate PR card image from canvas
@@ -6196,6 +5868,8 @@ export default function Goals() {
           setUserWorkouts(userWorkouts);
           setUserDiets(userDiets);
           setUserHabits(userHabits);
+          // Re-sync native notifications so disabled/changed reminders are cancelled or rescheduled
+          syncRoutineNotifications();
         }}
       />
 
@@ -6375,3 +6049,5 @@ export default function Goals() {
     </div>
   );
 }
+
+

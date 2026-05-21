@@ -34,7 +34,7 @@ interface ExerciseImageProps {
   className?: string;
 }
 
-export function ExerciseImage({ photo, name, muscleGroup, className = "h-14 w-14" }: ExerciseImageProps) {
+export function ExerciseImage({ photo, name, muscleGroup, className = "h-14 w-14 rounded-lg" }: ExerciseImageProps) {
   const [imgError, setImgError] = React.useState(false);
 
   if (photo && !imgError) {
@@ -42,7 +42,7 @@ export function ExerciseImage({ photo, name, muscleGroup, className = "h-14 w-14
       <img
         src={photo}
         alt={name}
-        className={`${className} rounded-lg object-cover flex-shrink-0 bg-muted`}
+        className={`${className} object-cover flex-shrink-0 bg-muted`}
         onError={() => setImgError(true)}
         loading="lazy"
       />
@@ -53,7 +53,7 @@ export function ExerciseImage({ photo, name, muscleGroup, className = "h-14 w-14
   const emoji = muscleGroup && MUSCLE_GROUP_ICONS[muscleGroup];
 
   return (
-    <div className={`${className} rounded-lg bg-gradient-to-br ${gradient} flex items-center justify-center flex-shrink-0 border border-border/30`}>
+    <div className={`${className} bg-gradient-to-br ${gradient} flex items-center justify-center flex-shrink-0 border border-border/30`}>
       {emoji ? (
         <span className="text-xl" role="img" aria-label={muscleGroup || name}>
           {emoji}

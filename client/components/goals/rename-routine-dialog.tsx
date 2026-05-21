@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Clock } from "lucide-react";
+import { Clock, BellOff } from "lucide-react";
+import { useLanguage } from "@/lib/language-context";
 import {
   Dialog,
   DialogContent,
@@ -46,6 +47,7 @@ export function RenameRoutineDialog({
   initialScheduledTime,
   onRenamed,
 }: RenameRoutineDialogProps) {
+  const { t } = useLanguage();
   const [value, setValue] = React.useState(initialValue);
   const [time, setTime] = React.useState(initialScheduledTime ?? "");
   const [isSaving, setIsSaving] = React.useState(false);
@@ -95,10 +97,10 @@ export function RenameRoutineDialog({
         userDiets: freshDiets,
         userHabits: freshHabits,
       });
-      toast({ title: "Rotina atualizada!" });
+      toast({ title: t("goals_edit_routine_updated") });
       onOpenChange(false);
     } catch {
-      toast({ title: "Erro ao atualizar rotina", variant: "destructive" });
+      toast({ title: t("goals_edit_routine_error"), variant: "destructive" });
     } finally {
       setIsSaving(false);
     }
@@ -108,13 +110,13 @@ export function RenameRoutineDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle>Editar rotina</DialogTitle>
+          <DialogTitle>{t("goals_edit_routine")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Nome da rotina</label>
+            <label className="text-sm font-medium">{t("goals_edit_routine_name_label")}</label>
             <Input
-              placeholder="Nome da rotina"
+              placeholder={t("goals_edit_routine_name_placeholder")}
               value={value}
               onChange={(e) => setValue(e.target.value)}
             />
@@ -123,18 +125,32 @@ export function RenameRoutineDialog({
           <div className="space-y-2">
             <label className="text-sm font-medium flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-              Horário de execução
+              {t("goals_edit_routine_time_label")}
             </label>
-            <input
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              className="w-full px-3 py-3 rounded-xl border border-border/60 bg-background text-foreground text-base focus:outline-none focus:ring-2 focus:ring-brand/40"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                className="flex-1 px-3 py-3 rounded-xl border border-border/60 bg-background text-foreground text-base focus:outline-none focus:ring-2 focus:ring-brand/40"
+              />
+              {time && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl h-[50px] gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive shrink-0"
+                  onClick={() => setTime("")}
+                  disabled={isSaving}
+                >
+                  <BellOff className="h-4 w-4" />
+                  {t("goals_edit_routine_disable_reminder")}
+                </Button>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               {time
-                ? `Lembrete diário às ${time} para todos os itens desta rotina.`
-                : "Deixe em branco para remover o lembrete dos itens desta rotina."}
+                ? t("goals_edit_routine_time_set").replace("{time}", time)
+                : t("goals_edit_routine_time_empty")}
             </p>
           </div>
 
@@ -145,14 +161,14 @@ export function RenameRoutineDialog({
               onClick={() => onOpenChange(false)}
               disabled={isSaving}
             >
-              Cancelar
+              {t("goals_edit_routine_cancel")}
             </Button>
             <Button
               className="flex-1 rounded-full"
               disabled={!value.trim() || isSaving}
               onClick={handleSave}
             >
-              {isSaving ? "Salvando..." : "Salvar"}
+              {isSaving ? t("goals_edit_routine_saving") : t("goals_edit_routine_save")}
             </Button>
           </div>
         </div>

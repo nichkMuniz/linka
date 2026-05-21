@@ -949,9 +949,6 @@ export function RoutinesTab({
               </button>
             ))}
           </div>
-          <p className="text-center text-[11px] text-muted-foreground/70 px-6 leading-relaxed">
-            {t("goals_no_routines_guide_footer")}
-          </p>
         </div>
       )}
     </>

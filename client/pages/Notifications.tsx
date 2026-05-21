@@ -21,6 +21,7 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/lib/language-context";
+import { hapticLight } from "@/lib/haptics";
 
 export default function Notifications() {
   const navigate = useNavigate();
@@ -31,12 +32,27 @@ export default function Notifications() {
   const [isClearing, setIsClearing] = React.useState(false);
   const [clearDialogOpen, setClearDialogOpen] = React.useState(false);
 
+  // Reusable loader so it can be triggered both on mount and via pull-to-refresh.
+  const loadNotifications = React.useCallback(async () => {
+    try {
+      const [data] = await Promise.all([
+        getNotificationsDb(),
+        markNotificationsAsReadDb(),
+      ]);
+      setNotifications(data);
+    } catch (err: any) {
+      console.error("Error loading notifications:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   React.useEffect(() => {
     if (!user) return;
 
     let isMounted = true;
 
-    const loadNotifications = async () => {
+    (async () => {
       try {
         const [data] = await Promise.all([
           getNotificationsDb(),
@@ -48,9 +64,7 @@ export default function Notifications() {
       } finally {
         if (isMounted) setLoading(false);
       }
-    };
-
-    loadNotifications();
+    })();
 
     // Subscribe to new notifications via Realtime instead of polling every 30s.
     // The re-fetch is debounced by 1 s so that several rapid inserts (e.g. multiple
@@ -86,6 +100,37 @@ export default function Notifications() {
       if (channel) supabase?.removeChannel(channel);
     };
   }, [user]);
+
+  // Pull-to-refresh (same UX as the feed)
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const pullStartY = React.useRef(0);
+  const [pullDistance, setPullDistance] = React.useState(0);
+  const [isPulling, setIsPulling] = React.useState(false);
+  const PULL_THRESHOLD = 72;
+
+  const onTouchStart = React.useCallback((e: React.TouchEvent) => {
+    const scrollEl = scrollRef.current?.closest("[data-feed-scroll]") as HTMLElement | null;
+    const scrollTop = scrollEl ? scrollEl.scrollTop : window.scrollY;
+    if (scrollTop > 0) return;
+    pullStartY.current = e.touches[0].clientY;
+    setIsPulling(true);
+  }, []);
+
+  const onTouchMove = React.useCallback((e: React.TouchEvent) => {
+    if (!isPulling) return;
+    const delta = e.touches[0].clientY - pullStartY.current;
+    if (delta > 0) setPullDistance(Math.min(delta * 0.4, PULL_THRESHOLD + 20));
+  }, [isPulling]);
+
+  const onTouchEnd = React.useCallback(() => {
+    if (!isPulling) return;
+    if (pullDistance >= PULL_THRESHOLD) {
+      hapticLight();
+      loadNotifications();
+    }
+    setPullDistance(0);
+    setIsPulling(false);
+  }, [isPulling, pullDistance, loadNotifications]);
 
   const getIncentiveTypeName = (type: number): string => {
     const map: Record<number, Parameters<typeof t>[0]> = {
@@ -416,7 +461,28 @@ export default function Notifications() {
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto">
+    <div
+      ref={scrollRef}
+      className="w-full max-w-2xl mx-auto"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      {/* Pull-to-refresh indicator */}
+      {pullDistance > 0 && (
+        <div
+          className="flex items-center justify-center overflow-hidden transition-all"
+          style={{ height: `${pullDistance}px` }}
+        >
+          <div
+            className="h-6 w-6 rounded-full border-2 border-brand border-t-transparent transition-transform"
+            style={{
+              transform: `rotate(${(pullDistance / PULL_THRESHOLD) * 360}deg)`,
+              opacity: pullDistance / PULL_THRESHOLD,
+            }}
+          />
+        </div>
+      )}
       <div className="space-y-4 pb-4">
         <div className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight">Notificações</h1>

@@ -16,7 +16,7 @@ const AlertDialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AlertDialogPrimitive.Overlay
     className={cn(
-      "fixed inset-0 z-[150] bg-black/80  data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      "fixed inset-0 z-[350] bg-black/80  data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className,
     )}
     {...props}
@@ -33,7 +33,7 @@ const AlertDialogContent = React.forwardRef<
     <AlertDialogOverlay />
     {/* Safe-area centering wrapper — ensures dialog never overlaps notch/home-indicator */}
     <div
-      className="fixed inset-0 z-[150] flex items-center justify-center pointer-events-none md:ml-[122px]"
+      className="fixed inset-0 z-[360] flex items-center justify-center pointer-events-none md:ml-[122px]"
       style={{
         paddingTop: "max(1rem, env(safe-area-inset-top))",
         paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
@@ -44,7 +44,7 @@ const AlertDialogContent = React.forwardRef<
       <AlertDialogPrimitive.Content
         ref={ref}
         className={cn(
-          "pointer-events-auto relative z-[150] grid w-full max-w-[600px] gap-4 border bg-background p-6 shadow-lg duration-200 rounded-lg overflow-y-auto",
+          "pointer-events-auto relative z-[360] grid w-full max-w-[600px] gap-4 border bg-background p-6 shadow-lg duration-200 rounded-lg overflow-y-auto",
           "max-h-full",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           className,

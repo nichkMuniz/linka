@@ -3834,13 +3834,16 @@ export async function createStoryDb(
       return null;
     }
 
+    // Bust the cached story/flow lists so the new flow shows up immediately
+    // on the next load/refresh instead of waiting for the 60s TTL to expire.
+    invalidateQueryCache("activeStories");
+    invalidateQueryCache("userShots");
+
     return data ? { ...data, id: String(data.id), user_id: String(data.user_id) } : null;
   } catch (err: any) {
     console.error("Error creating story:", err);
     return null;
   }
-
-  invalidateQueryCache("activeStories"); invalidateQueryCache("userShots");
 }
 
 export async function deleteOldStoriesDb(): Promise<boolean> {
@@ -3925,6 +3928,8 @@ export async function toggleStoryLikeDb(
       console.error("Error inserting story like:", error);
       throw error;
     }
+    // Notification is created by the DB trigger `trg_notify_on_flow_incentive`
+    // on flow_likes (mirrors shots). Do not insert here or it duplicates.
   }
 }
 
@@ -4024,6 +4029,8 @@ export async function addStoryCommentDb(
       .maybeSingle();
 
     if (error) throw error;
+    // Notification is created by the DB trigger `trg_notify_flow_comment`
+    // on flow_comments (mirrors shots). Do not insert here or it duplicates.
 
     // Fetch nickname in the same round-trip as the insert result (single query)
     const { data: profileData } = await supabase
@@ -4749,13 +4756,13 @@ export async function toggleCommentReactionDb(
       .from("comment_reactions")
       .delete()
       .eq("id", existing.id);
-    if (error) { console.error("Error removing comment reaction:", error); return null; }
+    if (error) { console.error("Error removing comment reaction:", error); throw error; }
     return "removed";
   } else {
     const { error } = await supabase
       .from("comment_reactions")
       .insert({ comment_type: commentType, comment_id: commentId, user_id: viewer.id, emoji });
-    if (error) { console.error("Error adding comment reaction:", error); return null; }
+    if (error) { console.error("Error adding comment reaction:", error); throw error; }
 
     // Notify comment owner (type 6 = comment reaction), skip if owner is self
     if (commentOwnerId && commentOwnerId !== viewer.id && sourceId) {
