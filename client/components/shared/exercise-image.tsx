@@ -16,7 +16,6 @@ const MUSCLE_GROUP_COLORS: Record<string, string> = {
 
 const MUSCLE_GROUP_ICONS: Record<string, string> = {
   "Peito": "🏋️",
-  "Costas": "🔙",
   "Bíceps": "💪",
   "Braços": "💪",
   "Tríceps": "💪",

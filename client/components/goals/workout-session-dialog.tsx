@@ -1,0 +1,1639 @@
+import * as React from "react";
+import { createPortal } from "react-dom";
+import { toast } from "@/components/ui/use-toast";
+import { useWorkout } from "@/lib/workout-context";
+import { useLanguage } from "@/lib/language-context";
+import {
+  saveWorkoutHistoryDb,
+  getPreviousBestKgDb,
+  getWorkoutsDb,
+  type UserWorkoutWithDetails,
+  type Workout,
+} from "@/lib/ritmofit-db";
+
+export type WorkoutSessionSummary = {
+  totalSeries: number;
+  totalVolume: number;
+  durationSecs: number;
+  completedExercises: Array<{
+    name: string;
+    totalSets: number;
+    bestKg: number;
+    muscleGroup: string | null;
+  }>;
+  prExercises: Array<{
+    name: string;
+    previousBestKg: number;
+    newBestKg: number;
+  }>;
+  // PR where bestKg >= 100 — "zerando a máquina"
+  machinedExercises: Array<{ name: string; kg: number }>;
+};
+
+interface WorkoutSessionDialogProps {
+  open: boolean;
+  userId: string;
+  routineLabel: string;
+  items: UserWorkoutWithDetails[];
+  onMinimize: () => void;
+  onFinished: (summary: WorkoutSessionSummary) => void;
+}
+
+const REST_PRESETS = [0, 30, 60, 90, 120];
+const SWIPE_REVEAL = 72; // px revelados ao deslizar para a esquerda
+
+// Tokens do design system
+const PRIMARY    = "hsl(var(--primary))";
+const PRIMARY_FG = "hsl(var(--primary-foreground))";
+const ORANGE     = "hsl(var(--brand-2))";
+const BG         = "hsl(var(--background))";
+const CARD       = "hsl(var(--card))";
+const SURFACE    = "hsl(var(--muted))";
+const FG         = "hsl(var(--foreground))";
+const MUTED_FG   = "hsl(var(--muted-foreground))";
+const BORDER     = "hsl(var(--border))";
+
+function fmtDur(totalSecs: number): string {
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s}s`;
+}
+
+function fmtRest(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+export function WorkoutSessionDialog({
+  open, userId, routineLabel, items, onMinimize, onFinished,
+}: WorkoutSessionDialogProps) {
+  const { t } = useLanguage();
+  const {
+    workoutSeries, setWorkoutSeries,
+    workoutDuration,
+    workoutExerciseRestTimes, setWorkoutExerciseRestTimes,
+    workoutExerciseNotes, setWorkoutExerciseNotes,
+    globalRestTimerRemaining, setGlobalRestTimerRemaining,
+    globalRestTimerActive, setGlobalRestTimerActive,
+    globalRestTimerPaused, setGlobalRestTimerPaused,
+    globalRestTimerTotal, setGlobalRestTimerTotal,
+    globalRestTimerKey, setGlobalRestTimerKey,
+    resetWorkoutState,
+  } = useWorkout();
+
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [expandedId, setExpandedId] = React.useState<string | null>(null);
+  const [muscleFilter, setMuscleFilter] = React.useState<string | null>(null);
+  const [infoExerciseId, setInfoExerciseId] = React.useState<string | null>(null);
+
+  // Exercícios extras adicionados durante a sessão
+  const [extraItems, setExtraItems] = React.useState<UserWorkoutWithDetails[]>([]);
+  // IDs de exercícios removidos durante a sessão
+  const [removedIds, setRemovedIds] = React.useState<Set<string>>(new Set());
+  // Menu de contexto (⋯) — qual exercício está aberto
+  const [menuId, setMenuId] = React.useState<string | null>(null);
+  // Quais exercícios têm nota aberta (lápis)
+  const [noteOpenIds, setNoteOpenIds] = React.useState<Set<string>>(new Set());
+  // Picker de exercícios
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const [pickerSearch, setPickerSearch] = React.useState("");
+  const [catalog, setCatalog] = React.useState<Workout[]>([]);
+  const [catalogLoading, setCatalogLoading] = React.useState(false);
+
+  // Lista completa de itens da sessão
+  const allItems = React.useMemo(
+    () => [...items, ...extraItems].filter((i) => !removedIds.has(i.workout_id)),
+    [items, extraItems, removedIds],
+  );
+
+  // Auto-expand first exercise on open; reset on close
+  React.useEffect(() => {
+    if (open && allItems.length > 0) {
+      setExpandedId((prev) => prev ?? allItems[0].workout_id);
+    }
+    if (!open) {
+      setExpandedId(null);
+      setMuscleFilter(null);
+      setExtraItems([]);
+      setRemovedIds(new Set());
+      setNoteOpenIds(new Set());
+      setMenuId(null);
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Seed at least one series per exercise when opening
+  React.useEffect(() => {
+    if (!open || items.length === 0) return;
+    setWorkoutSeries((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const item of items) {
+        if (!next[item.workout_id] || next[item.workout_id].length === 0) {
+          next[item.workout_id] = [{ series: 1, kg: 0, reps: 0, completed: false }];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [open, items, setWorkoutSeries]);
+
+  // Carrega catálogo quando picker é aberto
+  React.useEffect(() => {
+    if (!pickerOpen || catalog.length > 0) return;
+    setCatalogLoading(true);
+    getWorkoutsDb()
+      .then((d) => { setCatalog(d); setCatalogLoading(false); })
+      .catch(() => setCatalogLoading(false));
+  }, [pickerOpen, catalog.length]);
+
+  // Muscle group filter chips
+  const muscleGroups = React.useMemo(
+    () => [...new Set(allItems.map((i) => i.muscle_group).filter(Boolean) as string[])],
+    [allItems],
+  );
+  const filteredItems = muscleFilter
+    ? allItems.filter((i) => i.muscle_group === muscleFilter)
+    : allItems;
+
+  // Live stats
+  const stats = React.useMemo(() => {
+    let volume = 0, totalDone = 0, doneEx = 0;
+    allItems.forEach((item) => {
+      const series = workoutSeries[item.workout_id] ?? [];
+      const isCardio = (item.muscle_group ?? "").toLowerCase() === "cardio";
+      let any = false;
+      series.forEach((s) => {
+        if (s.completed) {
+          totalDone++;
+          if (!isCardio) volume += (s.kg || 0) * (s.reps || 0);
+          any = true;
+        }
+      });
+      if (any) doneEx++;
+    });
+    return { volume: Math.round(volume), totalDone, doneEx };
+  }, [workoutSeries, allItems]);
+
+  // Modal de descanso (contador regressivo em destaque ao concluir uma série)
+  const [restModalOpen, setRestModalOpen] = React.useState(false);
+  const lastTimerKeyRef = React.useRef(globalRestTimerKey);
+
+  // Séries cujo check foi tentado sem dados — destaca os campos faltantes
+  const [invalidSeries, setInvalidSeries] = React.useState<Set<string>>(new Set());
+  const seriesKey = (workoutId: string, index: number) => `${workoutId}:${index}`;
+
+  // Swipe-to-delete: qual linha está com o botão de apagar revelado
+  const [swipedSeriesKey, setSwipedSeriesKey] = React.useState<string | null>(null);
+  const swipeStartX = React.useRef(0);
+  const swipeStartY = React.useRef(0);
+  const swipeHorizontal = React.useRef(false); // evita interferir no scroll vertical
+
+  // Rest timer
+  const startRestTimer = (workoutId: string) => {
+    const secs = workoutExerciseRestTimes[workoutId] ?? 60;
+    if (secs === 0) return; // sem descanso — não abre modal
+    setGlobalRestTimerTotal(secs);
+    setGlobalRestTimerRemaining(secs);
+    setGlobalRestTimerPaused(false);
+    setGlobalRestTimerActive(true);
+    setGlobalRestTimerKey((k) => k + 1);
+  };
+
+  // Abre o modal sempre que um novo descanso começa (nova chave de timer)
+  React.useEffect(() => {
+    if (globalRestTimerKey !== lastTimerKeyRef.current) {
+      lastTimerKeyRef.current = globalRestTimerKey;
+      if (globalRestTimerActive) setRestModalOpen(true);
+    }
+  }, [globalRestTimerKey, globalRestTimerActive]);
+
+  // Fecha o modal quando o descanso termina ou é pulado
+  React.useEffect(() => {
+    if (!globalRestTimerActive || globalRestTimerRemaining <= 0) setRestModalOpen(false);
+  }, [globalRestTimerActive, globalRestTimerRemaining]);
+
+  const restPct = globalRestTimerTotal > 0
+    ? (globalRestTimerRemaining / globalRestTimerTotal) * 100
+    : 0;
+
+  const skipRest = () => {
+    setGlobalRestTimerActive(false);
+    setGlobalRestTimerPaused(false);
+    setGlobalRestTimerRemaining(0);
+    // Bump da key garante que o clearInterval no contexto rode imediatamente,
+    // sem esperar o próximo tick do setInterval.
+    setGlobalRestTimerKey((k) => k + 1);
+    setRestModalOpen(false);
+  };
+
+  // ── Handlers de ação ────────────────────────────────────────
+
+  const toggleNote = (workoutId: string) => {
+    setNoteOpenIds((prev) => {
+      const s = new Set(prev);
+      s.has(workoutId) ? s.delete(workoutId) : s.add(workoutId);
+      return s;
+    });
+    setMenuId(null);
+  };
+
+  const removeFromSession = (workoutId: string) => {
+    setRemovedIds((prev) => new Set([...prev, workoutId]));
+    setMenuId(null);
+    if (expandedId === workoutId) setExpandedId(null);
+    setWorkoutSeries((prev) => {
+      const next = { ...prev };
+      delete next[workoutId];
+      return next;
+    });
+  };
+
+  const handlePickExercise = (workout: Workout) => {
+    // Se já está na lista, só expande
+    if (allItems.some((i) => i.workout_id === workout.id)) {
+      setPickerOpen(false);
+      setExpandedId(workout.id);
+      return;
+    }
+    const newItem: UserWorkoutWithDetails = {
+      id: `session_${workout.id}`,
+      workout_id: workout.id,
+      user_id: userId,
+      name: null,
+      created_at: new Date().toISOString(),
+      workoutName: workout.name,
+      muscle_group: workout.muscle_group ?? null,
+      workoutPhoto: workout.photo ?? null,
+      routine_id: null,
+    };
+    setExtraItems((prev) => [...prev, newItem]);
+    setWorkoutSeries((prev) => ({
+      ...prev,
+      [workout.id]: (prev[workout.id]?.length ?? 0) > 0
+        ? prev[workout.id]
+        : [{ series: 1, kg: 0, reps: 0, completed: false }],
+    }));
+    setPickerOpen(false);
+    setPickerSearch("");
+    setExpandedId(workout.id);
+  };
+
+  // ── Operações de séries ─────────────────────────────────────
+
+  const addSeries = (workoutId: string) => {
+    setWorkoutSeries((prev) => {
+      const list = prev[workoutId] ?? [];
+      const last = list[list.length - 1];
+      return {
+        ...prev,
+        [workoutId]: [
+          ...list,
+          { series: list.length + 1, kg: last?.kg ?? 0, reps: last?.reps ?? 0, completed: false },
+        ],
+      };
+    });
+  };
+
+  const deleteSeries = (workoutId: string, index: number) => {
+    setWorkoutSeries((prev) => ({
+      ...prev,
+      [workoutId]: (prev[workoutId] ?? [])
+        .filter((_, i) => i !== index)
+        .map((s, i) => ({ ...s, series: i + 1 })),
+    }));
+    setInvalidSeries((prev) => {
+      const next = new Set(prev);
+      next.delete(seriesKey(workoutId, index));
+      return next;
+    });
+    setSwipedSeriesKey(null);
+  };
+
+  // Touch handlers para o swipe-to-delete de cada linha de série
+  const onSeriesTouchStart = (e: React.TouchEvent, key: string) => {
+    swipeStartX.current = e.touches[0].clientX;
+    swipeStartY.current = e.touches[0].clientY;
+    swipeHorizontal.current = false;
+    // Fecha outra linha aberta
+    if (swipedSeriesKey && swipedSeriesKey !== key) setSwipedSeriesKey(null);
+  };
+
+  const onSeriesTouchMove = (e: React.TouchEvent) => {
+    if (swipeHorizontal.current) return;
+    const dx = Math.abs(e.touches[0].clientX - swipeStartX.current);
+    const dy = Math.abs(e.touches[0].clientY - swipeStartY.current);
+    if (dx > 6 || dy > 6) swipeHorizontal.current = dx > dy;
+  };
+
+  const onSeriesTouchEnd = (e: React.TouchEvent, key: string) => {
+    if (!swipeHorizontal.current) return;
+    const dx = e.changedTouches[0].clientX - swipeStartX.current;
+    if (dx < -50) setSwipedSeriesKey(key);            // swipe esquerda → abre
+    else if (dx > 20 && swipedSeriesKey === key) setSwipedSeriesKey(null); // swipe direita → fecha
+  };
+
+  const updateSeries = (
+    workoutId: string, index: number, field: "kg" | "reps", value: number, isCardio: boolean,
+  ) => {
+    setWorkoutSeries((prev) => ({
+      ...prev,
+      [workoutId]: (prev[workoutId] ?? []).map((s, i) =>
+        i === index ? { ...s, [field]: value } : s,
+      ),
+    }));
+    // Limpa o destaque de erro assim que a série passa a ter os dados necessários
+    setInvalidSeries((prev) => {
+      const key = seriesKey(workoutId, index);
+      if (!prev.has(key)) return prev;
+      const current = workoutSeries[workoutId]?.[index];
+      const updated = { kg: current?.kg ?? 0, reps: current?.reps ?? 0, [field]: value };
+      if (!canCompleteSeries(updated, isCardio)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  // Uma série só pode ser concluída com os dados preenchidos:
+  // força (kg E reps) / cardio (min OU km)
+  const canCompleteSeries = (row: { kg: number; reps: number }, isCardio: boolean) =>
+    isCardio
+      ? (row.kg || 0) > 0 || (row.reps || 0) > 0
+      : (row.kg || 0) > 0 && (row.reps || 0) > 0;
+
+  const toggleCompleted = (workoutId: string, index: number, isCardio: boolean) => {
+    // Lê o estado atual de forma síncrona — o updater do setState só roda na
+    // fase de render, então não dá para decidir o "acabou de concluir" lá dentro.
+    const row = workoutSeries[workoutId]?.[index];
+    const wasCompleted = row?.completed ?? false;
+
+    // Trava: ao tentar concluir, exige kg/reps preenchidos
+    if (!wasCompleted && row && !canCompleteSeries(row, isCardio)) {
+      setInvalidSeries((prev) => new Set(prev).add(seriesKey(workoutId, index)));
+      toast({
+        title: t("goals_series_incomplete_title"),
+        description: isCardio
+          ? t("goals_series_incomplete_cardio")
+          : t("goals_series_incomplete_desc"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setWorkoutSeries((prev) => ({
+      ...prev,
+      [workoutId]: (prev[workoutId] ?? []).map((s, i) =>
+        i === index ? { ...s, completed: !s.completed } : s,
+      ),
+    }));
+    if (!wasCompleted) startRestTimer(workoutId);
+  };
+
+  // ── Finalizar ───────────────────────────────────────────────
+
+  const hasCompletedSeries = Object.values(workoutSeries).some((list) =>
+    list.some((s) => s.completed),
+  );
+
+  const handleFinishClick = () => {
+    setSaveError(null);
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmFinish = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      let totalSeries = 0;
+      let totalVolume = 0;
+      const allItemsForSave = [...items, ...extraItems];
+      const completedExercises: WorkoutSessionSummary["completedExercises"] = [];
+      const prExercises: WorkoutSessionSummary["prExercises"] = [];
+      const machinedExercises: WorkoutSessionSummary["machinedExercises"] = [];
+
+      // Collect exercises with completed series
+      const exerciseEntries = Object.entries(workoutSeries).filter(
+        ([, series]) => series.some((s) => s.completed),
+      );
+
+      // Query previous bests before saving (so we compare against pre-session records)
+      const prevBests = new Map<string, number>();
+      await Promise.all(
+        exerciseEntries.map(async ([workoutId]) => {
+          const row = allItemsForSave.find((w) => w.workout_id === workoutId);
+          const isCardio = (row?.muscle_group || "").toLowerCase() === "cardio";
+          if (!isCardio) {
+            const prev = await getPreviousBestKgDb(userId, workoutId).catch(() => 0);
+            prevBests.set(workoutId, prev);
+          }
+        }),
+      );
+
+      for (const [workoutId, series] of exerciseEntries) {
+        const completed = series.filter((s) => s.completed);
+
+        const row = allItemsForSave.find((w) => w.workout_id === workoutId);
+        const isCardio = (row?.muscle_group || "").toLowerCase() === "cardio";
+        const isExtra = extraItems.some((e) => e.workout_id === workoutId);
+        const rawId = isExtra ? null : (row?.id ?? null);
+        const userWorkoutId: number | null = rawId && !isNaN(Number(rawId)) ? Number(rawId) : null;
+
+        let bestKg = 0;
+        for (const serie of completed) {
+          totalSeries++;
+          if (!isCardio) {
+            totalVolume += (serie.kg || 0) * (serie.reps || 0);
+            bestKg = Math.max(bestKg, serie.kg || 0);
+          }
+          await saveWorkoutHistoryDb(
+            userId, userWorkoutId, workoutId,
+            serie.kg || null,
+            isCardio
+              ? (serie.reps ? String(serie.reps) : null)
+              : (serie.reps ? `${serie.reps} reps` : null),
+            row?.routine_id ?? null,
+          );
+        }
+
+        completedExercises.push({
+          name: row?.workoutName ?? workoutId,
+          totalSets: completed.length,
+          bestKg,
+          muscleGroup: row?.muscle_group ?? null,
+        });
+
+        if (!isCardio && bestKg > 0) {
+          const prev = prevBests.get(workoutId) ?? 0;
+          if (bestKg > prev) {
+            const name = row?.workoutName ?? workoutId;
+            prExercises.push({ name, previousBestKg: prev, newBestKg: bestKg });
+            // "Zerando a máquina" = new PR where best kg reaches ≥ 100
+            if (bestKg >= 100) {
+              machinedExercises.push({ name, kg: bestKg });
+            }
+          }
+        }
+      }
+
+      setConfirmOpen(false);
+      resetWorkoutState();
+      onFinished({
+        totalSeries,
+        totalVolume: Math.round(totalVolume * 10) / 10,
+        durationSecs: workoutDuration,
+        completedExercises,
+        prExercises,
+        machinedExercises,
+      });
+    } catch (err: any) {
+      setSaveError(err?.message || t("goals_create_error_retry"));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (!open) return null;
+
+  // ── Catálogo filtrado para o picker ────────────────────────
+  const catalogFiltered = catalog.filter((w) =>
+    !pickerSearch || w.name.toLowerCase().includes(pickerSearch.toLowerCase()),
+  );
+
+  const content = (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 9999,
+        display: "flex", flexDirection: "column",
+        background: BG, fontFamily: "'Inter', system-ui, sans-serif",
+        color: FG,
+      }}
+      onClick={() => { if (menuId) setMenuId(null); }}
+    >
+
+      {/* ── HEADER ───────────────────────────────────────────── */}
+      <div style={{
+        flexShrink: 0,
+        paddingTop: "max(48px, env(safe-area-inset-top))",
+        paddingLeft: "max(16px, env(safe-area-inset-left))",
+        paddingRight: "max(16px, env(safe-area-inset-right))",
+        paddingBottom: 6,
+        display: "flex", alignItems: "center", gap: 12,
+      }}>
+        <button
+          onClick={onMinimize}
+          aria-label={t("goals_minimize")}
+          style={{
+            width: 36, height: 36, borderRadius: "50%",
+            background: "hsl(var(--secondary))",
+            border: "none", cursor: "pointer", flexShrink: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M3 6l5 5 5-5" stroke={FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+
+        <div style={{
+          flex: 1, textAlign: "center",
+          fontWeight: 700, fontSize: 17, color: FG,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {routineLabel}
+        </div>
+
+        <button
+          onClick={handleFinishClick}
+          aria-label={t("goals_session_finish")}
+          style={{
+            width: 36, height: 36, borderRadius: "50%",
+            background: ORANGE, border: "none", cursor: "pointer", flexShrink: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+            <rect x="1" y="1" width="4" height="11" rx="1.5" fill="white"/>
+            <rect x="8" y="1" width="4" height="11" rx="1.5" fill="white"/>
+          </svg>
+        </button>
+      </div>
+
+      {/* ── STATS ROW ────────────────────────────────────────── */}
+      <div style={{
+        flexShrink: 0,
+        padding: "4px 16px 12px",
+        display: "flex", alignItems: "flex-start",
+        borderBottom: `1px solid ${BORDER}`,
+      }}>
+        {[
+          { label: "Duração",    value: fmtDur(workoutDuration), color: PRIMARY },
+          { label: "Volume",     value: `${stats.volume} kg`,    color: FG },
+          { label: "Séries",     value: String(stats.totalDone), color: FG },
+          { label: "Exercícios", value: String(stats.doneEx),    color: FG },
+        ].map(({ label, value, color }) => (
+          <div key={label} style={{ flex: 1, textAlign: "center" }}>
+            <div style={{ fontSize: 11, color: MUTED_FG, fontWeight: 500, marginBottom: 3 }}>
+              {label}
+            </div>
+            <div style={{
+              fontSize: 17, fontWeight: 800, color,
+              fontVariantNumeric: "tabular-nums", lineHeight: 1,
+            }}>
+              {value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── MUSCLE FILTER CHIPS ──────────────────────────────── */}
+      {muscleGroups.length > 0 && (
+        <div style={{
+          flexShrink: 0,
+          padding: "10px 12px",
+          display: "flex", alignItems: "center", gap: 8,
+          overflowX: "auto", borderBottom: `1px solid ${BORDER}`,
+        }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: "50%",
+            border: `1.5px solid ${BORDER}`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0,
+          }}>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <circle cx="5.5" cy="5.5" r="4" stroke={MUTED_FG} strokeWidth="1.5"/>
+              <path d="m8.5 8.5 2.5 2.5" stroke={MUTED_FG} strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </div>
+
+          <button
+            onClick={() => setMuscleFilter(null)}
+            style={{
+              background: muscleFilter === null ? PRIMARY : "hsl(var(--secondary))",
+              border: "none", borderRadius: 20,
+              padding: "6px 14px", fontSize: 13, fontWeight: 600,
+              color: muscleFilter === null ? PRIMARY_FG : MUTED_FG,
+              cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+            }}
+          >
+            Todos
+          </button>
+
+          {muscleGroups.map((group) => (
+            <button
+              key={group}
+              onClick={() => setMuscleFilter(group)}
+              style={{
+                background: muscleFilter === group ? PRIMARY : "hsl(var(--secondary))",
+                border: "none", borderRadius: 20,
+                padding: "6px 14px", fontSize: 13, fontWeight: 600,
+                color: muscleFilter === group ? PRIMARY_FG : MUTED_FG,
+                cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+              }}
+            >
+              {group}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── EXERCISE CARDS ───────────────────────────────────── */}
+      <div style={{
+        flex: 1, overflowY: "auto", overflowX: "hidden",
+        padding: "12px 12px 96px",
+      }}>
+        {filteredItems.map((item) => {
+          const series = workoutSeries[item.workout_id] ?? [];
+          const isExpanded = expandedId === item.workout_id;
+          const doneSeries = series.filter((s) => s.completed).length;
+          const restSecs = workoutExerciseRestTimes[item.workout_id] ?? 60;
+          const isCardio = (item.muscle_group ?? "").toLowerCase() === "cardio";
+          const noteOpen = noteOpenIds.has(item.workout_id);
+          const note = workoutExerciseNotes[item.workout_id] ?? "";
+
+          return (
+            <div
+              key={item.id}
+              style={{
+                background: CARD, borderRadius: 20, overflow: "hidden",
+                marginBottom: 20, position: "relative",
+                border: `1px solid ${BORDER}`,
+                boxShadow: "0 2px 12px rgba(0,0,0,0.18)",
+              }}
+            >
+              {/* ── EXERCISE HEADER ─────────────────────────── */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "10px 14px 0",
+              }}>
+                <span style={{
+                  fontSize: 13, fontWeight: 700, color: FG,
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
+                }}>
+                  {item.workoutName}
+                </span>
+                {item.muscle_group && (
+                  <span style={{
+                    fontSize: 11, fontWeight: 600, color: MUTED_FG,
+                    background: "hsl(var(--secondary))", borderRadius: 20,
+                    padding: "2px 10px", flexShrink: 0,
+                  }}>
+                    {item.muscle_group}
+                  </span>
+                )}
+              </div>
+
+              {/* ── IMAGE AREA ─────────────────────────────── */}
+              <div
+                onClick={() => { setMenuId(null); setExpandedId(isExpanded ? null : item.workout_id); }}
+                style={{
+                  position: "relative", width: "100%", height: 150,
+                  background: "hsl(var(--secondary))", overflow: "hidden",
+                  flexShrink: 0, marginTop: 10, cursor: "pointer",
+                }}
+              >
+                {item.workoutPhoto ? (
+                  <img
+                    src={item.workoutPhoto}
+                    alt={item.workoutName || ""}
+                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+                  />
+                ) : (
+                  <>
+                    <div style={{
+                      position: "absolute", inset: 0,
+                      backgroundImage: "repeating-linear-gradient(135deg,rgba(0,0,0,0.04) 0 9px,transparent 9px 18px)",
+                    }} />
+                    <div style={{
+                      position: "absolute", inset: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <svg width="42" height="24" viewBox="0 0 36 20" fill="none" opacity={0.3}>
+                        <rect x="0.5" y="7" width="7" height="6" rx="2" fill={MUTED_FG}/>
+                        <rect x="3" y="4.5" width="3" height="11" rx="1.5" fill={MUTED_FG}/>
+                        <rect x="6.5" y="9" width="23" height="2" rx="1" fill={MUTED_FG}/>
+                        <rect x="28.5" y="7" width="7" height="6" rx="2" fill={MUTED_FG}/>
+                        <rect x="30" y="4.5" width="3" height="11" rx="1.5" fill={MUTED_FG}/>
+                      </svg>
+                    </div>
+                  </>
+                )}
+
+                {/* ⓘ button — top-left: abre overlay de info/foto */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setInfoExerciseId(item.workout_id); }}
+                  aria-label={t("goals_exercise_info")}
+                  style={{
+                    position: "absolute", top: 10, left: 10,
+                    width: 34, height: 34, borderRadius: "50%",
+                    background: "rgba(0,0,0,0.45)", backdropFilter: "blur(6px)",
+                    border: "none", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <circle cx="8" cy="8" r="6.5" stroke="rgba(255,255,255,0.85)" strokeWidth="1.4"/>
+                    <path d="M8 7v4.5" stroke="rgba(255,255,255,0.85)" strokeWidth="1.5" strokeLinecap="round"/>
+                    <circle cx="8" cy="4.5" r="0.85" fill="rgba(255,255,255,0.85)"/>
+                  </svg>
+                </button>
+
+                {/* Badge top-right: séries concluídas */}
+                <div style={{
+                  position: "absolute", top: 10, right: 10,
+                  background: "rgba(0,0,0,0.45)", borderRadius: 8,
+                  padding: "3px 9px", backdropFilter: "blur(6px)",
+                }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.85)" }}>
+                    {doneSeries}/{series.length}
+                  </span>
+                </div>
+              </div>
+
+              {/* ── VER / FECHAR SÉRIES BAR (sempre visível) ── */}
+              <button
+                onClick={() => { setMenuId(null); setExpandedId(isExpanded ? null : item.workout_id); }}
+                style={{
+                  width: "100%", background: "none",
+                  border: "none", borderTop: `1px solid ${BORDER}`,
+                  cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "11px 16px",
+                }}
+              >
+                <span style={{ fontWeight: 700, fontSize: 13, color: isExpanded ? PRIMARY : FG }}>
+                  {isExpanded ? t("goals_close_series") : t("goals_view_series")}
+                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+                    {doneSeries}/{series.length}
+                  </span>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"
+                    style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
+                    <path d="M3 5l4 4 4-4" stroke={isExpanded ? PRIMARY : MUTED_FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+              </button>
+
+              {/* ── EXPANDED CONTENT ───────────────────────── */}
+              {isExpanded && (
+                <>
+
+                  {/* Icons row */}
+                  <div style={{
+                    display: "flex", alignItems: "center",
+                    padding: "10px 16px", gap: 20,
+                    borderBottom: `1px solid ${BORDER}`,
+                    position: "relative",
+                  }}>
+                    {/* Tendência (decorativo) */}
+                    <svg width="18" height="14" viewBox="0 0 18 14" fill="none" opacity={0.45}>
+                      <path d="M1 11L5.5 6.5l3.5 2.5L15 2" stroke={MUTED_FG} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M12 2h3v3" stroke={MUTED_FG} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+
+                    {/* Lápis — abre/fecha nota */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleNote(item.workout_id); }}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer",
+                        padding: 0, display: "flex", alignItems: "center",
+                        opacity: noteOpen ? 1 : 0.45,
+                        color: noteOpen ? PRIMARY : MUTED_FG,
+                      }}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                        <path d="M10.5 1.5l3 3-8 8H2.5v-3l8-8z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
+
+                    {/* Relógio + preset de descanso */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const idx = REST_PRESETS.indexOf(restSecs);
+                        const next = REST_PRESETS[(idx + 1) % REST_PRESETS.length];
+                        setWorkoutExerciseRestTimes((prev) => ({ ...prev, [item.workout_id]: next }));
+                      }}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer",
+                        display: "flex", alignItems: "center", gap: 5, padding: 0,
+                        opacity: 0.65,
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <circle cx="7" cy="7" r="5.5" stroke={MUTED_FG} strokeWidth="1.3"/>
+                        <path d="M7 4v3.5l2 1.5" stroke={MUTED_FG} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: MUTED_FG }}>
+                        {fmtRest(restSecs)}
+                      </span>
+                    </button>
+
+                    {/* ⋯ Menu de contexto */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuId(menuId === item.workout_id ? null : item.workout_id);
+                      }}
+                      style={{
+                        marginLeft: "auto", background: "none", border: "none",
+                        cursor: "pointer", padding: "4px 6px",
+                        fontSize: 20, color: MUTED_FG, lineHeight: 1,
+                        opacity: 0.65,
+                      }}
+                    >
+                      ⋯
+                    </button>
+
+                    {/* Dropdown do menu ⋯ */}
+                    {menuId === item.workout_id && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          position: "absolute", top: "100%", right: 12,
+                          background: CARD, borderRadius: 12,
+                          border: `1px solid ${BORDER}`,
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+                          zIndex: 20, minWidth: 180, overflow: "hidden",
+                        }}
+                      >
+                        <button
+                          onClick={() => { toggleNote(item.workout_id); setMenuId(null); }}
+                          style={{
+                            width: "100%", background: "none", border: "none",
+                            padding: "12px 16px", textAlign: "left", cursor: "pointer",
+                            fontSize: 14, fontWeight: 500, color: FG,
+                            display: "flex", alignItems: "center", gap: 10,
+                            borderBottom: `1px solid ${BORDER}`,
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 15 15" fill="none">
+                            <path d="M10.5 1.5l3 3-8 8H2.5v-3l8-8z" stroke={FG} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          {noteOpen ? "Fechar nota" : "Adicionar nota"}
+                        </button>
+                        <button
+                          onClick={() => removeFromSession(item.workout_id)}
+                          style={{
+                            width: "100%", background: "none", border: "none",
+                            padding: "12px 16px", textAlign: "left", cursor: "pointer",
+                            fontSize: 14, fontWeight: 500, color: "hsl(var(--destructive))",
+                            display: "flex", alignItems: "center", gap: 10,
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                            <path d="M2 3.5h10M5.5 3.5V2.5a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1M6 6.5v4M8 6.5v4M3 3.5l.5 8a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1l.5-8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          Remover exercício
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Campo de nota (lápis) */}
+                  {noteOpen && (
+                    <div style={{
+                      padding: "10px 16px",
+                      borderBottom: `1px solid ${BORDER}`,
+                    }}>
+                      <input
+                        autoFocus
+                        value={note}
+                        onChange={(e) =>
+                          setWorkoutExerciseNotes((prev) => ({ ...prev, [item.workout_id]: e.target.value }))
+                        }
+                        placeholder="Adicionar nota..."
+                        style={{
+                          background: "transparent", border: "none",
+                          fontSize: 14, color: note ? FG : MUTED_FG,
+                          fontStyle: note ? "normal" : "italic",
+                          width: "100%", padding: 0, outline: "none",
+                          fontFamily: "'Inter', system-ui",
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Column headers */}
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "40px 1fr 68px 68px 44px",
+                    padding: "8px 12px 4px", gap: 4,
+                  }}>
+                    {["#", "ANTERIOR", isCardio ? "MIN" : "KG", isCardio ? "KM" : "REPS", ""].map((h, i) => (
+                      <div key={i} style={{
+                        fontSize: 10, fontWeight: 700, letterSpacing: 0.7,
+                        color: MUTED_FG, textAlign: "center",
+                        textTransform: "uppercase", opacity: 0.7,
+                      }}>
+                        {h}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Series rows */}
+                  <div style={{ padding: "0 12px 4px" }}>
+                    {series.map((row, idx) => {
+                      const anteriorText =
+                        ((row as any).prevKg > 0 || (row as any).prevReps > 0)
+                          ? `${(row as any).prevKg ?? 0}×${(row as any).prevReps ?? 0}`
+                          : "—";
+
+                      const rowInvalid = invalidSeries.has(seriesKey(item.workout_id, idx));
+                      const kgInvalid = rowInvalid && (row.kg || 0) <= 0;
+                      const repsInvalid = rowInvalid && (row.reps || 0) <= 0;
+
+                      const sKey = seriesKey(item.workout_id, idx);
+                      const isSwipeOpen = swipedSeriesKey === sKey;
+
+                      return (
+                        <div
+                          key={idx}
+                          style={{ position: "relative", overflow: "hidden", marginBottom: 7 }}
+                        >
+                          {/* Botão de apagar — revelado pelo swipe */}
+                          <div style={{
+                            position: "absolute", right: 0, top: 0, bottom: 0, width: SWIPE_REVEAL,
+                            background: "hsl(var(--destructive))",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            borderRadius: 10,
+                          }}>
+                            <button
+                              onClick={() => deleteSeries(item.workout_id, idx)}
+                              style={{
+                                background: "none", border: "none", cursor: "pointer",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                width: "100%", height: "100%", padding: 0,
+                              }}
+                            >
+                              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                                <path d="M10 11v6M14 11v6"/>
+                                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                              </svg>
+                            </button>
+                          </div>
+
+                          {/* Conteúdo da linha — desliza para revelar o botão */}
+                        <div
+                          onTouchStart={(e) => onSeriesTouchStart(e, sKey)}
+                          onTouchMove={onSeriesTouchMove}
+                          onTouchEnd={(e) => onSeriesTouchEnd(e, sKey)}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "40px 1fr 68px 68px 44px",
+                            alignItems: "center", gap: 4,
+                            background: CARD,
+                            transform: isSwipeOpen ? `translateX(-${SWIPE_REVEAL}px)` : "translateX(0)",
+                            transition: "transform 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+                          }}
+                        >
+                          {/* # badge */}
+                          <div style={{ display: "flex", justifyContent: "center" }}>
+                            <div style={{
+                              width: 30, height: 30, borderRadius: "50%",
+                              background: row.completed ? PRIMARY : "hsl(var(--secondary))",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 12, fontWeight: 800,
+                              color: row.completed ? PRIMARY_FG : MUTED_FG,
+                            }}>
+                              {idx + 1}
+                            </div>
+                          </div>
+
+                          {/* ANTERIOR */}
+                          <div style={{
+                            textAlign: "center", fontSize: 12, fontWeight: 600,
+                            color: MUTED_FG, opacity: 0.75,
+                          }}>
+                            {anteriorText}
+                          </div>
+
+                          {/* KG */}
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            value={row.kg || ""}
+                            placeholder={kgInvalid ? "!" : "—"}
+                            onChange={(e) => updateSeries(item.workout_id, idx, "kg", Number(e.target.value), isCardio)}
+                            style={{
+                              background: kgInvalid ? "hsl(var(--destructive) / 0.12)" : SURFACE,
+                              border: kgInvalid ? `1.5px solid hsl(var(--destructive))` : "1.5px solid transparent",
+                              borderRadius: 10,
+                              height: 40, textAlign: "center",
+                              fontWeight: 700, fontSize: 16,
+                              color: FG, width: "100%", padding: "0 4px",
+                              boxSizing: "border-box" as const,
+                              WebkitAppearance: "none" as any,
+                              fontFamily: "'Inter', system-ui",
+                            }}
+                          />
+
+                          {/* REPS */}
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            value={row.reps || ""}
+                            placeholder={repsInvalid ? "!" : "—"}
+                            onChange={(e) => updateSeries(item.workout_id, idx, "reps", Number(e.target.value), isCardio)}
+                            style={{
+                              background: repsInvalid ? "hsl(var(--destructive) / 0.12)" : SURFACE,
+                              border: repsInvalid ? `1.5px solid hsl(var(--destructive))` : "1.5px solid transparent",
+                              borderRadius: 10,
+                              height: 40, textAlign: "center",
+                              fontWeight: 700, fontSize: 16,
+                              color: FG, width: "100%", padding: "0 4px",
+                              boxSizing: "border-box" as const,
+                              WebkitAppearance: "none" as any,
+                              fontFamily: "'Inter', system-ui",
+                            }}
+                          />
+
+                          {/* Check */}
+                          <div style={{ display: "flex", justifyContent: "center" }}>
+                            {(() => {
+                              const locked = !row.completed && !canCompleteSeries(row, isCardio);
+                              return (
+                            <button
+                              onClick={() => toggleCompleted(item.workout_id, idx, isCardio)}
+                              aria-label={t("goals_session_mark_done")}
+                              aria-disabled={locked}
+                              style={{
+                                width: 34, height: 34, borderRadius: "50%",
+                                background: row.completed ? PRIMARY : "transparent",
+                                border: row.completed ? "none" : `2px solid ${BORDER}`,
+                                cursor: locked ? "not-allowed" : "pointer",
+                                opacity: locked ? 0.4 : 1,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                              }}
+                            >
+                              {row.completed && (
+                                <svg width="13" height="10" viewBox="0 0 13 10" fill="none">
+                                  <path d="M1.5 5L5 8.5L11.5 1.5" stroke={PRIMARY_FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                              )}
+                            </button>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Dashed add series */}
+                    <button
+                      onClick={() => addSeries(item.workout_id)}
+                      style={{
+                        width: "100%", background: "transparent",
+                        border: `2px dashed ${BORDER}`,
+                        borderRadius: 12, padding: "10px 0",
+                        cursor: "pointer", fontWeight: 600,
+                        fontSize: 13, color: MUTED_FG,
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                        marginTop: 4, marginBottom: 12,
+                      }}
+                    >
+                      <span style={{ fontSize: 16, lineHeight: 1, opacity: 0.6 }}>+</span>
+                      Adicionar Série
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
+
+        {filteredItems.length === 0 && (
+          <div style={{
+            display: "flex", flexDirection: "column",
+            alignItems: "center", padding: "48px 16px", textAlign: "center",
+          }}>
+            <p style={{ color: MUTED_FG, fontSize: 14 }}>
+              {t("goals_no_exercises_added")}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ── REST TIMER ───────────────────────────────────────── */}
+      {globalRestTimerActive && globalRestTimerRemaining > 0 && (
+        <div style={{
+          flexShrink: 0,
+          padding: "8px 20px",
+          display: "flex", alignItems: "center", gap: 12,
+          background: BG, borderTop: `1px solid ${BORDER}`,
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: MUTED_FG, whiteSpace: "nowrap" }}>
+            {t("goals_rest_time")}
+          </span>
+          <div style={{
+            flex: 1, height: 3, borderRadius: 2,
+            background: SURFACE, overflow: "hidden",
+          }}>
+            <div style={{
+              height: "100%", borderRadius: 2, background: PRIMARY,
+              transition: "width 1s linear", width: `${restPct}%`,
+            }} />
+          </div>
+          <span style={{
+            fontWeight: 800, fontSize: 15, color: FG,
+            fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
+          }}>
+            {fmtDur(globalRestTimerRemaining)}
+          </span>
+          <button
+            onClick={skipRest}
+            style={{
+              background: "hsl(var(--secondary))", border: "none", cursor: "pointer",
+              color: FG, fontSize: 12, fontWeight: 700,
+              padding: "8px 14px", whiteSpace: "nowrap",
+              borderRadius: 20, minHeight: 36,
+            }}
+          >
+            {t("goals_skip")}
+          </button>
+        </div>
+      )}
+
+      {/* ── BOTTOM BAR ───────────────────────────────────────── */}
+      <div style={{
+        flexShrink: 0,
+        padding: "12px 16px",
+        paddingBottom: "max(16px, env(safe-area-inset-bottom))",
+        background: BG, borderTop: `1px solid ${BORDER}`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <button
+          onClick={() => setPickerOpen(true)}
+          style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontWeight: 600, fontSize: 14, color: PRIMARY,
+            display: "flex", alignItems: "center", gap: 6,
+          }}
+        >
+          <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
+          {t("goals_add_exercise") || "Adicionar Exercício"}
+        </button>
+      </div>
+
+      {/* ── EXERCISE PICKER OVERLAY ──────────────────────────── */}
+      {pickerOpen && (
+        <div style={{
+          position: "absolute", inset: 0,
+          background: BG, display: "flex", flexDirection: "column",
+          zIndex: 10,
+        }}>
+          {/* Picker header */}
+          <div style={{
+            flexShrink: 0,
+            paddingTop: "max(48px, env(safe-area-inset-top))",
+            paddingLeft: "max(16px, env(safe-area-inset-left))",
+            paddingRight: "max(16px, env(safe-area-inset-right))",
+            paddingBottom: 12,
+            display: "flex", alignItems: "center", gap: 12,
+            borderBottom: `1px solid ${BORDER}`,
+          }}>
+            <button
+              onClick={() => { setPickerOpen(false); setPickerSearch(""); }}
+              style={{
+                background: "hsl(var(--secondary))", border: "none",
+                borderRadius: "50%", width: 36, height: 36, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M10 3L5 8l5 5" stroke={FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <span style={{ flex: 1, fontWeight: 700, fontSize: 17 }}>Adicionar Exercício</span>
+          </div>
+
+          {/* Search input */}
+          <div style={{
+            flexShrink: 0, padding: "12px 16px",
+            borderBottom: `1px solid ${BORDER}`,
+          }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              background: SURFACE, borderRadius: 12, padding: "10px 14px",
+            }}>
+              <svg width="14" height="14" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0 }}>
+                <circle cx="5.5" cy="5.5" r="4" stroke={MUTED_FG} strokeWidth="1.5"/>
+                <path d="m8.5 8.5 2.5 2.5" stroke={MUTED_FG} strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+              <input
+                autoFocus
+                type="text"
+                value={pickerSearch}
+                onChange={(e) => setPickerSearch(e.target.value)}
+                placeholder="Buscar exercício..."
+                style={{
+                  background: "transparent", border: "none", outline: "none",
+                  fontSize: 15, color: FG, flex: 1,
+                  fontFamily: "'Inter', system-ui",
+                }}
+              />
+              {pickerSearch && (
+                <button
+                  onClick={() => setPickerSearch("")}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: MUTED_FG }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Exercise list */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px 32px" }}>
+            {catalogLoading ? (
+              <div style={{ textAlign: "center", padding: "48px 16px", color: MUTED_FG }}>
+                Carregando...
+              </div>
+            ) : catalogFiltered.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "48px 16px", color: MUTED_FG }}>
+                Nenhum exercício encontrado
+              </div>
+            ) : (
+              catalogFiltered.map((w) => {
+                const alreadyAdded = allItems.some((i) => i.workout_id === w.id);
+                return (
+                  <button
+                    key={w.id}
+                    onClick={() => handlePickExercise(w)}
+                    style={{
+                      width: "100%", background: "none", border: "none",
+                      cursor: "pointer", textAlign: "left",
+                      display: "flex", alignItems: "center", gap: 12,
+                      padding: "10px 4px",
+                      borderBottom: `1px solid ${BORDER}`,
+                    }}
+                  >
+                    {/* Thumbnail */}
+                    <div style={{
+                      width: 52, height: 52, borderRadius: 10, flexShrink: 0,
+                      background: SURFACE, overflow: "hidden",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {w.photo ? (
+                        <img src={w.photo} alt={w.name} style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
+                      ) : (
+                        <svg width="20" height="12" viewBox="0 0 36 20" fill="none" opacity={0.3}>
+                          <rect x="0.5" y="7" width="7" height="6" rx="2" fill={MUTED_FG}/>
+                          <rect x="3" y="4.5" width="3" height="11" rx="1.5" fill={MUTED_FG}/>
+                          <rect x="6.5" y="9" width="23" height="2" rx="1" fill={MUTED_FG}/>
+                          <rect x="28.5" y="7" width="7" height="6" rx="2" fill={MUTED_FG}/>
+                          <rect x="30" y="4.5" width="3" height="11" rx="1.5" fill={MUTED_FG}/>
+                        </svg>
+                      )}
+                    </div>
+
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontWeight: 600, fontSize: 14, color: FG,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {w.name}
+                      </div>
+                      {w.muscle_group && (
+                        <div style={{ fontSize: 12, color: MUTED_FG, marginTop: 2 }}>
+                          {w.muscle_group}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* + ou checkmark */}
+                    <div style={{
+                      width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
+                      background: alreadyAdded ? "hsl(var(--secondary))" : PRIMARY,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {alreadyAdded ? (
+                        <svg width="12" height="10" viewBox="0 0 13 10" fill="none">
+                          <path d="M1.5 5L5 8.5L11.5 1.5" stroke={MUTED_FG} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      ) : (
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path d="M6 1v10M1 6h10" stroke={PRIMARY_FG} strokeWidth="2" strokeLinecap="round"/>
+                        </svg>
+                      )}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── EXERCISE INFO OVERLAY ───────────────────────────── */}
+      {infoExerciseId && (() => {
+        const infoItem = allItems.find((i) => i.workout_id === infoExerciseId);
+        if (!infoItem) return null;
+        return (
+          <div
+            onClick={() => setInfoExerciseId(null)}
+            style={{
+              position: "absolute", inset: 0, zIndex: 70,
+              background: "rgba(0,0,0,0.92)", backdropFilter: "blur(8px)",
+              display: "flex", flexDirection: "column",
+              paddingTop: "max(48px, env(safe-area-inset-top))",
+              paddingBottom: "max(24px, env(safe-area-inset-bottom))",
+            }}
+          >
+            {/* Close */}
+            <button
+              onClick={() => setInfoExerciseId(null)}
+              aria-label={t("goals_cancel")}
+              style={{
+                position: "absolute", top: "max(14px, env(safe-area-inset-top))", right: 16,
+                width: 36, height: 36, borderRadius: "50%",
+                background: "rgba(255,255,255,0.12)", border: "none", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                zIndex: 1,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M2 2l10 10M12 2L2 12" stroke="rgba(255,255,255,0.85)" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </button>
+
+            {/* Foto grande */}
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 16px" }}
+            >
+              {infoItem.workoutPhoto ? (
+                <img
+                  src={infoItem.workoutPhoto}
+                  alt={infoItem.workoutName || ""}
+                  style={{
+                    width: "100%", maxHeight: "60vh", objectFit: "contain",
+                    borderRadius: 16,
+                  }}
+                />
+              ) : (
+                <div style={{
+                  width: "100%", height: 240,
+                  background: "rgba(255,255,255,0.06)", borderRadius: 16,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <svg width="64" height="36" viewBox="0 0 36 20" fill="none" opacity={0.3}>
+                    <rect x="0.5" y="7" width="7" height="6" rx="2" fill="white"/>
+                    <rect x="3" y="4.5" width="3" height="11" rx="1.5" fill="white"/>
+                    <rect x="6.5" y="9" width="23" height="2" rx="1" fill="white"/>
+                    <rect x="28.5" y="7" width="7" height="6" rx="2" fill="white"/>
+                    <rect x="30" y="4.5" width="3" height="11" rx="1.5" fill="white"/>
+                  </svg>
+                </div>
+              )}
+            </div>
+
+            {/* Nome + grupo muscular */}
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ padding: "20px 24px", textAlign: "center" }}
+            >
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 10 }}>
+                {infoItem.workoutName}
+              </div>
+              {infoItem.muscle_group && (
+                <span style={{
+                  display: "inline-block",
+                  background: "rgba(255,255,255,0.15)", borderRadius: 20,
+                  padding: "4px 16px", fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.85)",
+                }}>
+                  {infoItem.muscle_group}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── REST TIMER MODAL ─────────────────────────────────── */}
+      {restModalOpen && globalRestTimerActive && (() => {
+        const R = 54;
+        const CIRC = 2 * Math.PI * R;
+        const offset = CIRC * (1 - Math.min(100, Math.max(0, restPct)) / 100);
+        const mm = Math.floor(globalRestTimerRemaining / 60);
+        const ss = globalRestTimerRemaining % 60;
+        const timeLabel = `${mm}:${String(ss).padStart(2, "0")}`;
+        const ringColor = globalRestTimerPaused ? MUTED_FG : PRIMARY;
+
+        return (
+          <div
+            onClick={() => setRestModalOpen(false)}
+            style={{
+              position: "absolute", inset: 0, zIndex: 60,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+              paddingTop: "max(1rem, env(safe-area-inset-top))",
+              paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+              paddingLeft: "max(1rem, env(safe-area-inset-left))",
+              paddingRight: "max(1rem, env(safe-area-inset-right))",
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: "relative",
+                width: "100%", maxWidth: 340,
+                background: CARD, borderRadius: 28,
+                padding: "28px 24px 24px",
+                display: "flex", flexDirection: "column", alignItems: "center",
+                boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+              }}
+            >
+              {/* Fechar (mantém o timer ativo na barra inferior) */}
+              <button
+                onClick={() => setRestModalOpen(false)}
+                aria-label={t("goals_cancel")}
+                style={{
+                  position: "absolute", top: 14, right: 14,
+                  width: 32, height: 32, borderRadius: "50%",
+                  background: "hsl(var(--secondary))", border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                  <path d="M2 2l9 9M11 2l-9 9" stroke={MUTED_FG} strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              </button>
+
+              <div style={{ fontSize: 15, fontWeight: 700, color: FG }}>
+                {t("goals_rest_time")}
+              </div>
+              <div style={{ fontSize: 12, color: MUTED_FG, marginTop: 4, textAlign: "center" }}>
+                {globalRestTimerPaused ? t("goals_rest_paused") : t("goals_rest_subtitle")}
+              </div>
+
+              {/* Anel de progresso + contador */}
+              <div style={{ position: "relative", width: 132, height: 132, margin: "20px 0 22px" }}>
+                <svg width="132" height="132" viewBox="0 0 132 132" style={{ transform: "rotate(-90deg)" }}>
+                  <circle cx="66" cy="66" r={R} fill="none" stroke={SURFACE} strokeWidth="9" />
+                  <circle
+                    cx="66" cy="66" r={R} fill="none"
+                    stroke={ringColor} strokeWidth="9" strokeLinecap="round"
+                    strokeDasharray={CIRC} strokeDashoffset={offset}
+                    style={{ transition: "stroke-dashoffset 1s linear, stroke 0.2s" }}
+                  />
+                </svg>
+                <div style={{
+                  position: "absolute", inset: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 32, fontWeight: 800, color: FG,
+                  fontVariantNumeric: "tabular-nums",
+                }}>
+                  {timeLabel}
+                </div>
+              </div>
+
+              {/* Ações principais: Pausar/Retomar + Minimizar */}
+              <div style={{ display: "flex", gap: 10, width: "100%" }}>
+                <button
+                  onClick={() => setGlobalRestTimerPaused((p) => !p)}
+                  style={{
+                    flex: 1, background: PRIMARY, color: PRIMARY_FG,
+                    border: "none", borderRadius: 14, height: 50,
+                    fontSize: 14, fontWeight: 700, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  }}
+                >
+                  {globalRestTimerPaused ? (
+                    <svg width="14" height="15" viewBox="0 0 14 15" fill="none">
+                      <path d="M2 2l10 5.5L2 13V2z" fill="currentColor"/>
+                    </svg>
+                  ) : (
+                    <svg width="13" height="14" viewBox="0 0 13 14" fill="none">
+                      <rect x="1" y="1" width="4" height="12" rx="1.5" fill="currentColor"/>
+                      <rect x="8" y="1" width="4" height="12" rx="1.5" fill="currentColor"/>
+                    </svg>
+                  )}
+                  {globalRestTimerPaused ? t("goals_session_resume") : t("goals_rest_pause")}
+                </button>
+
+                <button
+                  onClick={() => { setRestModalOpen(false); onMinimize(); }}
+                  style={{
+                    flex: 1, background: "hsl(var(--secondary))", color: FG,
+                    border: "none", borderRadius: 14, height: 50,
+                    fontSize: 14, fontWeight: 700, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M2 10h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    <path d="M4 5l3 3 3-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  {t("goals_minimize")}
+                </button>
+              </div>
+
+              {/* Pular descanso */}
+              <button
+                onClick={skipRest}
+                style={{
+                  marginTop: 14, background: "none", border: "none", cursor: "pointer",
+                  fontSize: 13, fontWeight: 600, color: MUTED_FG, padding: "4px 8px",
+                }}
+              >
+                {t("goals_skip")}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── CONFIRM FINISH ───────────────────────────────────── */}
+      {/* Overlay inline (z-index acima do dialog) porque AlertDialog/Radix
+          porta para body com z-index 50, ficando escondido atrás deste overlay 9999. */}
+      {confirmOpen && (
+        <div
+          style={{
+            position: "absolute", inset: 0, zIndex: 80,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+            paddingTop: "max(1rem, env(safe-area-inset-top))",
+            paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+            paddingLeft: "max(1rem, env(safe-area-inset-left))",
+            paddingRight: "max(1rem, env(safe-area-inset-right))",
+          }}
+        >
+          <div style={{
+            width: "100%", maxWidth: 320,
+            background: CARD, borderRadius: 20,
+            padding: "24px 20px 20px",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+          }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: FG, marginBottom: 8 }}>
+              {t("goals_confirm_end_workout")}
+            </div>
+            <div style={{ fontSize: 14, color: MUTED_FG, marginBottom: hasCompletedSeries ? 24 : 12, lineHeight: 1.5 }}>
+              {t("goals_confirm_end_workout_desc")}
+            </div>
+            {/* Aviso inline quando nenhuma série foi concluída */}
+            {!hasCompletedSeries && (
+              <div style={{
+                background: "hsl(var(--destructive) / 0.12)",
+                border: "1px solid hsl(var(--destructive) / 0.4)",
+                borderRadius: 10, padding: "10px 14px", marginBottom: 20,
+                fontSize: 13, color: "hsl(var(--destructive))", lineHeight: 1.5,
+              }}>
+                {t("goals_session_complete_one")}
+              </div>
+            )}
+            {/* Erro de save — mostrado inline pois toast() é invisível atrás do z-index 9999 */}
+            {saveError && (
+              <div style={{
+                background: "hsl(var(--destructive) / 0.12)",
+                border: "1px solid hsl(var(--destructive) / 0.4)",
+                borderRadius: 10, padding: "10px 14px", marginBottom: 16,
+                fontSize: 12, color: "hsl(var(--destructive))", lineHeight: 1.5,
+                wordBreak: "break-word",
+              }}>
+                {saveError}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => { setSaveError(null); setConfirmOpen(false); }}
+                style={{
+                  flex: 1, height: 46, borderRadius: 12,
+                  background: "hsl(var(--secondary))", border: "none",
+                  fontSize: 14, fontWeight: 700, color: FG, cursor: "pointer",
+                }}
+              >
+                {t("goals_cancel")}
+              </button>
+              <button
+                onClick={handleConfirmFinish}
+                disabled={isSaving || !hasCompletedSeries}
+                style={{
+                  flex: 1, height: 46, borderRadius: 12,
+                  background: ORANGE, border: "none",
+                  fontSize: 14, fontWeight: 700, color: "#fff",
+                  cursor: (isSaving || !hasCompletedSeries) ? "not-allowed" : "pointer",
+                  opacity: (isSaving || !hasCompletedSeries) ? 0.4 : 1,
+                }}
+              >
+                {isSaving ? t("goals_saving") : t("goals_end_workout")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  return createPortal(content, document.body);
+}

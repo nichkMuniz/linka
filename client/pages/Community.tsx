@@ -59,12 +59,11 @@ import {
   type DuelCheckInVoteType,
 } from "@/lib/ritmofit-db";
 import { useAuth } from "@/hooks/useAuth";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Pencil, Camera, Image, Mic, Smile, Crop, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Pencil, Camera, Image, Mic, Crop, CheckCircle2, XCircle } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
@@ -101,7 +100,6 @@ import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Browser } from "@capacitor/browser";
 import { supabase } from "@/lib/supabase";
 import { CommunitySkeleton } from "@/components/shared/animated-loading";
-import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
@@ -115,7 +113,6 @@ export default function Community() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { layoutMode } = useLayoutMode();
   const { t } = useLanguage();
 
   const [activeTab, setActiveTab] = React.useState("messages");
@@ -212,7 +209,6 @@ export default function Community() {
   const [participantsSearch, setParticipantsSearch] = React.useState("");
   const [selectedCheckInForDetail, setSelectedCheckInForDetail] = React.useState<GroupCheckIn | null>(null);
   const [isCheckInDetailOpen, setIsCheckInDetailOpen] = React.useState(false);
-  const [userNickname, setUserNickname] = React.useState<string>("");
   const [isGroupDetailsOpen, setIsGroupDetailsOpen] = React.useState(false);
   const [isEditingGroupInfo, setIsEditingGroupInfo] = React.useState(false);
   const [editGroupName, setEditGroupName] = React.useState("");
@@ -384,7 +380,6 @@ export default function Community() {
     }
   }, []);
 
-  const [userPhoto, setUserPhoto] = React.useState<string | null>(null);
   const [isLoadingCheckIns, setIsLoadingCheckIns] = React.useState(false);
   const [isLoadingRoutines, setIsLoadingRoutines] = React.useState(false);
 
@@ -498,17 +493,13 @@ export default function Community() {
     const loadUserData = async () => {
       if (!user?.id) return;
       try {
-        // Fetch nickname and all group data in parallel (no waterfall)
-        const [userProfile, { myGroups, availableGroups: enrichedAvailGroups, pendingInvites: invites }, joinRequests] =
+        // Fetch all group data in parallel (no waterfall)
+        const [{ myGroups, availableGroups: enrichedAvailGroups, pendingInvites: invites }, joinRequests] =
           await Promise.all([
-            getUserProfileDb(user.id),
             getEnrichedDuelGroupsDb(user.id),
             getPendingGroupRequestsDb(),
           ]);
 
-        const nickname = userProfile?.nickname || user.email?.split("@")[0] || "Usuário";
-        setUserNickname(nickname);
-        setUserPhoto(userProfile?.photo || null);
         setPendingInvites(invites);
         setPendingGroupRequests(joinRequests);
 
@@ -1340,27 +1331,35 @@ export default function Community() {
       } : undefined}
     >
       {/* Tabs — segmented control style (igual à tela de Loja) */}
-      <div className="flex-shrink-0 border-b border-border/60 px-4 pt-3 pb-3">
+      <div className="flex-shrink-0 px-4 pt-3 pb-3" style={{ borderBottom: "1px solid rgba(255,255,255,.08)" }}>
         <div className="flex items-center gap-3">
           {/* Segmented tabs */}
-          <div className="flex flex-1 rounded-lg border border-border overflow-hidden">
+          <div
+            className="flex flex-1 rounded-xl overflow-hidden py-1 px-1 gap-1"
+            style={{
+              background: "linear-gradient(rgba(255,255,255,.07),rgba(255,255,255,.02))",
+              backdropFilter: "blur(20px) saturate(160%)",
+              WebkitBackdropFilter: "blur(20px) saturate(160%)",
+              border: "1px solid rgba(255,255,255,.10)",
+            }}
+          >
             <button
               onClick={() => setActiveTab("messages")}
-              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "messages" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "messages" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
             >
               <MessageCircle className="h-4 w-4" />
               {t("community_messages")}
             </button>
             <button
               onClick={() => setActiveTab("duels")}
-              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "duels" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "duels" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
             >
               <Swords className="h-4 w-4" />
               {t("community_duels")}
             </button>
             <button
               onClick={() => setActiveTab("ranking")}
-              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "ranking" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+              className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 rounded-lg transition-colors ${activeTab === "ranking" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
             >
               <BarChart2 className="h-4 w-4" />
               {t("community_ranking")}
@@ -1372,7 +1371,8 @@ export default function Community() {
             <button
               onClick={() => setActiveTab("requests")}
               aria-label="Solicitações pendentes"
-              className={`relative p-2 rounded-lg border border-border transition-colors ${activeTab === "requests" ? "bg-brand text-white border-brand" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
+              className={`relative p-2 rounded-lg transition-colors ${activeTab === "requests" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
+              style={activeTab !== "requests" ? { border: "1px solid rgba(255,255,255,.10)" } : undefined}
             >
               <Users className="h-4 w-4" />
               <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-white text-[10px] flex items-center justify-center ring-2 ring-background font-bold">
@@ -1401,21 +1401,22 @@ export default function Community() {
             <button
               aria-label="Nova conversa"
               onClick={() => { setIsNewConversationDrawerOpen(true); }}
-              className="flex-shrink-0 p-2 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+              className="flex-shrink-0 p-2 rounded-lg hover:bg-white/[.06] transition-colors"
+              style={{ border: "1px solid rgba(255,255,255,.10)" }}
             >
-              <PenSquare className="h-4 w-4 text-muted-foreground" />
+              <PenSquare className="h-4 w-4 text-white/50" />
             </button>
           </div>
 
           {/* Conversations List */}
           <div className="flex-1 overflow-y-auto">
             {filteredConversations.length > 0 ? (
-              <div className="divide-y divide-border/40">
+              <div className="divide-y" style={{ borderColor: "rgba(255,255,255,.06)" }}>
                 {filteredConversations.map((conversation) => (
-                  <div key={conversation.userId} className="flex items-center group">
+                  <div key={conversation.userId} className="flex items-center group" style={{ borderColor: "rgba(255,255,255,.06)" }}>
                     <button
                       onClick={() => handleOpenConversation(conversation)}
-                      className="flex-1 flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 active:bg-muted/50 transition-colors text-left min-w-0"
+                      className="flex-1 flex items-center gap-3 px-4 py-3.5 hover:bg-white/[.04] active:bg-white/[.07] transition-colors text-left min-w-0"
                     >
                       {/* Avatar com ring se não lido */}
                       <div className="relative shrink-0">
@@ -1459,14 +1460,14 @@ export default function Community() {
                 {/* Separador para sugestões quando há busca */}
                 {searchQuery && filteredFollowers.filter(f => !conversations.some(c => c.userId === f.id)).length > 0 && (
                   <div className="px-4 pt-4 pb-1">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Sugestões</p>
+                    <p className="text-xs font-semibold text-white/40 uppercase tracking-wide">Sugestões</p>
                   </div>
                 )}
                 {searchQuery && filteredFollowers.filter(f => !conversations.some(c => c.userId === f.id)).map((follower) => (
                   <button
                     key={follower.id}
                     onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors text-left"
+                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/[.04] transition-colors text-left"
                   >
                     <div className="shrink-0">
                       <UserAvatar
@@ -1490,14 +1491,14 @@ export default function Community() {
                   <p className="text-xs text-muted-foreground">Escolha alguém abaixo para começar</p>
                 </div>
                 <div className="px-4 pb-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Quem você segue</p>
+                  <p className="text-xs font-semibold text-white/40 uppercase tracking-wide">Quem você segue</p>
                 </div>
-                <div className="divide-y divide-border/40">
+                <div className="divide-y" style={{ borderColor: "rgba(255,255,255,.06)" }}>
                   {filteredFollowers.map((follower) => (
                     <button
                       key={follower.id}
                       onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
-                      className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors text-left"
+                      className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/[.04] transition-colors text-left"
                     >
                       <div className="shrink-0">
                         {follower.photo ? (
@@ -2052,12 +2053,18 @@ export default function Community() {
                 <h2 className="text-sm font-semibold text-brand mb-3">{t("duels_my_groups")}</h2>
                 <div className="grid grid-cols-2 gap-3">
                   {userCreatedGroups.map((group) => (
-                    <Card
+                    <div
                       key={group.id}
-                      className="border-border/60 hover:shadow-md transition-shadow flex flex-col overflow-hidden"
+                      className="rounded-xl flex flex-col overflow-hidden"
+                      style={{
+                        background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+                        backdropFilter: "blur(20px) saturate(160%)",
+                        WebkitBackdropFilter: "blur(20px) saturate(160%)",
+                        border: "1px solid rgba(255,255,255,.10)",
+                      }}
                     >
                       {/* Group cover photo */}
-                      <div className="relative w-full h-20 bg-muted flex-shrink-0">
+                      <div className="relative w-full h-20 flex-shrink-0" style={{ background: "rgba(255,255,255,.05)" }}>
                         {group.photo ? (
                           <ImageWithFallback
                             src={group.photo}
@@ -2070,14 +2077,14 @@ export default function Community() {
                           </div>
                         )}
                       </div>
-                      <CardContent className="p-3 flex flex-col h-full">
+                      <div className="p-3 flex flex-col h-full">
                         <div className="flex items-center gap-1.5 mb-1">
                           <p className="font-semibold text-xs line-clamp-2 flex-1">{group.name}</p>
                           <span className="inline-block text-xs bg-brand/20 text-brand px-1.5 py-0.5 rounded-full flex-shrink-0">
                             {group.createdBy === user?.id ? "Seu Grupo" : "Participante"}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{group.description}</p>
+                        <p className="text-xs text-white/50 line-clamp-2 mb-2">{group.description}</p>
                         {/* Creator info */}
                         {(
                           <div className="flex items-center gap-1.5 mb-2">
@@ -2088,21 +2095,21 @@ export default function Community() {
                                 className="h-5 w-5 rounded-full object-cover flex-shrink-0"
                               />
                             ) : (
-                              <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                                <span className="text-[9px] font-semibold text-muted-foreground">
+                              <div className="h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "rgba(255,255,255,.1)" }}>
+                                <span className="text-[9px] font-semibold text-white/60">
                                   {group.creatorNickname?.[0]?.toUpperCase() || "?"}
                                 </span>
                               </div>
                             )}
-                            <span className="text-xs text-muted-foreground truncate">
+                            <span className="text-xs text-white/50 truncate">
                               por <span className="font-medium">{group.creatorNickname}</span>
                             </span>
                           </div>
                         )}
                         <div className="space-y-2 mb-3 flex-1">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">👥 {group.participants}</span>
-                            <span className="text-xs text-muted-foreground">📍 {group.city}</span>
+                            <span className="text-xs text-white/50">👥 {group.participants}</span>
+                            <span className="text-xs text-white/50">📍 {group.city}</span>
                           </div>
                         </div>
                         <Button
@@ -2112,8 +2119,8 @@ export default function Community() {
                         >
                           {t("duels_view")}
                         </Button>
-                      </CardContent>
-                    </Card>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -2125,22 +2132,28 @@ export default function Community() {
                 className="w-full flex items-center justify-between mb-3"
                 onClick={() => setAllGroupsOpen((v) => !v)}
               >
-                <h2 className="text-sm font-semibold text-muted-foreground">{t("duels_all_groups")}</h2>
-                <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${allGroupsOpen ? "rotate-180" : ""}`} />
+                <h2 className="text-sm font-semibold text-white/50">{t("duels_all_groups")}</h2>
+                <ChevronDown className={`h-4 w-4 text-white/40 transition-transform duration-200 ${allGroupsOpen ? "rotate-180" : ""}`} />
               </button>
               {allGroupsOpen && availableGroups.length === 0 ? (
-                <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-center">
-                  <p className="text-xs text-muted-foreground">{t("duels_no_groups")}</p>
+                <div className="rounded-xl p-4 text-center" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+                  <p className="text-xs text-white/50">{t("duels_no_groups")}</p>
                 </div>
               ) : allGroupsOpen ? (
                 <div className="grid grid-cols-2 gap-3">
                   {availableGroups.map((group) => (
-                    <Card
+                    <div
                       key={group.id}
-                      className="border-border/60 hover:shadow-md transition-shadow flex flex-col overflow-hidden"
+                      className="rounded-xl flex flex-col overflow-hidden"
+                      style={{
+                        background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+                        backdropFilter: "blur(20px) saturate(160%)",
+                        WebkitBackdropFilter: "blur(20px) saturate(160%)",
+                        border: "1px solid rgba(255,255,255,.10)",
+                      }}
                     >
                       {/* Group cover photo */}
-                      <div className="relative w-full h-20 bg-muted flex-shrink-0">
+                      <div className="relative w-full h-20 flex-shrink-0" style={{ background: "rgba(255,255,255,.05)" }}>
                         {group.photo ? (
                           <ImageWithFallback
                             src={group.photo}
@@ -2153,9 +2166,9 @@ export default function Community() {
                           </div>
                         )}
                       </div>
-                      <CardContent className="p-3 flex flex-col h-full">
+                      <div className="p-3 flex flex-col h-full">
                         <p className="font-semibold text-xs line-clamp-2 mb-1">{group.name}</p>
-                        <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{group.description}</p>
+                        <p className="text-xs text-white/50 line-clamp-2 mb-2">{group.description}</p>
                         {/* Creator info */}
                         <div className="flex items-center gap-1.5 mb-3">
                           <UserAvatar
@@ -2163,14 +2176,14 @@ export default function Community() {
                             nickname={group.creatorNickname}
                             className="h-5 w-5 flex-shrink-0"
                           />
-                          <span className="text-xs text-muted-foreground truncate">
+                          <span className="text-xs text-white/50 truncate">
                             por <span className="font-medium">{group.creatorNickname}</span>
                           </span>
                         </div>
                         <div className="space-y-2 mb-3 flex-1">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">👥 {group.participants}</span>
-                            <span className="text-xs text-muted-foreground">📍 {group.city}</span>
+                            <span className="text-xs text-white/50">👥 {group.participants}</span>
+                            <span className="text-xs text-white/50">📍 {group.city}</span>
                           </div>
                         </div>
                         <div className="flex flex-col gap-1.5">
@@ -2222,8 +2235,8 @@ export default function Community() {
                             </Button>
                           )}
                         </div>
-                      </CardContent>
-                    </Card>
+                      </div>
+                    </div>
                   ))}
                 </div>
               ) : null}
@@ -2267,14 +2280,23 @@ export default function Community() {
                   const isCurrentUser = rankUser.userId === user?.id;
 
                   return (
-                    <Card key={rankUser.userId} className={`border-border/60 ${isCurrentUser ? "ring-2 ring-brand" : ""}`}>
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-4">
+                    <div
+                      key={rankUser.userId}
+                      className="rounded-xl p-4"
+                      style={{
+                        background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+                        backdropFilter: "blur(20px) saturate(170%)",
+                        WebkitBackdropFilter: "blur(20px) saturate(170%)",
+                        border: isCurrentUser ? "1px solid rgba(91,140,255,.4)" : "1px solid rgba(255,255,255,.10)",
+                        boxShadow: isCurrentUser ? "0 0 0 1px rgba(91,140,255,.2)" : "inset 0 1px 0 rgba(255,255,255,.18)",
+                      }}
+                    >
+                      <div className="flex items-center gap-4">
                           <div className="flex-shrink-0 w-12 text-center">
                             {medalEmoji ? (
                               <span className="text-2xl">{medalEmoji}</span>
                             ) : (
-                              <span className="text-lg font-bold text-muted-foreground">
+                              <span className="text-lg font-bold text-white/40">
                                 #{index + 1}
                               </span>
                             )}
@@ -2303,21 +2325,20 @@ export default function Community() {
                                 {rankUser.points}
                               </span>
                             </div>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-white/40">
                               {t("ranking_points")}
                             </p>
                           </div>
                         </div>
-                      </CardContent>
-                    </Card>
+                    </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
-                <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+              <div className="rounded-xl p-6 text-center" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+                <Trophy className="h-12 w-12 text-white/30 mx-auto mb-3" />
                 <p className="text-sm font-medium mb-1">{t("ranking_empty")}</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-white/50">
                   {t("ranking_empty_desc")}
                 </p>
               </div>
@@ -2337,16 +2358,24 @@ export default function Community() {
             {/* Convites recebidos pelo usuário */}
             {pendingInvites.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Convites recebidos</p>
+                <p className="text-xs font-semibold text-white/40 uppercase tracking-wide mb-2">Convites recebidos</p>
                 {pendingInvites.map((invite) => (
-                  <Card key={invite.groupId} className="border-border/60 mb-3">
-                    <CardContent className="p-4">
+                  <div
+                    key={invite.groupId}
+                    className="rounded-xl p-4 mb-3"
+                    style={{
+                      background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+                      backdropFilter: "blur(20px) saturate(160%)",
+                      WebkitBackdropFilter: "blur(20px) saturate(160%)",
+                      border: "1px solid rgba(255,255,255,.10)",
+                    }}
+                  >
                       <div className="flex items-start gap-3">
                         <span className="text-2xl">⚔️</span>
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-sm">{invite.groupName}</p>
-                          <p className="text-xs text-muted-foreground truncate">{invite.groupGoal}</p>
-                          <p className="text-xs text-muted-foreground">{invite.groupLocation}</p>
+                          <p className="text-xs text-white/50 truncate">{invite.groupGoal}</p>
+                          <p className="text-xs text-white/50">{invite.groupLocation}</p>
                         </div>
                       </div>
                       <div className="flex gap-2 mt-3">
@@ -2401,8 +2430,7 @@ export default function Community() {
                           Recusar
                         </Button>
                       </div>
-                    </CardContent>
-                  </Card>
+                  </div>
                 ))}
               </div>
             )}
@@ -2410,10 +2438,18 @@ export default function Community() {
             {/* Solicitações de entrada nos grupos do usuário (dono) */}
             {pendingGroupRequests.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Pedidos para entrar nos seus grupos</p>
+                <p className="text-xs font-semibold text-white/40 uppercase tracking-wide mb-2">Pedidos para entrar nos seus grupos</p>
                 {pendingGroupRequests.map((req) => (
-                  <Card key={`${req.groupId}-${req.userId}`} className="border-border/60 mb-3">
-                    <CardContent className="p-4">
+                  <div
+                    key={`${req.groupId}-${req.userId}`}
+                    className="rounded-xl p-4 mb-3"
+                    style={{
+                      background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+                      backdropFilter: "blur(20px) saturate(160%)",
+                      WebkitBackdropFilter: "blur(20px) saturate(160%)",
+                      border: "1px solid rgba(255,255,255,.10)",
+                    }}
+                  >
                       <div className="flex items-center gap-3">
                         <UserAvatar
                           photo={req.userPhoto}
@@ -2423,10 +2459,10 @@ export default function Community() {
                         />
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-sm">{req.userNickname}</p>
-                          <p className="text-xs text-muted-foreground truncate">quer entrar em <span className="font-medium">{req.groupName}</span></p>
+                          <p className="text-xs text-white/50 truncate">quer entrar em <span className="font-medium">{req.groupName}</span></p>
                           <div className="flex items-center gap-1 mt-0.5">
-                            <Users className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-xs text-muted-foreground">{req.participants} participante{req.participants !== 1 ? "s" : ""}</span>
+                            <Users className="h-3 w-3 text-white/40" />
+                            <span className="text-xs text-white/40">{req.participants} participante{req.participants !== 1 ? "s" : ""}</span>
                           </div>
                         </div>
                       </div>
@@ -2463,14 +2499,13 @@ export default function Community() {
                           Recusar
                         </Button>
                       </div>
-                    </CardContent>
-                  </Card>
+                  </div>
                 ))}
               </div>
             )}
 
             {pendingInvites.length === 0 && pendingGroupRequests.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-8">Nenhuma solicitação pendente</p>
+              <p className="text-sm text-white/40 text-center py-8">Nenhuma solicitação pendente</p>
             )}
           </div>
         </>
@@ -2499,7 +2534,7 @@ export default function Community() {
           }
         }}
       >
-        <DrawerContent className="max-h-[90dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent className="max-h-[90dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             {/* Progress indicator */}
             <div className="flex items-center gap-2 mb-2">
@@ -2615,7 +2650,7 @@ export default function Community() {
                     <SelectTrigger className="rounded-lg">
                       <SelectValue placeholder="Selecione um estado" />
                     </SelectTrigger>
-                    <SelectContent className="z-[101]">
+                    <SelectContent className="z-[500]">
                       <SelectItem value="AC">Acre (AC)</SelectItem>
                       <SelectItem value="AL">Alagoas (AL)</SelectItem>
                       <SelectItem value="AP">Amapá (AP)</SelectItem>
@@ -2674,7 +2709,7 @@ export default function Community() {
                     <SelectTrigger className="rounded-lg">
                       <SelectValue placeholder="Selecione a duração" />
                     </SelectTrigger>
-                    <SelectContent className="z-[101]">
+                    <SelectContent className="z-[500]">
                       <SelectItem value="30">30 dias</SelectItem>
                       <SelectItem value="60">60 dias</SelectItem>
                       <SelectItem value="90">90 dias</SelectItem>
@@ -2956,7 +2991,7 @@ export default function Community() {
         open={isAddCheckInModalOpen}
         onOpenChange={setIsAddCheckInModalOpen}
       >
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Adicionar Check-in</DrawerTitle>
             <DrawerDescription className="sr-only">Registre seu check-in de treino</DrawerDescription>
@@ -3432,7 +3467,7 @@ export default function Community() {
 
       {/* Check-in Detail Modal */}
       <Drawer open={isCheckInDetailOpen} onOpenChange={setIsCheckInDetailOpen}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0 flex items-center justify-between">
             <DrawerTitle>Detalhes do Check-in</DrawerTitle>
             <DrawerDescription className="sr-only">Veja detalhes e comentários do check-in</DrawerDescription>
@@ -3778,7 +3813,7 @@ export default function Community() {
 
       {/* Group Details Modal */}
       <Drawer open={isGroupDetailsOpen} onOpenChange={(open) => { setIsGroupDetailsOpen(open); if (!open) setIsEditingGroupInfo(false); }}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0 flex flex-row items-center justify-between pr-4">
             <div>
               <DrawerTitle>Detalhes do Grupo</DrawerTitle>
@@ -4044,7 +4079,7 @@ export default function Community() {
         setIsParticipantsModalOpen(open);
         if (!open) setParticipantDetailsId(null);
       }}>
-        <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
             <DrawerTitle>Participantes ({groupParticipants.length})</DrawerTitle>
             <DrawerDescription className="sr-only">Lista de participantes do grupo</DrawerDescription>

@@ -8,14 +8,11 @@ import {
   createUserWorkoutsDb,
   createCustomWorkoutDb,
   createCustomDietDb,
-  getUserWorkoutsDb,
   getWorkoutsDb,
   getDietsDb,
   createUserDietsDb,
-  getUserDietsDb,
   getHabitsDb,
   createUserHabitsDb,
-  getUserHabitsDb,
   getRoutineTypeName,
   getGoalByIdDb,
   updateRoutineGoalDb,
@@ -32,8 +29,6 @@ import {
   flushPendingIncentivesDb,
   getPostCommentsDb,
   getCommercialProfileDb,
-  createOrUpdateCommercialProfileDb,
-  deleteCommercialProfileDb,
   getCommercialOffersByUserIdDb,
   incrementOfferClickDb,
   type CommercialOffer,
@@ -48,15 +43,11 @@ import {
   type Workout,
   type Diet,
   type Habit,
-  type UserWorkoutWithDetails,
-  type UserDietWithDetails,
-  type UserHabitWithDetails,
   type UserGoal,
   type ShotWithUser,
   type CommercialProfile,
   type ServicePlan,
   getCommercialPlansDb,
-  saveCommercialPlansDb,
   type StoryWithUser,
   type PostIncentiveType,
   getRoutinesByGoalIdDb,
@@ -111,11 +102,6 @@ import {
   DrawerTitle,
   DrawerDescription,
 } from "@/components/ui/drawer";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -136,25 +122,19 @@ import {
   Check,
   Tag,
   Settings,
-  LogOut,
   Trash2,
-  Heart,
   MessageSquare,
   Filter,
-  Grid3X3,
-  Film,
   Search,
   Share2,
-  ShoppingBag,
   ArrowRight,
   ExternalLink,
   Phone,
-  Briefcase,
   ListChecks,
   Target,
   ShieldCheck,
 } from "lucide-react";
-import { supabase, resetSupabaseAuth } from "@/lib/supabase";
+import { resetSupabaseAuth } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { Browser } from "@capacitor/browser";
@@ -235,9 +215,6 @@ export default function Profile() {
   const [selectedMuscleGroups, setSelectedMuscleGroups] = React.useState<
     Set<string>
   >(new Set());
-  const [userWorkouts, setUserWorkouts] = React.useState<
-    UserWorkoutWithDetails[]
-  >([]);
   const [diets, setDiets] = React.useState<Diet[]>([]);
   const [dietsLoading, setDietsLoading] = React.useState(false);
   const [selectedDietIds, setSelectedDietIds] = React.useState<Set<string>>(
@@ -245,16 +222,12 @@ export default function Profile() {
   );
   const [isSavingDiets, setIsSavingDiets] = React.useState(false);
   const [searchQueryDiets, setSearchQueryDiets] = React.useState("");
-  const [userDiets, setUserDiets] = React.useState<UserDietWithDetails[]>([]);
   const [habits, setHabits] = React.useState<Habit[]>([]);
   const [habitsLoading, setHabitsLoading] = React.useState(false);
   const [selectedHabitIds, setSelectedHabitIds] = React.useState<Set<string>>(
     new Set(),
   );
   const [isSavingHabits, setIsSavingHabits] = React.useState(false);
-  const [userHabits, setUserHabits] = React.useState<UserHabitWithDetails[]>(
-    [],
-  );
   const [expandedRoutineType, setExpandedRoutineType] = React.useState<
     number | null
   >(null);
@@ -298,6 +271,9 @@ export default function Profile() {
   const [commercialProfile, setCommercialProfile] = React.useState<CommercialProfile | null>(null);
   const [servicePlans, setServicePlans] = React.useState<ServicePlan[]>([]);
 
+  // Settings drawer (controlled externally so the trigger can be styled per design)
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+
   // Delete account state (UI trigger not yet implemented)
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
@@ -306,11 +282,6 @@ export default function Profile() {
   // Edit account state
 
   // Notifications state
-  const [dailyUsageLimit, setDailyUsageLimit] = React.useState(() => {
-    const stored = localStorage.getItem("ritmofit_daily_limit_minutes");
-    return stored ? parseInt(stored, 10) : 0;
-  });
-  const [usageDataLast7Days] = React.useState<{ day: string; minutes: number }[]>([]);
 
   // Personalization state
 
@@ -339,9 +310,6 @@ export default function Profile() {
       // Batch 2 — below-the-fold tabs: load in background without blocking render
       const [
         routinesData,
-        userWorkoutsData,
-        userDietsData,
-        userHabitsData,
         userGoalsData,
         shotsData,
         commercialProfileData,
@@ -349,9 +317,6 @@ export default function Profile() {
         commercialPlansData,
       ] = await Promise.all([
         getUserRoutinesDb(profileUserId),
-        getUserWorkoutsDb(profileUserId),
-        getUserDietsDb(profileUserId),
-        getUserHabitsDb(profileUserId),
         getUserGoalsByUserIdDb(profileUserId),
         getUserShotsDb(profileUserId),
         getCommercialProfileDb(profileUserId),
@@ -359,9 +324,6 @@ export default function Profile() {
         getCommercialPlansDb(profileUserId),
       ]);
       setRoutines(routinesData);
-      setUserWorkouts(userWorkoutsData);
-      setUserDiets(userDietsData);
-      setUserHabits(userHabitsData);
       setUserGoals(isViewingOtherProfile ? userGoalsData.filter((g) => g.visibility === 1) : userGoalsData);
       setShots(shotsData);
       setCommercialProfile(commercialProfileData);
@@ -886,14 +848,9 @@ export default function Profile() {
       setWorkouts([]);
       setSelectedWorkoutIds(new Set());
 
-      // Reload routines and user workouts
+      // Reload routines
       if (user) {
-        const [routinesData, userWorkoutsData] = await Promise.all([
-          getUserRoutinesDb(user.id),
-          getUserWorkoutsDb(user.id),
-        ]);
-        setRoutines(routinesData);
-        setUserWorkouts(userWorkoutsData);
+        setRoutines(await getUserRoutinesDb(user.id));
       }
     } catch (err: any) {
       console.error("Error saving workouts:", err);
@@ -924,14 +881,9 @@ export default function Profile() {
       setDiets([]);
       setSelectedDietIds(new Set());
 
-      // Reload routines and user diets
+      // Reload routines
       if (user) {
-        const [routinesData, userDietsData] = await Promise.all([
-          getUserRoutinesDb(user.id),
-          getUserDietsDb(user.id),
-        ]);
-        setRoutines(routinesData);
-        setUserDiets(userDietsData);
+        setRoutines(await getUserRoutinesDb(user.id));
       }
     } catch (err: any) {
       console.error("Error saving diets:", err);
@@ -962,14 +914,9 @@ export default function Profile() {
       setHabits([]);
       setSelectedHabitIds(new Set());
 
-      // Reload routines and user habits
+      // Reload routines
       if (user) {
-        const [routinesData, userHabitsData] = await Promise.all([
-          getUserRoutinesDb(user.id),
-          getUserHabitsDb(user.id),
-        ]);
-        setRoutines(routinesData);
-        setUserHabits(userHabitsData);
+        setRoutines(await getUserRoutinesDb(user.id));
       }
     } catch (err: any) {
       console.error("Error saving habits:", err);
@@ -1051,102 +998,180 @@ export default function Profile() {
 
   return (
     <div className="space-y-6">
-      {/* Profile Header Card */}
-      <Card className="border-border/60">
-        <CardContent className="pt-6">
-          {/* Profile Header — Avatar centralizado + info abaixo */}
-          <div className="flex flex-col gap-5">
-            {/* Settings button no topo direito */}
-            {!isViewingOtherProfile && (
-              <div className="flex justify-end -mt-2 -mr-2">
-                <SettingsDrawer
-                  profile={profile}
-                  userId={user!.id}
-                  userEmail={user?.email ?? ""}
-                  stats={stats}
-                  onProfileUpdated={(updated) => setProfile(updated)}
-                  onRequestDeleteAccount={() => setIsDeleteAccountOpen(true)}
+      {/* Profile Header with banner */}
+      <div className="relative">
+        {/* Banner gradient */}
+        <div
+          aria-hidden
+          className="absolute top-0 left-0 right-0 pointer-events-none"
+          style={{ height: "210px", background: "radial-gradient(120% 100% at 60% 0%,#d8567a,#7b3ff2 55%,#1a1438 90%)" }}
+        />
+        <div
+          aria-hidden
+          className="absolute top-0 left-0 right-0 pointer-events-none"
+          style={{ height: "270px", background: "linear-gradient(to bottom,transparent 30%,#06070c 100%)" }}
+        />
+
+        {/* Back chip — only when viewing another user's profile */}
+        {isViewingOtherProfile && (
+          <button
+            onClick={() => navigate(-1)}
+            aria-label="Voltar"
+            className="absolute z-30 flex items-center justify-center active:scale-95 transition-transform"
+            style={{ top: "8px", left: "12px", width: 40, height: 40, borderRadius: "50%", background: "rgba(0,0,0,.3)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.18)", color: "#fff" }}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+        )}
+
+        <div className="relative px-4" style={{ paddingTop: "80px" }}>
+          {/* Avatar + actions row */}
+          <div className="flex items-end justify-between mb-3.5">
+            {/* Avatar with conic ring */}
+            {(() => {
+              const ring = (
+                <div style={{ width: 88, height: 88, borderRadius: "50%", padding: "3px", background: "conic-gradient(from 200deg,#ff8a2a,#d8567a,#7b3ff2,#3a8dff,#ff8a2a)" }}>
+                  <div className="w-full h-full rounded-full overflow-hidden" style={{ border: "3px solid #06070c" }}>
+                    <UserAvatar photo={profile.photo} nickname={profile.nickname} className="!h-full !w-full" />
+                  </div>
+                </div>
+              );
+              return profileStories.length > 0 ? (
+                <button
+                  onClick={() => { setSelectedProfileStory(profileStories[0]); setIsStoryViewerOpen(true); }}
+                  className="shrink-0 active:scale-95 transition-transform"
+                  title={t("profile_view_flow")}
+                >
+                  {ring}
+                </button>
+              ) : (
+                <div className="shrink-0">{ring}</div>
+              );
+            })()}
+
+            {/* Actions */}
+            {!isViewingOtherProfile ? (
+              <div className="flex gap-2 items-center">
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  aria-label={t("settings_title")}
+                  className="flex items-center justify-center active:scale-95 transition-transform"
+                  style={{ width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                >
+                  <Settings className="h-[19px] w-[19px]" />
+                </button>
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  className="active:scale-95 transition-transform"
+                  style={{ height: 42, padding: "0 18px", borderRadius: "21px", display: "flex", alignItems: "center", fontSize: "13.5px", fontWeight: 640, color: "#0a0b12", background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))" }}
+                >
+                  {t("profile_edit_btn")}
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2 items-center">
+                <FollowButton
+                  targetUserId={profileUserId!}
+                  onFollowChange={() => { getUserStatsDb(profileUserId!).then(setStats); }}
                 />
+                <button
+                  onClick={() => navigate(`/comunidade?user=${profileUserId}`)}
+                  aria-label={t("profile_message_btn")}
+                  className="flex items-center justify-center active:scale-95 transition-transform"
+                  style={{ width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                >
+                  <MessageSquare className="h-[18px] w-[18px]" />
+                </button>
+                <button
+                  onClick={() => {
+                    const text = t("profile_share_other").replace("{handle}", profile?.nickname ?? "");
+                    const profileUrl = profileShareUrl(profileUserId);
+                    setShareDrawerText(text);
+                    setShareDrawerUrl(profileUrl);
+                    setShareDrawerOpen(true);
+                  }}
+                  aria-label={t("profile_share")}
+                  className="flex items-center justify-center active:scale-95 transition-transform"
+                  style={{ width: 42, height: 42, borderRadius: "50%", background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
+                >
+                  <Share2 className="h-[18px] w-[18px]" />
+                </button>
               </div>
             )}
-
-            {/* Avatar + identidade centralizado */}
-            <div className="flex flex-col items-center gap-3">
-              {/* Avatar */}
-              <div className="shrink-0">
-                {profileStories.length > 0 ? (
-                  <button
-                    onClick={() => {
-                      setSelectedProfileStory(profileStories[0]);
-                      setIsStoryViewerOpen(true);
-                    }}
-                    className="rounded-full p-[3px] bg-brand-gradient ring-0 cursor-pointer hover:opacity-90 transition-opacity block"
-                    title={t("profile_view_flow")}
-                  >
-                    <UserAvatar
-                      photo={profile.photo}
-                      nickname={profile.nickname}
-                      className="h-24 w-24 ring-2 ring-background"
-                    />
-                  </button>
-                ) : (
-                  <UserAvatar
-                    photo={profile.photo}
-                    nickname={profile.nickname}
-                    className="h-24 w-24 ring-2 ring-border/60"
-                  />
-                )}
-              </div>
-
-              {/* Nome + insignias */}
-              <div className="flex items-center gap-2 flex-wrap justify-center">
-                {profile.is_verified && <VerifiedBadge size="md" />}
-                <h1 className="text-xl font-bold tracking-tight">
-                  {profile.nickname}
-                </h1>
-                <UserInsignias userId={profileUserId || ""} showStreak />
-              </div>
-
-              {/* Handle */}
-              {profile.handle && (
-                <p className="text-sm text-muted-foreground -mt-2">@{profile.handle.replace(/^@/, "")}</p>
-              )}
-
-              {/* Botão Admin — visível apenas para o próprio usuário verificado */}
-              {!isViewingOtherProfile && profile.is_verified && (
-                <button
-                  onClick={() => navigate("/admin")}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-brand/10 text-brand hover:bg-brand/20 transition-colors border border-brand/20"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  Admin
-                </button>
-              )}
-
-            </div>
           </div>
 
+          {/* Controlled settings drawer (own profile) */}
+          {!isViewingOtherProfile && (
+            <SettingsDrawer
+              profile={profile}
+              userId={user!.id}
+              userEmail={user?.email ?? ""}
+              stats={stats}
+              onProfileUpdated={(updated) => setProfile(updated)}
+              onRequestDeleteAccount={() => setIsDeleteAccountOpen(true)}
+              open={settingsOpen}
+              onOpenChange={setSettingsOpen}
+              hideTrigger
+            />
+          )}
+
+          {/* Name + verified + insignias */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <h1 className="text-white" style={{ fontSize: "21px", fontWeight: 740, letterSpacing: "-0.01em" }}>
+              {profile.nickname}
+            </h1>
+            {profile.is_verified && <VerifiedBadge size="md" />}
+            <UserInsignias userId={profileUserId || ""} showStreak />
+          </div>
+
+          {/* Botão Admin — visível apenas para o próprio usuário verificado */}
+          {!isViewingOtherProfile && profile.is_verified && (
+            <button
+              onClick={() => navigate("/admin")}
+              className="mt-2 flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-brand/10 text-brand hover:bg-brand/20 transition-colors border border-brand/20"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Admin
+            </button>
+          )}
+
+          {/* Handle */}
+          {profile.handle && (
+            <p className="mt-1" style={{ fontSize: "13px", color: "rgba(255,255,255,.5)" }}>@{profile.handle.replace(/^@/, "")}</p>
+          )}
+
             {/* Bio and Commercial Profile */}
-            <div className="space-y-2">
+            <div className="space-y-3 mt-3">
               {profile.bio && (
-                <p className="text-sm text-muted-foreground text-center">
+                <p style={{ fontSize: "13.5px", lineHeight: 1.5, color: "rgba(255,255,255,.82)" }}>
                   {profile.bio}
                 </p>
               )}
 
-              {/* Stats inline minimalista */}
-              <div className="flex items-center justify-center gap-1.5 text-sm pt-2">
-                <span className="font-semibold">{stats.postsCount}</span>
-                <span className="text-muted-foreground">posts</span>
-                <span className="text-muted-foreground/40">·</span>
-                <button onClick={() => setShowFollowersModal(true)} className="flex items-center gap-1.5 hover:opacity-70 transition-opacity">
-                  <span className="font-semibold">{stats.followersCount}</span>
-                  <span className="text-muted-foreground">{t("profile_stat_followers")}</span>
+              {/* Stats cards */}
+              <div className="flex gap-2">
+                <div
+                  className="flex-1 text-center"
+                  style={{ borderRadius: "18px", padding: "12px 8px", background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}
+                >
+                  <div style={{ fontSize: "17px", fontWeight: 740, color: "#fff" }}>{stats.postsCount}</div>
+                  <div style={{ fontSize: "11px", color: "rgba(255,255,255,.5)" }}>{t("profile_posts")}</div>
+                </div>
+                <button
+                  onClick={() => setShowFollowersModal(true)}
+                  className="flex-1 text-center active:scale-95 transition-transform"
+                  style={{ borderRadius: "18px", padding: "12px 8px", background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}
+                >
+                  <div style={{ fontSize: "17px", fontWeight: 740, color: "#fff" }}>{stats.followersCount}</div>
+                  <div style={{ fontSize: "11px", color: "rgba(255,255,255,.5)" }}>{t("profile_stat_followers")}</div>
                 </button>
-                <span className="text-muted-foreground/40">·</span>
-                <button onClick={() => setShowFollowingModal(true)} className="flex items-center gap-1.5 hover:opacity-70 transition-opacity">
-                  <span className="font-semibold">{stats.followingCount}</span>
-                  <span className="text-muted-foreground">{t("profile_stat_following")}</span>
+                <button
+                  onClick={() => setShowFollowingModal(true)}
+                  className="flex-1 text-center active:scale-95 transition-transform"
+                  style={{ borderRadius: "18px", padding: "12px 8px", background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}
+                >
+                  <div style={{ fontSize: "17px", fontWeight: 740, color: "#fff" }}>{stats.followingCount}</div>
+                  <div style={{ fontSize: "11px", color: "rgba(255,255,255,.5)" }}>{t("profile_stat_following")}</div>
                 </button>
               </div>
 
@@ -1217,7 +1242,7 @@ export default function Profile() {
                   <p className="text-sm text-muted-foreground">{commercialProfile.business_name}</p>
                 )}
                 {servicePlans.map((plan, idx) => (
-                  <div key={idx} className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 space-y-1">
+                  <div key={idx} className="rounded-xl px-4 py-3 space-y-1" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.1)" }}>
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold">{plan.name}</span>
                       {plan.price && (
@@ -1236,70 +1261,8 @@ export default function Profile() {
             </DialogContent>
           </Dialog>
 
-          {/* Action Buttons - Below stats, centered */}
-          {isViewingOtherProfile && (
-            <div className="flex gap-2 justify-center mt-3">
-              {/* Follow/Unfollow Button */}
-              <FollowButton
-                targetUserId={profileUserId!}
-                onFollowChange={() => {
-                  getUserStatsDb(profileUserId!).then(setStats);
-                }}
-              />
-
-              {/* Message Button */}
-              <Button
-                onClick={() => navigate(`/comunidade?user=${profileUserId}`)}
-                variant="outline"
-                size="sm"
-                className="rounded-full gap-2"
-              >
-                <MessageSquare className="h-4 w-4" />
-                {t("profile_message_btn")}
-              </Button>
-
-              {/* Share Profile Button */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-full gap-2"
-                onClick={() => {
-                  const text = t("profile_share_other").replace("{handle}", profile?.nickname ?? "");
-                  const profileUrl = profileShareUrl(profileUserId);
-                  setShareDrawerText(text);
-                  setShareDrawerUrl(profileUrl);
-                  setShareDrawerOpen(true);
-                }}
-              >
-                <Share2 className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
-
-          {/* Share own profile */}
-          {!isViewingOtherProfile && profile && stats.points > 0 && (
-            <div className="flex justify-center mt-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="rounded-full gap-2 text-muted-foreground text-xs h-8"
-                onClick={() => {
-                  const tierKey = stats.points >= 1000 ? "profile_tier_elite" : stats.points >= 500 ? "profile_tier_gold" : stats.points >= 200 ? "profile_tier_silver" : "profile_tier_bronze";
-                  const tier = t(tierKey as any);
-                  const text = t("profile_share_text").replace("{level}", String(stats.level)).replace("{tier}", tier).replace("{points}", String(stats.points)).replace("{handle}", profile.nickname ?? "");
-                  const profileUrl = profileShareUrl(profileUserId);
-                  setShareDrawerText(text);
-                  setShareDrawerUrl(profileUrl);
-                  setShareDrawerOpen(true);
-                }}
-              >
-                <Share2 className="h-3.5 w-3.5" />
-                {t("profile_share")}
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Public Goals Strip */}
       {userGoals.length > 0 && (
@@ -1315,7 +1278,13 @@ export default function Profile() {
               <button
                 key={goal.id}
                 onClick={() => handleOpenGoalDrawer(goal)}
-                className="flex-shrink-0 w-44 rounded-xl border border-border/60 bg-card p-3 space-y-2 text-left active:scale-95 transition-transform"
+                className="flex-shrink-0 w-44 rounded-xl p-3 space-y-2 text-left active:scale-95 transition-transform"
+                style={{
+                  background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+                  backdropFilter: "blur(16px)",
+                  WebkitBackdropFilter: "blur(16px)",
+                  border: "1px solid rgba(255,255,255,.10)",
+                }}
               >
                 <p className="text-xs font-medium leading-snug line-clamp-2">
                   {goal.description}
@@ -1380,7 +1349,7 @@ export default function Profile() {
             ) : (
               <div className="space-y-3 pt-1">
                 {goalDrawerRoutines.map(({ routine, items }) => (
-                  <div key={routine.id} className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+                  <div key={routine.id} className="rounded-xl p-4 space-y-3" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
                     <div className="flex items-center justify-between gap-2">
                       <div>
                         <p className="text-sm font-semibold">
@@ -1419,19 +1388,25 @@ export default function Profile() {
       </Drawer>
 
       {/* Posts, Shots, Routines and Store Tabs */}
-      <Tabs defaultValue="posts" className="w-full">
-        <TabsList className={`grid w-full ${profileOffers.length > 0 ? "grid-cols-3" : "grid-cols-2"}`}>
-          <TabsTrigger value="posts" className="flex items-center gap-1.5">
-            <Grid3X3 className="h-4 w-4" />
+      <Tabs defaultValue="posts" className="w-full px-4">
+        <TabsList className="w-full justify-start gap-7 !h-auto !bg-transparent !rounded-none !p-0 border-b border-white/10">
+          <TabsTrigger
+            value="posts"
+            className="!rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+          >
             {t("profile_posts")} ({stats.postsCount})
           </TabsTrigger>
-          <TabsTrigger value="shots" className="flex items-center gap-1.5">
-            <Film className="h-4 w-4" />
+          <TabsTrigger
+            value="shots"
+            className="!rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+          >
             {t("nav_clips")} ({shots.length})
           </TabsTrigger>
           {profileOffers.length > 0 && (
-            <TabsTrigger value="vitrine" className="flex items-center gap-1.5">
-              {commercialProfile ? <Briefcase className="h-4 w-4" /> : <ShoppingBag className="h-4 w-4" />}
+            <TabsTrigger
+              value="vitrine"
+              className="!rounded-none !bg-transparent !shadow-none !px-0 pb-3 -mb-px border-b-2 border-transparent !text-white/45 data-[state=active]:!border-white data-[state=active]:!text-white text-[14px] font-[640]"
+            >
               {commercialProfile ? `${t("settings_section_business")} (${profileOffers.length})` : `${t("nav_store")} (${profileOffers.length})`}
             </TabsTrigger>
           )}
@@ -1440,12 +1415,12 @@ export default function Profile() {
         {/* Posts Tab */}
         <TabsContent value="posts" className="space-y-4">
           {posts.length > 0 ? (
-            <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+            <div className="grid gap-[5px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {posts.map((post) => (
                 <button
                   key={post.id}
                   onClick={() => handleViewPost(post)}
-                  className="group relative aspect-square overflow-hidden rounded-lg bg-muted border border-border/60 hover:border-border/80 transition-all cursor-pointer"
+                  className="group relative aspect-square overflow-hidden rounded-[14px] bg-muted transition-all cursor-pointer"
                 >
                   <img
                     src={post.photo}
@@ -1464,8 +1439,8 @@ export default function Profile() {
               ))}
             </div>
           ) : (
-            <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
-              <p className="text-sm text-muted-foreground">
+            <div className="rounded-xl p-6 text-center" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+              <p className="text-sm text-white/50">
                 {t("profile_no_posts")}
               </p>
             </div>
@@ -1475,11 +1450,11 @@ export default function Profile() {
         {/* Shots Tab */}
         <TabsContent value="shots" className="space-y-4">
           {shots.length > 0 ? (
-            <div className="grid gap-3 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+            <div className="grid gap-[5px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {shots.map((shot) => (
                 <div
                   key={shot.id}
-                  className="group relative aspect-square overflow-hidden rounded-lg bg-black border border-border/60 hover:border-border/80 transition-all"
+                  className="group relative aspect-square overflow-hidden rounded-[14px] bg-black transition-all"
                 >
                   <button
                     onClick={() => navigate(`/shots`, { state: { shotId: shot.id } })}
@@ -1510,8 +1485,8 @@ export default function Profile() {
               ))}
             </div>
           ) : (
-            <div className="rounded-lg border border-border/60 bg-muted/30 p-6 text-center">
-              <p className="text-sm text-muted-foreground">
+            <div className="rounded-xl p-6 text-center" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+              <p className="text-sm text-white/50">
                 {t("profile_no_shots")}
               </p>
             </div>
@@ -1943,15 +1918,7 @@ export default function Profile() {
                                 }`}
                             >
                               <div className="flex items-start gap-3">
-                                {habit.photo ? (
-                                  <img
-                                    src={habit.photo}
-                                    alt={habit.name}
-                                    className="h-16 w-16 rounded object-cover flex-shrink-0"
-                                  />
-                                ) : (
-                                  <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
-                                )}
+                                <div className="h-16 w-16 rounded bg-muted flex-shrink-0" />
                                 <div className="flex-1 min-w-0">
                                   <p
                                     className={`font-medium transition-colors ${isSelected

@@ -1,6 +1,5 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { useTheme } from "next-themes";
 import {
   Drawer,
   DrawerContent,
@@ -52,8 +51,6 @@ import {
   ArrowLeft,
   Settings,
   LogOut,
-  Moon,
-  Sun,
   Trash2,
   Bell,
   Globe,
@@ -62,6 +59,10 @@ import {
   X,
   Share2,
   ZoomIn,
+  Eye,
+  EyeOff,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 interface SettingsDrawerProps {
@@ -72,6 +73,11 @@ interface SettingsDrawerProps {
   stats: UserStats;
   onProfileUpdated: (updated: UserProfile) => void;
   onRequestDeleteAccount: () => void;
+  /** Controle externo de abertura (quando o trigger é renderizado fora) */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Oculta o botão de trigger padrão (use com open/onOpenChange) */
+  hideTrigger?: boolean;
 }
 
 export function SettingsDrawer({
@@ -81,15 +87,18 @@ export function SettingsDrawer({
   onProfileUpdated,
   stats,
   onRequestDeleteAccount,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+  hideTrigger,
 }: SettingsDrawerProps) {
   const navigate = useNavigate();
-  const { theme, setTheme, resolvedTheme } = useTheme();
-  const isDark = (resolvedTheme ?? theme) === "dark";
   const { layoutMode, toggleLayoutMode } = useLayoutMode();
   const { language, setLanguage, t } = useLanguage();
   const viewportHeight = useKeyboardAwareHeight();
 
-  const [isOpen, setIsOpen] = React.useState(false);
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const isOpen = controlledOpen ?? internalOpen;
+  const setIsOpen = controlledOnOpenChange ?? setInternalOpen;
 
   // --- My Profile (unified drawer with tabs) ---
   const [isEditOpen, setIsEditOpen] = React.useState(false);
@@ -112,6 +121,11 @@ export function SettingsDrawer({
   const pendingLogoFileRef = React.useRef<File | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
+  const [showPasswordForm, setShowPasswordForm] = React.useState(false);
+  const [newPwd, setNewPwd] = React.useState("");
+  const [confirmPwd, setConfirmPwd] = React.useState("");
+  const [showNewPwdInput, setShowNewPwdInput] = React.useState(false);
+  const [showConfirmPwdInput, setShowConfirmPwdInput] = React.useState(false);
 
   const openEditProfile = (tab: "public" | "personal" = "public") => {
     setEditNickname(profile.nickname);
@@ -430,14 +444,16 @@ export function SettingsDrawer({
   return (
     <>
       <Drawer open={isOpen} onOpenChange={setIsOpen}>
-        <Button
-          onClick={() => setIsOpen(true)}
-          variant="outline"
-          size="sm"
-          className="shrink-0 rounded-full"
-        >
-          <Settings className="h-4 w-4" />
-        </Button>
+        {!hideTrigger && (
+          <Button
+            onClick={() => setIsOpen(true)}
+            variant="outline"
+            size="sm"
+            className="shrink-0 rounded-full"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        )}
 
         <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DrawerHeader className="shrink-0">
@@ -642,28 +658,76 @@ export function SettingsDrawer({
                     </div>
                     {/* Password Reset */}
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">{t("settings_reset_password")}</label>
-                      <Button
-                        onClick={async () => {
-                          setIsResettingPassword(true);
-                          try {
-                            await supabase.auth.resetPasswordForEmail(userEmail, {
-                              redirectTo: `${window.location.origin}/reset-password`,
-                            });
-                            toast({ title: t("settings_reset_email_sent"), description: t("settings_reset_email_desc") });
-                          } catch {
-                            toast({ title: t("error"), description: t("settings_reset_email_error"), variant: "destructive" });
-                          } finally {
-                            setIsResettingPassword(false);
-                          }
+                      <button
+                        type="button"
+                        className="flex items-center justify-between w-full"
+                        onClick={() => {
+                          setShowPasswordForm((v) => !v);
+                          setNewPwd("");
+                          setConfirmPwd("");
                         }}
-                        disabled={isResettingPassword}
-                        variant="outline"
-                        className="w-full rounded-full"
                       >
-                        {isResettingPassword ? t("sending") : t("settings_reset_password")}
-                      </Button>
+                        <label className="text-sm font-medium cursor-pointer">{t("settings_reset_password")}</label>
+                        {showPasswordForm ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                      </button>
                       <p className="text-xs text-muted-foreground">{t("settings_reset_password_hint")}</p>
+                      {showPasswordForm && (
+                        <div className="space-y-3 pt-1">
+                          <div className="relative">
+                            <Input
+                              type={showNewPwdInput ? "text" : "password"}
+                              placeholder={t("settings_new_password")}
+                              value={newPwd}
+                              onChange={(e) => setNewPwd(e.target.value)}
+                              className="pr-10"
+                            />
+                            <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" onClick={() => setShowNewPwdInput((v) => !v)}>
+                              {showNewPwdInput ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                          <div className="relative">
+                            <Input
+                              type={showConfirmPwdInput ? "text" : "password"}
+                              placeholder={t("settings_confirm_password")}
+                              value={confirmPwd}
+                              onChange={(e) => setConfirmPwd(e.target.value)}
+                              className="pr-10"
+                            />
+                            <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" onClick={() => setShowConfirmPwdInput((v) => !v)}>
+                              {showConfirmPwdInput ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                          <Button
+                            onClick={async () => {
+                              if (newPwd.length < 6) {
+                                toast({ title: t("settings_password_error_short"), variant: "destructive" });
+                                return;
+                              }
+                              if (newPwd !== confirmPwd) {
+                                toast({ title: t("settings_password_error_match"), variant: "destructive" });
+                                return;
+                              }
+                              setIsResettingPassword(true);
+                              try {
+                                const { error } = await supabase.auth.updateUser({ password: newPwd });
+                                if (error) throw error;
+                                toast({ title: t("settings_password_changed"), description: t("settings_password_changed_desc") });
+                                setShowPasswordForm(false);
+                                setNewPwd("");
+                                setConfirmPwd("");
+                              } catch {
+                                toast({ title: t("settings_password_error_generic"), variant: "destructive" });
+                              } finally {
+                                setIsResettingPassword(false);
+                              }
+                            }}
+                            disabled={isResettingPassword || !newPwd || !confirmPwd}
+                            className="w-full rounded-full"
+                          >
+                            {isResettingPassword ? t("sending") : t("settings_save_password")}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                     {/* Danger Zone */}
                     <div className="border-t pt-4 space-y-3">
@@ -1115,10 +1179,6 @@ export function SettingsDrawer({
                         {layoutMode === "novo" ? t("settings_layout_old") : t("settings_layout_new")}
                       </Button>
                     )}
-                    <Button onClick={() => setTheme(isDark ? "light" : "dark")} variant="outline" className="w-full rounded-full gap-2">
-                      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                      {isDark ? t("settings_theme_light2") : t("settings_theme_night")}
-                    </Button>
                   </div>
                 </div>
               </DrawerContent>

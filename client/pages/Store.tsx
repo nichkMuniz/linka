@@ -19,7 +19,6 @@ import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Drawer,
   DrawerContent,
@@ -118,24 +117,32 @@ function fallbackCopy(text: string): void {
 
 // ─── Promotion Skeleton ──────────────────────────────────────────────────────
 
+const GLASS_CARD_STYLE = {
+  background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+  backdropFilter: "blur(20px) saturate(170%)",
+  WebkitBackdropFilter: "blur(20px) saturate(170%)" as string,
+  border: "1px solid rgba(255,255,255,.10)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.18)",
+} as const;
+
 function PromotionSkeleton() {
   return (
-    <Card className="border-border/60 overflow-hidden flex flex-col animate-pulse">
-      <div className="w-full aspect-[4/3] bg-muted flex-shrink-0" />
-      <CardContent className="p-3 flex flex-col gap-2">
-        <div className="h-5 w-20 rounded-full bg-muted" />
-        <div className="h-4 w-3/4 rounded bg-muted" />
-        <div className="h-3 w-full rounded bg-muted" />
-        <div className="h-3 w-2/3 rounded bg-muted" />
-        <div className="flex items-center justify-between pt-2 border-t border-border/40 mt-1">
+    <div className="rounded-xl overflow-hidden flex flex-col animate-pulse" style={GLASS_CARD_STYLE}>
+      <div className="w-full aspect-[4/3] flex-shrink-0" style={{ background: "rgba(255,255,255,.06)" }} />
+      <div className="p-3 flex flex-col gap-2">
+        <div className="h-5 w-20 rounded-full" style={{ background: "rgba(255,255,255,.08)" }} />
+        <div className="h-4 w-3/4 rounded" style={{ background: "rgba(255,255,255,.06)" }} />
+        <div className="h-3 w-full rounded" style={{ background: "rgba(255,255,255,.05)" }} />
+        <div className="h-3 w-2/3 rounded" style={{ background: "rgba(255,255,255,.05)" }} />
+        <div className="flex items-center justify-between pt-2 mt-1" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
           <div className="flex items-center gap-1.5">
-            <div className="h-5 w-5 rounded-full bg-muted" />
-            <div className="h-3 w-16 rounded bg-muted" />
+            <div className="h-5 w-5 rounded-full" style={{ background: "rgba(255,255,255,.08)" }} />
+            <div className="h-3 w-16 rounded" style={{ background: "rgba(255,255,255,.06)" }} />
           </div>
-          <div className="h-4 w-8 rounded bg-muted" />
+          <div className="h-4 w-8 rounded" style={{ background: "rgba(255,255,255,.06)" }} />
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -397,8 +404,6 @@ function PromotionCard({
   onOpenDetail,
 }: PromotionCardProps) {
   const isOwner = !viewerLoading && viewerUserId === promo.user_id;
-  const isLoggedIn = !viewerLoading && !!viewerUserId;
-  const [couponCopied, setCouponCopied] = React.useState(false);
 
   const expiredReports = promo.expired_reports ?? 0;
   const activeReports = promo.active_reports ?? 0;
@@ -417,7 +422,7 @@ function PromotionCard({
   })();
 
   return (
-    <Card className="border-border/60 overflow-hidden flex flex-col h-full">
+    <div className="rounded-xl overflow-hidden flex flex-col h-full" style={GLASS_CARD_STYLE}>
       {/* Área clicável: imagem + conteúdo principal */}
       <button
         className="flex flex-col flex-1 text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
@@ -498,7 +503,7 @@ function PromotionCard({
       </button>
 
       {/* Footer — fora do botão, ações independentes */}
-      <div className="px-3 pb-3 flex items-center justify-between border-t border-border/40 pt-2">
+      <div className="px-3 pb-3 flex items-center justify-between pt-2" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
         <div className="flex items-center gap-1 min-w-0">
           <button
             onClick={() => onUserClick(promo.user_id)}
@@ -559,7 +564,7 @@ function PromotionCard({
           </button>
         </div>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -1388,10 +1393,11 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
   const [planIndex, setPlanIndex] = React.useState(0);
   const plans = pro.service_plans ?? [];
   return (
-    <Card className="border-border/60 overflow-hidden flex flex-col">
+    <div className="rounded-xl overflow-hidden flex flex-col" style={GLASS_CARD_STYLE}>
       {/* Banner / Logo area */}
       <div
-        className="h-20 bg-gradient-to-br from-brand/20 to-brand/5 flex items-center justify-center relative cursor-pointer"
+        className="h-20 flex items-center justify-center relative cursor-pointer"
+        style={{ background: "linear-gradient(135deg,rgba(91,140,255,.22),rgba(157,107,255,.12))" }}
         onClick={() => onViewProfile(pro.user_id)}
       >
         {logoSrc ? (
@@ -1409,7 +1415,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
         />
       </div>
 
-      <CardContent className="p-3 flex flex-col flex-1 gap-2">
+      <div className="p-3 flex flex-col flex-1 gap-2">
         {/* Segment badge */}
         <span
           className={`self-start inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${SEGMENT_COLORS[pro.business_segment] ?? SEGMENT_COLORS.outro}`}
@@ -1533,7 +1539,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
         </div>
 
         {/* Actions */}
-        <div className="flex gap-2 pt-1 border-t border-border/40">
+        <div className="flex gap-2 pt-1" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
           <Button
             variant="outline"
             size="sm"
@@ -1551,8 +1557,8 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
             Contatar
           </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -1768,7 +1774,15 @@ export default function Store() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header — only title + action button stays sticky */}
-      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b border-border/50">
+      <div
+        className="sticky top-0 z-20"
+        style={{
+          background: "linear-gradient(rgba(6,7,12,.88),rgba(6,7,12,.72))",
+          backdropFilter: "blur(24px) saturate(180%)",
+          WebkitBackdropFilter: "blur(24px) saturate(180%)",
+          borderBottom: "1px solid rgba(255,255,255,.08)",
+        }}
+      >
         <div className="max-w-2xl mx-auto px-4 py-1 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Tag className="h-5 w-5 text-brand" />
@@ -1786,10 +1800,18 @@ export default function Store() {
       {/* Tabs + filters — scroll with content */}
       <div className="max-w-2xl mx-auto px-4 pt-2 pb-3 space-y-2">
         {/* Tabs */}
-        <div className="flex rounded-lg border border-border overflow-hidden">
+        <div
+          className="flex rounded-xl overflow-hidden"
+          style={{
+            background: "linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.03))",
+            backdropFilter: "blur(16px) saturate(160%)",
+            WebkitBackdropFilter: "blur(16px) saturate(160%)",
+            border: "1px solid rgba(255,255,255,.10)",
+          }}
+        >
           <button
             onClick={() => setActiveTab("promocoes")}
-            className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "promocoes" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2.5 transition-colors ${activeTab === "promocoes" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
           >
             <Tag className="h-4 w-4" />
             Promoções
@@ -1801,7 +1823,7 @@ export default function Store() {
           </button>
           <button
             onClick={() => setActiveTab("profissionais")}
-            className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2 transition-colors ${activeTab === "profissionais" ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-medium py-2.5 transition-colors ${activeTab === "profissionais" ? "bg-brand text-white" : "text-white/50 hover:text-white/80"}`}
           >
             <Users className="h-4 w-4" />
             Profissionais
@@ -2075,7 +2097,7 @@ export default function Store() {
               <p className="text-sm text-muted-foreground">{plansModalPro.business_name || plansModalPro.nickname}</p>
             )}
             {(plansModalPro?.service_plans ?? []).map((plan, idx) => (
-              <div key={idx} className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 space-y-1">
+              <div key={idx} className="rounded-xl px-4 py-3 space-y-1" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.1)" }}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold">{plan.name}</span>
                   {plan.price != null && (

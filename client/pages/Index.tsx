@@ -17,7 +17,6 @@ import {
   createStoryDb,
   deleteOldStoriesDb,
   getMyViewedFlowUserIdsDb,
-  recordFlowViewDb,
   createUserGoalDb,
   updateUserGoalDb,
   deletePostDb,
@@ -30,7 +29,7 @@ import {
 } from "@/lib/ritmofit-db";
 import { PostLikesModal } from "@/components/modals/post-likes-modal";
 import { ReportDrawer } from "@/components/shared/report-drawer";
-import { GoalCompletedDialog } from "@/components/goals/goal-completed-dialog";
+import { GoalCompletedDialog } from "@/components/shared/goal-completed-dialog";
 import { ShareDrawer } from "@/components/shared/share-drawer";
 import { postShareUrl } from "@/lib/share-url";
 import { EditPostDrawer } from "@/components/post/edit-post-drawer";
@@ -56,27 +55,6 @@ import { supabase } from "@/lib/supabase";
 import { useLanguage } from "@/lib/language-context";
 import { hapticLight } from "@/lib/haptics";
 
-function sortStoriesInstagram(storiesList: StoryWithUser[]): StoryWithUser[] {
-  const groups: Record<string, StoryWithUser[]> = {};
-  storiesList.forEach((s) => {
-    if (!groups[s.user_id]) groups[s.user_id] = [];
-    groups[s.user_id].push(s);
-  });
-  const userLatests = Object.keys(groups).map((uid) => ({
-    uid,
-    latest: Math.max(...groups[uid].map((s) => new Date(s.created_at).getTime())),
-  }));
-  userLatests.sort((a, b) => b.latest - a.latest);
-  const sorted: StoryWithUser[] = [];
-  userLatests.forEach(({ uid }) => {
-    const userGroup = [...groups[uid]].sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-    );
-    sorted.push(...userGroup);
-  });
-  return sorted;
-}
-
 export default function Index() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -94,6 +72,7 @@ export default function Index() {
   const [discoverLoaded, setDiscoverLoaded] = React.useState(false);
   const [hasMoreFeed, setHasMoreFeed] = React.useState(true);
   const [loadingMoreFeed, setLoadingMoreFeed] = React.useState(false);
+  const [feedTab, setFeedTab] = React.useState<"following" | "discover">("following");
 
   const togglingIncentivesRef = React.useRef<Set<string>>(new Set());
   const [togglingIncentives, setTogglingIncentives] = React.useState<Set<string>>(new Set());
@@ -274,9 +253,10 @@ export default function Index() {
     if (loading || discoverLoaded) return;
     const node = discoverSentinelRef.current;
     if (!node || typeof IntersectionObserver === "undefined") {
-      // Fallback: trigger on idle after 2s if observer isn't available
-      const timer = setTimeout(loadDiscover, 2000);
-      return () => clearTimeout(timer);
+      if (feedTab === "discover") {
+        loadDiscover();
+      }
+      return;
     }
     const observer = new IntersectionObserver(
       (entries) => {
@@ -289,7 +269,7 @@ export default function Index() {
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [loading, discoverLoaded, loadDiscover]);
+  }, [loading, discoverLoaded, loadDiscover, feedTab]);
 
   // Load current user's profile photo
   React.useEffect(() => {
@@ -741,11 +721,27 @@ export default function Index() {
   return (
     <div
       ref={feedScrollRef}
-      className="mx-auto w-full max-w-2xl flex flex-col"
+      className="mx-auto w-full max-w-2xl flex flex-col relative"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
+      {/* Ambient orbs — decorative background glow */}
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div
+          className="absolute rounded-full animate-aura-drift"
+          style={{ width: 340, height: 340, left: -60, top: 90, background: "radial-gradient(circle,#d8567a,transparent 70%)", filter: "blur(65px)", opacity: 0.4 }}
+        />
+        <div
+          className="absolute rounded-full"
+          style={{ width: 300, height: 300, right: -70, top: 430, background: "radial-gradient(circle,#3f7fe6,transparent 70%)", filter: "blur(65px)", opacity: 0.35 }}
+        />
+        <div
+          className="absolute rounded-full"
+          style={{ width: 280, height: 280, left: 30, top: 820, background: "radial-gradient(circle,#7b3ff2,transparent 70%)", filter: "blur(65px)", opacity: 0.3 }}
+        />
+      </div>
+
       {/* Pull-to-refresh indicator */}
       {pullDistance > 0 && (
         <div
@@ -761,8 +757,9 @@ export default function Index() {
           />
         </div>
       )}
-      {/* Stories Carousel */}
-      <div className="bg-background border-b border-border/60">
+
+      {/* Stories Carousel — no border wrapper in glass design */}
+      <div className="pb-1">
         <FlowCarousel
           stories={stories}
           onAddStoryClick={handleAddStoryClick}
@@ -773,79 +770,117 @@ export default function Index() {
         />
       </div>
 
-      {/* Feed Content — Following + Discover inline */}
-      <div className="grid w-full gap-3 py-4">
-        {posts.map((post) => (
-          <PostCard key={post.id} post={post} {...sharedCardProps} />
-        ))}
+      {/* Seguindo / Descobrir segment control */}
+      <div
+        className="mx-3 mb-3"
+        style={{
+          height: "44px",
+          borderRadius: "22px",
+          background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+          backdropFilter: "blur(20px) saturate(170%)",
+          WebkitBackdropFilter: "blur(20px) saturate(170%)",
+          border: "1px solid rgba(255,255,255,.1)",
+          display: "flex",
+          padding: "4px",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,.18)",
+        }}
+      >
+        <button
+          className="flex-1 transition-all duration-200 active:scale-95"
+          style={{
+            borderRadius: "18px",
+            fontSize: "14px",
+            fontWeight: feedTab === "following" ? 700 : 500,
+            color: feedTab === "following" ? "#0a0b12" : "rgba(255,255,255,.75)",
+            background: feedTab === "following" ? "#fff" : "transparent",
+          }}
+          onClick={() => setFeedTab("following")}
+        >
+          {t("feed_segment_following")}
+        </button>
+        <button
+          className="flex-1 transition-all duration-200 active:scale-95"
+          style={{
+            borderRadius: "18px",
+            fontSize: "14px",
+            fontWeight: feedTab === "discover" ? 700 : 500,
+            color: feedTab === "discover" ? "#0a0b12" : "rgba(255,255,255,.75)",
+            background: feedTab === "discover" ? "#fff" : "transparent",
+          }}
+          onClick={() => {
+            setFeedTab("discover");
+            loadDiscover();
+          }}
+        >
+          {t("feed_segment_discover")}
+        </button>
+      </div>
 
-        {posts.length === 0 && (
-          <div className="flex flex-col items-center gap-2 text-center pt-4 pb-1">
-            <p className="text-xs text-muted-foreground">
-              {t("feed_follow_cta")}
-            </p>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="rounded-full text-xs h-7 px-3"
-              onClick={() => navigate("/buscar")}
-            >
-              {t("feed_find_people")}
-            </Button>
-          </div>
-        )}
+      {/* Feed Content */}
+      <div className="flex flex-col w-full">
+        {feedTab === "following" ? (
+          <>
+            {posts.map((post) => (
+              <PostCard key={post.id} post={post} {...sharedCardProps} />
+            ))}
 
-        {/* Infinite-scroll sentinel + skeletons for the next page */}
-        {hasMoreFeed && posts.length > 0 && (
-          <div ref={feedBottomSentinelRef}>
-            {loadingMoreFeed && (
-              <div className="grid gap-3">
-                {[1, 2].map((i) => <PostSkeleton key={`more-${i}`} />)}
+            {posts.length === 0 && (
+              <div className="flex flex-col items-center gap-2 text-center pt-4 pb-1">
+                <p className="text-xs text-muted-foreground">
+                  {t("feed_follow_cta")}
+                </p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="rounded-full text-xs h-7 px-3"
+                  onClick={() => navigate("/buscar")}
+                >
+                  {t("feed_find_people")}
+                </Button>
               </div>
             )}
-          </div>
-        )}
 
-        {/* Discover section divider — also the intersection sentinel that
-            triggers lazy loading of discover posts when scrolled near. */}
-        <div ref={discoverSentinelRef} className="flex items-center gap-3 py-2">
-          <div className="flex-1 h-px bg-border/60" />
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest px-1">
-            {t("feed_discover_label")}
-          </span>
-          <div className="flex-1 h-px bg-border/60" />
-        </div>
-        {posts.length > 0 && (
-          <p className="text-xs text-muted-foreground text-center -mt-1 mb-1">
-            {t("feed_discover_end")}
-          </p>
-        )}
-
-        {discoverLoading ? (
-          <>{[1, 2, 3].map((i) => <PostSkeleton key={i} />)}</>
-        ) : discoverPosts.length === 0 ? (
-          <div className="flex flex-col items-center py-8 gap-3 text-center">
-            <p className="text-sm text-muted-foreground">
-              {t("feed_discover_empty")}
-            </p>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="rounded-full text-xs h-7 px-3"
-              onClick={() => navigate("/buscar")}
-            >
-              {t("feed_find_people_follow")}
-            </Button>
-          </div>
+            {hasMoreFeed && posts.length > 0 && (
+              <div ref={feedBottomSentinelRef}>
+                {loadingMoreFeed && (
+                  <div className="flex flex-col">
+                    {[1, 2].map((i) => <PostSkeleton key={`more-${i}`} />)}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         ) : (
-          discoverPosts.map((post) => (
-            <PostCard
-              key={`seed-${post.id}`}
-              post={post}
-              {...sharedCardProps}
-              showFollowButton
-            />
-          ))
+          <>
+            {/* Sentinel kept in DOM so IntersectionObserver can trigger on mount */}
+            <div ref={discoverSentinelRef} />
+            {discoverLoading ? (
+              <>{[1, 2, 3].map((i) => <PostSkeleton key={i} />)}</>
+            ) : discoverPosts.length === 0 ? (
+              <div className="flex flex-col items-center py-8 gap-3 text-center">
+                <p className="text-sm text-muted-foreground">
+                  {t("feed_discover_empty")}
+                </p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="rounded-full text-xs h-7 px-3"
+                  onClick={() => navigate("/buscar")}
+                >
+                  {t("feed_find_people_follow")}
+                </Button>
+              </div>
+            ) : (
+              discoverPosts.map((post) => (
+                <PostCard
+                  key={`seed-${post.id}`}
+                  post={post}
+                  {...sharedCardProps}
+                  showFollowButton
+                />
+              ))
+            )}
+          </>
         )}
       </div>
 

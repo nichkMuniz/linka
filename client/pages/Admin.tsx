@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { LoadingSpinner, AdminSkeleton } from "@/components/shared/animated-loading";
+import { AdminSkeleton } from "@/components/shared/animated-loading";
 import { toast } from "@/components/ui/use-toast";
 import {
   AlertDialog,

@@ -23,11 +23,3 @@ export async function fetchMealCatalog(): Promise<CatalogMeal[]> {
     return [];
   }
 }
-
-export async function searchMealCatalog(term: string): Promise<CatalogMeal[]> {
-  if (!term.trim()) return [];
-
-  const all = await fetchMealCatalog();
-  const lower = term.toLowerCase();
-  return all.filter((m) => m.name.toLowerCase().includes(lower)).slice(0, 20);
-}

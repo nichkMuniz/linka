@@ -42,7 +42,6 @@ import {
   Eye,
   Pause,
   Play,
-  MoreHorizontal,
   Pencil,
   Check,
 } from "lucide-react";
@@ -115,7 +114,6 @@ export default function FlowViewer() {
   const [isLoadingViewers, setIsLoadingViewers] = React.useState(false);
   const [isPaused, setIsPaused] = React.useState(false);
   const [direction, setDirection] = React.useState(0);
-  const [activeCommentIndex, setActiveCommentIndex] = React.useState(0);
   const commentCycleRef = React.useRef<NodeJS.Timeout | null>(null);
   const [floatingBubbles, setFloatingBubbles] = React.useState<Array<{ id: string; comment: StoryComment }>>([]);
   const bubbleKeyRef = React.useRef(0);
@@ -182,7 +180,6 @@ export default function FlowViewer() {
   React.useEffect(() => { handleNextRef.current = handleNext; }, [handleNext]);
 
   React.useEffect(() => {
-    setActiveCommentIndex(0);
     setFloatingBubbles([]);
     if (commentCycleRef.current) clearInterval(commentCycleRef.current);
     if (comments.length > 0) {
@@ -200,7 +197,6 @@ export default function FlowViewer() {
           const comment = comments[idx % comments.length];
           const key = ++bubbleKeyRef.current;
           const bubbleId = `${comment.id}-${key}`;
-          setActiveCommentIndex(idx % comments.length);
           setFloatingBubbles((prev) => [...prev.slice(-2), { id: bubbleId, comment }]);
           setTimeout(() => {
             setFloatingBubbles((prev) => prev.filter((b) => b.id !== bubbleId));
@@ -234,7 +230,6 @@ export default function FlowViewer() {
 
     setComments([]);
     setUserLikes([]);
-    setActiveCommentIndex(0);
 
     const loadStoryData = async () => {
       try {

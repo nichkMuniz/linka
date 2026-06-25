@@ -43,7 +43,6 @@ import { useLanguage } from "@/lib/language-context";
 import { useWorkout } from "@/lib/workout-context";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { useTheme } from "next-themes";
 
 type NavItem = {
   to: string;
@@ -63,11 +62,9 @@ export function AppLayout() {
   const { user } = useAuth();
   const { layoutMode } = useLayoutMode();
   const { t } = useLanguage();
-  const { resolvedTheme } = useTheme();
-  const logoSrc = resolvedTheme === "dark" ? "/logo-branco.png" : "/logo.png";
   const {
-    workoutMinimized, setWorkoutMinimized, setPendingReopen, setWorkoutModalOpen,
-    globalRestTimerRemaining, setGlobalRestTimerRemaining, globalRestTimerActive, setGlobalRestTimerActive, globalRestTimerTotal, setGlobalRestTimerTotal,
+    workoutMinimized, setWorkoutMinimized, setPendingReopen,
+    globalRestTimerRemaining, globalRestTimerActive, globalRestTimerTotal, setGlobalRestTimerTotal,
     workoutSeries, resetWorkoutState,
   } = useWorkout();
 
@@ -459,7 +456,7 @@ export function AppLayout() {
           )}
         >
           {sidebarExpanded
-            ? <img src={logoSrc} alt="LinKa" className="h-7" />
+            ? <img src="/logo-branco.png" alt="LinKa" className="h-7" />
             : <img src="/SIMBOLO.png" alt="LinKa" className="h-8 w-8 object-contain" />
           }
         </button>
@@ -559,82 +556,106 @@ export function AppLayout() {
         </Link>
       </aside>
 
-      {/* ── MOBILE HEADER (< md) ── */}
-      {!isFullscreenPage && location.pathname !== "/shots" && <header
-        className={cn(
-          "md:hidden sticky top-0 z-50 border-b border-border/60 bg-background/75 backdrop-blur supports-[backdrop-filter]:bg-background/55 transition-transform duration-200",
-          headerHidden ? "-translate-y-full pointer-events-none" : "translate-y-0",
-        )}
-        style={{ paddingTop: "env(safe-area-inset-top)" }}
-      >
-        <div className="relative flex h-16 w-full items-center justify-center gap-4 px-4">
-          {/* Left: Profile + Timer */}
-          <div className="absolute left-4 flex items-center gap-2">
-            <Link to="/perfil" aria-label="Perfil" className="flex-shrink-0 rounded-full hover:opacity-80 transition">
+      {/* ── MOBILE HEADER (< md) — floating glass pill ── */}
+      {!isFullscreenPage && location.pathname !== "/shots" && location.pathname !== "/notificacoes" && (
+        <header
+          className={cn(
+            "md:hidden fixed z-50 flex items-center justify-between transition-transform duration-200",
+            headerHidden ? "-translate-y-[200%] pointer-events-none" : "translate-y-0",
+          )}
+          style={{
+            top: "max(14px, calc(env(safe-area-inset-top) + 6px))",
+            left: "14px",
+            right: "14px",
+            height: "52px",
+            borderRadius: "26px",
+            padding: "0 8px 0 14px",
+            background: "linear-gradient(rgba(255,255,255,.13),rgba(255,255,255,.05))",
+            backdropFilter: "blur(24px) saturate(180%)",
+            WebkitBackdropFilter: "blur(24px) saturate(180%)",
+            border: "1px solid rgba(255,255,255,.14)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,.28), 0 8px 24px -8px rgba(0,0,0,.5)",
+          }}
+        >
+          {/* Left: avatar + logo */}
+          <div className="flex items-center gap-2">
+            <Link to="/perfil" aria-label="Perfil" onClick={() => hapticLight()}>
               <UserAvatar
                 photo={profilePhoto}
-                size="md"
-                className="border-2 border-border/60"
+                size="sm"
+                className="h-9 w-9 border-[1.5px] border-white/40 flex-shrink-0"
               />
             </Link>
+            <button
+              onClick={() => {
+                if (location.pathname === "/") {
+                  window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
+                  const feedContainer = document.querySelector('[data-feed-container]');
+                  if (feedContainer) feedContainer.scrollTop = 0;
+                } else {
+                  window.location.href = "/";
+                }
+              }}
+              aria-label="Ir para Home ou Atualizar Feed"
+              className="flex items-center cursor-pointer"
+            >
+              <img src="/logo-branco.png" alt="LinKa" className="h-6 w-auto object-contain" />
+            </button>
+          </div>
+
+          {/* Right: timer + search + community + notifications */}
+          <div className="flex items-center gap-1.5">
             {showTimer && (
               <div className={cn(
                 "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-mono font-semibold",
-                timerExpired ? "bg-red-500/20 text-red-500" : timerUrgent ? "bg-orange-500/20 text-orange-500" : "bg-muted text-muted-foreground"
+                timerExpired ? "bg-red-500/30 text-red-400" : timerUrgent ? "bg-orange-500/25 text-orange-400" : "bg-white/10 text-white/70"
               )}>
                 <Timer className="h-3 w-3" />
                 {timerLabel}
               </div>
             )}
-          </div>
-
-          {/* Center: Logo */}
-          <button
-            onClick={() => {
-              if (location.pathname === "/") {
-                window.dispatchEvent(new CustomEvent("ritmofit-refresh-feed"));
-                const feedContainer = document.querySelector('[data-feed-container]');
-                if (feedContainer) feedContainer.scrollTop = 0;
-              } else {
-                window.location.href = "/";
-              }
-            }}
-            aria-label="Ir para Home ou Atualizar Feed"
-            className="flex items-center justify-center rounded-2xl px-3 py-1 transition hover:bg-muted/50 cursor-pointer"
-          >
-            <img src={logoSrc} alt="LinKa" className="h-7" />
-          </button>
-
-          {/* Right: actions */}
-          <div className="absolute right-4 flex items-center gap-1">
-            <Link to="/buscar" onClick={() => hapticLight()}>
-              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full active:scale-95 transition-transform" aria-label="Buscar">
-                <Search className="h-5 w-5" />
-              </Button>
+            <Link to="/buscar" aria-label="Buscar" onClick={() => hapticLight()}>
+              <button
+                type="button"
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
+                style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.12)" }}
+              >
+                <Search className="h-4 w-4" />
+              </button>
             </Link>
-            <Link to="/notificacoes" onClick={() => hapticLight()}>
-              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative active:scale-95 transition-transform" aria-label="Notificações">
-                <Bell className="h-5 w-5" />
-                {unreadNotificationsCount > 0 && (
-                  <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand text-white text-xs font-semibold">
-                    {unreadNotificationsCount > 9 ? "9+" : unreadNotificationsCount}
-                  </span>
-                )}
-              </Button>
-            </Link>
-            <Link to="/comunidade" onClick={() => hapticLight()}>
-              <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-full relative active:scale-95 transition-transform" aria-label="Comunidade">
-                <Users2 className="h-5 w-5" />
+            <Link to="/comunidade" aria-label="Comunidade" onClick={() => hapticLight()}>
+              <button
+                type="button"
+                className="relative w-9 h-9 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
+                style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.12)" }}
+              >
+                <Users2 className="h-4 w-4" />
                 {unreadCount > 0 && (
-                  <span className="absolute top-2 right-2 flex h-4 w-4 items-center justify-center rounded-full bg-brand-2 text-white text-xs font-semibold">
-                    {unreadCount > 9 ? "9+" : unreadCount}
-                  </span>
+                  <span
+                    className="absolute top-1 right-1.5 w-[7px] h-[7px] rounded-full"
+                    style={{ background: "#5b8cff", border: "1.5px solid #06070c" }}
+                  />
                 )}
-              </Button>
+              </button>
+            </Link>
+            <Link to="/notificacoes" aria-label="Notificações" onClick={() => hapticLight()}>
+              <button
+                type="button"
+                className="relative w-9 h-9 rounded-full flex items-center justify-center text-white active:scale-90 transition-transform"
+                style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.12)" }}
+              >
+                <Bell className="h-4 w-4" />
+                {unreadNotificationsCount > 0 && (
+                  <span
+                    className="absolute top-1 right-1.5 w-[7px] h-[7px] rounded-full"
+                    style={{ background: "#ff7a59", border: "1.5px solid #06070c" }}
+                  />
+                )}
+              </button>
             </Link>
           </div>
-        </div>
-      </header>}
+        </header>
+      )}
 
       {/* ── SINGLE OUTLET — rendered once, responsive for mobile and desktop ── */}
       <div
@@ -650,20 +671,23 @@ export function AppLayout() {
             isFullscreenPage
               ? "pt-0 px-0 pb-0"
               : location.pathname === "/shots"
-                // /shots: full-bleed (no padding) but bottom-nav and header remain visible.
-                // Shots renderiza seu próprio container com altura calculada para a área visível.
                 ? "pt-0 px-0 pb-0"
                 : cn(
-                    "pt-6 px-4",
+                    // Mobile: no horizontal padding (each page/card controls its own), glass header top offset
+                    "px-0",
                     layoutMode === "default" && !hideNav
-                      ? "pb-[calc(4.25rem+env(safe-area-inset-bottom)+0.5rem)]"
+                      ? "pb-[calc(env(safe-area-inset-bottom)+100px)]"
                       : "pb-6",
                   ),
-            // Desktop overrides (sidebar layout — not affected by fullscreen flag)
             location.pathname === "/shots"
               ? "md:px-0 md:pb-0 md:pt-0 md:max-w-[680px] md:mx-auto md:min-h-dvh"
               : "md:px-0 md:pb-6 md:pt-6 md:max-w-[680px] md:mx-auto md:min-h-dvh",
           )}
+          style={
+            !isFullscreenPage && location.pathname !== "/shots"
+              ? { paddingTop: "calc(max(14px, env(safe-area-inset-top) + 6px) + 52px + 12px)" }
+              : undefined
+          }
         >
           <PageTransition>
             <Outlet />
@@ -671,25 +695,36 @@ export function AppLayout() {
         </main>
       </div>
 
-      {/* ── MOBILE BOTTOM NAV (< md) ── */}
+      {/* ── MOBILE BOTTOM NAV (< md) — floating glass pill ── */}
       {layoutMode === "default" && !hideNav && !isFullscreenPage && (
-        <nav className={cn(
-          "md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border/60",
-          location.pathname === "/shots"
-            ? "bg-background"
-            : "bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/65"
-        )}>
-          <div className="grid w-full grid-cols-5 px-1" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <nav
+          className="md:hidden fixed z-50"
+          style={{
+            bottom: "calc(14px + env(safe-area-inset-bottom))",
+            left: "14px",
+            right: "14px",
+            height: "66px",
+            borderRadius: "33px",
+            background: "linear-gradient(rgba(255,255,255,.13),rgba(255,255,255,.045))",
+            backdropFilter: "blur(26px) saturate(180%)",
+            WebkitBackdropFilter: "blur(26px) saturate(180%)",
+            border: "1px solid rgba(255,255,255,.15)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,.3), 0 16px 36px -12px rgba(0,0,0,.6)",
+          }}
+        >
+          <div className="grid w-full h-full grid-cols-5">
             {mainNavItems.map((item) => {
               const active = isActivePath(location.pathname, item.to);
               const Icon = item.icon;
               const isHome = item.to === "/";
+              const isCenter = item.to === "/postar";
               return (
                 <Link
                   key={item.to}
                   to={item.to}
                   aria-label={item.label}
-                  className="relative flex flex-col items-center justify-center py-2 text-[11px]"
+                  className="flex flex-col items-center justify-center gap-0.5"
+                  style={{ color: active ? "#fff" : "rgba(255,255,255,.45)" }}
                   onClick={(e) => {
                     hapticLight();
                     if (isHome && location.pathname === "/") {
@@ -701,26 +736,21 @@ export function AppLayout() {
                 >
                   <motion.span
                     whileTap={{ scale: 0.82 }}
-                    animate={active ? { y: -4, scale: 1 } : { y: 0, scale: 1 }}
+                    animate={active && !isCenter ? { y: -2, scale: 1 } : { y: 0, scale: 1 }}
                     transition={{ type: "spring", stiffness: 500, damping: 22 }}
-                    className={cn(
-                      "relative grid h-12 w-12 place-items-center",
-                      active ? "text-foreground" : "text-muted-foreground",
-                    )}
+                    className="grid place-items-center"
+                    style={isCenter ? { width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg,#ff9d6c,#d8567a 50%,#7b3ff2)", boxShadow: "0 4px 14px -4px rgba(216,86,122,.6)" } : { width: 32, height: 32 }}
                   >
-                    <Icon className="h-[22px] w-[22px]" />
+                    <Icon className={isCenter ? "h-5 w-5 text-white" : "h-[22px] w-[22px]"} />
                   </motion.span>
-
-                  {/* Indicator dot */}
-                  {active && (
+                  {active && !isCenter && (
                     <motion.span
                       layoutId="bottom-nav-indicator"
-                      className="absolute bottom-1 h-1 w-1 rounded-full bg-foreground"
+                      className="h-[3px] w-[3px] rounded-full"
+                      style={{ background: "#fff" }}
                       transition={{ type: "spring", stiffness: 500, damping: 28 }}
                     />
                   )}
-
-                  <span className="hidden sm:block">{item.label}</span>
                 </Link>
               );
             })}

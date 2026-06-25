@@ -61,50 +61,50 @@
   }
 
   .dark {
-    /* Background azulado profundo inspirado em #3A8DFF — hue 214, saturação média, luminosidade baixa */
-    --background: 214 35% 9%;
+    /* Glass dark — background próximo de #06070c (quase preto com leve tom azul) */
+    --background: 230 33% 4%;
     --foreground: 0 0% 98%;
 
-    --card: 214 30% 12%;
+    --card: 232 28% 6%;
     --card-foreground: 0 0% 98%;
 
-    --popover: 214 30% 12%;
+    --popover: 232 28% 6%;
     --popover-foreground: 0 0% 98%;
 
-    /* Primary = azul da logo #3A8DFF (levemente mais brilhante no dark) */
-    --primary: 214 100% 65%;
-    --primary-foreground: 214 35% 9%;
+    /* Primary = #5b8cff azul vidro */
+    --primary: 221 100% 67%;
+    --primary-foreground: 230 33% 4%;
 
-    --secondary: 214 25% 18%;
+    --secondary: 263 70% 65%;
     --secondary-foreground: 0 0% 98%;
 
-    --muted: 214 25% 16%;
-    --muted-foreground: 214 20% 68%;
+    --muted: 232 25% 9%;
+    --muted-foreground: 0 0% 54%;
 
-    /* Accent = laranja da logo no dark */
-    --accent: 28 50% 22%;
+    /* Accent = #ff8a2a laranja */
+    --accent: 28 100% 58%;
     --accent-foreground: 0 0% 98%;
 
-    --destructive: 0 62.8% 35%;
+    --destructive: 0 62.8% 40%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 25% 20%;
-    --input: 214 25% 20%;
-    --ring: 214 100% 65%;
+    --border: 232 18% 15%;
+    --input: 232 18% 12%;
+    --ring: 221 100% 67%;
 
-    /* Brand palette dark */
-    --brand: 214 100% 65%;   /* #3A8DFF azul */
-    --brand-2: 28 100% 62%;  /* #FF8A2A laranja */
-    --brand-3: 263 89% 65%;  /* #7B3FF2 roxo */
+    /* Brand palette glass */
+    --brand: 221 100% 67%;   /* #5b8cff azul */
+    --brand-2: 28 100% 58%;  /* #ff8a2a laranja */
+    --brand-3: 263 70% 65%;  /* #9d6bff roxo */
 
-    --sidebar-background: 214 35% 10%;
+    --sidebar-background: 230 33% 3%;
     --sidebar-foreground: 0 0% 96%;
-    --sidebar-primary: 214 100% 65%;
+    --sidebar-primary: 221 100% 67%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 214 25% 16%;
+    --sidebar-accent: 232 25% 9%;
     --sidebar-accent-foreground: 0 0% 96%;
-    --sidebar-border: 214 25% 18%;
-    --sidebar-ring: 214 100% 65%;
+    --sidebar-border: 232 18% 11%;
+    --sidebar-ring: 221 100% 67%;
   }
 }
 
@@ -342,5 +342,32 @@
 
   .animate-bounce-subtle {
     animation: bounceSubtle 2s ease-in-out infinite;
+  }
+
+  /* Glass aurora drift — ambient background orbs */
+  @keyframes auraDrift {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(18px, -26px) scale(1.12); }
+  }
+
+  .animate-aura-drift {
+    animation: auraDrift 16s ease-in-out infinite;
+  }
+
+  /* Glass surface utilities */
+  .glass-surface {
+    background: linear-gradient(rgba(255,255,255,.09), rgba(255,255,255,.03));
+    backdrop-filter: blur(20px) saturate(170%);
+    -webkit-backdrop-filter: blur(20px) saturate(170%);
+    border: 1px solid rgba(255,255,255,.1);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
+  }
+
+  .glass-surface-strong {
+    background: linear-gradient(rgba(255,255,255,.13), rgba(255,255,255,.05));
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255,255,255,.14);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 8px 24px -8px rgba(0,0,0,.5);
   }
 }

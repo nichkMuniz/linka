@@ -203,16 +203,14 @@ Para qualquer tarefa de implementação, siga esta ordem:
 
 ### O que verificar antes de criar
 
-- **Drawers de edição de texto/descrição** → verificar `EditShotDescriptionDrawer`, `EditPostDrawer`
-- **Drawers de histórico/listagem** → verificar `WorkoutHistoryDrawer`
-- **Drawers de seleção de meta** → verificar `LinkGoalDrawer`
-- **Drawers de agendamento/data** → verificar `ExecuteAtDrawer`
+- **Drawers de edição de texto/descrição** → verificar `EditShotDescriptionDrawer` (em `shots/`), `EditPostDrawer` (em `post/`)
 - **Drawers de report/denúncia** → verificar `ReportDrawer` em `shared/`
-- **Drawers de zoom de imagem** → verificar `ImageZoomDrawer` em `shared/`
-- **Drawers de criação de exercício** → verificar `CreateWorkoutDrawer`
-- **Drawers de criação de meta** → verificar `CreateGoalDrawer`
-- **Drawers de edição de meta** → verificar `EditGoalDrawer`
-- **Drawers de seleção de humor** → verificar `MoodDialog`
+- **Drawers de compartilhamento** → verificar `ShareDrawer` em `shared/`
+- **Drawers de crop de imagem** → verificar `ImageCropperDrawer` em `shared/`
+- **Criação de meta/rotina** → verificar `CreateWizardDrawer` em `goals/`
+- **Detalhe de rotina** → verificar `RoutineDetailDrawer` em `goals/`
+- **Sessão de treino** → verificar `WorkoutSessionDialog` em `goals/`
+- **Dialog de meta concluída** → verificar `GoalCompletedDialog` em `shared/`
 
 > **Regra:** Criar um componente duplicado que faz o mesmo que um já existente é proibido. Se o componente existente não atender 100% mas for parecido, estender via props adicionais ou adaptá-lo — nunca duplicar.
 

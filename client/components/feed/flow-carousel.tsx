@@ -50,26 +50,40 @@ export function FlowCarousel({
     if (userStory) navigate(`/flows/${userStory.id}`);
   };
 
+  const CONIC_GRADIENTS = [
+    "conic-gradient(from 200deg,#ff8a2a,#d8567a,#7b3ff2,#3a8dff,#ff8a2a)",
+    "conic-gradient(from 40deg,#3a8dff,#7b3ff2,#ff8a2a,#3a8dff)",
+    "conic-gradient(from 120deg,#4fb87a,#3a8dff,#7b3ff2,#4fb87a)",
+    "conic-gradient(from 300deg,#7b3ff2,#3a8dff,#4fb87a,#7b3ff2)",
+  ];
+
+  function storyRing(userId: string) {
+    let hash = 0;
+    for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
+    return CONIC_GRADIENTS[hash % CONIC_GRADIENTS.length];
+  }
+
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4 px-4 pt-2 scroll-smooth">
-      {/* Seu Flow Button - with menu if user has a story */}
+    <div className="flex gap-3 overflow-x-auto pb-3 px-4 pt-2 scroll-smooth" style={{ scrollbarWidth: "none" }}>
+      {/* Seu Flow Button */}
       {userStory ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="shrink-0 flex flex-col items-center gap-1 group cursor-pointer">
-              <div className="relative">
-                <div className="h-[60px] w-[60px] rounded-full p-[3px] bg-brand-gradient transition-all">
-                  <div className="h-full w-full rounded-full overflow-hidden ring-[2.5px] ring-background">
-                    <UserAvatar
-                      photo={currentUserPhoto ?? userStory.userPhoto}
-                      nickname={currentUserNickname ?? userStory.userNickname}
-                      className="h-full w-full"
-                    />
-                  </div>
+            <button className="shrink-0 flex flex-col items-center gap-1.5 cursor-pointer active:scale-95 transition-transform">
+              <div
+                className="h-[62px] w-[62px] rounded-full p-[2.5px]"
+                style={{ background: storyRing(currentUserId) }}
+              >
+                <div className="h-full w-full rounded-full overflow-hidden" style={{ border: "2px solid #06070c" }}>
+                  <UserAvatar
+                    photo={currentUserPhoto ?? userStory.userPhoto}
+                    nickname={currentUserNickname ?? userStory.userNickname}
+                    className="h-full w-full"
+                  />
                 </div>
               </div>
-              <span className="text-xs text-center truncate max-w-[60px] font-semibold text-brand">
-                Seu flow
+              <span className="text-[11px] text-center truncate max-w-[62px] text-white/85 font-medium">
+                Você
               </span>
             </button>
           </DropdownMenuTrigger>
@@ -85,22 +99,30 @@ export function FlowCarousel({
       ) : (
         <button
           onClick={() => { hapticLight(); onAddStoryClick(); }}
-          className="shrink-0 flex flex-col items-center gap-1 active:scale-95 transition-transform"
+          className="shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
         >
-          <div className="relative h-14 w-14">
-            <div className="h-14 w-14 rounded-full overflow-hidden ring-2 ring-transparent transition-all">
-              <UserAvatar
-                photo={currentUserPhoto}
-                nickname={currentUserNickname ?? "Seu flow"}
-                className="h-full w-full"
-              />
+          <div className="relative h-[62px] w-[62px]">
+            <div
+              className="h-[62px] w-[62px] rounded-full p-[2.5px]"
+              style={{ background: "linear-gradient(rgba(255,255,255,.28),rgba(255,255,255,.1))", border: "1px dashed rgba(255,255,255,.3)" }}
+            >
+              <div className="h-full w-full rounded-full overflow-hidden" style={{ border: "2px solid #06070c" }}>
+                <UserAvatar
+                  photo={currentUserPhoto}
+                  nickname={currentUserNickname ?? "Você"}
+                  className="h-full w-full"
+                />
+              </div>
             </div>
-            <div className="absolute bottom-0 right-0 h-5 w-5 bg-brand rounded-full flex items-center justify-center ring-2 ring-background">
+            <div
+              className="absolute bottom-0 right-0 h-[22px] w-[22px] rounded-full flex items-center justify-center"
+              style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", border: "2px solid #06070c" }}
+            >
               <Plus className="h-3 w-3 text-white" />
             </div>
           </div>
-          <span className="text-xs text-center whitespace-nowrap">
-            Seu flow
+          <span className="text-[11px] text-center text-white/65 whitespace-nowrap">
+            Você
           </span>
         </button>
       )}
@@ -113,24 +135,21 @@ export function FlowCarousel({
             <button
               key={story.id}
               onClick={() => { hapticLight(); navigate(`/flows/${story.id}`); }}
-              className="shrink-0 flex flex-col items-center gap-1 active:scale-95 transition-transform"
+              className="shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
             >
-              <div className="relative">
-                <div className={`h-[60px] w-[60px] rounded-full p-[3px] transition-all ${
-                  isViewed
-                    ? "bg-muted-foreground/30"
-                    : "bg-brand-gradient"
-                }`}>
-                  <div className="h-full w-full rounded-full overflow-hidden ring-[2.5px] ring-background">
-                    <UserAvatar
-                      photo={story.userPhoto}
-                      nickname={story.userNickname}
-                      className="h-full w-full"
-                    />
-                  </div>
+              <div
+                className="h-[62px] w-[62px] rounded-full p-[2.5px]"
+                style={{ background: isViewed ? "rgba(255,255,255,.18)" : storyRing(story.user_id) }}
+              >
+                <div className="h-full w-full rounded-full overflow-hidden" style={{ border: "2px solid #06070c" }}>
+                  <UserAvatar
+                    photo={story.userPhoto}
+                    nickname={story.userNickname}
+                    className="h-full w-full"
+                  />
                 </div>
               </div>
-              <span className={`text-xs text-center truncate max-w-[60px] ${isViewed ? "text-muted-foreground" : ""}`}>
+              <span className={`text-[11px] text-center truncate max-w-[62px] ${isViewed ? "text-white/40" : "text-white/85"}`}>
                 {story.userNickname.split(" ")[0]}
               </span>
             </button>

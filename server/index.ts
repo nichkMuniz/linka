@@ -6,8 +6,6 @@ import cors from "cors";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-import { handleDemo } from "./routes/demo";
-import { handleGetUser, handleSignOut, handleRefreshSession, handleDeleteAuthUser } from "./routes/auth";
 import { handleLinkPreview } from "./routes/link-preview";
 
 export function createServer() {
@@ -18,19 +16,11 @@ export function createServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Example API routes
+  // Health check
   app.get("/api/ping", (_req, res) => {
     const ping = process.env.PING_MESSAGE ?? "ping";
     res.json({ message: ping });
   });
-
-  app.get("/api/demo", handleDemo);
-
-  // Auth routes - proxy Supabase auth to avoid CORS issues
-  app.post("/api/auth/user", handleGetUser);
-  app.post("/api/auth/sign-out", handleSignOut);
-  app.post("/api/auth/refresh", handleRefreshSession);
-  app.post("/api/auth/delete-account", handleDeleteAuthUser);
 
   // Link preview proxy — fetches Open Graph / meta tags server-side to avoid CORS
   app.get("/api/link-preview", handleLinkPreview);

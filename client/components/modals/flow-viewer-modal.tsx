@@ -33,16 +33,15 @@ import {
   type StoryComment,
   type FlowViewer,
 } from "@/lib/ritmofit-db";
-import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, MoreHorizontal, Pencil, Check } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Send, Trash2, Eye, Pause, Play, Pencil, Check } from "lucide-react";
 import { renderIncentiveIcon } from "@/lib/incentive-config";
 import { CommentReactions } from "@/components/shared/comment-reactions";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { showIncentiveToast } from "@/lib/incentive-toast";
 import { toast } from "@/components/ui/use-toast";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserAvatar } from "@/components/shared/user-avatar";
@@ -93,7 +92,6 @@ export function FlowViewerModal({
   const [togglingLikeId, setTogglingLikeId] = React.useState<string | null>(null);
   const [timerProgress, setTimerProgress] = React.useState(100);
   const [isTyping, setIsTyping] = React.useState(false);
-  const [isDeletingStory, setIsDeletingStory] = React.useState(false);
   const [commentToDelete, setCommentToDelete] = React.useState<string | null>(null);
   const [viewersModalOpen, setViewersModalOpen] = React.useState(false);
   const [viewers, setViewers] = React.useState<FlowViewer[]>([]);
@@ -101,7 +99,6 @@ export function FlowViewerModal({
   const [isPaused, setIsPaused] = React.useState(false);
   const [direction, setDirection] = React.useState(0);
   const [prevStoryId, setPrevStoryId] = React.useState<string | null>(null);
-  const [activeCommentIndex, setActiveCommentIndex] = React.useState(0);
   const commentCycleRef = React.useRef<NodeJS.Timeout | null>(null);
   const [floatingBubbles, setFloatingBubbles] = React.useState<Array<{ id: string; comment: StoryComment }>>([]);
   const bubbleKeyRef = React.useRef(0);
@@ -182,7 +179,6 @@ export function FlowViewerModal({
   }, []);
 
   React.useEffect(() => {
-    setActiveCommentIndex(0);
     setFloatingBubbles([]);
     if (commentCycleRef.current) clearInterval(commentCycleRef.current);
     if (comments.length > 0) {
@@ -202,7 +198,6 @@ export function FlowViewerModal({
           const comment = comments[idx % comments.length];
           const key = ++bubbleKeyRef.current;
           const bubbleId = `${comment.id}-${key}`;
-          setActiveCommentIndex(idx % comments.length);
           setFloatingBubbles((prev) => [...prev.slice(-2), { id: bubbleId, comment }]);
           setTimeout(() => {
             setFloatingBubbles((prev) => prev.filter((b) => b.id !== bubbleId));
@@ -259,10 +254,9 @@ export function FlowViewerModal({
     if (!open || !story) return;
 
     // Reset immediately so stale comments from the previous story don't render
-    // with an out-of-bounds activeCommentIndex while the new data loads.
+    // while the new data loads.
     setComments([]);
     setUserLikes([]);
-    setActiveCommentIndex(0);
 
     const loadStoryData = async () => {
       try {
@@ -416,7 +410,6 @@ export function FlowViewerModal({
   const handleDeleteStory = React.useCallback(async () => {
     if (!story) return;
     if (!confirm("Tem certeza que deseja deletar este flow?")) return;
-    setIsDeletingStory(true);
     try {
       const success = await deleteStoryDb(story.id);
       if (success) {
@@ -426,8 +419,6 @@ export function FlowViewerModal({
       }
     } catch (err: any) {
       toast({ title: "Erro ao deletar", description: err?.message || "Tente novamente.", variant: "destructive" });
-    } finally {
-      setIsDeletingStory(false);
     }
   }, [story, onOpenChange, onDeleted]);
 

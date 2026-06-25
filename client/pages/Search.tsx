@@ -1,7 +1,6 @@
 import React from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   searchUsersDb,
@@ -21,7 +20,6 @@ import { toast } from "@/components/ui/use-toast";
 import { ChevronDown, ChevronUp, Copy, Dumbbell, Users, Salad, SearchX } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
-import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { FollowButton } from "@/components/shared/follow-button";
 
@@ -65,8 +63,16 @@ function RoutineCard({
   onGoToRoutines,
 }: RoutineCardProps) {
   return (
-    <Card className="border-border/60">
-      <CardContent className="p-4">
+    <div
+      className="rounded-xl p-4"
+      style={{
+        background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+        backdropFilter: "blur(20px) saturate(170%)",
+        WebkitBackdropFilter: "blur(20px) saturate(170%)",
+        border: "1px solid rgba(255,255,255,.10)",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,.18)",
+      }}
+    >
         {/* Routine name — prominent */}
         <p className="font-semibold text-sm mb-2">{routine.routineName ?? unnamedText}</p>
 
@@ -122,22 +128,21 @@ function RoutineCard({
 
         {/* Dropdown items */}
         {isExpanded && (
-          <div className="mt-3 border-t border-border/40 pt-3 space-y-1">
+          <div className="mt-3 pt-3 space-y-1" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
             {isLoadingItems ? (
-              <p className="text-xs text-muted-foreground text-center py-2">{loadingText}</p>
+              <p className="text-xs text-white/40 text-center py-2">{loadingText}</p>
             ) : items.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-2">{noItemsText}</p>
+              <p className="text-xs text-white/40 text-center py-2">{noItemsText}</p>
             ) : (
               items.map((item) => (
-                <div key={item.id} className="flex items-center gap-2 py-1 px-2 rounded-md bg-muted/30">
+                <div key={item.id} className="flex items-center gap-2 py-1 px-2 rounded-md" style={{ background: "rgba(255,255,255,.06)" }}>
                   <span className="text-xs font-medium flex-1 truncate">{item.itemName}</span>
                 </div>
               ))
             )}
           </div>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }
 
@@ -341,8 +346,17 @@ export default function Search() {
             </div>
           )}
           {searchUsers.map((u) => (
-            <Card key={u.id} className="border-border/60 hover:bg-muted/50 transition-colors">
-              <CardContent className="p-4">
+            <div
+              key={u.id}
+              className="rounded-xl p-4 transition-all active:opacity-80"
+              style={{
+                background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
+                backdropFilter: "blur(20px) saturate(170%)",
+                WebkitBackdropFilter: "blur(20px) saturate(170%)",
+                border: "1px solid rgba(255,255,255,.10)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,.18)",
+              }}
+            >
                 <div className="flex items-start gap-3 justify-between">
                   <div className="flex items-start gap-3 flex-1">
                     <UserAvatar
@@ -358,7 +372,7 @@ export default function Search() {
                       >
                         {u.nickname}
                       </button>
-                      {u.bio && <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{u.bio}</p>}
+                      {u.bio && <p className="text-xs text-white/50 line-clamp-2 mt-1">{u.bio}</p>}
                     </div>
                   </div>
                   {u.id !== user?.id && (
@@ -368,8 +382,7 @@ export default function Search() {
                     />
                   )}
                 </div>
-              </CardContent>
-            </Card>
+            </div>
           ))}
         </TabsContent>
 

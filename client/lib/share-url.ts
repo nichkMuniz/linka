@@ -7,7 +7,3 @@ export function profileShareUrl(userId: string): string {
 export function postShareUrl(postId: string): string {
   return `${SHARE_BASE_URL}/post/${postId}`;
 }
-
-export function appShareUrl(): string {
-  return SHARE_BASE_URL;
-}

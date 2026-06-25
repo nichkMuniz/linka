@@ -126,10 +126,15 @@ function Lazy({ skeleton, children }: { skeleton: React.ReactNode; children: Rea
 
 // Kept eager — tiny files needed on first paint or error boundaries
 import Login from "@/pages/Login";
+import ResetPassword from "@/pages/ResetPassword";
 import NotFound from "@/pages/NotFound";
 import Admin from "@/pages/Admin";
 
-const ADMIN_USER_ID = "c954d5ab-9d72-4785-bc21-bf469a5e8052";
+const ADMIN_USER_IDS = [
+  "c954d5ab-9d72-4785-bc21-bf469a5e8052",
+  "67e0640a-4762-4758-bb0f-449be951cc6a",
+  "94548d81-76be-4c8b-9ff7-ccb946cd4e69",
+];
 const APP_STORE_URL = "https://apps.apple.com/app/id6761916728";
 
 /**
@@ -249,7 +254,7 @@ function RequireAdmin() {
 
   if (loading) return <AuthLoadingScreen />;
   if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
-  if (user.id !== ADMIN_USER_ID) return <Navigate to="/" replace />;
+  if (!ADMIN_USER_IDS.includes(user.id)) return <Navigate to="/" replace />;
 
   return <Outlet />;
 }
@@ -314,6 +319,7 @@ const App = () => {
                 <GlobalFABContainer />
                 <Routes>
                   <Route path="/login" element={<Login />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
 
                   <Route element={<RequireAuth />}>
                     <Route path="/flows/:storyId" element={<React.Suspense fallback={<div className="fixed inset-0 bg-black" />}><FlowViewer /></React.Suspense>} />

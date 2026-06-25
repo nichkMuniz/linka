@@ -1,4 +1,3 @@
-import * as React from "react";
 
 export function LoadingSpinner({ className = "h-8 w-8" }: { className?: string }) {
   return (
@@ -27,16 +26,6 @@ export function LoadingSpinner({ className = "h-8 w-8" }: { className?: string }
   );
 }
 
-export function LoadingDots({ className = "" }: { className?: string }) {
-  return (
-    <div className={`flex items-center justify-center gap-1 ${className}`}>
-      <div className="h-2 w-2 rounded-full bg-brand animate-bounce" style={{ animationDelay: "0ms" }}></div>
-      <div className="h-2 w-2 rounded-full bg-brand animate-bounce" style={{ animationDelay: "150ms" }}></div>
-      <div className="h-2 w-2 rounded-full bg-brand animate-bounce" style={{ animationDelay: "300ms" }}></div>
-    </div>
-  );
-}
-
 export function SkeletonLoader({ lines = 3, className = "" }: { lines?: number; className?: string }) {
   return (
     <div className={`space-y-3 ${className}`}>
@@ -50,18 +39,6 @@ export function SkeletonLoader({ lines = 3, className = "" }: { lines?: number; 
           }}
         ></div>
       ))}
-    </div>
-  );
-}
-
-export function LoadingCard({ className = "" }: { className?: string }) {
-  return (
-    <div className={`p-4 rounded-lg border border-border/40 bg-muted/20 ${className}`}>
-      <div className="space-y-3">
-        <div className="h-4 bg-gradient-to-r from-muted via-muted/50 to-muted rounded-md animate-pulse w-3/4"></div>
-        <div className="h-3 bg-gradient-to-r from-muted via-muted/50 to-muted rounded-md animate-pulse w-full"></div>
-        <div className="h-3 bg-gradient-to-r from-muted via-muted/50 to-muted rounded-md animate-pulse w-5/6"></div>
-      </div>
     </div>
   );
 }
@@ -204,30 +181,6 @@ export function NotificationsSkeleton({ className = "" }: { className?: string }
 }
 
 /** Skeleton mimicking the Messages screen (list of conversations) */
-export function MessagesSkeleton({ className = "" }: { className?: string }) {
-  return (
-    <div className={`w-full max-w-2xl mx-auto px-4 pt-4 ${className}`}>
-      <div className="mb-4 space-y-2">
-        <div className="h-6 w-32 bg-muted animate-pulse rounded" />
-        <div className="h-3 w-56 bg-muted animate-pulse rounded" />
-      </div>
-      {/* Search bar */}
-      <div className="h-10 w-full rounded-full bg-muted animate-pulse mb-4" />
-      <div className="divide-y divide-border/40">
-        {Array.from({ length: 7 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 py-3">
-            <div className="h-12 w-12 rounded-full bg-muted animate-pulse flex-shrink-0" />
-            <div className="flex-1 space-y-2">
-              <div className="h-3 bg-muted animate-pulse rounded w-1/3" />
-              <div className="h-3 bg-muted animate-pulse rounded w-3/4" />
-            </div>
-            <div className="h-3 w-10 bg-muted animate-pulse rounded" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /** Skeleton mimicking the PostDetail screen (single post card with comments) */
 export function PostDetailSkeleton({ className = "" }: { className?: string }) {

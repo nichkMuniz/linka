@@ -1,5 +1,5 @@
 import * as React from "react";
-import { UserPlus, UserCheck, Check } from "lucide-react";
+import { UserPlus, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { followUserDb, unfollowUserDb, isFollowingDb } from "@/lib/ritmofit-db";

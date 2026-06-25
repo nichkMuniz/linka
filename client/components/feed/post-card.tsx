@@ -1,11 +1,8 @@
 import * as React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { QuickIncentiveOverlay } from "@/components/shared/quick-incentive-overlay";
 import { PostCommentsDialog } from "@/components/modals/post-comments-dialog";
-import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { PostCarousel } from "@/components/post/post-carousel";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { UserAvatar } from "@/components/shared/user-avatar";
@@ -27,13 +24,41 @@ import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
 
+// Deterministic gradient from post id for posts without photos
+const POST_GRADIENTS = [
+  "radial-gradient(130% 110% at 30% 15%,#ffb27a 0%,#d8567a 38%,#5b2d8c 72%,#1a1438 100%)",
+  "radial-gradient(130% 110% at 70% 25%,#7fe3ff 0%,#3f7fe6 45%,#2a3a8c 78%,#121a3a 100%)",
+  "radial-gradient(130% 110% at 50% 10%,#b6f09a 0%,#4fb87a 40%,#1f6e5a 75%,#0a1a15 100%)",
+  "radial-gradient(130% 110% at 20% 80%,#ffd07a 0%,#ff7a3c 45%,#9c3a2a 78%,#2a1410 100%)",
+  "radial-gradient(130% 110% at 80% 20%,#e0b0ff 0%,#9d6bff 45%,#3a2a6a 78%,#0a0618 100%)",
+];
+function getPostGradient(postId: string) {
+  let hash = 0;
+  for (let i = 0; i < postId.length; i++) hash = (hash * 31 + postId.charCodeAt(i)) >>> 0;
+  return POST_GRADIENTS[hash % POST_GRADIENTS.length];
+}
+
+const GLASS_TOP = {
+  background: "linear-gradient(rgba(255,255,255,.14),rgba(255,255,255,.05))",
+  backdropFilter: "blur(18px) saturate(160%)",
+  WebkitBackdropFilter: "blur(18px) saturate(160%)",
+  border: "1px solid rgba(255,255,255,.16)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.28)",
+} as React.CSSProperties;
+
+const GLASS_ACTION = {
+  background: "linear-gradient(rgba(255,255,255,.16),rgba(255,255,255,.06))",
+  backdropFilter: "blur(20px) saturate(170%)",
+  WebkitBackdropFilter: "blur(20px) saturate(170%)",
+  border: "1px solid rgba(255,255,255,.18)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.3)",
+} as React.CSSProperties;
+
 interface PostCardProps {
   post: PostWithStats;
   currentUserId: string | undefined;
   togglingIncentives: Set<string>;
-  /** Show a Follow button in the overlay (used in Discover sections) */
   showFollowButton?: boolean;
-  /** When true the likes count button is disabled (parent is loading likes data) */
   likesLoading?: boolean;
   onToggleLike: (postId: string, type: PostIncentiveType) => void;
   onOpenLikes: (post: PostWithStats) => void;
@@ -69,38 +94,28 @@ export function PostCard({
   const [badgeTick, setBadgeTick] = React.useState(0);
   const lastTapRef = React.useRef<number>(0);
   const badgeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const [descExpanded, setDescExpanded] = React.useState(false);
 
   function renderWithHashtags(text: string) {
     return text.split(/(\s+)/).map((token, i) =>
       token.startsWith("#") && token.length > 1 ? (
-        <span key={i} className="text-brand font-medium">{token}</span>
-      ) : (
-        token
-      )
+        <span key={i} className="text-[#9db8ff] font-medium">{token}</span>
+      ) : token
     );
   }
-  const DESC_MAX_CHARS = 30;
-  const description = post.description ?? "";
-  const firstLine = description.split("\n")[0] ?? "";
-  const isDescTruncatable =
-    description.includes("\n") || description.length > DESC_MAX_CHARS;
-  const truncatedDescription =
-    firstLine.length > DESC_MAX_CHARS
-      ? firstLine.slice(0, DESC_MAX_CHARS).trimEnd()
-      : firstLine;
 
-  const totalLikes = Object.values(post.likes).reduce(
-    (sum: number, val: number) => sum + val,
-    0,
-  );
+  const DESC_MAX_CHARS = 80;
+  const description = post.description ?? "";
+  const isDescTruncatable = description.includes("\n") || description.length > DESC_MAX_CHARS;
+  const truncatedDescription = description.length > DESC_MAX_CHARS
+    ? description.slice(0, DESC_MAX_CHARS).trimEnd()
+    : description.split("\n")[0] ?? "";
+
+  const totalLikes = Object.values(post.likes).reduce((sum: number, val: number) => sum + val, 0);
   const progressWidth = `${Math.min(100, Math.max(0, post.userGoal?.perc ?? 0))}%`;
 
   const badgeCfg = badgeType ? INCENTIVE_CONFIG[badgeType] : null;
-  const badgeLabel = badgeType
-    ? t(`incentive_${badgeType}` as Parameters<typeof t>[0])
-    : null;
+  const badgeLabel = badgeType ? t(`incentive_${badgeType}` as Parameters<typeof t>[0]) : null;
 
   function triggerBadge(type: PostIncentiveType) {
     if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
@@ -109,224 +124,159 @@ export function PostCard({
     badgeTimerRef.current = setTimeout(() => setBadgeType(null), 3000);
   }
 
-  React.useEffect(
-    () => () => {
-      if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
-    },
-    [],
-  );
+  React.useEffect(() => () => { if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current); }, []);
+
+  const hasPhotos = (post.photos && post.photos.length > 0) || !!post.photo;
+  const photos = post.photos && post.photos.length > 0
+    ? post.photos
+    : post.photo ? [post.photo] : null;
 
   return (
-    <Card className="border-border/60 relative overflow-hidden fade-in rounded-xl mx-2">
-      <CardContent className="space-y-3 p-0">
-        {/* Image + overlay */}
+    <div className="relative overflow-hidden fade-in mb-4 mx-3" style={{ borderRadius: "28px", boxShadow: "0 20px 44px -16px rgba(0,0,0,.7)" }}>
+      {/* Clickable photo area — double-tap opens quick incentive overlay */}
+      <div
+        className="relative cursor-pointer select-none"
+        onClick={() => {
+          const now = Date.now();
+          if (now - lastTapRef.current < 300) setQuickOverlayVisible(true);
+          lastTapRef.current = now;
+        }}
+      >
+        {/* Photo or gradient background */}
+        {hasPhotos && photos ? (
+          <PostCarousel photos={photos} alt="Post" objectFit="cover" />
+        ) : (
+          <div className="w-full" style={{ minHeight: "360px", background: getPostGradient(post.id) }} />
+        )}
+
+        {/* Dark gradient overlay */}
         <div
-          className="relative"
-          onClick={() => {
-            const now = Date.now();
-            if (now - lastTapRef.current < 300) {
-              setQuickOverlayVisible(true);
-            }
-            lastTapRef.current = now;
-          }}
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: "linear-gradient(to bottom,rgba(0,0,0,.1) 0%,transparent 28%,transparent 55%,rgba(0,0,0,.65) 100%)" }}
+        />
+
+        {/* ── Compact pill — user identity (left side) ── */}
+        <div
+          className="absolute top-3 left-3 inline-flex items-center gap-2 pointer-events-auto z-10"
+          style={{ height: "44px", borderRadius: "22px", padding: "0 12px 0 6px", ...GLASS_TOP }}
+          onClick={(e) => e.stopPropagation()}
         >
-          {post.photos && post.photos.length > 0 ? (
-            <PostCarousel photos={post.photos} alt="Post" objectFit="contain" />
-          ) : post.photo ? (
-            <PostCarousel photos={[post.photo]} alt="Post" objectFit="contain" />
-          ) : (
-            <div className="relative w-full min-h-[56px] bg-muted/30" />
+          <button
+            className="flex-shrink-0 active:opacity-70 transition-opacity"
+            onClick={() => { hapticLight(); navigate(`/usuario/${post.user_id}`); }}
+          >
+            <UserAvatar
+              photo={post.userPhoto}
+              nickname={post.userNickname}
+              size="sm"
+              className="border border-white/30"
+            />
+          </button>
+
+          <button
+            className="min-w-0 text-left active:opacity-70 transition-opacity"
+            onClick={() => { hapticLight(); navigate(`/usuario/${post.user_id}`); }}
+          >
+            <div className="text-[13px] font-semibold text-white flex items-center gap-1 leading-tight" style={{ maxWidth: "120px" }}>
+              <span className="truncate">{post.userNickname}</span>
+              {post.isVerified && <VerifiedBadge size="sm" />}
+              <span className="inline-flex items-center flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                <UserInsignias userId={post.user_id} />
+              </span>
+            </div>
+            <div className="text-[10.5px] text-white/60 leading-tight">{formatTimeAgo(post.created_at)}</div>
+          </button>
+
+          {post.userGoal && (
+            <button
+              className="flex-shrink-0 text-[10.5px] font-semibold text-white px-2 py-0.5 rounded-full active:opacity-70 transition-opacity"
+              style={{ background: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.18)" }}
+              onClick={() => { hapticMedium(); onOpenGoal(post); }}
+            >
+              🎯 {Math.round(Math.min(100, post.userGoal.perc))}%
+            </button>
+          )}
+        </div>
+
+        {/* ── Detached actions — right side ── */}
+        <div
+          className="absolute top-3 right-3 flex items-center gap-1.5 pointer-events-auto z-10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {showFollowButton && !isOwner && (
+            <FollowButton targetUserId={post.user_id} variant="overlay" />
           )}
 
-          <QuickIncentiveOverlay
-            visible={quickOverlayVisible}
-            userLikes={post.userLikes}
-            onSelect={(type) => {
-              setQuickOverlayVisible(false);
-              triggerBadge(type);
-              setBurstType(type);
-              setTimeout(() => setBurstType(null), 600);
-              onToggleLike(post.id, type);
-            }}
-            onDismiss={() => setQuickOverlayVisible(false)}
-          />
-
-          {/* Incentive confirmation badge — flies up from icon area, stays, flies back */}
-          <AnimatePresence mode="wait">
-            {badgeType && badgeCfg && (
-              <motion.div
-                key={`badge-${badgeTick}`}
-                className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none"
-                initial={{ opacity: 0, scale: 0.35, y: 72 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.35, y: 72 }}
-                transition={{
-                  opacity: { duration: 0.45, ease: "easeInOut" },
-                  scale: { type: "spring", stiffness: 460, damping: 22 },
-                  y: { type: "spring", stiffness: 460, damping: 22 },
-                }}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center justify-center text-white active:scale-90 transition-transform"
+                style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,.28)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.16)" }}
               >
-                <div
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-full px-5 py-3",
-                    "bg-black/75 backdrop-blur-md shadow-2xl border border-white/15",
-                  )}
-                >
-                  <badgeCfg.Icon
-                    className={cn("h-5 w-5 flex-shrink-0", badgeCfg.activeClassName)}
-                  />
-                  <span className="text-sm font-semibold text-white tracking-wide">
-                    {badgeLabel}
-                  </span>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* User info overlay */}
-          <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-2 p-3 bg-gradient-to-t from-black/60 via-black/30 to-transparent">
-            <button
-              onClick={() => { hapticLight(); navigate(`/usuario/${post.user_id}`); }}
-              className="flex items-center gap-2 active:opacity-70 transition-opacity min-w-0 flex-1"
-            >
-              <UserAvatar
-                photo={post.userPhoto}
-                nickname={post.userNickname}
-                size="sm"
-                className="border border-white/30 shrink-0"
-              />
-              <div className="flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5 min-w-0">
-                {post.isVerified && <VerifiedBadge size="sm" />}
-                <span className="text-xs font-medium text-white leading-none truncate">
-                  {post.userNickname}
-                </span>
-                <span
-                  className="inline-flex items-center"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <UserInsignias userId={post.user_id} />
-                </span>
-              </div>
-            </button>
-
-            <div className="flex items-center gap-2">
-              {showFollowButton && !isOwner && (
-                <FollowButton targetUserId={post.user_id} variant="overlay" />
-              )}
-
-              {/* Context menu */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-11 w-11 text-white active:bg-white/20"
-                  >
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem onClick={() => onShare(post)}>
-                    <Share2 className="h-4 w-4 mr-2" />
-                    Compartilhar
+                <MoreVertical className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={() => onShare(post)}>
+                <Share2 className="h-4 w-4 mr-2" />
+                {t("share_title")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {isOwner ? (
+                <>
+                  <DropdownMenuItem onClick={() => onEdit(post)}>
+                    <Edit2 className="h-4 w-4 mr-2" />
+                    {t("post_edit_label")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  {isOwner ? (
-                    <>
-                      <DropdownMenuItem onClick={() => onEdit(post)}>
-                        <Edit2 className="h-4 w-4 mr-2" />
-                        Editar post
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onClick={() => onDelete(post)}
-                        className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Excluir post
-                      </DropdownMenuItem>
-                    </>
-                  ) : (
-                    <>
-                      <DropdownMenuItem onClick={() => onReportUser(post)}>
-                        <Flag className="h-4 w-4 mr-2" />
-                        Denunciar usuário
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => onReportPost(post)}>
-                        <Flag className="h-4 w-4 mr-2" />
-                        Denunciar post
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
+                  <DropdownMenuItem
+                    onClick={() => onDelete(post)}
+                    className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {t("post_delete_label")}
+                  </DropdownMenuItem>
+                </>
+              ) : (
+                <>
+                  <DropdownMenuItem onClick={() => onReportUser(post)}>
+                    <Flag className="h-4 w-4 mr-2" />
+                    {t("report_user")}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => onReportPost(post)}>
+                    <Flag className="h-4 w-4 mr-2" />
+                    {t("report_post")}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
-        {/* Incentive buttons + comments */}
-        <div className="flex items-center px-2 pt-1 pb-0.5">
-          {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
-            const isActive = post.userLikes.includes(type);
-            return (
-              <PostIncentiveButton
-                key={type}
-                type={type}
-                isActive={isActive}
-                onClick={() => {
-                  if (!isActive) triggerBadge(type);
-                  onToggleLike(post.id, type);
-                }}
-                loading={togglingIncentives.has(`${post.id}-${type}`)}
-                burst={burstType === type}
-              />
-            );
-          })}
-          <div className="ml-auto">
-            <PostCommentsDialog
-              postId={post.id}
-              commentCount={post.commentCount}
-              hasActivity={post.hasActivity}
-              isPostOwner={isOwner}
-            />
-          </div>
-        </div>
-
-        {/* Like count + timestamp */}
-        <div className="flex items-center gap-2 px-3 pb-1">
-          {totalLikes > 0 && (
-            <button
-              onClick={() => onOpenLikes(post)}
-              disabled={likesLoading}
-              className="text-xs font-semibold text-foreground active:text-brand transition-colors disabled:opacity-50 disabled:cursor-wait"
-            >
-              {totalLikes} incentivos
-            </button>
-          )}
-          <span className="text-xs text-muted-foreground ml-auto">
-            {formatTimeAgo(post.created_at)}
-          </span>
-        </div>
-
-        {/* Description + goal */}
-        <div className="px-3 pb-3 space-y-2">
+        {/* ── Bottom: description + glass action bar ── */}
+        <div
+          className="absolute bottom-3 left-3 right-3 z-10 pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Description */}
           {description && (
-            <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+            <p
+              className="text-[13px] text-white leading-snug mb-2.5 px-1"
+              style={{ textShadow: "0 1px 8px rgba(0,0,0,.5)" }}
+            >
               {!isDescTruncatable || descExpanded ? (
                 <>
                   {renderWithHashtags(description)}
                   {isDescTruncatable && descExpanded && (
-                    <>
-                      {" "}
-                      <button
-                        type="button"
-                        onClick={() => setDescExpanded(false)}
-                        className="text-muted-foreground active:text-foreground transition-colors"
-                      >
-                        {t("feed_description_less")}
-                      </button>
-                    </>
+                    <> <button
+                      type="button"
+                      onClick={() => setDescExpanded(false)}
+                      className="text-white/50"
+                    >
+                      {t("feed_description_less")}
+                    </button></>
                   )}
                 </>
               ) : (
@@ -336,7 +286,7 @@ export function PostCard({
                   <button
                     type="button"
                     onClick={() => setDescExpanded(true)}
-                    className="text-muted-foreground active:text-foreground transition-colors"
+                    className="text-white/50"
                   >
                     {t("feed_description_more")}
                   </button>
@@ -345,30 +295,115 @@ export function PostCard({
             </p>
           )}
 
-          {post.userGoal && (
+          {/* Goal progress bar (if goal but no perc badge shown) */}
+          {post.userGoal && !post.userGoal.perc && (
             <button
               onClick={() => { hapticMedium(); onOpenGoal(post); }}
-              className="w-full text-left active:opacity-80 transition-opacity"
+              className="w-full text-left mb-2 active:opacity-80 transition-opacity px-1"
             >
               <div className="flex items-center gap-1.5 mb-1">
-                <Target className="h-3 w-3 text-brand flex-shrink-0" />
-                <span className="text-xs font-medium text-foreground truncate flex-1">
-                  {post.userGoal.description}
-                </span>
-                <span className="text-xs font-bold text-brand flex-shrink-0">
-                  {Math.round(Math.min(100, post.userGoal.perc))}%
-                </span>
+                <Target className="h-3 w-3 text-[#9db8ff] flex-shrink-0" />
+                <span className="text-[11px] text-white/80 truncate flex-1">{post.userGoal.description}</span>
+                <span className="text-[11px] font-bold text-white flex-shrink-0">{Math.round(Math.min(100, post.userGoal.perc))}%</span>
               </div>
-              <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                <div
-                  className="bg-brand h-full rounded-full transition-all duration-500"
-                  style={{ width: progressWidth }}
-                />
+              <div className="w-full rounded-full h-1 overflow-hidden" style={{ background: "rgba(255,255,255,.15)" }}>
+                <div className="h-full rounded-full" style={{ width: progressWidth, background: "linear-gradient(90deg,#5b8cff,#9d6bff)" }} />
               </div>
             </button>
           )}
+
+          {/* Glass action bar */}
+          <div
+            className="flex items-center justify-between px-1.5"
+            style={{ height: "52px", borderRadius: "26px", ...GLASS_ACTION }}
+          >
+            <div className="flex gap-0.5">
+              {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
+                const isActive = post.userLikes.includes(type);
+                return (
+                  <PostIncentiveButton
+                    key={type}
+                    type={type}
+                    isActive={isActive}
+                    onClick={() => {
+                      if (!isActive) triggerBadge(type);
+                      setBurstType(type);
+                      setTimeout(() => setBurstType(null), 600);
+                      onToggleLike(post.id, type);
+                    }}
+                    loading={togglingIncentives.has(`${post.id}-${type}`)}
+                    burst={burstType === type}
+                  />
+                );
+              })}
+            </div>
+
+            <div className="flex items-center gap-2 pr-1 text-white">
+              {totalLikes > 0 && (
+                <button
+                  onClick={() => onOpenLikes(post)}
+                  disabled={likesLoading}
+                  className="text-[13px] font-semibold text-white disabled:opacity-50"
+                >
+                  {totalLikes}
+                </button>
+              )}
+              <span className="h-[18px] w-px" style={{ background: "rgba(255,255,255,.2)" }} />
+              <div className="flex items-center gap-1 text-white">
+                <PostCommentsDialog
+                  postId={post.id}
+                  commentCount={post.commentCount}
+                  hasActivity={post.hasActivity}
+                  isPostOwner={isOwner}
+                />
+                {post.commentCount > 0 && (
+                  <span className="text-[13px] font-semibold leading-none">{post.commentCount}</span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-      </CardContent>
-    </Card>
+
+        {/* Quick incentive overlay */}
+        <QuickIncentiveOverlay
+          visible={quickOverlayVisible}
+          userLikes={post.userLikes}
+          onSelect={(type) => {
+            setQuickOverlayVisible(false);
+            triggerBadge(type);
+            setBurstType(type);
+            setTimeout(() => setBurstType(null), 600);
+            onToggleLike(post.id, type);
+          }}
+          onDismiss={() => setQuickOverlayVisible(false)}
+        />
+
+        {/* Incentive badge animation */}
+        <AnimatePresence mode="wait">
+          {badgeType && badgeCfg && (
+            <motion.div
+              key={`badge-${badgeTick}`}
+              className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none"
+              initial={{ opacity: 0, scale: 0.35, y: 72 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.35, y: 72 }}
+              transition={{
+                opacity: { duration: 0.45, ease: "easeInOut" },
+                scale: { type: "spring", stiffness: 460, damping: 22 },
+                y: { type: "spring", stiffness: 460, damping: 22 },
+              }}
+            >
+              <div className={cn(
+                "flex items-center gap-2.5 rounded-full px-5 py-3",
+                "bg-black/75 backdrop-blur-md shadow-2xl border border-white/15",
+              )}>
+                <badgeCfg.Icon className={cn("h-5 w-5 flex-shrink-0", badgeCfg.activeClassName)} />
+                <span className="text-sm font-semibold text-white tracking-wide">{badgeLabel}</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
   );
 }

@@ -288,10 +288,6 @@ async function ensureProfile(): Promise<DbProfile | null> {
   };
 }
 
-export async function getMyProfileDb(): Promise<DbProfile | null> {
-  return ensureProfile();
-}
-
 /**
  * Post incentive types:
  * 1 = "Amei" (Heart)
@@ -517,46 +513,8 @@ export async function getPostLikeUsersDb(postId: string): Promise<Array<{
 // ─── Batch helpers (eliminate N+1 in feed) ──────────────────────────────────
 
 /**
- * Fetch like counts grouped by type for multiple posts in ONE query.
- * Returns a Map<postId, PostLikeStats>.
- */
-export async function getPostLikesBatchDb(
-  postIds: string[],
-): Promise<Map<string, PostLikeStats>> {
-  const empty: PostLikeStats = { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
-  const result = new Map<string, PostLikeStats>();
-  if (!postIds.length || !hasSupabaseConfig || !supabase) {
-    postIds.forEach((id) => result.set(id, { ...empty }));
-    return result;
-  }
-
-  // Single query: fetch all likes for all posts
-  const { data } = await supabase
-    .from("likes")
-    .select("post_id, type")
-    .in("post_id", postIds);
-
-  // Initialize all posts with zeros
-  postIds.forEach((id) => result.set(id, { ...empty }));
-
-  // Aggregate
-  const TYPE_KEY: Record<number, keyof PostLikeStats> = {
-    1: "apoio", 2: "continua", 3: "ganhador",
-    4: "consegueMais", 5: "limiteMaior", 6: "maisAlgum",
-  };
-  for (const row of data ?? []) {
-    const stats = result.get(row.post_id);
-    const key = TYPE_KEY[row.type as number];
-    if (stats && key) stats[key]++;
-  }
-
-  return result;
-}
-
-/**
  * Fetch both aggregate like stats AND the current viewer's own likes for
- * multiple posts in a SINGLE query. Replaces the previous pair of round-trips
- * (getPostLikesBatchDb + getUserPostLikesBatchDb) used by the feed.
+ * multiple posts in a SINGLE query, avoiding two round-trips per feed load.
  */
 export async function getPostLikesWithViewerBatchDb(
   postIds: string[],
@@ -600,42 +558,6 @@ export async function getPostLikesWithViewerBatchDb(
   }
 
   return { likesMap, userLikesMap };
-}
-
-/**
- * Fetch the current user's likes for multiple posts in ONE query.
- * Returns a Map<postId, PostIncentiveType[]>.
- */
-export async function getUserPostLikesBatchDb(
-  postIds: string[],
-): Promise<Map<string, PostIncentiveType[]>> {
-  const result = new Map<string, PostIncentiveType[]>();
-  if (!postIds.length || !hasSupabaseConfig || !supabase) {
-    postIds.forEach((id) => result.set(id, []));
-    return result;
-  }
-
-  const viewer = await getViewer();
-  if (!viewer) {
-    postIds.forEach((id) => result.set(id, []));
-    return result;
-  }
-
-  const { data } = await supabase
-    .from("likes")
-    .select("post_id, type")
-    .in("post_id", postIds)
-    .eq("user_id", viewer.id);
-
-  postIds.forEach((id) => result.set(id, []));
-  for (const row of data ?? []) {
-    const t = Number(row.type) as PostIncentiveType;
-    if ([1, 2, 3, 4, 5, 6].includes(t)) {
-      result.get(row.post_id)?.push(t);
-    }
-  }
-
-  return result;
 }
 
 /**
@@ -1200,10 +1122,11 @@ export async function incrementGoalProgressDb(
   const viewer = await getViewer();
   if (!viewer) return null;
 
-  // Increment days_completed by 1
+  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+
   const { data: currentData, error: fetchError } = await supabase
     .from("user_goals")
-    .select("days_completed, duration")
+    .select("days_completed, duration, last_progress_date")
     .eq("id", userGoalId)
     .maybeSingle();
 
@@ -1214,16 +1137,19 @@ export async function incrementGoalProgressDb(
     return null;
   }
 
+  // Já foi incrementada hoje — não contabiliza novamente
+  if (currentData.last_progress_date === today) return null;
+
   const currentDaysCompleted = Number(currentData.days_completed ?? 0);
   const duration = Number(currentData.duration ?? 1);
-  const newDaysCompleted = Math.min(currentDaysCompleted + 1, duration); // Increment by 1, cap at duration
+  const newDaysCompleted = Math.min(currentDaysCompleted + 1, duration);
 
   // Calculate percentage for perc field based on the NEW value
   const perc = duration > 0 ? (newDaysCompleted / duration) * 100 : 0;
 
   const { data, error } = await supabase
     .from("user_goals")
-    .update({ days_completed: newDaysCompleted, perc: Math.round(perc) })
+    .update({ days_completed: newDaysCompleted, perc: Math.round(perc), last_progress_date: today })
     .eq("id", userGoalId)
     .eq("user_id", viewer.id)
     .select("id, goal_id, duration, quantity, type_goal, days_completed, perc, visibility")
@@ -1507,28 +1433,46 @@ function resolveWorkoutPhotoUrl(photo: string | null | undefined, wgerId?: numbe
 
 export async function getWorkoutsDb(): Promise<Workout[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("workouts", CACHE_TTL_LONG, async () => {
-  const { data, error } = await supabase
-    .from("workouts")
-    .select("id, name, description, photo, muscle_group, type, wger_id")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    console.error(`Error fetching workouts [${errorCode}]:`, errorMsg);
-    return [];
-  }
-
-  return (data ?? []).map((row: any) => ({
+  const viewer = await getViewer();
+  const userId = viewer?.id ?? null;
+  return cached(`workouts:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  const mapRow = (row: any): Workout => ({
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
     photo: resolveWorkoutPhotoUrl(row.photo, row.wger_id),
     muscle_group: row.muscle_group ? String(row.muscle_group) : null,
     type: row.type != null ? Number(row.type) : null,
-  }));
+  });
 
+  // Fetch all workouts including created_by_user for client-side filtering
+  const { data: allData, error } = await supabase!
+    .from("workouts")
+    .select("id, name, description, photo, muscle_group, type, wger_id, created_by_user")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    // created_by_user column may not exist — fallback shows everything
+    const { data } = await supabase!
+      .from("workouts")
+      .select("id, name, description, photo, muscle_group, type, wger_id")
+      .order("created_at", { ascending: false });
+    return (data ?? []).map(mapRow);
+  }
+
+  const { data: links } = userId ? await supabase!
+    .from("user_workouts")
+    .select("workout_id")
+    .eq("user_id", userId) : { data: [] };
+  const savedIds = new Set((links ?? []).map((r: any) => r.workout_id).filter(Boolean));
+
+  return (allData ?? [])
+    .filter((r: any) => {
+      if (r.wger_id != null) return true;      // item de catálogo (importado do wger.de) — sempre visível
+      if (!r.created_by_user) return true;     // item sem flag de criação manual — visível
+      return savedIds.has(String(r.id));       // custom: só aparece para quem tem salvo
+    })
+    .map(mapRow);
   });
 }
 
@@ -1572,21 +1516,44 @@ export async function getCatalogWorkoutsFromDb(): Promise<Array<{
   id: string; name: string; description: string; muscleGroup: string; photo: string | null; wgerId: number | null;
 }>> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("catalogWorkouts", CACHE_TTL_LONG, async () => {
-  const { data } = await supabase
-    .from("workouts")
-    .select("id, name, description, muscle_group, photo, wger_id")
-    .order("name", { ascending: true });
-
-  return (data ?? []).map((row: any) => ({
+  const viewer = await getViewer();
+  const userId = viewer?.id ?? null;
+  return cached(`catalogWorkouts:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  const mapRow = (row: any) => ({
     id: String(row.id),
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
     muscleGroup: String(row.muscle_group ?? ""),
     photo: resolveWorkoutPhotoUrl(row.photo, row.wger_id),
     wgerId: row.wger_id ? Number(row.wger_id) : null,
-  }));
+  });
 
+  const { data: allData, error } = await supabase!
+    .from("workouts")
+    .select("id, name, description, muscle_group, photo, wger_id, created_by_user")
+    .order("name", { ascending: true });
+
+  if (error) {
+    const { data } = await supabase!
+      .from("workouts")
+      .select("id, name, description, muscle_group, photo, wger_id")
+      .order("name", { ascending: true });
+    return (data ?? []).map(mapRow);
+  }
+
+  const { data: links } = userId ? await supabase!
+    .from("user_workouts")
+    .select("workout_id")
+    .eq("user_id", userId) : { data: [] };
+  const savedIds = new Set((links ?? []).map((r: any) => r.workout_id).filter(Boolean));
+
+  return (allData ?? [])
+    .filter((r: any) => {
+      if (r.wger_id != null) return true;
+      if (!r.created_by_user) return true;
+      return savedIds.has(String(r.id));
+    })
+    .map(mapRow);
   });
 }
 
@@ -1612,7 +1579,7 @@ export async function createCustomWorkoutDb(
     throw error;
   }
 
-  invalidateQueryCache("workouts"); invalidateQueryCache("catalogWorkouts");
+  invalidateQueryCache("workouts:"); invalidateQueryCache("catalogWorkouts:");
   return {
     id: String(data.id),
     name: String(data.name),
@@ -1700,20 +1667,10 @@ export type Diet = {
 
 export async function getDietsDb(): Promise<Diet[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("diets", CACHE_TTL_LONG, async () => {
-  const { data, error } = await supabase
-    .from("diets")
-    .select("id, name, description, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    console.error(`Error fetching diets [${errorCode}]:`, errorMsg);
-    return [];
-  }
-
-  return (data ?? []).map((row: any) => ({
+  const viewer = await getViewer();
+  const userId = viewer?.id ?? null;
+  return cached(`diets:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  const mapRow = (row: any): Diet => ({
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
@@ -1725,30 +1682,36 @@ export async function getDietsDb(): Promise<Diet[]> {
     fat_g: row.fat_g != null ? Number(row.fat_g) : null,
     fiber_g: row.fiber_g != null ? Number(row.fiber_g) : null,
     food_quality: row.food_quality ?? null,
-  }));
-
   });
-}
 
-export async function bulkUpsertCatalogDietsDb(
-  meals: Array<{ name: string; description: string; category: string; photo: string | null; mealdbId: number }>
-): Promise<void> {
-  if (!hasSupabaseConfig || !supabase) return;
+  // mealdb_id identifica itens de catálogo importados (TheMealDB) — mais confiável que created_by_user
+  const { data: allData, error } = await supabase!
+    .from("diets")
+    .select("id, name, description, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality, created_by_user, mealdb_id")
+    .order("created_at", { ascending: false });
 
-  const rows = meals.map((m) => ({
-    name: m.name,
-    description: m.description,
-    photo: m.photo || null,
-    mealdb_id: m.mealdbId,
-    category: m.category,
-  }));
-
-  for (let i = 0; i < rows.length; i += 100) {
-    const batch = rows.slice(i, i + 100);
-    await supabase
+  if (error) {
+    const { data } = await supabase!
       .from("diets")
-      .upsert(batch, { onConflict: "mealdb_id", ignoreDuplicates: false });
+      .select("id, name, description, photo, category, calories, protein_g, carbs_g, fat_g, fiber_g, food_quality")
+      .order("created_at", { ascending: false });
+    return (data ?? []).map(mapRow);
   }
+
+  const { data: links } = userId ? await supabase!
+    .from("user_diets")
+    .select("diet_id")
+    .eq("user_id", userId) : { data: [] };
+  const savedIds = new Set((links ?? []).map((r: any) => r.diet_id).filter(Boolean));
+
+  return (allData ?? [])
+    .filter((r: any) => {
+      if (r.mealdb_id != null) return true;    // item de catálogo (importado do TheMealDB) — sempre visível
+      if (!r.created_by_user) return true;     // item sem flag de criação manual — visível
+      return savedIds.has(String(r.id));       // custom: só aparece para quem tem salvo
+    })
+    .map(mapRow);
+  });
 }
 
 export async function getCatalogDietsFromDb(): Promise<Array<{
@@ -1787,7 +1750,7 @@ export async function createCustomDietDb(
 ): Promise<Diet> {
   if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
 
-  const insertData: Record<string, any> = { name, description };
+  const insertData: Record<string, any> = { name, description, created_by_user: true };
   if (photo) insertData.photo = photo;
   if (calories != null) insertData.calories = calories;
   if (protein_g != null) insertData.protein_g = protein_g;
@@ -1807,7 +1770,7 @@ export async function createCustomDietDb(
     throw error;
   }
 
-  invalidateQueryCache("diets"); invalidateQueryCache("catalogDiets");
+  invalidateQueryCache("diets:"); invalidateQueryCache("catalogDiets");
   return {
     id: String(data.id),
     name: String(data.name),
@@ -1826,32 +1789,71 @@ export type Habit = {
   id: string;
   name: string;
   description: string;
-  photo: string | null;
 };
 
 export async function getHabitsDb(): Promise<Habit[]> {
   if (!hasSupabaseConfig || !supabase) return [];
-  return cached("habits", CACHE_TTL_LONG, async () => {
-  const { data, error } = await supabase
-    .from("habits")
-    .select("id, name, description, photo")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    console.error(`Error fetching habits [${errorCode}]:`, errorMsg);
-    return [];
-  }
-
-  return (data ?? []).map((row: any) => ({
+  const viewer = await getViewer();
+  const userId = viewer?.id ?? null;
+  return cached(`habits:${userId ?? "anon"}`, CACHE_TTL_LONG, async () => {
+  const mapRow = (row: any): Habit => ({
     id: String(row.id ?? ""),
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
-    photo: row.photo ? String(row.photo) : null,
-  }));
-
   });
+
+  const { data: allData, error } = await supabase!
+    .from("habits")
+    .select("id, name, description, created_by_user")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    const { data } = await supabase!
+      .from("habits")
+      .select("id, name, description")
+      .order("created_at", { ascending: false });
+    return (data ?? []).map(mapRow);
+  }
+
+  if (!userId) {
+    return (allData ?? []).filter((r: any) => !r.created_by_user).map(mapRow);
+  }
+
+  const { data: links } = await supabase!
+    .from("user_habits")
+    .select("habit_id")
+    .eq("user_id", userId);
+  const savedIds = new Set((links ?? []).map((r: any) => r.habit_id).filter(Boolean));
+
+  return (allData ?? [])
+    .filter((r: any) => !r.created_by_user || savedIds.has(String(r.id)))
+    .map(mapRow);
+  });
+}
+
+export async function createCustomHabitDb(
+  name: string,
+  description: string,
+): Promise<Habit> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+
+  const { data, error } = await supabase
+    .from("habits")
+    .insert({ name, description, created_by_user: true })
+    .select("id, name, description")
+    .single();
+
+  if (error) {
+    console.error("Error creating custom habit:", error);
+    throw error;
+  }
+
+  invalidateQueryCache("habits:");
+  return {
+    id: String(data.id),
+    name: String(data.name),
+    description: String(data.description ?? ""),
+  };
 }
 
 export async function getUserRoutinesDb(userId: string): Promise<Routine[]> {
@@ -2021,31 +2023,6 @@ export async function updateRoutineItemsScheduledTimeDb(
   return true;
 }
 
-export async function deleteRoutinesOfTypeDb(
-  userId: string,
-  type: RoutineTypeCode,
-): Promise<boolean> {
-  if (!hasSupabaseConfig || !supabase) return false;
-
-  try {
-    // Delete routines of the specified type for the user
-    const { error } = await supabase
-      .from("routines")
-      .delete()
-      .eq("user_id", userId)
-      .eq("type", type);
-
-    if (error) throw error;
-    invalidateQueryCache("userRoutines");
-    return true;
-  } catch (err: any) {
-    const errorMsg = err?.message || String(err);
-    const errorCode = err?.code || "UNKNOWN";
-    console.error(`Error deleting routines of type [${errorCode}]:`, errorMsg);
-    throw new Error(`Erro ao deletar rotina: ${errorMsg}`);
-  }
-}
-
 export async function deleteRoutineDb(routineId: string, userId: string): Promise<void> {
   if (!hasSupabaseConfig || !supabase) return;
 
@@ -2058,6 +2035,68 @@ export async function deleteRoutineDb(routineId: string, userId: string): Promis
   if (error) throw error;
 
   invalidateQueryCache("userRoutines");
+}
+
+/**
+ * Deletes an entire routine card: its user_* items, the history records that
+ * reference them, and the matching `routines` rows. `name = null` targets the
+ * unnamed group of that type.
+ */
+export async function deleteRoutineCardDb(
+  userId: string,
+  typeCode: RoutineTypeCode,
+  name: string | null,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const table = typeCode === 1 ? "user_workouts" : typeCode === 2 ? "user_diets" : "user_habits";
+  const histTable = typeCode === 1 ? "user_workouts_hist" : typeCode === 2 ? "user_diets_hist" : "user_habits_hist";
+  const histFk = typeCode === 1 ? "user_workout_id" : typeCode === 2 ? "user_diet_id" : "user_habit_id";
+
+  const idsQuery = supabase.from(table).select("id").eq("user_id", userId);
+  const { data: idsData } = name ? await idsQuery.eq("name", name) : await idsQuery.is("name", null);
+  const rowIds = (idsData ?? []).map((r: any) => String(r.id));
+
+  if (rowIds.length > 0) {
+    const { error: histError } = await supabase.from(histTable).delete().in(histFk, rowIds);
+    if (histError) console.error("Error deleting routine history:", histError);
+
+    const { error } = await supabase.from(table).delete().in("id", rowIds);
+    if (error) throw error;
+  }
+
+  const routinesQuery = supabase
+    .from("routines")
+    .delete()
+    .eq("user_id", userId)
+    .eq("type", typeCode);
+  const { error: routinesError } = name
+    ? await routinesQuery.eq("name", name)
+    : await routinesQuery.is("name", null);
+  if (routinesError) throw routinesError;
+
+  invalidateQueryCache("userRoutines");
+  invalidateQueryCache(typeCode === 1 ? "userWorkouts:" : typeCode === 2 ? "userDiets:" : "userHabits:");
+}
+
+/** Deletes a single routine item (user_workouts/user_diets/user_habits row) and its history records. */
+export async function deleteRoutineItemDb(
+  typeCode: RoutineTypeCode,
+  itemId: string,
+): Promise<void> {
+  if (!hasSupabaseConfig || !supabase) return;
+
+  const table = typeCode === 1 ? "user_workouts" : typeCode === 2 ? "user_diets" : "user_habits";
+  const histTable = typeCode === 1 ? "user_workouts_hist" : typeCode === 2 ? "user_diets_hist" : "user_habits_hist";
+  const histFk = typeCode === 1 ? "user_workout_id" : typeCode === 2 ? "user_diet_id" : "user_habit_id";
+
+  const { error: histError } = await supabase.from(histTable).delete().eq(histFk, itemId);
+  if (histError) console.error("Error deleting item history:", histError);
+
+  const { error } = await supabase.from(table).delete().eq("id", itemId);
+  if (error) throw error;
+
+  invalidateQueryCache(typeCode === 1 ? "userWorkouts:" : typeCode === 2 ? "userDiets:" : "userHabits:");
 }
 
 // Get items for a specific routine (by routineId when available, falling back to userId + routineName + type)
@@ -2229,68 +2268,6 @@ export type ExerciseRoutine = {
   exerciseName: string;
   exercisePhoto?: string | null;
 };
-
-export async function getUserExerciseRoutinesDb(userId: string): Promise<ExerciseRoutine[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-
-  try {
-    // Get user routines of type 1 (Exercicios) directly
-    const { data: routines, error: routinesError } = await supabase
-      .from("routines")
-      .select("id, user_id, type, name")
-      .eq("user_id", userId)
-      .eq("type", 1)
-      .order("created_at", { ascending: false });
-
-    if (routinesError) {
-      const errorMsg = routinesError?.message || String(routinesError);
-      const errorCode = routinesError?.code || "UNKNOWN";
-      console.error(`Error fetching exercise routines [${errorCode}]:`, errorMsg);
-      return [];
-    }
-
-    if (!routines || routines.length === 0) return [];
-
-    const result: ExerciseRoutine[] = [];
-    let hasUnnamed = false;
-    const seenNames = new Set<string>();
-
-    for (const routine of routines) {
-      if (routine.name) {
-        // Named routines — deduplicate by name
-        if (!seenNames.has(routine.name)) {
-          seenNames.add(routine.name);
-          result.push({
-            id: String(routine.id ?? ""),
-            routineId: String(routine.id ?? ""),
-            userId: String(routine.user_id ?? ""),
-            exerciseName: String(routine.name),
-            exercisePhoto: null,
-          });
-        }
-      } else {
-        hasUnnamed = true;
-      }
-    }
-
-    // All unnamed routines are grouped into a single entry
-    if (hasUnnamed) {
-      result.push({
-        id: "__unnamed__",
-        routineId: "__unnamed__",
-        userId: userId,
-        exerciseName: "Rotina de Exercícios",
-        exercisePhoto: null,
-      });
-    }
-
-    return result;
-  } catch (err: any) {
-    const errorMsg = err?.message || String(err);
-    console.error(`Unexpected error fetching exercise routines:`, errorMsg);
-    return [];
-  }
-}
 
 export type UserWorkout = {
   id: string;
@@ -2724,7 +2701,6 @@ export type UserHabitWithDetails = {
   user_id: string;
   name?: string | null;
   habitName?: string;
-  habitPhoto?: string | null;
   habitDescription?: string;
   is_completed?: boolean | null;
   completed_at?: string | null;
@@ -2738,7 +2714,7 @@ export async function getUserHabitsDb(
   return cached(`userHabits:${userId}`, CACHE_TTL_SHORT, async () => {
   const { data, error } = await supabase
     .from("user_habits")
-    .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time, habits(name, photo, description)")
+    .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time, habits(name, description)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -2747,86 +2723,105 @@ export async function getUserHabitsDb(
     const errorCode = error?.code || "UNKNOWN";
     const errorDetails = (error?.details || error?.message || "").toLowerCase();
 
-    // Silently handle relationship errors - try without join and fetch habits separately
-    if (
+    const isRelationshipError =
       errorDetails.includes("relationship") ||
       errorCode === "PGRST200" ||
-      errorMsg.includes("relationship")
-    ) {
-      console.warn(
-        `[getUserHabitsDb] Relationship error detected, using fallback method: ${errorMsg}`,
-      );
+      errorMsg.includes("relationship");
 
-      const { data: dataFallback, error: errorFallback } = await supabase
-        .from("user_habits")
-        .select("id, habit_id, user_id, name, is_completed, completed_at")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-
-      if (!errorFallback && dataFallback) {
-        // Fetch habit details separately
-        const habitIds = dataFallback
-          .map((row: any) => row.habit_id)
-          .filter(Boolean);
-        const habitDetailsMap: { [key: string]: any } = {};
-
-        if (habitIds.length > 0) {
-          const { data: habitsData } = await supabase
-            .from("habits")
-            .select("id, name, photo, description")
-            .in("id", habitIds);
-
-          if (habitsData) {
-            habitsData.forEach((h: any) => {
-              habitDetailsMap[String(h.id)] = h;
-            });
-          }
-        }
-
-        return (dataFallback ?? []).map((row: any) => {
-          const habitDetails = habitDetailsMap[String(row.habit_id)];
-          return {
-            id: String(row.id ?? ""),
-            habit_id: String(row.habit_id ?? ""),
-            user_id: String(row.user_id ?? ""),
-            name: row.name ? String(row.name) : null,
-            habitName: habitDetails?.name || "Hábito desconhecido",
-            habitPhoto: habitDetails?.photo || null,
-            habitDescription: habitDetails?.description || undefined,
-            is_completed: row.is_completed ?? false,
-            completed_at: row.completed_at ?? null,
-            scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
-          };
-        });
-      } else if (errorFallback) {
-        const fallbackMsg = errorFallback?.message || String(errorFallback);
-        const fallbackCode = errorFallback?.code || "UNKNOWN";
-        console.error(
-          `[getUserHabitsDb] Fallback also failed [${fallbackCode}]:`,
-          fallbackMsg,
-        );
-      }
+    if (isRelationshipError) {
+      console.warn(`[getUserHabitsDb] Relationship error, using fallback: ${errorMsg}`);
     }
 
-    // Last-resort fallback: columns is_completed/completed_at may not exist yet — fetch without them
-    console.warn(`[getUserHabitsDb] Trying minimal fallback without is_completed/completed_at: ${errorMsg}`);
-    const { data: minData, error: minError } = await supabase
+    // Fallback 1: no join, with optional columns (is_completed only — completed_at may not exist)
+    const { data: fb1Data, error: fb1Error } = await supabase
       .from("user_habits")
-      .select("id, habit_id, user_id, name, habits(name, photo, description)")
+      .select("id, habit_id, user_id, name, is_completed, completed_at, scheduled_time")
       .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
-    if (!minError && minData) {
-      return (minData ?? []).map((row: any) => ({
+    if (!fb1Error && fb1Data) {
+      const habitIds = fb1Data.map((row: any) => row.habit_id).filter(Boolean);
+      const habitDetailsMap: { [key: string]: any } = {};
+      if (habitIds.length > 0) {
+        const { data: habitsData } = await supabase
+          .from("habits")
+          .select("id, name, description")
+          .in("id", habitIds);
+        if (habitsData) {
+          habitsData.forEach((h: any) => { habitDetailsMap[String(h.id)] = h; });
+        }
+      }
+      return fb1Data.map((row: any) => {
+        const hd = habitDetailsMap[String(row.habit_id)];
+        return {
+          id: String(row.id ?? ""),
+          habit_id: String(row.habit_id ?? ""),
+          user_id: String(row.user_id ?? ""),
+          name: row.name ? String(row.name) : null,
+          habitName: hd?.name || "Hábito desconhecido",
+          habitDescription: hd?.description || undefined,
+          is_completed: row.is_completed ?? false,
+          completed_at: row.completed_at ?? null,
+          scheduled_time: row.scheduled_time ? String(row.scheduled_time) : null,
+        };
+      });
+    }
+
+    // Fallback 2: only guaranteed columns exist (no join, no optional columns)
+    console.warn(`[getUserHabitsDb] Fallback 1 failed, trying minimal fetch: ${fb1Error?.message}`);
+    const { data: fb2Data, error: fb2Error } = await supabase
+      .from("user_habits")
+      .select("id, habit_id, user_id, name, is_completed")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (!fb2Error && fb2Data) {
+      const habitIds = fb2Data.map((row: any) => row.habit_id).filter(Boolean);
+      const habitDetailsMap: { [key: string]: any } = {};
+      if (habitIds.length > 0) {
+        const { data: habitsData } = await supabase
+          .from("habits")
+          .select("id, name, description")
+          .in("id", habitIds);
+        if (habitsData) {
+          habitsData.forEach((h: any) => { habitDetailsMap[String(h.id)] = h; });
+        }
+      }
+      return fb2Data.map((row: any) => {
+        const hd = habitDetailsMap[String(row.habit_id)];
+        return {
+          id: String(row.id ?? ""),
+          habit_id: String(row.habit_id ?? ""),
+          user_id: String(row.user_id ?? ""),
+          name: row.name ? String(row.name) : null,
+          habitName: hd?.name || "Hábito desconhecido",
+          habitDescription: hd?.description || undefined,
+          is_completed: row.is_completed ?? false,
+          completed_at: null,
+          scheduled_time: null,
+        };
+      });
+    }
+
+    // Fallback 3: absolute minimum — just IDs and name column
+    console.warn(`[getUserHabitsDb] Fallback 2 failed, trying absolute minimum: ${fb2Error?.message}`);
+    const { data: fb3Data } = await supabase
+      .from("user_habits")
+      .select("id, habit_id, user_id, name")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (fb3Data && fb3Data.length > 0) {
+      return fb3Data.map((row: any) => ({
         id: String(row.id ?? ""),
         habit_id: String(row.habit_id ?? ""),
         user_id: String(row.user_id ?? ""),
         name: row.name ? String(row.name) : null,
-        habitName: (row.habits as any)?.name || "Hábito desconhecido",
-        habitPhoto: (row.habits as any)?.photo || null,
-        habitDescription: (row.habits as any)?.description || undefined,
+        habitName: "Hábito desconhecido",
+        habitDescription: undefined,
         is_completed: false,
         completed_at: null,
+        scheduled_time: null,
       }));
     }
 
@@ -2840,7 +2835,6 @@ export async function getUserHabitsDb(
     user_id: String(row.user_id ?? ""),
     name: row.name ? String(row.name) : null,
     habitName: (row.habits as any)?.name || "Hábito desconhecido",
-    habitPhoto: (row.habits as any)?.photo || null,
     habitDescription: (row.habits as any)?.description || undefined,
     is_completed: row.is_completed ?? false,
     completed_at: row.completed_at ?? null,
@@ -2853,29 +2847,6 @@ export async function getUserHabitsDb(
 // Routine Scheduled Time
 
 export type RoutineKind = "workout" | "diet" | "habit";
-
-export async function updateRoutineScheduledTimeDb(
-  type: RoutineKind,
-  id: string,
-  scheduledTime: string | null,
-): Promise<void> {
-  if (!hasSupabaseConfig || !supabase) return;
-  const tableMap: Record<RoutineKind, string> = {
-    workout: "user_workouts",
-    diet: "user_diets",
-    habit: "user_habits",
-  };
-  const { error } = await supabase
-    .from(tableMap[type])
-    .update({ scheduled_time: scheduledTime })
-    .eq("id", id);
-  if (error) {
-    console.error(`[updateRoutineScheduledTimeDb] Error:`, error.message);
-    throw new Error(`Erro ao salvar horário: ${error.message}`);
-  }
-  // Invalidate relevant query cache
-  invalidateQueryCache(`user${type.charAt(0).toUpperCase() + type.slice(1)}s:`);
-}
 
 export type RoutineScheduleEntry = {
   id: string;
@@ -2984,109 +2955,6 @@ export type SearchWorkout = {
   workoutPhoto?: string | null;
 };
 
-export async function searchUserWorkoutsDb(
-  query: string,
-): Promise<SearchWorkout[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-  if (!query.trim()) return [];
-
-  const searchQuery = `%${query.toLowerCase()}%`;
-
-  const { data, error } = await supabase
-    .from("user_workouts")
-    .select(
-      "id, user_id, workout_id, workouts(id, name, description, photo, wger_id), profiles(nickname, photo)",
-    )
-    .ilike("workouts.name", searchQuery)
-    .limit(20);
-
-  if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    const errorDetails = error?.details || "";
-
-    if (errorDetails.includes("relationship")) {
-      // Fallback: fetch user workouts and fetch workout/profile details separately
-      const { data: dataFallback } = await supabase
-        .from("user_workouts")
-        .select("id, user_id, workout_id")
-        .limit(100);
-
-      if (dataFallback) {
-        const workoutIds = [
-          ...new Set(dataFallback.map((w: any) => w.workout_id)),
-        ];
-        const userIds = [...new Set(dataFallback.map((w: any) => w.user_id))];
-
-        const workoutDetailsMap: { [key: string]: any } = {};
-        const profileDetailsMap: { [key: string]: any } = {};
-
-        if (workoutIds.length > 0) {
-          const { data: workoutsData } = await supabase
-            .from("workouts")
-            .select("id, name, description, photo, wger_id")
-            .in("id", workoutIds);
-
-          if (workoutsData) {
-            workoutsData.forEach((w: any) => {
-              workoutDetailsMap[String(w.id)] = w;
-            });
-          }
-        }
-
-        if (userIds.length > 0) {
-          const { data: profilesData } = await supabase
-            .from("profiles")
-            .select("user_id, nickname, photo")
-            .in("user_id", userIds);
-
-          if (profilesData) {
-            profilesData.forEach((p: any) => {
-              profileDetailsMap[String(p.user_id)] = p;
-            });
-          }
-        }
-
-        return (dataFallback ?? [])
-          .filter((row: any) => {
-            const workoutName =
-              workoutDetailsMap[String(row.workout_id)]?.name || "";
-            return workoutName.toLowerCase().includes(query.toLowerCase());
-          })
-          .slice(0, 20)
-          .map((row: any) => {
-            const workout = workoutDetailsMap[String(row.workout_id)];
-            const profile = profileDetailsMap[String(row.user_id)];
-            return {
-              id: String(workout?.id ?? ""),
-              userWorkoutId: String(row.id ?? ""),
-              userId: String(row.user_id ?? ""),
-              userName: String(profile?.nickname ?? "Usuário"),
-              userPhoto: profile?.photo || null,
-              workoutName: String(workout?.name ?? ""),
-              workoutDescription: workout?.description,
-              workoutPhoto: resolveWorkoutPhotoUrl(workout?.photo, workout?.wger_id),
-            };
-          });
-      }
-    }
-
-    console.error(`Error searching workouts [${errorCode}]:`, errorMsg);
-    return [];
-  }
-
-  return (data ?? []).map((row: any) => ({
-    id: String((row.workouts as any)?.id ?? ""),
-    userWorkoutId: String(row.id ?? ""),
-    userId: String(row.user_id ?? ""),
-    userName: String((row.profiles as any)?.nickname ?? "Usuário"),
-    userPhoto: (row.profiles as any)?.photo || null,
-    workoutName: String((row.workouts as any)?.name ?? ""),
-    workoutDescription: (row.workouts as any)?.description,
-    workoutPhoto: resolveWorkoutPhotoUrl((row.workouts as any)?.photo, (row.workouts as any)?.wger_id),
-  }));
-}
-
 export type SearchDiet = {
   id: string;
   userDietId: string;
@@ -3097,104 +2965,6 @@ export type SearchDiet = {
   dietDescription?: string;
   dietPhoto?: string | null;
 };
-
-export async function searchUserDietsDb(query: string): Promise<SearchDiet[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-  if (!query.trim()) return [];
-
-  const searchQuery = `%${query.toLowerCase()}%`;
-
-  const { data, error } = await supabase
-    .from("user_diets")
-    .select(
-      "id, user_id, diet_id, diets(id, name, description, photo), profiles(nickname, photo)",
-    )
-    .ilike("diets.name", searchQuery)
-    .limit(20);
-
-  if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    const errorDetails = error?.details || "";
-
-    if (errorDetails.includes("relationship")) {
-      // Fallback: fetch user diets and fetch diet/profile details separately
-      const { data: dataFallback } = await supabase
-        .from("user_diets")
-        .select("id, user_id, diet_id")
-        .limit(100);
-
-      if (dataFallback) {
-        const dietIds = [...new Set(dataFallback.map((d: any) => d.diet_id))];
-        const userIds = [...new Set(dataFallback.map((d: any) => d.user_id))];
-
-        const dietDetailsMap: { [key: string]: any } = {};
-        const profileDetailsMap: { [key: string]: any } = {};
-
-        if (dietIds.length > 0) {
-          const { data: dietsData } = await supabase
-            .from("diets")
-            .select("id, name, description, photo")
-            .in("id", dietIds);
-
-          if (dietsData) {
-            dietsData.forEach((d: any) => {
-              dietDetailsMap[String(d.id)] = d;
-            });
-          }
-        }
-
-        if (userIds.length > 0) {
-          const { data: profilesData } = await supabase
-            .from("profiles")
-            .select("user_id, nickname, photo")
-            .in("user_id", userIds);
-
-          if (profilesData) {
-            profilesData.forEach((p: any) => {
-              profileDetailsMap[String(p.user_id)] = p;
-            });
-          }
-        }
-
-        return (dataFallback ?? [])
-          .filter((row: any) => {
-            const dietName = dietDetailsMap[String(row.diet_id)]?.name || "";
-            return dietName.toLowerCase().includes(query.toLowerCase());
-          })
-          .slice(0, 20)
-          .map((row: any) => {
-            const diet = dietDetailsMap[String(row.diet_id)];
-            const profile = profileDetailsMap[String(row.user_id)];
-            return {
-              id: String(diet?.id ?? ""),
-              userDietId: String(row.id ?? ""),
-              userId: String(row.user_id ?? ""),
-              userName: String(profile?.nickname ?? "Usuário"),
-              userPhoto: profile?.photo || null,
-              dietName: String(diet?.name ?? ""),
-              dietDescription: diet?.description,
-              dietPhoto: diet?.photo || null,
-            };
-          });
-      }
-    }
-
-    console.error(`Error searching diets [${errorCode}]:`, errorMsg);
-    return [];
-  }
-
-  return (data ?? []).map((row: any) => ({
-    id: String((row.diets as any)?.id ?? ""),
-    userDietId: String(row.id ?? ""),
-    userId: String(row.user_id ?? ""),
-    userName: String((row.profiles as any)?.nickname ?? "Usuário"),
-    userPhoto: (row.profiles as any)?.photo || null,
-    dietName: String((row.diets as any)?.name ?? ""),
-    dietDescription: (row.diets as any)?.description,
-    dietPhoto: (row.diets as any)?.photo || null,
-  }));
-}
 
 // Search routines by name from the routines table (type 1=workout, 2=diet)
 export type RoutineResult = {
@@ -3933,33 +3703,6 @@ export async function toggleStoryLikeDb(
   }
 }
 
-export async function getStoryLikesDb(storyId: string): Promise<PostLikeStats> {
-  if (!hasSupabaseConfig || !supabase) {
-    return { apoio: 0, continua: 0, ganhador: 0, consegueMais: 0, limiteMaior: 0, maisAlgum: 0 };
-  }
-
-  const numId = Number(storyId);
-  const idVal = Number.isFinite(numId) ? numId : storyId;
-  // Fetch counts per type in parallel — 6 lightweight HEAD requests instead of fetching all rows
-  const [r1, r2, r3, r4, r5, r6] = await Promise.all([
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 1),
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 2),
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 3),
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 4),
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 5),
-    supabase.from("flow_likes").select("id", { count: "exact", head: true }).eq("flow_id", idVal).eq("type", 6),
-  ]);
-
-  return {
-    apoio: r1.count ?? 0,
-    continua: r2.count ?? 0,
-    ganhador: r3.count ?? 0,
-    consegueMais: r4.count ?? 0,
-    limiteMaior: r5.count ?? 0,
-    maisAlgum: r6.count ?? 0,
-  };
-}
-
 export async function getUserStoryLikesDb(
   storyId: string,
 ): Promise<PostIncentiveType[]> {
@@ -4623,73 +4366,6 @@ export type MessageReactionRecord = {
   created_at: string;
 };
 
-export async function getMessageReactionsDb(
-  messageIds: string[],
-): Promise<MessageReactionRecord[]> {
-  if (!hasSupabaseConfig || !supabase || messageIds.length === 0) return [];
-  return cached(`msgReactions:${messageIds}`, CACHE_TTL_SHORT, async () => {
-  const { data, error } = await supabase
-    .from("message_reactions")
-    .select("*")
-    .in("message_id", messageIds);
-
-  if (error) {
-    console.error("Error fetching message reactions:", error);
-    return [];
-  }
-
-  return data ?? [];
-
-  });
-}
-
-export async function addMessageReactionDb(
-  messageId: string,
-  emoji: string,
-): Promise<boolean> {
-  if (!hasSupabaseConfig || !supabase) return false;
-
-  const viewer = await getViewer();
-  if (!viewer) return false;
-
-  // Upsert to avoid duplicates
-  const { error } = await supabase.from("message_reactions").upsert(
-    { message_id: messageId, user_id: viewer.id, emoji },
-    { onConflict: "message_id,user_id,emoji" },
-  );
-
-  if (error) {
-    console.error("Error adding message reaction:", error);
-    return false;
-  }
-
-  return true;
-}
-
-export async function removeMessageReactionDb(
-  messageId: string,
-  emoji: string,
-): Promise<boolean> {
-  if (!hasSupabaseConfig || !supabase) return false;
-
-  const viewer = await getViewer();
-  if (!viewer) return false;
-
-  const { error } = await supabase
-    .from("message_reactions")
-    .delete()
-    .eq("message_id", messageId)
-    .eq("user_id", viewer.id)
-    .eq("emoji", emoji);
-
-  if (error) {
-    console.error("Error removing message reaction:", error);
-    return false;
-  }
-
-  return true;
-}
-
 // ─── Comment Reactions ───────────────────────────────────────────────────────
 // Unified table: comment_reactions(id, comment_type, comment_id, user_id, emoji, created_at)
 // comment_type: 'post' | 'shot' | 'flow' | 'checkin'
@@ -5258,18 +4934,14 @@ export async function toggleShotIncentiveDb(
           type: incentiveType,
         });
 
-      const usedLegacyTable = !!shotLikeError;
-      let insertSucceeded = !shotLikeError;
-
       if (shotLikeError) {
-        const { error: legacyInsertError } = await supabase
+        await supabase
           .from("likes")
           .insert({
             post_id: shotId,
             user_id: viewer.id,
             type: incentiveType,
           });
-        insertSucceeded = !legacyInsertError;
       }
 
     }
@@ -5563,32 +5235,6 @@ export async function getRankingDb(): Promise<RankingUser[]> {
   });
 }
 
-// Update user workout with series, weight, and reps information
-export async function updateUserWorkoutDb(
-  workoutId: string,
-  series: number,
-  weight: number,
-  reps: number,
-): Promise<boolean> {
-  if (!hasSupabaseConfig || !supabase) return false;
-
-  const { error } = await supabase
-    .from("user_workouts")
-    .update({
-      series: series,
-      volume: weight,
-    })
-    .eq("id", workoutId);
-
-  if (error) {
-    console.error("Error updating user workout:", error);
-    return false;
-  }
-
-  invalidateQueryCache("userWorkouts");
-  return true;
-}
-
 // Toggle completion for user diet
 export async function toggleUserDietCompletionDb(
   userDietId: string,
@@ -5643,116 +5289,6 @@ export async function toggleUserHabitCompletionDb(
 
   invalidateQueryCache("userHabits");
   return true;
-}
-
-export async function updateWorkoutNotesDb(
-  notes: Array<{ userWorkoutId: string; note: string }>,
-): Promise<void> {
-  if (!hasSupabaseConfig || !supabase || notes.length === 0) return;
-  await Promise.all(
-    notes.map(({ userWorkoutId, note }) =>
-      supabase
-        .from("user_workouts")
-        .update({ notes: note || null })
-        .eq("id", userWorkoutId),
-    ),
-  );
-  invalidateQueryCache("userWorkouts");
-}
-
-// Update existing workout records instead of creating duplicates
-export async function updateWorkoutSeriesDb(
-  workoutRecords: Array<{
-    id: string;
-    volume?: number;
-    reps?: number;
-    time_rest?: number;
-    duration?: number;
-  }>,
-): Promise<void> {
-  if (!hasSupabaseConfig || !supabase || workoutRecords.length === 0) return;
-
-  const results = await Promise.all(
-    workoutRecords.map((record) =>
-      supabase
-        .from("user_workouts")
-        .update({
-          volume: record.volume || null,
-          reps: record.reps || null,
-          time_rest: record.time_rest || null,
-          duration: record.duration || null,
-        })
-        .eq("id", record.id),
-    ),
-  );
-
-  for (const { error } of results) {
-    if (error) {
-      const errorMsg = error?.message || String(error);
-      const errorCode = error?.code || "UNKNOWN";
-      console.error(`Error updating workout series [${errorCode}]:`, errorMsg);
-      throw new Error(`Erro ao atualizar treino: ${errorMsg}`);
-    }
-  }
-  invalidateQueryCache("userWorkouts");
-}
-
-// Save workout series data - creates new records for each series
-export async function saveWorkoutSeriesDb(
-  userId: string,
-  workoutData: Array<{
-    workout_id: string;
-    series: Array<{
-      volume: number; // kg
-      reps: number;
-      time_rest: number; // in seconds
-    }>;
-    duration: number; // total workout duration in seconds
-  }>,
-): Promise<UserWorkout[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-
-  const seriesToInsert: any[] = [];
-
-  for (const workout of workoutData) {
-    for (const serie of workout.series) {
-      seriesToInsert.push({
-        user_id: userId,
-        workout_id: workout.workout_id,
-        volume: serie.volume || null,
-        reps: serie.reps || null,
-        time_rest: serie.time_rest || null,
-        duration: workout.duration || null,
-      });
-    }
-  }
-
-  if (seriesToInsert.length === 0) {
-    return [];
-  }
-
-  const { data, error } = await supabase
-    .from("user_workouts")
-    .insert(seriesToInsert)
-    .select("id, workout_id, user_id, volume, reps, time_rest, duration");
-
-  if (error) {
-    const errorMsg = error?.message || String(error);
-    const errorCode = error?.code || "UNKNOWN";
-    console.error(`Error saving workout series [${errorCode}]:`, errorMsg);
-    throw new Error(`Erro ao registrar treino: ${errorMsg}`);
-  }
-
-  return (data ?? []).map((row: any) => ({
-    id: String(row.id ?? ""),
-    workout_id: String(row.workout_id ?? ""),
-    user_id: String(row.user_id ?? ""),
-    volume: row.volume,
-    reps: row.reps,
-    time_rest: row.time_rest,
-    duration: row.duration,
-  }));
-  invalidateQueryCache("userWorkouts");
 }
 
 // Notifications functionality
@@ -6252,7 +5788,7 @@ export function subscribeToUnreadNotificationsDb(
       await supabase.removeChannel(supabase.channel(channelName));
 
       // Subscribe to insert/update events on notifications table
-      const subscription = supabase
+      supabase
         .channel(channelName)
         .on(
           "postgres_changes",
@@ -6376,7 +5912,7 @@ export async function deletePostDb(postId: string): Promise<boolean> {
       .select();
 
 
-    const { error: postDeleteError, data: deletedData } = deleteResponse;
+    const { error: postDeleteError } = deleteResponse;
 
     if (postDeleteError) {
       console.error("Erro ao deletar post:", postDeleteError);
@@ -6732,73 +6268,6 @@ export async function createCheckInDb(userId: string): Promise<CheckIn> {
   }
 }
 
-export async function getTodayCheckInDb(userId: string): Promise<CheckIn | null> {
-  return cached(`todayCheckIn:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) throw new Error("Supabase não configurado");
-
-  try {
-    const d = new Date();
-    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-    const { data, error } = await supabase
-      .from("check_ins")
-      .select()
-      .eq("user_id", userId)
-      .eq("check_in_date", today)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data as CheckIn | null;
-  } catch (err: any) {
-    console.error("Error getting today's check-in:", err);
-    return null;
-  }
-
-  });
-}
-
-export async function getWeekCheckInsDb(userId: string): Promise<number[]> {
-  return cached(`weekCheckIns:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) throw new Error("Supabase não configurado");
-
-  try {
-    // Use local date to avoid UTC offset shifting the week boundary
-    const today = new Date();
-    const localYear = today.getFullYear();
-    const localMonth = String(today.getMonth() + 1).padStart(2, '0');
-    const localDay = String(today.getDate()).padStart(2, '0');
-    const todayLocal = `${localYear}-${localMonth}-${localDay}`;
-
-    // Get Sunday of current week using local date
-    const dayOfWeekToday = today.getDay();
-    const sundayLocal = new Date(today);
-    sundayLocal.setDate(today.getDate() - dayOfWeekToday);
-    const weekStart = `${sundayLocal.getFullYear()}-${String(sundayLocal.getMonth() + 1).padStart(2, '0')}-${String(sundayLocal.getDate()).padStart(2, '0')}`;
-
-    const saturdayLocal = new Date(sundayLocal);
-    saturdayLocal.setDate(sundayLocal.getDate() + 6);
-    const weekEndStr = `${saturdayLocal.getFullYear()}-${String(saturdayLocal.getMonth() + 1).padStart(2, '0')}-${String(saturdayLocal.getDate()).padStart(2, '0')}`;
-
-    const { data, error } = await supabase
-      .from("check_ins")
-      .select("check_in_date")
-      .eq("user_id", userId)
-      .gte("check_in_date", weekStart)
-      .lte("check_in_date", weekEndStr);
-
-    if (error) throw error;
-
-    // Derive day_of_week from check_in_date to avoid stale stored values
-    const daysSet = new Set(
-      (data ?? []).map((row: any) => new Date(row.check_in_date + "T12:00:00").getDay())
-    );
-    return Array.from(daysSet).sort((a, b) => a - b);
-  } catch (err: any) {
-    console.error("Error getting week check-ins:", err);
-    return [];
-  }
-
-  });
-}
-
 export async function getCheckInHistoryDb(userId: string, days: number = 30): Promise<CheckIn[]> {
   return cached(`checkInHistory:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) throw new Error("Supabase não configurado");
 
@@ -6946,30 +6415,6 @@ export type CommercialOffer = {
   created_at: string;
 };
 
-export async function createCommercialOfferDb(offer: Omit<CommercialOffer, "id" | "is_active" | "view_count" | "click_count" | "created_at">): Promise<CommercialOffer> {
-  if (!supabase) throw new Error("Supabase não configurado");
-
-  try {
-    const { data, error } = await supabase
-      .from("commercial_offers")
-      .insert({
-        ...offer,
-        is_active: true,
-        view_count: 0,
-        click_count: 0,
-        created_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data as CommercialOffer;
-  } catch (err: any) {
-    console.error("Error creating commercial offer:", err);
-    throw err;
-  }
-}
-
 export async function getCommercialOffersByUserIdDb(userId: string): Promise<CommercialOffer[]> {
   if (!supabase) throw new Error("Supabase não configurado");
 
@@ -6994,52 +6439,6 @@ export type CommercialOfferWithSeller = CommercialOffer & {
   seller_handle: string;
   seller_is_commercial: boolean; // true = verified commercial partner
 };
-
-export async function getAllActiveOffersDb(): Promise<CommercialOfferWithSeller[]> {
-  if (!supabase) throw new Error("Supabase não configurado");
-
-  try {
-    const { data, error } = await supabase
-      .from("commercial_offers")
-      .select("*")
-      .eq("is_active", true)
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-    const offers = (data ?? []) as CommercialOffer[];
-
-    if (offers.length === 0) return [];
-
-    const userIds = [...new Set(offers.map((o) => o.user_id))];
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("user_id, nickname, photo, handle")
-      .in("user_id", userIds);
-
-    const profileMap = new Map((profiles ?? []).map((p: any) => [p.user_id, p]));
-
-    // Check which users have a commercial profile
-    const { data: commercialProfiles } = await supabase
-      .from("commercial_profiles")
-      .select("user_id")
-      .in("user_id", userIds);
-    const commercialSet = new Set((commercialProfiles ?? []).map((cp: any) => cp.user_id));
-
-    return offers.map((offer) => {
-      const profile = profileMap.get(offer.user_id) as any;
-      return {
-        ...offer,
-        seller_nickname: profile?.nickname ?? "Parceiro",
-        seller_photo: profile?.photo ?? null,
-        seller_handle: profile?.handle ?? "",
-        seller_is_commercial: commercialSet.has(offer.user_id),
-      };
-    });
-  } catch (err: any) {
-    console.error("Error fetching all active offers:", err);
-    return [];
-  }
-}
 
 export async function incrementOfferClickDb(offerId: string, offerOwnerId: string): Promise<void> {
   if (!supabase) return;
@@ -7072,24 +6471,6 @@ export async function incrementOfferClickDb(offerId: string, offerOwnerId: strin
   } catch (err) {
     console.error("Error incrementing offer click:", err);
   }
-}
-
-export async function toggleOfferActiveDb(offerId: string, isActive: boolean): Promise<void> {
-  if (!supabase) throw new Error("Supabase não configurado");
-  const { error } = await supabase
-    .from("commercial_offers")
-    .update({ is_active: isActive })
-    .eq("id", offerId);
-  if (error) throw error;
-}
-
-export async function deleteOfferDb(offerId: string): Promise<void> {
-  if (!supabase) throw new Error("Supabase não configurado");
-  const { error } = await supabase
-    .from("commercial_offers")
-    .delete()
-    .eq("id", offerId);
-  if (error) throw error;
 }
 
 // Commercial Plans (tabela dedicada)
@@ -7239,7 +6620,7 @@ export type WorkoutHistoryRecord = {
 
 export async function saveWorkoutHistoryDb(
   userId: string,
-  userWorkoutId: string | null,
+  userWorkoutId: number | null,
   workoutId: string,
   kilos: number | null = null,
   volume: string | null = null,
@@ -7269,6 +6650,35 @@ export async function saveWorkoutHistoryDb(
   }
 
   invalidateQueryCache("workoutHistory");
+}
+
+export async function getPreviousBestKgDb(userId: string, workoutId: string): Promise<number> {
+  if (!hasSupabaseConfig || !supabase) return 0;
+  try {
+    const { data } = await supabase
+      .from("user_workouts_hist")
+      .select("kilos")
+      .eq("user_id", userId)
+      .eq("workout_id", workoutId)
+      .not("kilos", "is", null)
+      .order("kilos", { ascending: false })
+      .limit(1);
+    return Number(data?.[0]?.kilos ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+export async function uploadWorkoutImageDb(userId: string, blob: Blob): Promise<string> {
+  if (!hasSupabaseConfig || !supabase) throw new Error("Supabase não configurado");
+  const ext = blob.type.includes("png") ? "png" : "jpg";
+  const path = `workout-summary/${userId}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage
+    .from("posts")
+    .upload(path, blob, { contentType: blob.type, upsert: false });
+  if (error) throw error;
+  const { data } = supabase.storage.from("posts").getPublicUrl(path);
+  return data.publicUrl;
 }
 
 export async function getWorkoutHistoryDb(
@@ -7317,52 +6727,6 @@ export async function getWorkoutHistoryDb(
 }
 
 /**
- * Batch-fetch workout history for multiple workoutIds in a single query.
- * Returns a map of workoutId → WorkoutHistoryRecord[]
- */
-export async function getWorkoutHistoriesBatchDb(
-  userId: string,
-  workoutIds: string[],
-): Promise<Record<string, WorkoutHistoryRecord[]>> {
-  if (!hasSupabaseConfig || !supabase || workoutIds.length === 0) return {};
-
-  try {
-    const { data, error } = await supabase
-      .from("user_workouts_hist")
-      .select("id, user_id, user_workout_id, workout_id, kilos, volume, date_completed, created_at, workouts(name)")
-      .eq("user_id", userId)
-      .in("workout_id", workoutIds)
-      .order("date_completed", { ascending: false });
-
-    if (error) throw error;
-
-    const result: Record<string, WorkoutHistoryRecord[]> = {};
-    workoutIds.forEach((id) => { result[id] = []; });
-
-    (data ?? []).forEach((row: any) => {
-      const wid = String(row.workout_id);
-      if (!result[wid]) result[wid] = [];
-      result[wid].push({
-        id: String(row.id),
-        userId: String(row.user_id),
-        userWorkoutId: row.user_workout_id,
-        workoutId: wid,
-        workoutName: row.workouts?.name || "Exercício",
-        kilos: row.kilos,
-        volume: row.volume,
-        dateCompleted: String(row.date_completed),
-        createdAt: String(row.created_at),
-      });
-    });
-
-    return result;
-  } catch (err: any) {
-    console.error("Error fetching workout histories batch:", err);
-    return {};
-  }
-}
-
-/**
  * For each workout_id, returns the series from the most recent completed session.
  * Each series is returned as { kg, reps } in the order they were saved.
  * Used to pre-populate the workout modal with the user's last performance.
@@ -7398,8 +6762,11 @@ export async function getLastWorkoutSessionSeriesDb(
         (r) => latestTime - new Date(r.date_completed).getTime() < 2 * 60 * 60 * 1000,
       );
 
-      // Sort by id ascending to restore the original insertion order
-      sessionRows.sort((a, b) => Number(a.id) - Number(b.id));
+      // Sort by date_completed ascending to restore the original insertion order
+      // (each series is saved sequentially with a fresh new Date(), so timestamps differ)
+      sessionRows.sort((a, b) =>
+        new Date(a.date_completed).getTime() - new Date(b.date_completed).getTime(),
+      );
 
       result[workoutId] = sessionRows.map((r) => {
         const kg = r.kilos != null ? Number(r.kilos) : 0;
@@ -7448,35 +6815,6 @@ export async function getRoutineLastDatesBatchDb(
   } catch (err: any) {
     console.error("Error fetching routine last dates:", err);
     return {};
-  }
-}
-
-/**
- * Fetch the set of routine_ids that have at least one record in user_workouts_hist
- * for this user. Used to gate the routine summary icon.
- */
-export async function getRoutineIdsWithHistoryDb(
-  userId: string,
-): Promise<Set<string>> {
-  if (!hasSupabaseConfig || !supabase) return new Set();
-
-  try {
-    const { data, error } = await supabase
-      .from("user_workouts_hist")
-      .select("routine_id")
-      .eq("user_id", userId)
-      .not("routine_id", "is", null);
-
-    if (error) throw error;
-
-    const result = new Set<string>();
-    (data ?? []).forEach((row: any) => {
-      if (row.routine_id != null) result.add(String(row.routine_id));
-    });
-    return result;
-  } catch (err: any) {
-    console.error("Error fetching routine ids with history:", err);
-    return new Set();
   }
 }
 
@@ -7571,58 +6909,6 @@ export async function saveHabitHistoryDb(
   }
 
   invalidateQueryCache("workoutHistory");
-}
-
-// Check if user has completed any routines today
-export async function hasCompletedRoutineToday(userId: string): Promise<boolean> {
-  if (!hasSupabaseConfig || !supabase) return false;
-
-  try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStart = today.toISOString();
-
-    // Check for today's workouts
-    const { data: workoutData, error: workoutError } = await supabase
-      .from("user_workouts_hist")
-      .select("id")
-      .eq("user_id", userId)
-      .gte("created_at", todayStart)
-      .limit(1);
-
-    if (!workoutError && workoutData && workoutData.length > 0) {
-      return true;
-    }
-
-    // Check for today's diets
-    const { data: dietData, error: dietError } = await supabase
-      .from("user_diets_hist")
-      .select("id")
-      .eq("user_id", userId)
-      .gte("created_at", todayStart)
-      .limit(1);
-
-    if (!dietError && dietData && dietData.length > 0) {
-      return true;
-    }
-
-    // Check for today's habits
-    const { data: habitData, error: habitError } = await supabase
-      .from("user_habits_hist")
-      .select("id")
-      .eq("user_id", userId)
-      .gte("created_at", todayStart)
-      .limit(1);
-
-    if (!habitError && habitData && habitData.length > 0) {
-      return true;
-    }
-
-    return false;
-  } catch (err: any) {
-    console.error("Error checking routine completion today:", err);
-    return false;
-  }
 }
 
 // Group and Check-in Types
@@ -7933,72 +7219,6 @@ export async function getDuelGroupDb(groupId: string): Promise<DuelGroup | null>
   }
 }
 
-// Get user's own groups (created by user)
-export async function getUserCreatedDuelGroupsDb(userId: string): Promise<DuelGroup[]> {
-  if (!supabase) return [];
-
-  try {
-    const { data, error } = await supabase
-      .from("duel_groups")
-      .select("*")
-      .eq("created_by", userId)
-      .order("created_at", { ascending: false });
-
-    if (error || !data) return [];
-
-    return data.map((group: any) => ({
-      id: group.id,
-      createdBy: group.created_by,
-      name: group.name,
-      location: group.location,
-      goal: group.goal,
-      icon: group.icon,
-      photo: group.photo || null,
-      createdAt: group.created_at,
-      updatedAt: group.updated_at,
-      endDate: group.end_date,
-      scoringType: (group.scoring_type as DuelScoringType) || "check_in_count",
-      memeRule: group.meme_rule || null,
-    }));
-  } catch (error) {
-    console.error("Error getting user created groups:", error);
-    return [];
-  }
-}
-
-// Get groups user can participate in (not created by user, user not already member)
-export async function getAvailableDuelGroupsDb(userId: string): Promise<DuelGroup[]> {
-  if (!supabase) return [];
-
-  try {
-    const { data, error } = await supabase
-      .from("duel_groups")
-      .select("*")
-      .neq("created_by", userId)
-      .order("created_at", { ascending: false });
-
-    if (error || !data) return [];
-
-    return data.map((group: any) => ({
-      id: group.id,
-      createdBy: group.created_by,
-      name: group.name,
-      location: group.location,
-      goal: group.goal,
-      icon: group.icon,
-      photo: group.photo || null,
-      createdAt: group.created_at,
-      updatedAt: group.updated_at,
-      endDate: group.end_date,
-      scoringType: (group.scoring_type as DuelScoringType) || "check_in_count",
-      memeRule: group.meme_rule || null,
-    }));
-  } catch (error) {
-    console.error("Error getting available groups:", error);
-    return [];
-  }
-}
-
 // Optimized: fetch available groups enriched with participant count, creator profile and membership
 // status in 3 parallel queries instead of N*2+1 sequential ones.
 export type EnrichedDuelGroup = DuelGroup & {
@@ -8173,91 +7393,6 @@ export async function getEnrichedDuelGroupsDb(
     return { myGroups: [], availableGroups: [], pendingInvites: [] };
   }
   }); // end cached
-}
-
-// Get groups created by users the current user follows (no external IDs needed)
-export async function getFollowingGroupsDb(): Promise<DuelGroup[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-  return cached("followingGroups", CACHE_TTL_MEDIUM, async () => {
-  const viewer = await getViewer();
-  if (!viewer) return [];
-
-  try {
-    // Fetch following IDs directly from the following table
-    const followingIds = await getFollowingIdsDb();
-    if (followingIds.length === 0) return [];
-
-    const { data, error } = await supabase
-      .from("duel_groups")
-      .select("*")
-      .in("created_by", followingIds)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Error fetching following groups:", error);
-      return [];
-    }
-
-    return (data ?? []).map((group: any) => ({
-      id: group.id,
-      createdBy: group.created_by,
-      name: group.name,
-      location: group.location,
-      goal: group.goal,
-      icon: group.icon,
-      photo: group.photo || null,
-      createdAt: group.created_at,
-      updatedAt: group.updated_at,
-      endDate: group.end_date,
-      scoringType: (group.scoring_type as DuelScoringType) || "check_in_count",
-      memeRule: group.meme_rule || null,
-    }));
-  } catch (error) {
-    console.error("Error getting following groups:", error);
-    return [];
-  }
-
-  });
-}
-
-// Get all groups for a user (created by or member of)
-export async function getUserDuelGroupsDb(userId: string): Promise<DuelGroup[]> {
-  return cached(`userDuelGroups:${userId}`, CACHE_TTL_SHORT, async () => {  if (!supabase) return [];
-
-  try {
-    const { data, error } = await supabase
-      .from("duel_groups")
-      .select(
-        `
-        *,
-        duel_group_participants(user_id)
-      `
-      )
-      .or(`created_by.eq.${userId},duel_group_participants.user_id.eq.${userId}`)
-      .order("created_at", { ascending: false });
-
-    if (error || !data) return [];
-
-    return data.map((group: any) => ({
-      id: group.id,
-      createdBy: group.created_by,
-      name: group.name,
-      location: group.location,
-      goal: group.goal,
-      icon: group.icon,
-      photo: group.photo || null,
-      createdAt: group.created_at,
-      updatedAt: group.updated_at,
-      endDate: group.end_date,
-      scoringType: (group.scoring_type as DuelScoringType) || "check_in_count",
-      memeRule: group.meme_rule || null,
-    }));
-  } catch (error) {
-    console.error("Error getting user groups:", error);
-    return [];
-  }
-
-  });
 }
 
 // Upload group cover photo and persist URL to DB
@@ -8733,51 +7868,6 @@ export async function leaveGroupDb(groupId: string): Promise<void> {
   invalidateQueryCache("enrichedDuelGroups"); invalidateQueryCache("followingGroups"); invalidateQueryCache("userDuelGroups"); invalidateQueryCache("groupParticipants");
 }
 
-// Get pending group invites for the current user
-export async function getPendingInvitesDb(): Promise<Array<{ groupId: string; groupName: string; groupGoal: string; groupLocation: string }>> {
-  return cached("pendingInvites", CACHE_TTL_MEDIUM, async () => {  if (!supabase) return [];
-  const viewer = await getViewer();
-  if (!viewer) return [];
-
-  try {
-    const { data, error } = await supabase
-      .from("duel_group_participants")
-      .select("group_id, status")
-      .eq("user_id", viewer.id)
-      .eq("status", "invited");
-
-    if (error) {
-      console.error("getPendingInvitesDb error (status column may not exist in DB):", error);
-      return [];
-    }
-    if (!data || data.length === 0) return [];
-
-    const groupIds = data.map((r: any) => r.group_id);
-    const { data: groups, error: groupsError } = await supabase
-      .from("duel_groups")
-      .select("id, name, goal, location")
-      .in("id", groupIds);
-
-    if (groupsError) {
-      console.error("getPendingInvitesDb groups error:", groupsError);
-      return [];
-    }
-    if (!groups) return [];
-
-    return groups.map((g: any) => ({
-      groupId: String(g.id),
-      groupName: String(g.name),
-      groupGoal: String(g.goal || ""),
-      groupLocation: String(g.location || ""),
-    }));
-  } catch (err) {
-    console.error("Error fetching pending invites:", err);
-    return [];
-  }
-
-  });
-}
-
 // Accept a pending group invite
 export async function acceptGroupInviteDb(groupId: string): Promise<void> {
   if (!supabase) throw new Error("Supabase not configured");
@@ -9127,11 +8217,6 @@ export async function deleteConversationForMeDb(otherUserId: string): Promise<vo
   if (error) throw error;
 
   invalidateQueryCache("conversations"); invalidateQueryCache("unreadMsgCount");
-}
-
-/** @deprecated Use deleteConversationForMeDb – kept for back-compat during migration */
-export async function deleteConversationDb(otherUserId: string): Promise<void> {
-  return deleteConversationForMeDb(otherUserId);
 }
 
 // ─── Group Join Requests (owner view) ────────────────────────────────────────
@@ -9527,25 +8612,6 @@ export async function updateCheckInCommentDb(commentId: string, text: string): P
 
 // ─── Access Sessions ────────────────────────────────────────────────────────
 
-export async function getAccessSessionsDb(userId: string, days: number = 30): Promise<{ session_date: string; duration_seconds: number; created_at: string }[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-  try {
-    const since = new Date();
-    since.setDate(since.getDate() - days);
-    const { data, error } = await supabase
-      .from("access_sessions")
-      .select("session_date, duration_seconds, created_at")
-      .eq("user_id", userId)
-      .gte("session_date", since.toISOString().split("T")[0])
-      .order("created_at", { ascending: false });
-    if (error) throw error;
-    return data ?? [];
-  } catch (err) {
-    console.error("Error fetching access sessions:", err);
-    return [];
-  }
-}
-
 // ============================================================
 // Badge / Insígnia Functions
 // ============================================================
@@ -9559,9 +8625,9 @@ export type BadgeConditionType =
   | 'checkin_comeback'      // primeiro check-in após ≥7 dias sem atividade
   | 'workout_week'          // treinos realizados na semana atual
   | 'workout_type'          // treinos de tipo específico (condition_metadata.type)
-  | 'nutrition_hydration'   // meta de hidratação (awardNutritionBadgesDb)
-  | 'nutrition_week'        // semana nutritiva (awardNutritionBadgesDb)
-  | 'nutrition_no_ultra'    // sem ultraprocessados (awardNutritionBadgesDb)
+  | 'nutrition_hydration'   // meta de hidratação
+  | 'nutrition_week'        // semana nutritiva
+  | 'nutrition_no_ultra'    // sem ultraprocessados
   | 'nutrition_no_sugar'    // sem açúcar
   | 'nutrition_protein'     // meta de proteína
   | 'nutrition_home_food'   // comida caseira
@@ -9775,8 +8841,6 @@ async function _getWeekWorkoutCountDb(userId: string): Promise<number> {
   const dow = today.getDay();
   const sunday = new Date(today);
   sunday.setDate(today.getDate() - dow);
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const { count } = await supabase
     .from("workout_histories")
     .select("id", { count: "exact", head: true })
@@ -9857,7 +8921,7 @@ async function _evaluateBadgeCondition(
       return typeCount >= threshold;
     }
 
-    // Nutrição e hábitos são avaliados por suas próprias funções (awardNutritionBadgesDb etc.)
+    // Nutrição e hábitos são avaliados por suas próprias funções (não avaliados aqui)
     default:
       return false;
   }
@@ -9965,369 +9029,6 @@ export async function getTopUserBadgeDb(userId: string): Promise<Badge | null> {
     console.error("Error fetching top user badge:", err);
     return null;
   }
-}
-
-// ─── Hidratação ───────────────────────────────────────────────────────────────
-
-export type HydrationLog = {
-  id: string;
-  user_id: string;
-  amount_ml: number;
-  log_date: string;
-  created_at: string;
-};
-
-/** Retorna o total de ml bebido hoje pelo usuário. */
-export async function getTodayHydrationDb(userId: string): Promise<number> {
-  if (!hasSupabaseConfig || !supabase) return 0;
-  return cached(`todayHydration:${userId}`, CACHE_TTL_SHORT, async () => {  assertUUID(userId, "userId");
-
-  const today = new Date().toISOString().slice(0, 10);
-  const { data, error } = await supabase
-    .from("hydration_logs")
-    .select("amount_ml")
-    .eq("user_id", userId)
-    .eq("log_date", today);
-
-  if (error) {
-    console.error("Error fetching hydration:", error);
-    return 0;
-  }
-
-  return (data ?? []).reduce((sum: number, row: any) => sum + (Number(row.amount_ml) || 0), 0);
-
-  });
-}
-
-/** Registra uma entrada de hidratação (padrão: 250ml). */
-export async function addHydrationDb(
-  userId: string,
-  amountMl: number = 250,
-): Promise<void> {
-  if (!hasSupabaseConfig || !supabase) return;
-  assertUUID(userId, "userId");
-
-  const today = new Date().toISOString().slice(0, 10);
-  const { error } = await supabase.from("hydration_logs").insert({
-    user_id: userId,
-    amount_ml: amountMl,
-    log_date: today,
-  });
-
-  if (error) {
-    console.error("Error adding hydration:", error);
-    throw error;
-  }
-
-  invalidateQueryCache("todayHydration");
-}
-
-/** Remove a última entrada de hidratação do dia (desfazer). */
-export async function undoLastHydrationDb(userId: string): Promise<void> {
-  if (!hasSupabaseConfig || !supabase) return;
-  assertUUID(userId, "userId");
-
-  const today = new Date().toISOString().slice(0, 10);
-  const { data } = await supabase
-    .from("hydration_logs")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("log_date", today)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (data?.id) {
-    await supabase.from("hydration_logs").delete().eq("id", data.id);
-  }
-
-  invalidateQueryCache("todayHydration");
-}
-
-/** Retorna o histórico de hidratação dos últimos N dias. */
-export async function getHydrationHistoryDb(
-  userId: string,
-  days: number = 7,
-): Promise<Array<{ date: string; total_ml: number }>> {
-  if (!hasSupabaseConfig || !supabase) return [];
-  assertUUID(userId, "userId");
-
-  const since = new Date();
-  since.setDate(since.getDate() - days + 1);
-  const sinceStr = since.toISOString().slice(0, 10);
-
-  const { data, error } = await supabase
-    .from("hydration_logs")
-    .select("log_date, amount_ml")
-    .eq("user_id", userId)
-    .gte("log_date", sinceStr)
-    .order("log_date", { ascending: true });
-
-  if (error) {
-    console.error("Error fetching hydration history:", error);
-    return [];
-  }
-
-  // Agrupa por data
-  const grouped: Record<string, number> = {};
-  for (const row of data ?? []) {
-    const d = String(row.log_date);
-    grouped[d] = (grouped[d] ?? 0) + (Number(row.amount_ml) || 0);
-  }
-
-  return Object.entries(grouped).map(([date, total_ml]) => ({ date, total_ml }));
-}
-
-// ─── Nutrição: macro diário acumulado ────────────────────────────────────────
-
-/**
- * Calcula o macro total das dietas marcadas como concluídas hoje.
- * Retorna soma de proteína, carbo, gordura, fibra e calorias das dietas do usuário.
- */
-export async function getTodayMacroSummaryDb(userId: string): Promise<{
-  calories: number;
-  protein_g: number;
-  carbs_g: number;
-  fat_g: number;
-  fiber_g: number;
-  quality_counts: { in_natura: number; processado: number; ultraprocessado: number };
-}> {
-  const empty = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fiber_g: 0, quality_counts: { in_natura: 0, processado: 0, ultraprocessado: 0 } };
-  if (!hasSupabaseConfig || !supabase) return empty;
-  assertUUID(userId, "userId");
-
-  const today = new Date().toDateString();
-
-  // Busca dietas concluídas hoje com detalhes macro
-  const { data, error } = await supabase
-    .from("user_diets")
-    .select("is_completed, completed_at, diets(calories, protein_g, carbs_g, fat_g, fiber_g, food_quality)")
-    .eq("user_id", userId)
-    .eq("is_completed", true);
-
-  if (error) {
-    console.error("Error fetching today macro:", error);
-    return empty;
-  }
-
-  const todayRows = (data ?? []).filter((row: any) => {
-    if (!row.completed_at) return false;
-    return new Date(row.completed_at).toDateString() === today;
-  });
-
-  const result = { ...empty };
-  for (const row of todayRows) {
-    const d = row.diets as any;
-    if (!d) continue;
-    result.calories += Number(d.calories ?? 0);
-    result.protein_g += Number(d.protein_g ?? 0);
-    result.carbs_g += Number(d.carbs_g ?? 0);
-    result.fat_g += Number(d.fat_g ?? 0);
-    result.fiber_g += Number(d.fiber_g ?? 0);
-    const q = d.food_quality as string | null;
-    if (q === "in_natura") result.quality_counts.in_natura++;
-    else if (q === "processado") result.quality_counts.processado++;
-    else if (q === "ultraprocessado") result.quality_counts.ultraprocessado++;
-  }
-
-  return result;
-}
-
-// ─── Badges nutricionais ─────────────────────────────────────────────────────
-
-/**
- * Verifica e concede badges nutricionais baseados em comportamento alimentar.
- * Badges verificados:
- *  - "semana_nutritiva": completou dieta em 5+ dias distintos nos últimos 7 dias
- *  - "hidratacao_7dias": atingiu meta de hidratação (≥2000ml) em 7 dias consecutivos
- *  - "sem_ultraprocessado_7d": nenhuma dieta ultraprocessada completada nos últimos 7 dias (tendo completado ≥5 dias)
- */
-export async function awardNutritionBadgesDb(userId: string): Promise<string[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-  assertUUID(userId, "userId");
-
-  const awarded: string[] = [];
-
-  try {
-    const since7 = new Date();
-    since7.setDate(since7.getDate() - 6);
-    const since7Str = since7.toISOString().slice(0, 10);
-
-    // 1. Semana Nutritiva — completou dieta em 5+ dias distintos nos últimos 7 dias
-    const { data: dietHist } = await supabase
-      .from("user_diets_hist")
-      .select("created_at")
-      .eq("user_id", userId)
-      .gte("created_at", since7.toISOString());
-
-    const uniqueDietDays = new Set(
-      (dietHist ?? []).map((r: any) => String(r.created_at).slice(0, 10))
-    );
-
-    if (uniqueDietDays.size >= 5) {
-      await _grantNutritionBadgeIfNew(userId, "semana_nutritiva");
-      awarded.push("semana_nutritiva");
-    }
-
-    // 2. Hidratação 7 dias — meta ≥2000ml em 7 dias distintos nos últimos 7 dias
-    const { data: hydHist } = await supabase
-      .from("hydration_logs")
-      .select("log_date, amount_ml")
-      .eq("user_id", userId)
-      .gte("log_date", since7Str);
-
-    const hydByDay: Record<string, number> = {};
-    for (const row of hydHist ?? []) {
-      const d = String(row.log_date);
-      hydByDay[d] = (hydByDay[d] ?? 0) + (Number(row.amount_ml) || 0);
-    }
-    const daysWithGoal = Object.values(hydByDay).filter((ml) => ml >= 2000).length;
-    if (daysWithGoal >= 7) {
-      await _grantNutritionBadgeIfNew(userId, "hidratacao_7dias");
-      awarded.push("hidratacao_7dias");
-    }
-
-    // 3. Sem ultraprocessado 7 dias
-    const { data: ultraRows } = await supabase
-      .from("user_diets")
-      .select("is_completed, completed_at, diets(food_quality)")
-      .eq("user_id", userId)
-      .eq("is_completed", true)
-      .gte("completed_at", since7.toISOString());
-
-    const hasUltra = (ultraRows ?? []).some((r: any) => (r.diets as any)?.food_quality === "ultraprocessado");
-    const totalDietDays = uniqueDietDays.size;
-
-    if (!hasUltra && totalDietDays >= 5) {
-      await _grantNutritionBadgeIfNew(userId, "sem_ultraprocessado_7d");
-      awarded.push("sem_ultraprocessado_7d");
-    }
-  } catch (err) {
-    console.error("Error awarding nutrition badges:", err);
-  }
-
-  invalidateQueryCache("userBadges");
-  return awarded;
-}
-
-async function _grantNutritionBadgeIfNew(userId: string, badgeKey: string): Promise<void> {
-  if (!supabase) return;
-
-  // Busca o badge pela key
-  const { data: badge } = await supabase
-    .from("badges")
-    .select("id")
-    .eq("key", badgeKey)
-    .maybeSingle();
-
-  if (!badge?.id) return;
-
-  // Insere ignorando duplicate
-  await supabase
-    .from("user_badges")
-    .upsert({ user_id: userId, badge_id: badge.id }, { onConflict: "user_id,badge_id", ignoreDuplicates: true });
-}
-
-// ─── Humor do Dia (Mood) ──────────────────────────────────────────────────────
-
-export type MoodValue = "muito_triste" | "triste" | "neutro" | "feliz" | "muito_feliz";
-
-export type MoodLog = {
-  id: string;
-  user_id: string;
-  mood: MoodValue;
-  log_date: string;
-  created_at: string;
-};
-
-/** Retorna o registro de humor de hoje (ou null se ainda não registrado). */
-export async function getTodayMoodDb(userId: string): Promise<MoodLog | null> {
-  if (!hasSupabaseConfig || !supabase) return null;
-  return cached(`todayMood:${userId}`, CACHE_TTL_SHORT, async () => {  assertUUID(userId, "userId");
-
-  const today = new Date().toISOString().slice(0, 10);
-  const { data, error } = await supabase
-    .from("mood_logs")
-    .select("id, user_id, mood, log_date, created_at")
-    .eq("user_id", userId)
-    .eq("log_date", today)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Error fetching mood:", error);
-    return null;
-  }
-  return data ?? null;
-
-  });
-}
-
-/** Registra ou atualiza o humor do dia. */
-export async function saveTodayMoodDb(userId: string, mood: MoodValue): Promise<void> {
-  if (!hasSupabaseConfig || !supabase) return;
-  assertUUID(userId, "userId");
-
-  const today = new Date().toISOString().slice(0, 10);
-  const { error } = await supabase
-    .from("mood_logs")
-    .upsert(
-      { user_id: userId, mood, log_date: today },
-      { onConflict: "user_id,log_date" },
-    );
-
-  if (error) {
-    console.error("Error saving mood:", error);
-    throw error;
-  }
-
-  invalidateQueryCache("todayMood");
-}
-
-/** Atualiza o humor de qualquer data passada (upsert por user_id + log_date). */
-export async function saveMoodForDateDb(userId: string, mood: MoodValue, date: string): Promise<void> {
-  if (!hasSupabaseConfig || !supabase) return;
-  assertUUID(userId, "userId");
-
-  const { error } = await supabase
-    .from("mood_logs")
-    .upsert(
-      { user_id: userId, mood, log_date: date },
-      { onConflict: "user_id,log_date" },
-    );
-
-  if (error) {
-    console.error("Error saving mood for date:", error);
-    throw error;
-  }
-
-  const today = new Date().toISOString().slice(0, 10);
-  if (date === today) invalidateQueryCache("todayMood");
-}
-
-/** Retorna o histórico de humor dos últimos N dias. */
-export async function getMoodHistoryDb(
-  userId: string,
-  days: number = 30,
-): Promise<MoodLog[]> {
-  if (!hasSupabaseConfig || !supabase) return [];
-  assertUUID(userId, "userId");
-
-  const since = new Date();
-  since.setDate(since.getDate() - days + 1);
-  const sinceStr = since.toISOString().slice(0, 10);
-
-  const { data, error } = await supabase
-    .from("mood_logs")
-    .select("*")
-    .eq("user_id", userId)
-    .gte("log_date", sinceStr)
-    .order("log_date", { ascending: false });
-
-  if (error) {
-    console.error("Error fetching mood history:", error);
-    return [];
-  }
-  return data ?? [];
 }
 
 // ─── Promoções (Hub de Promoções) ─────────────────────────────────────────────

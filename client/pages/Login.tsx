@@ -1,9 +1,5 @@
 import * as React from "react";
 
-import { App as CapApp } from "@capacitor/app";
-import { Browser } from "@capacitor/browser";
-import { SignInWithApple, type SignInWithAppleResponse } from "@capacitor-community/apple-sign-in";
-import { Capacitor } from "@capacitor/core";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -16,7 +12,6 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
@@ -28,8 +23,7 @@ import {
   getNetworkStatus,
   withNetworkRetry,
 } from "@/lib/network-status";
-import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2, Chrome } from "lucide-react";
-import { useTheme } from "next-themes";
+import { Upload, X, Check, ArrowLeft, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 import { createOrUpdateCommercialProfileDb, saveCommercialPlansDb, type ServicePlan, checkEmailExistsDb } from "@/lib/ritmofit-db";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 
@@ -66,13 +60,9 @@ function formatPhoneDisplay(value: string): string {
 }
 
 function BrandHeader() {
-  const { resolvedTheme } = useTheme();
-  const logoSrc = resolvedTheme === "dark"
-    ? "/logo-horizontal-icone-branco.png"
-    : "/logo-horizontal-icone-preto.png";
   return (
     <div className="flex items-center justify-center">
-      <img src={logoSrc} alt="LinKa" className="h-28 w-auto" />
+      <img src="/logo-horizontal-icone-branco.png" alt="LinKa" className="h-28 w-auto" />
     </div>
   );
 }
@@ -89,7 +79,6 @@ const FITNESS_SEGMENTS = [
 export default function Login() {
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
-  const { resolvedTheme } = useTheme();
 
   const [showSplash, setShowSplash] = React.useState(true);
 
@@ -124,6 +113,8 @@ export default function Login() {
   const [showForgotPassword, setShowForgotPassword] = React.useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = React.useState("");
   const [isResettingPassword, setIsResettingPassword] = React.useState(false);
+  const [forgotStep, setForgotStep] = React.useState<"email" | "otp">("email");
+  const [forgotOtp, setForgotOtp] = React.useState("");
   const [showNewPassword, setShowNewPassword] = React.useState(false);
   const [newPassword, setNewPassword] = React.useState("");
   const [newPasswordConfirm, setNewPasswordConfirm] = React.useState("");
@@ -150,8 +141,6 @@ export default function Login() {
   const [businessLogoPreview, setBusinessLogoPreview] = React.useState<string>("");
   const [servicePlans, setServicePlans] = React.useState<ServicePlan[]>([{ name: "", price: null, description: "" }]);
   const [isCompletingSignup, setIsCompletingSignup] = React.useState(false);
-  // true quando o usuário autenticou via OAuth (Google/Apple) mas ainda não tem perfil completo
-  const [isOAuthSignup, setIsOAuthSignup] = React.useState(false);
 
   const canSubmit =
     !busy &&
@@ -423,49 +412,47 @@ export default function Login() {
       if (height) signUpMeta.height = parseFloat(height);
       if (weight) signUpMeta.weight = parseFloat(weight);
 
-      if (!isOAuthSignup) {
-        // On iOS, network may not be stable on app launch — wait if unreachable
-        if (!networkStatus.isSupabaseReachable) {
-          await checkSupabaseReachability();
-          await new Promise((resolve) => setTimeout(resolve, 500));
+      // On iOS, network may not be stable on app launch — wait if unreachable
+      if (!networkStatus.isSupabaseReachable) {
+        await checkSupabaseReachability();
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+
+      const { error: signUpError } = await withNetworkRetry(() =>
+        supabase!.auth.signUp({
+          email: trimmedEmail,
+          password: trimmedPassword,
+          options: { data: signUpMeta },
+        }),
+      );
+
+      if (signUpError) {
+        const signUpErrMsg = signUpError.message?.toLowerCase() || "";
+        if (signUpErrMsg.includes("already registered") || signUpErrMsg.includes("user already registered")) {
+          toast({
+            title: "Usuário já cadastrado",
+            description: "Este email já está sendo usado. Faça login ou use outro email.",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "Não foi possível criar a conta", description: signUpError.message });
         }
+        setIsCompletingSignup(false);
+        return;
+      }
 
-        const { error: signUpError } = await withNetworkRetry(() =>
-          supabase!.auth.signUp({
-            email: trimmedEmail,
-            password: trimmedPassword,
-            options: { data: signUpMeta },
-          }),
-        );
+      // Sign in after signup
+      const { error: signInError } = await withNetworkRetry(() =>
+        supabase!.auth.signInWithPassword({
+          email: trimmedEmail,
+          password: trimmedPassword,
+        }),
+      );
 
-        if (signUpError) {
-          const signUpErrMsg = signUpError.message?.toLowerCase() || "";
-          if (signUpErrMsg.includes("already registered") || signUpErrMsg.includes("user already registered")) {
-            toast({
-              title: "Usuário já cadastrado",
-              description: "Este email já está sendo usado. Faça login ou use outro email.",
-              variant: "destructive",
-            });
-          } else {
-            toast({ title: "Não foi possível criar a conta", description: signUpError.message });
-          }
-          setIsCompletingSignup(false);
-          return;
-        }
-
-        // Sign in after signup
-        const { error: signInError } = await withNetworkRetry(() =>
-          supabase!.auth.signInWithPassword({
-            email: trimmedEmail,
-            password: trimmedPassword,
-          }),
-        );
-
-        if (signInError && !isEmailNotConfirmed(signInError.message)) {
-          toast({ title: "Conta criada, mas não foi possível entrar", description: signInError.message });
-          setIsCompletingSignup(false);
-          return;
-        }
+      if (signInError && !isEmailNotConfirmed(signInError.message)) {
+        toast({ title: "Conta criada, mas não foi possível entrar", description: signInError.message });
+        setIsCompletingSignup(false);
+        return;
       }
 
       // Upload photo and save bio if provided
@@ -593,32 +580,61 @@ export default function Login() {
         return;
       }
 
-      const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail.trim(), {
-        redirectTo: "https://linka.app/login",
+      const { error } = await supabase.auth.signInWithOtp({
+        email: forgotPasswordEmail.trim(),
+        options: { shouldCreateUser: false },
       });
 
       if (error) {
         toast({
-          title: "Erro ao resetar senha",
+          title: "Erro ao enviar código",
           description: error.message,
           variant: "destructive",
         });
         return;
       }
 
+      setForgotStep("otp");
+      setForgotOtp("");
       toast({
-        title: "Email enviado!",
-        description: "Verifique seu email para redefinir sua senha.",
+        title: "Código enviado!",
+        description: "Verifique seu email e insira o código de 6 dígitos.",
       });
-
-      setForgotPasswordEmail("");
-      setShowForgotPassword(false);
     } catch (err: any) {
       toast({
         title: "Erro de conexão",
-        description: "Não foi possível enviar o email. Tente novamente.",
+        description: "Não foi possível enviar o código. Tente novamente.",
         variant: "destructive",
       });
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!supabase || !forgotOtp.trim()) return;
+    setIsResettingPassword(true);
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: forgotPasswordEmail.trim(),
+        token: forgotOtp.trim(),
+        type: "email",
+      });
+      if (error) {
+        toast({
+          title: "Código inválido",
+          description: "Verifique o código e tente novamente.",
+          variant: "destructive",
+        });
+        return;
+      }
+      // OTP verified → session active → show "set new password" form
+      setShowForgotPassword(false);
+      setForgotStep("email");
+      setForgotOtp("");
+      setShowNewPassword(true);
+    } catch {
+      toast({ title: "Erro de conexão", description: "Tente novamente.", variant: "destructive" });
     } finally {
       setIsResettingPassword(false);
     }
@@ -695,200 +711,7 @@ export default function Login() {
     localStorage.setItem("force_profile_reload", "1");
 
     setIsCompletingSignup(false);
-    setIsOAuthSignup(false);
     navigate("/", { replace: true });
-  };
-
-  // Deep link handler para callback do OAuth (Google)
-  React.useEffect(() => {
-    if (!supabase) return;
-
-    const listener = CapApp.addListener("appUrlOpen", async ({ url }) => {
-      if (!url.includes("login-callback")) return;
-
-      await Browser.close().catch(() => {});
-
-      // PKCE flow — troca o code pela sessão
-      const { error } = await supabase!.auth.exchangeCodeForSession(url);
-      if (error) {
-        toast({
-          title: "Erro ao autenticar",
-          description: error.message,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      await checkAndRouteAfterOAuth();
-    });
-
-    return () => {
-      listener.then((l) => l.remove());
-    };
-  }, []);
-
-  // Após OAuth bem-sucedido: verifica se já existe conta com esse email
-  // 1. Perfil vinculado ao user_id OAuth → usuário já completou cadastro → feed
-  // 2. Perfil com mesmo email mas user_id diferente → conta criada via email/senha → avisa e desloga
-  // 3. Sem perfil → novo usuário → fluxo de cadastro a partir do step 2
-  const checkAndRouteAfterOAuth = async () => {
-    if (!supabase) return;
-
-    const { data: { user: oauthUser } } = await supabase.auth.getUser();
-    if (!oauthUser) return;
-
-    // 1. Verifica perfil pelo user_id do OAuth
-    const { data: profileById } = await supabase
-      .from("profiles")
-      .select("handle, nickname, email")
-      .eq("user_id", oauthUser.id)
-      .maybeSingle();
-
-    if (profileById?.handle) {
-      navigate("/", { replace: true });
-      return;
-    }
-
-    // 2. Verifica se existe perfil com o mesmo email (conta criada via email/senha)
-    const oauthEmail = oauthUser.email ?? "";
-    if (oauthEmail) {
-      const { data: profileByEmail } = await supabase
-        .from("profiles")
-        .select("user_id, handle")
-        .eq("email", oauthEmail)
-        .maybeSingle();
-
-      if (profileByEmail?.handle) {
-        // Conta já existe com outro método — desloga e orienta o usuário
-        await supabase.auth.signOut();
-        toast({
-          title: "Conta já existente",
-          description: `Você já tem uma conta com o email ${oauthEmail}. Faça login com email e senha.`,
-          variant: "destructive",
-        });
-        setTab("login");
-        setEmail(oauthEmail);
-        return;
-      }
-    }
-
-    // 3. Novo usuário via OAuth — pré-preenche e abre fluxo de perfil
-    setEmail(oauthEmail);
-    if (oauthUser.user_metadata?.full_name) {
-      setDisplayName(String(oauthUser.user_metadata.full_name));
-    }
-    setIsOAuthSignup(true);
-    setIsCompletingSignup(true);
-    setTab("signup");
-    setSignupStep(2);
-    toast({
-      title: "Bem-vindo!",
-      description: "Complete seu perfil para continuar.",
-    });
-  };
-
-  const handleGoogleLogin = async () => {
-    if (!supabase) return;
-    setBusy(true);
-    try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: "com.linka.meuapp://login-callback",
-          skipBrowserRedirect: true,
-        },
-      });
-
-      if (error || !data.url) {
-        toast({
-          title: "Erro ao iniciar login",
-          description: error?.message ?? "URL de autenticação não gerada.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      await Browser.open({ url: data.url, windowName: "_self" });
-    } catch (err: any) {
-      toast({
-        title: "Erro",
-        description: err?.message || "Não foi possível abrir o login com Google.",
-        variant: "destructive",
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleAppleLogin = async () => {
-    if (!supabase) return;
-    setBusy(true);
-    try {
-      if (Capacitor.isNativePlatform()) {
-        // iOS nativo: usa o plugin — abre a tela nativa do sistema, sem browser
-        const rawNonce = Math.random().toString(36).substring(2);
-        const encoder = new TextEncoder();
-        const data = encoder.encode(rawNonce);
-        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-        const hashedNonce = Array.from(new Uint8Array(hashBuffer))
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join("");
-
-        const response: SignInWithAppleResponse = await SignInWithApple.authorize({
-          clientId: "com.linka.meuapp",
-          redirectURI: "https://zymkndqpashqxcvttdlc.supabase.co/auth/v1/callback",
-          scopes: "name email",
-          nonce: hashedNonce,
-        });
-
-        const identityToken = response.response?.identityToken;
-        if (!identityToken) throw new Error("Token da Apple não retornado.");
-
-        const { error } = await supabase.auth.signInWithIdToken({
-          provider: "apple",
-          token: identityToken,
-          nonce: rawNonce,
-        });
-
-        if (error) {
-          toast({
-            title: "Erro ao autenticar com Apple",
-            description: error.message,
-            variant: "destructive",
-          });
-          return;
-        }
-
-        await checkAndRouteAfterOAuth();
-      } else {
-        // Web / browser: usa o fluxo OAuth do Supabase (igual ao Google)
-        const { data, error } = await supabase.auth.signInWithOAuth({
-          provider: "apple",
-          options: {
-            redirectTo: "https://linka.app/login",
-            skipBrowserRedirect: false,
-          },
-        });
-
-        if (error || !data.url) {
-          toast({
-            title: "Erro ao iniciar login",
-            description: error?.message ?? "URL de autenticação não gerada.",
-            variant: "destructive",
-          });
-        }
-      }
-    } catch (err: any) {
-      // Usuário cancelou — não exibir erro
-      if (err?.code === "1001" || err?.message?.includes("cancel")) return;
-      toast({
-        title: "Erro ao entrar com Apple",
-        description: err?.message || "Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setBusy(false);
-    }
   };
 
   if (showSplash) {
@@ -1257,8 +1080,14 @@ export default function Login() {
                   <button
                     type="button"
                     onClick={() => {
-                      setShowForgotPassword(false);
-                      setForgotPasswordEmail("");
+                      if (forgotStep === "otp") {
+                        setForgotStep("email");
+                        setForgotOtp("");
+                      } else {
+                        setShowForgotPassword(false);
+                        setForgotPasswordEmail("");
+                        setForgotStep("email");
+                      }
                     }}
                     className="p-1 hover:bg-muted rounded transition-colors"
                     disabled={isResettingPassword}
@@ -1268,35 +1097,72 @@ export default function Login() {
                   <div>
                     <h2 className="text-lg font-semibold">Redefinir Senha</h2>
                     <p className="text-xs text-muted-foreground">
-                      Informe seu email para receber um link
+                      {forgotStep === "email"
+                        ? "Informe seu email para receber um código"
+                        : `Código enviado para ${forgotPasswordEmail}`}
                     </p>
                   </div>
                 </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="forgot_email">Email</Label>
-                  <Input
-                    id="forgot_email"
-                    type="email"
-                    value={forgotPasswordEmail}
-                    onChange={(e) => setForgotPasswordEmail(e.target.value)}
-                    placeholder="voce@exemplo.com"
-                    autoComplete="email"
-                    className={forgotPasswordEmail.length > 0 && !isValidEmail(forgotPasswordEmail) ? "border-red-500" : ""}
-                  />
-                  {forgotPasswordEmail.length > 0 && !isValidEmail(forgotPasswordEmail) && (
-                    <p className="text-xs text-red-600">❌ Informe um email válido (ex: nome@dominio.com)</p>
-                  )}
-                </div>
-
-                <Button
-                  type="button"
-                  className="rounded-full w-full"
-                  onClick={handleResetPassword}
-                  disabled={isResettingPassword || !isValidEmail(forgotPasswordEmail)}
-                >
-                  {isResettingPassword ? "Enviando..." : "Enviar Email"}
-                </Button>
+                {forgotStep === "email" ? (
+                  <>
+                    <div className="grid gap-2">
+                      <Label htmlFor="forgot_email">Email</Label>
+                      <Input
+                        id="forgot_email"
+                        type="email"
+                        value={forgotPasswordEmail}
+                        onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                        placeholder="voce@exemplo.com"
+                        autoComplete="email"
+                        className={forgotPasswordEmail.length > 0 && !isValidEmail(forgotPasswordEmail) ? "border-red-500" : ""}
+                      />
+                      {forgotPasswordEmail.length > 0 && !isValidEmail(forgotPasswordEmail) && (
+                        <p className="text-xs text-red-600">❌ Informe um email válido (ex: nome@dominio.com)</p>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      className="rounded-full w-full"
+                      onClick={handleResetPassword}
+                      disabled={isResettingPassword || !isValidEmail(forgotPasswordEmail)}
+                    >
+                      {isResettingPassword ? "Enviando..." : "Enviar código"}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid gap-2">
+                      <Label htmlFor="forgot_otp">Código de 6 dígitos</Label>
+                      <Input
+                        id="forgot_otp"
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={8}
+                        value={forgotOtp}
+                        onChange={(e) => setForgotOtp(e.target.value.replace(/\D/g, ""))}
+                        placeholder="00000000"
+                        className="text-center tracking-widest text-lg"
+                        autoComplete="one-time-code"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      className="rounded-full w-full"
+                      onClick={handleVerifyOtp}
+                      disabled={isResettingPassword || forgotOtp.length < 6 || forgotOtp.length > 8}
+                    >
+                      {isResettingPassword ? "Verificando..." : "Verificar código"}
+                    </Button>
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground underline w-full text-center"
+                      onClick={() => { setForgotStep("email"); setForgotOtp(""); }}
+                    >
+                      Reenviar código
+                    </button>
+                  </>
+                )}
               </div>
             ) : (
               <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
@@ -1412,7 +1278,7 @@ export default function Login() {
                   })()}
 
                   {/* Step 1: Email and Password — oculto no fluxo OAuth (auth já feita) */}
-                  {signupStep === 1 && !isOAuthSignup && (
+                  {signupStep === 1 && (
                     <form
                       className="grid gap-3"
                       onSubmit={(e) => {

@@ -1,12 +1,11 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { MessageCircle, UserPlus, Zap, Swords, Video, SmilePlus } from "lucide-react";
+import { MessageCircle, UserPlus, Zap, Swords, SmilePlus, ChevronLeft } from "lucide-react";
 import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
 import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
-import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/shared/user-avatar";
-import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { NotificationsSkeleton } from "@/components/shared/animated-loading";
 import {
   AlertDialog,
@@ -460,195 +459,319 @@ export default function Notifications() {
     }
   };
 
+  // Icon circle style and card background per notification type
+  const getTypeStyle = (type: number) => {
+    switch (type) {
+      case 1: return { iconBg: "rgba(95,140,255,.18)", iconColor: "#6ea8ff" };
+      case 2: return { iconBg: "rgba(95,214,160,.16)", iconColor: "#5fd6a0" };
+      case 3: return { iconBg: "rgba(176,140,255,.16)", iconColor: "#b08cff" };
+      case 4:
+      case 5: return { iconBg: "rgba(255,138,42,.16)", iconColor: "#ffb15e" };
+      case 6:
+      case 7: return { iconBg: "rgba(255,122,180,.16)", iconColor: "#ff8cb4" };
+      case 8: return { iconBg: "rgba(249,115,22,.16)", iconColor: "#f97316" };
+      default: return { iconBg: "rgba(255,255,255,.1)", iconColor: "rgba(255,255,255,.7)" };
+    }
+  };
+
+  const getCardStyle = (type: number, isRead: boolean): React.CSSProperties => {
+    if (isRead) {
+      return { background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" };
+    }
+    if (type === 1) {
+      return { background: "linear-gradient(90deg,rgba(95,140,255,.12),rgba(255,255,255,.03))", border: "1px solid rgba(95,140,255,.18)" };
+    }
+    return {
+      background: "linear-gradient(rgba(255,255,255,.10),rgba(255,255,255,.04))",
+      backdropFilter: "blur(18px) saturate(160%)",
+      WebkitBackdropFilter: "blur(18px) saturate(160%)",
+      border: "1px solid rgba(255,255,255,.14)",
+      boxShadow: "inset 0 1px 0 rgba(255,255,255,.22)",
+    };
+  };
+
+  const buildDescription = (notification: NotificationItem & {
+    groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
+    groupedIncentiveTypes?: number[];
+  }): string => {
+    const name = notification.userNickname;
+    const context = notification.shotId
+      ? t("notif_context_shot")
+      : notification.flowId
+        ? t("notif_context_flow")
+        : t("notif_context_post");
+    switch (notification.type) {
+      case 1: return t("notif_desc_follow").replace("{name}", name);
+      case 2: {
+        const groupedUsers = notification.groupedUsers ?? [];
+        const totalReactions = groupedUsers.reduce((sum, u) => sum + u.incentiveTypes.length, 0);
+        const firstUser = groupedUsers[0];
+        const incentiveName = firstUser?.incentiveTypes[0]
+          ? getIncentiveTypeName(firstUser.incentiveTypes[0])
+          : getIncentiveTypeName(notification.incentiveType ?? 1);
+        if (totalReactions > 1) {
+          const others = totalReactions - 1;
+          return t("notif_desc_incentive_multi")
+            .replace("{name}", name)
+            .replace("{incentive}", incentiveName)
+            .replace("{n}", String(others))
+            .replace("{reactions}", others === 1 ? t("notif_reactions_one") : t("notif_reactions_many"))
+            .replace("{context}", context);
+        }
+        return t("notif_desc_incentive_single")
+          .replace("{name}", name)
+          .replace("{incentive}", incentiveName)
+          .replace("{context}", context);
+      }
+      case 3: return t("notif_desc_comment").replace("{name}", name).replace("{context}", context);
+      case 4: return t("notif_desc_duel_invite").replace("{name}", name).replace("{group}", notification.groupName ?? "Duelo");
+      case 5: return t("notif_desc_duel_join").replace("{name}", name).replace("{group}", notification.groupName ?? "Duelo");
+      case 6: return t("notif_desc_reaction_comment").replace("{name}", name);
+      case 7: return t("notif_desc_reaction_checkin").replace("{name}", name);
+      case 8: return t("notif_desc_promo_comment").replace("{name}", name);
+      default: return t("notif_body_default");
+    }
+  };
+
+  const GROUP_KEYS = [
+    { key: "Hoje" as const, label: t("notif_group_today") },
+    { key: "Ontem" as const, label: t("notif_group_yesterday") },
+    { key: "Esta semana" as const, label: t("notif_group_week") },
+    { key: "Mais antigas" as const, label: t("notif_group_older") },
+  ];
+
+  const getBadgeStyle = (type: number): React.CSSProperties => {
+    switch (type) {
+      case 1:  return { background: "#5b8cff" };
+      case 2:  return { background: "#ffb15e" };
+      case 3:  return { background: "#b08cff" };
+      case 6:
+      case 7:  return { background: "#ff8cb4" };
+      case 8:  return { background: "#f97316" };
+      default: return { background: "rgba(255,255,255,.5)" };
+    }
+  };
+
+  const isUserBased = (type: number) => [1, 2, 3, 6, 7, 8].includes(type);
+
   return (
-    <div
-      ref={scrollRef}
-      className="w-full max-w-2xl mx-auto"
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-    >
-      {/* Pull-to-refresh indicator */}
-      {pullDistance > 0 && (
-        <div
-          className="flex items-center justify-center overflow-hidden transition-all"
-          style={{ height: `${pullDistance}px` }}
+    <>
+      {/* Page-specific fixed header — portalled to body to escape framer-motion transform context */}
+      {createPortal(
+        <header
+          className="md:hidden flex items-center justify-between"
+          style={{
+            position: "fixed",
+            zIndex: 50,
+            top: "max(14px, calc(env(safe-area-inset-top) + 6px))",
+            left: "14px",
+            right: "14px",
+            height: "50px",
+            borderRadius: "25px",
+            padding: "0 8px 0 8px",
+            background: "linear-gradient(rgba(255,255,255,.11),rgba(255,255,255,.04))",
+            backdropFilter: "blur(24px) saturate(180%)",
+            WebkitBackdropFilter: "blur(24px) saturate(180%)",
+            border: "1px solid rgba(255,255,255,.12)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,.24), 0 8px 24px -8px rgba(0,0,0,.5)",
+          }}
         >
-          <div
-            className="h-6 w-6 rounded-full border-2 border-brand border-t-transparent transition-transform"
-            style={{
-              transform: `rotate(${(pullDistance / PULL_THRESHOLD) * 360}deg)`,
-              opacity: pullDistance / PULL_THRESHOLD,
-            }}
-          />
-        </div>
+          <button
+            onClick={() => navigate("/")}
+            className="w-9 h-9 flex items-center justify-center active:opacity-60"
+            style={{ color: "#fff" }}
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <span style={{ fontSize: "16px", fontWeight: 700, color: "#fff" }}>
+            {t("nav_notifications") ?? "Notificações"}
+          </span>
+          <button
+            onClick={() => setClearDialogOpen(true)}
+            disabled={isClearing}
+            className="active:opacity-60 transition-opacity"
+            style={{ fontSize: "13px", fontWeight: 600, color: "rgba(255,255,255,.6)", padding: "6px 12px" }}
+          >
+            {t("notif_page_clear")}
+          </button>
+        </header>,
+        document.body
       )}
-      <div className="space-y-4 pb-4">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight">Notificações</h1>
-          <p className="text-xs text-muted-foreground mt-1">
-            Fique por dentro das atividades dos usuários que segue
-          </p>
-        </div>
 
-        {loading ? (
-          <NotificationsSkeleton />
-        ) : notifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 rounded-lg border border-border/60 bg-muted/30">
-            <Zap className="h-10 w-10 text-muted-foreground/40 mb-3" />
-            <p className="text-sm font-medium text-muted-foreground">
-              Nenhuma notificação ainda
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Quando alguém te seguir ou interagir com seus posts,
-              <br />
-              você verá as notificações aqui
-            </p>
+      <div
+        ref={scrollRef}
+        className="w-full max-w-2xl mx-auto relative"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        {/* Ambient aura blob */}
+        <div
+          aria-hidden
+          style={{ position: "absolute", width: "300px", height: "300px", left: "-60px", top: "60px", borderRadius: "50%", background: "radial-gradient(circle,#d8567a,transparent 70%)", filter: "blur(70px)", opacity: 0.28, pointerEvents: "none" }}
+        />
+
+        {/* Pull-to-refresh indicator */}
+        {pullDistance > 0 && (
+          <div
+            className="flex items-center justify-center overflow-hidden transition-all"
+            style={{ height: `${pullDistance}px` }}
+          >
+            <div
+              className="h-6 w-6 rounded-full border-2 border-brand border-t-transparent transition-transform"
+              style={{
+                transform: `rotate(${(pullDistance / PULL_THRESHOLD) * 360}deg)`,
+                opacity: pullDistance / PULL_THRESHOLD,
+              }}
+            />
           </div>
-        ) : (
-          <div className="space-y-4">
-            {/* Clear Notifications Button */}
-            <div className="flex justify-end">
-              <Button
-                onClick={() => setClearDialogOpen(true)}
-                disabled={isClearing}
-                variant="outline"
-                size="sm"
-                className="rounded-full text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                Limpar Notificações
-              </Button>
-            </div>
+        )}
 
-            <div className="space-y-4">
+        <div className="relative px-4 pb-6">
+          {loading ? (
+            <NotificationsSkeleton />
+          ) : notifications.length === 0 ? (
+            <div
+              className="flex flex-col items-center justify-center py-16 mt-4"
+              style={{ borderRadius: "22px", border: "1px dashed rgba(255,255,255,.14)" }}
+            >
+              <Zap className="h-10 w-10 mb-3" style={{ color: "rgba(255,255,255,.2)" }} />
+              <p className="text-sm font-semibold text-white/70">{t("notif_page_empty")}</p>
+              <p className="text-xs mt-1 text-center" style={{ color: "rgba(255,255,255,.4)" }}>
+                {t("notif_page_empty_sub")}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-5">
               {(() => {
                 const groups = groupNotificationsByDate(notifications);
-                const groupKeys = ["Hoje", "Ontem", "Esta semana", "Mais antigas"] as const;
-                return groupKeys.map((label) => {
-                  const groupNotifs = collapseIncentives(groups[label]);
+                return GROUP_KEYS.map(({ key, label }) => {
+                  const groupNotifs = collapseIncentives(groups[key]) as Array<NotificationItem & {
+                    groupedCount?: number;
+                    groupedNicknames?: string[];
+                    groupedIncentiveTypes?: number[];
+                    groupedUsers?: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }>;
+                  }>;
                   if (groupNotifs.length === 0) return null;
                   return (
-                    <div key={label}>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 mb-2 sticky top-0 bg-background/80 backdrop-blur py-1">
+                    <div key={key}>
+                      <p
+                        className="px-1 mb-2"
+                        style={{ fontSize: "12px", fontWeight: 700, letterSpacing: ".1em", color: "rgba(255,255,255,.4)" }}
+                      >
                         {label}
                       </p>
+
                       <div className="space-y-2">
                         {groupNotifs.map((notification) => {
-                          const grouped = (notification as any);
-                          const groupedCount: number = grouped.groupedCount ?? 1;
-                          const groupedUsers: Array<{ userId: string; userNickname: string; userPhoto?: string; incentiveTypes: number[] }> = grouped.groupedUsers ?? [];
-                          const rawContent = getNotificationContent(notification);
-                          const context = notification.shotId ? "no seu shots" : (notification.flowId ? "no seu flow" : "na sua postagem");
-
-                          // Build description for grouped incentives
-                          let groupedDescription = rawContent.description;
-                          if (notification.type === 2) {
-                            const totalReactions = groupedUsers.reduce((sum, u) => sum + u.incentiveTypes.length, 0);
-                            const firstUser = groupedUsers[0];
-                            const firstName = firstUser?.userNickname ?? notification.userNickname;
-                            const firstIncentiveName = firstUser?.incentiveTypes[0]
-                              ? `"${getIncentiveTypeName(firstUser.incentiveTypes[0])}"`
-                              : `"${getIncentiveTypeName(notification.incentiveType ?? 1)}"`;
-
-                            if (totalReactions > 1) {
-                              const othersCount = totalReactions - 1;
-                              groupedDescription = `${firstName} te deu ${firstIncentiveName} e outras ${othersCount} ${othersCount === 1 ? "reação" : "reações"} ${context}`;
-                            }
-                          }
-
-                          const content = notification.type === 2
-                            ? { ...rawContent, description: groupedDescription }
-                            : rawContent;
                           const isRead = notification.read === true;
+                          const description = buildDescription(notification);
+                          const cardStyle = getCardStyle(notification.type, isRead);
+                          const typeStyle = getTypeStyle(notification.type);
+                          const badgeStyle = getBadgeStyle(notification.type);
+                          const typeIcon = getNotificationContent(notification).icon;
+                          const groupedUsers = notification.groupedUsers ?? [];
+                          const isGrouped = (notification.groupedCount ?? 1) > 1;
+                          const isFollow = notification.type === 1;
+                          const hasThumbnail = (notification.type === 2 || notification.type === 3) && notification.postPhoto;
 
                           return (
                             <button
                               key={notification.id}
                               onClick={() => handleNotificationClick(notification)}
-                              className={`w-full text-left transition-all hover:shadow-md rounded-lg p-4 border ${isRead
-                                  ? "border-transparent bg-transparent hover:bg-muted/30"
-                                  : `border ${content.borderColor} ${content.bgColor}`
-                                }`}
+                              className="w-full text-left active:scale-[0.99] transition-all"
+                              style={{ display: "flex", alignItems: "center", gap: "13px", padding: "13px", borderRadius: "18px", ...cardStyle, opacity: isRead ? 0.65 : 1 }}
                             >
-                              <div className="flex items-start gap-3">
-                                {/* User Avatar — stacked for grouped incentives */}
-                                <div className="flex-shrink-0 relative" style={{ width: groupedCount > 1 ? "52px" : "48px", height: "48px" }}>
-                                  {groupedCount > 1 ? (
-                                    <>
-                                      {/* Back avatar (second user or same user repeated) */}
-                                      <UserAvatar
-                                        photo={groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto}
-                                        nickname={groupedUsers[1]?.userNickname ?? groupedUsers[0]?.userNickname}
-                                        className={`absolute top-0 right-0 h-9 w-9 border-2 ${isRead ? "border-background/60 opacity-50" : "border-background"}`}
-                                      />
-                                      {/* Front avatar (first user) */}
-                                      <UserAvatar
-                                        photo={groupedUsers[0]?.userPhoto}
-                                        nickname={groupedUsers[0]?.userNickname}
-                                        className={`absolute bottom-0 left-0 h-9 w-9 border-2 ${isRead ? "border-background/60 opacity-60" : "border-background"}`}
-                                      />
-                                    </>
-                                  ) : (
-                                    <div className="relative">
-                                      <UserAvatar
-                                        photo={notification.userPhoto}
-                                        nickname={notification.userNickname}
-                                        className={`h-12 w-12 border ${isRead ? "border-border/20 opacity-60" : "border-border/40"}`}
-                                      />
-                                      {notification.isVerified && (
-                                        <span className="absolute -bottom-0.5 -right-0.5">
-                                          <VerifiedBadge size="sm" />
-                                        </span>
-                                      )}
-                                    </div>
+                              {/* Left: avatar(s) or icon circle */}
+                              {isUserBased(notification.type) ? (
+                                isGrouped ? (
+                                  /* Stacked avatars: container = 30 + 30 - 16 = 44px, matches single avatar width */
+                                  <div className="flex-shrink-0 flex items-center" style={{ width: "44px" }}>
+                                    <UserAvatar
+                                      photo={groupedUsers[0]?.userPhoto}
+                                      nickname={groupedUsers[0]?.userNickname ?? notification.userNickname}
+                                      className="!h-[30px] !w-[30px] border-2 border-[#06070c] relative z-[1]"
+                                    />
+                                    <UserAvatar
+                                      photo={groupedUsers[1]?.userPhoto ?? groupedUsers[0]?.userPhoto}
+                                      nickname={groupedUsers[1]?.userNickname ?? notification.userNickname}
+                                      className="!h-[30px] !w-[30px] border-2 border-[#06070c] -ml-4"
+                                    />
+                                  </div>
+                                ) : (
+                                  /* Single avatar + type badge overlay */
+                                  <div className="flex-shrink-0 relative" style={{ width: 44, height: 44 }}>
+                                    <UserAvatar
+                                      photo={notification.userPhoto}
+                                      nickname={notification.userNickname}
+                                      className="!h-11 !w-11"
+                                    />
+                                    <span
+                                      className="absolute flex items-center justify-center"
+                                      style={{ bottom: -2, right: -2, width: 20, height: 20, borderRadius: "50%", border: "2px solid #06070c", ...badgeStyle, color: "#fff" }}
+                                    >
+                                      {React.cloneElement(typeIcon as React.ReactElement<{ className?: string }>, { className: "w-[10px] h-[10px]" })}
+                                    </span>
+                                  </div>
+                                )
+                              ) : (
+                                /* Non-user notification: colored icon circle */
+                                <span
+                                  className="flex-shrink-0 flex items-center justify-center"
+                                  style={{ width: 40, height: 40, borderRadius: "50%", background: typeStyle.iconBg, color: typeStyle.iconColor }}
+                                >
+                                  {typeIcon}
+                                </span>
+                              )}
+
+                              {/* Text */}
+                              <div className="flex-1 min-w-0">
+                                <p
+                                  className="leading-snug"
+                                  style={{ fontSize: "13.5px", color: "#fff" }}
+                                  dangerouslySetInnerHTML={{
+                                    __html: description.replace(
+                                      notification.userNickname,
+                                      `<strong>${notification.userNickname}</strong>`
+                                    )
+                                  }}
+                                />
+                                <p className="mt-0.5" style={{ fontSize: "11px", color: "rgba(255,255,255,.45)" }}>
+                                  {formatTimeAgo(notification.createdAt)}
+                                </p>
+                              </div>
+
+                              {/* Right side: follow button OR post thumbnail OR unread dot */}
+                              {isFollow ? (
+                                <span
+                                  className="flex-shrink-0"
+                                  style={{ fontSize: "12px", fontWeight: 640, color: "#0a0b12", padding: "7px 13px", borderRadius: "14px", background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))", whiteSpace: "nowrap" }}
+                                >
+                                  {t("follow_btn_follow")}
+                                </span>
+                              ) : hasThumbnail ? (
+                                <div className="flex-shrink-0 relative" style={{ width: 44, height: 44 }}>
+                                  <img
+                                    src={notification.postPhoto!}
+                                    alt=""
+                                    className="w-full h-full object-cover"
+                                    style={{ borderRadius: "13px" }}
+                                  />
+                                  {notification.type === 2 && (
+                                    <span
+                                      className="absolute flex items-center justify-center"
+                                      style={{ bottom: -4, right: -4, width: 20, height: 20, borderRadius: "50%", border: "2px solid #06070c", background: "#ffb15e", color: "#0a0b12" }}
+                                    >
+                                      {React.cloneElement(typeIcon as React.ReactElement<{ className?: string }>, { className: "w-[10px] h-[10px]" })}
+                                    </span>
                                   )}
                                 </div>
-
-                                {/* Content */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-start justify-between gap-2 mb-1">
-                                    <div className="flex items-start gap-2 flex-1 min-w-0">
-                                      <div className="flex-shrink-0 mt-0.5">
-                                        {content.icon}
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <p className={`text-xs font-semibold ${isRead ? "text-foreground/50" : "text-foreground/70"}`}>
-                                          {content.title}
-                                        </p>
-                                        <p className={`text-sm font-medium mt-0.5 ${isRead ? "text-foreground/60" : "text-foreground"}`}>
-                                          {content.description}
-                                        </p>
-                                      </div>
-                                    </div>
-                                    <p className={`text-xs flex-shrink-0 whitespace-nowrap ml-2 ${isRead ? "text-muted-foreground/50" : "text-muted-foreground"}`}>
-                                      {formatTimeAgo(notification.createdAt)}
-                                    </p>
-                                  </div>
-
-                                  {/* Post Thumbnail - only for incentive and comment notifications */}
-                                  {notification.postPhoto && (notification.type === 2 || notification.type === 3) && (() => {
-                                    const isVideo = /\.(mp4|webm|mov|avi)(\?|$)/i.test(notification.postPhoto);
-                                    return (
-                                      <div className="mt-3 ml-7">
-                                        {isVideo ? (
-                                          <div className={`h-16 w-16 rounded-md border flex items-center justify-center bg-muted ${isRead ? "border-border/20 opacity-50" : "border-border/40"}`}>
-                                            <Video className="h-6 w-6 text-muted-foreground/60" />
-                                          </div>
-                                        ) : (
-                                          <img
-                                            src={notification.postPhoto}
-                                            alt="Post"
-                                            className={`h-16 w-16 rounded-md object-cover border ${isRead
-                                                ? "border-border/20 opacity-50"
-                                                : "border-border/40"
-                                              }`}
-                                          />
-                                        )}
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
-                              </div>
+                              ) : !isRead ? (
+                                <span
+                                  className="flex-shrink-0"
+                                  style={{ width: 8, height: 8, borderRadius: "50%", background: "#5b8cff", flexShrink: 0 }}
+                                />
+                              ) : null}
                             </button>
                           );
                         })}
@@ -658,28 +781,27 @@ export default function Notifications() {
                 });
               })()}
             </div>
-          </div>
-        )}
+          )}
+        </div>
+
+        <AlertDialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("notif_page_clear_title")}</AlertDialogTitle>
+              <AlertDialogDescription>{t("notif_page_clear_desc")}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleClearNotifications}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {t("notif_page_clear_confirm")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
-      <AlertDialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Limpar notificações</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza que deseja limpar todas as notificações? Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleClearNotifications}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Limpar
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+    </>
   );
 }

@@ -6,6 +6,9 @@ type WorkoutSeriesEntry = {
   kg: number;
   reps: number;
   completed: boolean;
+  type?: 'W' | 'N' | 'F';
+  prevKg?: number;
+  prevReps?: number;
 };
 
 interface WorkoutContextValue {
@@ -39,6 +42,8 @@ interface WorkoutContextValue {
   setGlobalRestTimerRemaining: React.Dispatch<React.SetStateAction<number>>;
   globalRestTimerActive: boolean;
   setGlobalRestTimerActive: (v: boolean) => void;
+  globalRestTimerPaused: boolean;
+  setGlobalRestTimerPaused: React.Dispatch<React.SetStateAction<boolean>>;
   globalRestTimerTotal: number;
   setGlobalRestTimerTotal: (v: number) => void;
   globalRestTimerKey: number;
@@ -71,6 +76,8 @@ const WorkoutContext = React.createContext<WorkoutContextValue>({
   setGlobalRestTimerRemaining: () => {},
   globalRestTimerActive: false,
   setGlobalRestTimerActive: () => {},
+  globalRestTimerPaused: false,
+  setGlobalRestTimerPaused: () => {},
   globalRestTimerTotal: 0,
   setGlobalRestTimerTotal: () => {},
   globalRestTimerKey: 0,
@@ -123,6 +130,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const [currentWorkoutIndex, setCurrentWorkoutIndex] = React.useState(0);
   const [globalRestTimerRemaining, setGlobalRestTimerRemaining] = React.useState(0);
   const [globalRestTimerActive, setGlobalRestTimerActive] = React.useState(false);
+  const [globalRestTimerPaused, setGlobalRestTimerPaused] = React.useState(false);
   const [globalRestTimerTotal, setGlobalRestTimerTotal] = React.useState(0);
   const [globalRestTimerKey, setGlobalRestTimerKey] = React.useState(0);
 
@@ -198,16 +206,18 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(REST_TIMER_END_KEY);
   }, []);
 
-  // Persist end timestamp when timer starts so background sync works
+  // Persist end timestamp when timer starts so background sync works.
+  // When paused, cancel the scheduled notification and clear the end key —
+  // the countdown is frozen, so there is no fixed end time anymore.
   React.useEffect(() => {
-    if (globalRestTimerActive && globalRestTimerRemaining > 0) {
+    if (globalRestTimerActive && !globalRestTimerPaused && globalRestTimerRemaining > 0) {
       const endAt = Date.now() + globalRestTimerRemaining * 1000;
       localStorage.setItem(REST_TIMER_END_KEY, String(endAt));
       scheduleRestNotification(globalRestTimerRemaining);
-    } else if (!globalRestTimerActive) {
+    } else {
       cancelRestNotification();
     }
-  }, [globalRestTimerKey, globalRestTimerActive]); // trigger on start/stop/restart
+  }, [globalRestTimerKey, globalRestTimerActive, globalRestTimerPaused]); // trigger on start/stop/restart/pause/resume
 
   // Sync timer when app returns to foreground
   React.useEffect(() => {
@@ -230,9 +240,10 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [globalRestTimerActive]);
 
-  // Rest timer countdown — always runs in context so it persists when dialog is closed/minimized
+  // Rest timer countdown — always runs in context so it persists when dialog is closed/minimized.
+  // Frozen while paused.
   React.useEffect(() => {
-    if (!globalRestTimerActive || globalRestTimerRemaining <= 0) return;
+    if (!globalRestTimerActive || globalRestTimerPaused || globalRestTimerRemaining <= 0) return;
     const interval = setInterval(() => {
       setGlobalRestTimerRemaining((prev) => {
         if (prev <= 1) {
@@ -245,7 +256,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [globalRestTimerKey, globalRestTimerActive]); // also re-run when paused/resumed so interval is cleared
+  }, [globalRestTimerKey, globalRestTimerActive, globalRestTimerPaused]); // also re-run when paused/resumed so interval is cleared
 
   const resetWorkoutState = React.useCallback(() => {
     localStorage.removeItem(WORKOUT_STORAGE_KEY);
@@ -261,6 +272,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
     setWorkoutModalOpen(false);
     setGlobalRestTimerRemaining(0);
     setGlobalRestTimerActive(false);
+    setGlobalRestTimerPaused(false);
     setGlobalRestTimerTotal(0);
   }, [cancelRestNotification]);
 
@@ -279,6 +291,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       resetWorkoutState,
       globalRestTimerRemaining, setGlobalRestTimerRemaining,
       globalRestTimerActive, setGlobalRestTimerActive,
+      globalRestTimerPaused, setGlobalRestTimerPaused,
       globalRestTimerTotal, setGlobalRestTimerTotal,
       globalRestTimerKey, setGlobalRestTimerKey,
     }}>

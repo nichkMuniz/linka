@@ -35,6 +35,17 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 
 ## Cabeçalho do Perfil
 
+> **Atualização (Glass design):** O cabeçalho foi equalizado ao design "LinKa Glass".
+> - **Banner gradiente** no topo: `radial-gradient(120% 100% at 60% 0%,#d8567a,#7b3ff2 55%,#1a1438 90%)` com fade para `#06070c`.
+> - **Avatar à esquerda** (88px) com anel `conic-gradient(from 200deg,#ff8a2a,#d8567a,#7b3ff2,#3a8dff,#ff8a2a)` e borda interna `3px solid #06070c`.
+> - **Ações à direita** na mesma linha do avatar: próprio perfil → botão circular de engrenagem (42px) + pílula branca "Editar perfil"; outro perfil → `FollowButton` + botões circulares de mensagem e compartilhar.
+> - **Nome/handle/bio alinhados à esquerda** (nome 21px peso 740, handle 13px branco .5, bio 13.5px branco .82).
+> - **Stats em 3 cards** (Posts, Seguidores, Seguindo) com `rounded-18px`, fundo `rgba(255,255,255,.05)`, número 17px peso 740.
+> - **Tabs em estilo underline** (transparente, indicador `border-b-2` branco no ativo) em vez do `TabsList` boxed.
+> - **Grids de posts/shots** em 3 colunas, `gap-[5px]`, itens `rounded-[14px]`.
+> - **Back chip** circular no topo-esquerdo apenas ao visualizar o perfil de outro usuário.
+> - O trigger do `SettingsDrawer` agora é externo (props `open`/`onOpenChange`/`hideTrigger`); a engrenagem e o botão "Editar perfil" abrem o mesmo drawer.
+
 ### Foto e Banner
 - **Banner:** imagem de capa (upload disponível no próprio perfil)
 - **Avatar:** foto de perfil circular, clicável para ampliar ou editar
