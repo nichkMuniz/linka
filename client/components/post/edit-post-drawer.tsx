@@ -91,16 +91,27 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
 
   return (
     <Drawer open={open} onOpenChange={(v) => { if (!v) onOpenChange(false); }}>
-      <DrawerContent className="flex flex-col" style={{ maxHeight: `min(85dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="flex flex-col !rounded-t-[32px] !border-0"
+        style={{
+          maxHeight: `min(85dvh, ${viewportHeight - 8}px)`,
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DrawerHeader>
-          <DrawerTitle>Editar post</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>Editar post</DrawerTitle>
         </DrawerHeader>
         <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
 
           {photos.length > 0 && (
             <div className="space-y-2">
-              <label className="text-sm font-medium">Fotos do post</label>
-              <div className="relative rounded-xl overflow-hidden bg-muted aspect-square">
+              <label className="text-sm font-medium" style={{ color: "rgba(255,255,255,.7)" }}>Fotos do post</label>
+              <div className="relative rounded-xl overflow-hidden bg-black/40 aspect-square">
                 <ImageWithFallback
                   src={photos[photoIndex]}
                   alt={`Foto ${photoIndex + 1}`}
@@ -143,7 +154,7 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
                 )}
               </div>
               {photos.length <= 1 && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>
                   O post tem apenas uma foto e não pode ser removida.
                 </p>
               )}
@@ -155,32 +166,37 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Descrição do post..."
             rows={4}
-            className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm resize-none focus:border-brand focus:outline-none"
+            className="w-full px-3 py-2 rounded-2xl text-sm resize-none focus:outline-none"
+            style={{
+              background: "rgba(255,255,255,.07)",
+              border: "1px solid rgba(255,255,255,.12)",
+              color: "#fff",
+            }}
           />
 
           <div className="space-y-2">
-            <label className="flex items-center gap-1.5 text-sm font-medium">
-              <Target className="h-4 w-4 text-brand" />
+            <label className="flex items-center gap-1.5 text-sm font-medium" style={{ color: "rgba(255,255,255,.7)" }}>
+              <Target className="h-4 w-4" style={{ color: "#5b8cff" }} />
               Meta vinculada
             </label>
             {isLoadingGoals ? (
               <div className="space-y-2">
                 {Array.from({ length: 2 }).map((_, i) => (
-                  <div key={i} className="h-10 rounded-lg bg-muted animate-pulse" />
+                  <div key={i} className="h-10 rounded-lg bg-white/10 animate-pulse" />
                 ))}
               </div>
             ) : userGoals.length === 0 ? (
-              <div className="text-xs text-muted-foreground">Nenhuma meta ativa encontrada.</div>
+              <div className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>Nenhuma meta ativa encontrada.</div>
             ) : (
               <div className="space-y-2">
                 <button
                   type="button"
                   onClick={() => setGoalId(null)}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${
-                    !goalId
-                      ? "border-brand bg-brand/10 text-brand font-medium"
-                      : "border-border/60 text-muted-foreground hover:border-border"
-                  }`}
+                  className="w-full text-left px-3 py-2.5 rounded-2xl text-sm transition-colors"
+                  style={!goalId
+                    ? { border: "1px solid rgba(91,140,255,.5)", background: "rgba(91,140,255,.15)", color: "#5b8cff", fontWeight: 500 }
+                    : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.06)", color: "rgba(255,255,255,.5)" }
+                  }
                 >
                   Sem meta vinculada
                 </button>
@@ -189,11 +205,11 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
                     key={goal.id}
                     type="button"
                     onClick={() => setGoalId(goal.id)}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors ${
-                      goalId === goal.id
-                        ? "border-brand bg-brand/10 text-brand font-medium"
-                        : "border-border/60 hover:border-border"
-                    }`}
+                    className="w-full text-left px-3 py-2.5 rounded-2xl text-sm transition-colors"
+                    style={goalId === goal.id
+                      ? { border: "1px solid rgba(91,140,255,.5)", background: "rgba(91,140,255,.15)", color: "#5b8cff", fontWeight: 500 }
+                      : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.06)", color: "rgba(255,255,255,.7)" }
+                    }
                   >
                     <div className="flex items-center gap-2">
                       <Target className="h-3.5 w-3.5 flex-shrink-0" />
@@ -205,7 +221,12 @@ export function EditPostDrawer({ open, onOpenChange, post, onSaved }: EditPostDr
             )}
           </div>
 
-          <Button onClick={handleSave} disabled={isSaving} className="w-full rounded-full">
+          <Button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="w-full rounded-full border-0"
+            style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+          >
             {isSaving ? "Salvando..." : "Salvar alterações"}
           </Button>
         </div>

@@ -42,19 +42,29 @@ export function FollowListDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="max-h-[80dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+        style={{
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle>{title}</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>{title}</DrawerTitle>
         </DrawerHeader>
         <div className="flex-1 overflow-y-auto px-4 space-y-3 pb-6">
           {isLoading ? (
             <div className="space-y-3">
               {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 p-3">
-                  <div className="h-10 w-10 rounded-full bg-muted animate-pulse" />
+                <div key={i} className="flex items-center gap-3 p-3 rounded-2xl" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                  <div className="h-10 w-10 rounded-full animate-pulse" style={{ background: "rgba(255,255,255,.1)" }} />
                   <div className="flex-1 space-y-2">
-                    <div className="h-3 w-1/3 rounded bg-muted animate-pulse" />
-                    <div className="h-2 w-1/4 rounded bg-muted animate-pulse" />
+                    <div className="h-3 w-1/3 rounded animate-pulse" style={{ background: "rgba(255,255,255,.1)" }} />
+                    <div className="h-2 w-1/4 rounded animate-pulse" style={{ background: "rgba(255,255,255,.08)" }} />
                   </div>
                 </div>
               ))}
@@ -63,7 +73,8 @@ export function FollowListDrawer({
             users.map((u) => (
               <div
                 key={u.id}
-                className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition-colors"
+                className="flex items-center gap-3 p-3 rounded-2xl transition-all"
+                style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
               >
                 <button
                   onClick={() => {
@@ -79,7 +90,7 @@ export function FollowListDrawer({
                     className="flex-shrink-0"
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{u.nickname}</p>
+                    <p className="font-medium truncate" style={{ color: "#fff" }}>{u.nickname}</p>
                   </div>
                 </button>
                 {u.id !== user?.id && (
@@ -91,7 +102,7 @@ export function FollowListDrawer({
               </div>
             ))
           ) : (
-            <div className="text-center py-6 text-sm text-muted-foreground">
+            <div className="text-center py-6 text-sm" style={{ color: "rgba(255,255,255,.5)" }}>
               {emptyMessage}
             </div>
           )}

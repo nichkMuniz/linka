@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { MessageCircle, UserPlus, Zap, Swords, SmilePlus, ChevronLeft } from "lucide-react";
 import { INCENTIVE_CONFIG } from "@/lib/incentive-config";
-import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, type NotificationItem } from "@/lib/ritmofit-db";
+import { getNotificationsDb, markNotificationsAsReadDb, clearNotificationsDb, getFollowingIdsDb, type NotificationItem } from "@/lib/ritmofit-db";
 import { supabase } from "@/lib/supabase";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { NotificationsSkeleton } from "@/components/shared/animated-loading";
@@ -27,18 +27,21 @@ export default function Notifications() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const [notifications, setNotifications] = React.useState<NotificationItem[]>([]);
+  const [followingIds, setFollowingIds] = React.useState<Set<string>>(new Set());
   const [loading, setLoading] = React.useState(true);
   const [isClearing, setIsClearing] = React.useState(false);
   const [clearDialogOpen, setClearDialogOpen] = React.useState(false);
+  const channelRef = React.useRef<ReturnType<NonNullable<typeof supabase>["channel"]> | null>(null);
 
   // Reusable loader so it can be triggered both on mount and via pull-to-refresh.
   const loadNotifications = React.useCallback(async () => {
     try {
-      const [data] = await Promise.all([
+      const [data, ids] = await Promise.all([
         getNotificationsDb(),
-        markNotificationsAsReadDb(),
+        markNotificationsAsReadDb().then(() => getFollowingIdsDb()),
       ]);
       setNotifications(data);
+      setFollowingIds(new Set(ids));
     } catch (err: any) {
       console.error("Error loading notifications:", err);
     } finally {
@@ -49,15 +52,28 @@ export default function Notifications() {
   React.useEffect(() => {
     if (!user) return;
 
+    // Always clean up any previous channel before creating a new one.
+    // This prevents "cannot add callbacks after subscribe()" on iOS when the
+    // effect re-runs (Capacitor app lifecycle) before the previous async
+    // removeChannel completes.
+    if (channelRef.current) {
+      supabase?.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+
     let isMounted = true;
 
     (async () => {
       try {
-        const [data] = await Promise.all([
+        const [data, , ids] = await Promise.all([
           getNotificationsDb(),
           markNotificationsAsReadDb(),
+          getFollowingIdsDb(),
         ]);
-        if (isMounted) setNotifications(data);
+        if (isMounted) {
+          setNotifications(data);
+          setFollowingIds(new Set(ids));
+        }
       } catch (err: any) {
         console.error("Error loading notifications:", err);
       } finally {
@@ -65,12 +81,11 @@ export default function Notifications() {
       }
     })();
 
-    // Subscribe to new notifications via Realtime instead of polling every 30s.
-    // The re-fetch is debounced by 1 s so that several rapid inserts (e.g. multiple
-    // incentives flushed together after the 5-second debounce) are coalesced into
-    // a single query — ensuring collapseIncentives sees them all at once.
+    // Use Math.random() instead of Date.now() so the channel name is always
+    // unique even when the effect fires twice within the same millisecond
+    // (common in Capacitor on iOS when the app comes back from background).
     let realtimeDebounce: ReturnType<typeof setTimeout> | null = null;
-    const channelName = `notifications-page-${Date.now()}`;
+    const channelName = `notifications-${user.id.slice(0, 8)}-${Math.random().toString(36).slice(2, 9)}`;
     const channel = supabase
       ?.channel(channelName)
       .on(
@@ -93,10 +108,15 @@ export default function Notifications() {
       )
       .subscribe();
 
+    channelRef.current = channel ?? null;
+
     return () => {
       isMounted = false;
       if (realtimeDebounce) clearTimeout(realtimeDebounce);
-      if (channel) supabase?.removeChannel(channel);
+      if (channelRef.current) {
+        supabase?.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
     };
   }, [user]);
 
@@ -743,12 +763,26 @@ export default function Notifications() {
 
                               {/* Right side: follow button OR post thumbnail OR unread dot */}
                               {isFollow ? (
-                                <span
-                                  className="flex-shrink-0"
-                                  style={{ fontSize: "12px", fontWeight: 640, color: "#0a0b12", padding: "7px 13px", borderRadius: "14px", background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))", whiteSpace: "nowrap" }}
-                                >
-                                  {t("follow_btn_follow")}
-                                </span>
+                                (() => {
+                                  const alreadyFollowing = followingIds.has(notification.userId);
+                                  return (
+                                    <span
+                                      className="flex-shrink-0"
+                                      style={{
+                                        fontSize: "12px",
+                                        fontWeight: 640,
+                                        padding: "7px 13px",
+                                        borderRadius: "14px",
+                                        whiteSpace: "nowrap",
+                                        ...(alreadyFollowing
+                                          ? { color: "rgba(255,255,255,.7)", background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.18)" }
+                                          : { color: "#0a0b12", background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))" }),
+                                      }}
+                                    >
+                                      {alreadyFollowing ? t("follow_btn_following") : t("follow_btn_follow")}
+                                    </span>
+                                  );
+                                })()
                               ) : hasThumbnail ? (
                                 <div className="flex-shrink-0 relative" style={{ width: 44, height: 44 }}>
                                   <img

@@ -1386,9 +1386,10 @@ type ProfessionalCardProps = {
   onViewProfile: (userId: string) => void;
   onMessage: (userId: string) => void;
   onViewPlans: (pro: ProfessionalProfile) => void;
+  onEmailClick: (email: string) => void;
 };
 
-function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewPlans }: ProfessionalCardProps) {
+function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewPlans, onEmailClick }: ProfessionalCardProps) {
   const logoSrc = pro.business_logo_url || pro.photo;
   const [planIndex, setPlanIndex] = React.useState(0);
   const plans = pro.service_plans ?? [];
@@ -1519,7 +1520,7 @@ function ProfessionalCard({ professional: pro, onViewProfile, onMessage, onViewP
           {pro.business_email && (
             <button
               type="button"
-              onClick={() => Browser.open({ url: `mailto:${pro.business_email}` })}
+              onClick={() => onEmailClick(pro.business_email!)}
               className="flex items-center gap-1 hover:text-brand transition-colors"
             >
               <Mail className="h-3 w-3" />
@@ -1592,6 +1593,8 @@ export default function Store() {
   const [proSearch, setProSearch] = React.useState("");
   const [proSegment, setProSegment] = React.useState<string>("todos");
   const [plansModalPro, setPlansModalPro] = React.useState<ProfessionalProfile | null>(null);
+  const [emailModal, setEmailModal] = React.useState<string | null>(null);
+  const [emailCopied, setEmailCopied] = React.useState(false);
 
   React.useEffect(() => {
     setViewerLoading(true);
@@ -2029,6 +2032,7 @@ export default function Store() {
                   onViewProfile={(userId) => navigate(`/usuario/${userId}`)}
                   onMessage={(userId) => navigate(`/comunidade?user=${userId}`)}
                   onViewPlans={(p) => setPlansModalPro(p)}
+                  onEmailClick={(email) => { setEmailModal(email); setEmailCopied(false); }}
                 />
               ))}
             </div>
@@ -2114,6 +2118,49 @@ export default function Store() {
             {(plansModalPro?.service_plans ?? []).length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-4">Nenhum plano cadastrado.</p>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Email Modal */}
+      <Dialog open={!!emailModal} onOpenChange={(v) => !v && setEmailModal(null)}>
+        <DialogContent className="max-w-sm rounded-2xl" onOpenAutoFocus={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5 text-brand" />
+              E-mail de contato
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div
+              className="flex items-center gap-3 rounded-xl px-4 py-3"
+              style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.1)" }}
+            >
+              <Mail className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              <span className="text-sm font-medium flex-1 break-all">{emailModal}</span>
+            </div>
+            <Button
+              className="w-full gap-2"
+              onClick={() => {
+                if (!emailModal) return;
+                copyToClipboard(emailModal);
+                setEmailCopied(true);
+                toast({ title: "E-mail copiado!", description: emailModal });
+                setTimeout(() => setEmailCopied(false), 2000);
+              }}
+            >
+              {emailCopied ? (
+                <>
+                  <Check className="h-4 w-4" />
+                  Copiado!
+                </>
+              ) : (
+                <>
+                  <Copy className="h-4 w-4" />
+                  Copiar e-mail
+                </>
+              )}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

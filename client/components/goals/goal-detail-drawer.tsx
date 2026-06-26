@@ -79,11 +79,20 @@ export function GoalDetailDrawer({
   return (
     <>
       <Drawer open={!!goal} onOpenChange={(open) => !open && onClose()}>
-        <DrawerContent>
+        <DrawerContent
+          handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+          className="!rounded-t-[32px] !border-0"
+          style={{
+            background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+            backdropFilter: "blur(40px) saturate(180%)",
+            WebkitBackdropFilter: "blur(40px) saturate(180%)",
+            borderTop: "1px solid rgba(255,255,255,.14)",
+          }}
+        >
           <DrawerHeader className="pb-0">
             <div className="flex items-start gap-3">
               <span className="text-2xl mt-0.5 shrink-0">{isCompleted ? "🏆" : "🎯"}</span>
-              <DrawerTitle className="text-left text-base font-bold leading-snug flex-1">
+              <DrawerTitle className="text-left text-base font-bold leading-snug flex-1" style={{ color: "#fff" }}>
                 {goal.description}
               </DrawerTitle>
               {isCompleted && (
@@ -102,7 +111,7 @@ export function GoalDetailDrawer({
             {/* Progress */}
             <div className="space-y-2">
               <div className="flex items-end justify-between">
-                <span className="text-sm font-medium text-muted-foreground">
+                <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,.5)" }}>
                   {t("goals_gd_progress")}
                 </span>
                 <span className="text-3xl font-bold text-emerald-400 tabular-nums leading-none">
@@ -116,7 +125,7 @@ export function GoalDetailDrawer({
               /* ── Edit form ── */
               <div className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="gd-duration">{t("goals_gd_edit_duration")}</Label>
+                  <Label htmlFor="gd-duration" style={{ color: "#fff" }}>{t("goals_gd_edit_duration")}</Label>
                   <Input
                     id="gd-duration"
                     type="number"
@@ -124,10 +133,11 @@ export function GoalDetailDrawer({
                     value={durationValue}
                     onChange={(e) => setDurationValue(e.target.value)}
                     className="rounded-md"
+                    style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="gd-frequency">{t("goals_gd_edit_frequency")}</Label>
+                  <Label htmlFor="gd-frequency" style={{ color: "#fff" }}>{t("goals_gd_edit_frequency")}</Label>
                   <Input
                     id="gd-frequency"
                     type="number"
@@ -135,12 +145,14 @@ export function GoalDetailDrawer({
                     value={frequencyValue}
                     onChange={(e) => setFrequencyValue(e.target.value)}
                     className="rounded-md"
+                    style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2.5 pt-1">
                   <Button
                     variant="outline"
                     className="rounded-full gap-2"
+                    style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
                     disabled={isSaving}
                     onClick={() => {
                       setDurationValue(String(goal.duration));
@@ -153,6 +165,7 @@ export function GoalDetailDrawer({
                   </Button>
                   <Button
                     className="rounded-full"
+                    style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                     disabled={isSaving}
                     onClick={handleSave}
                   >
@@ -165,23 +178,23 @@ export function GoalDetailDrawer({
               <>
                 {/* Stats grid */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-card border border-border/40 rounded-xl p-4 text-center space-y-1">
-                    <p className="text-3xl font-bold tabular-nums">{goal.days_completed}</p>
-                    <p className="text-xs text-muted-foreground">{t("goals_gd_days_done")}</p>
+                  <div className="rounded-2xl p-4 text-center space-y-1" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                    <p className="text-3xl font-bold tabular-nums" style={{ color: "#fff" }}>{goal.days_completed}</p>
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_gd_days_done")}</p>
                   </div>
-                  <div className="bg-card border border-border/40 rounded-xl p-4 text-center space-y-1">
-                    <p className="text-3xl font-bold tabular-nums">
+                  <div className="rounded-2xl p-4 text-center space-y-1" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                    <p className="text-3xl font-bold tabular-nums" style={{ color: "#fff" }}>
                       {isCompleted ? "—" : daysRemaining}
                     </p>
-                    <p className="text-xs text-muted-foreground">{t("goals_gd_days_remaining")}</p>
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_gd_days_remaining")}</p>
                   </div>
                 </div>
 
                 {/* Linked routines */}
                 <div className="space-y-2.5">
-                  <p className="text-sm font-semibold">{t("goals_gd_linked_routines")}</p>
+                  <p className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_gd_linked_routines")}</p>
                   {linkedRoutines.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">{t("goals_gd_no_routines")}</p>
+                    <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_gd_no_routines")}</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {linkedRoutines.map((r) => (
@@ -202,6 +215,7 @@ export function GoalDetailDrawer({
                     <Button
                       variant="outline"
                       className="w-full rounded-full gap-2"
+                      style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
                       onClick={() => setEditing(true)}
                     >
                       <Pencil className="h-4 w-4" />

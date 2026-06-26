@@ -84,8 +84,11 @@ Carrossel horizontal de stories (Flows).
 **Usado em:** Feed (Index)
 
 Dialog para criar um novo story:
-- Upload de imagem
-- Preview antes de publicar
+- Câmera com obturador inteligente: **toque = foto**, **segurar = grava vídeo** (`MediaRecorder`, áudio opcional, máx. 30s/50MB, indicador de gravação)
+- Upload de imagem/vídeo da galeria
+- Modo texto/gradiente
+- **Enquadramento da mídia na tela de compartilhar:** pinça para redimensionar + arraste para mover (estilo Instagram). Imagem → composta via canvas (`bakeTransformedImage`); vídeo → enquadramento persistido em `flow.media_transform` (%), reaplicado no `FlowViewer`. A camada de gestos também bloqueia gestos nativos do iOS sobre o `<video>`
+- Preview/legenda antes de publicar
 - Botão confirmar: chama `createStoryDb`
 
 ---

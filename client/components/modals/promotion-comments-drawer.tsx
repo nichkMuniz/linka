@@ -154,13 +154,21 @@ export function PromotionCommentsDrawer({
     <Drawer open={open} onOpenChange={setOpen} noBodyStyles shouldScaleBackground={false}>
       <DrawerTrigger asChild>{triggerButton}</DrawerTrigger>
       <DrawerContent
-        className="flex flex-col"
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="flex flex-col !rounded-t-[32px] !border-0"
         onOpenAutoFocus={(e) => e.preventDefault()}
-        style={{ maxHeight: `min(85dvh, ${viewportHeight - 8}px)`, paddingBottom: "env(safe-area-inset-bottom)" }}
+        style={{
+          maxHeight: `min(85dvh, ${viewportHeight - 8}px)`,
+          paddingBottom: "env(safe-area-inset-bottom)",
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
       >
         <DrawerHeader className="shrink-0 pb-2">
-          <DrawerTitle className="text-base">Comentários da promoção</DrawerTitle>
-          <DrawerDescription className="text-xs text-muted-foreground">
+          <DrawerTitle className="text-base" style={{ color: "#fff" }}>Comentários da promoção</DrawerTitle>
+          <DrawerDescription className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
             Compartilhe sua opinião — a promoção vale? Expirou? Já aproveite e ajude a comunidade!
           </DrawerDescription>
         </DrawerHeader>
@@ -168,14 +176,14 @@ export function PromotionCommentsDrawer({
         {/* stopPropagation prevents vaul from starting a drag gesture when tapping inside the content */}
         <div className="flex flex-col flex-1 gap-3 overflow-hidden px-4 pb-4" onPointerDown={(e) => e.stopPropagation()}>
           {/* Comments list */}
-          <div className="flex-1 space-y-3 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
+          <div className="flex-1 space-y-3 overflow-y-auto rounded-2xl p-3" style={{ border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.03)" }}>
             {loading ? (
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="rounded-lg border border-border/30 bg-background/50 p-3 space-y-2">
-                    <div className="h-3 w-1/3 rounded bg-muted animate-pulse" />
-                    <div className="h-2 w-full rounded bg-muted animate-pulse" />
-                    <div className="h-2 w-4/5 rounded bg-muted animate-pulse" />
+                  <div key={i} className="rounded-2xl p-3 space-y-2" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)" }}>
+                    <div className="h-3 w-1/3 rounded bg-white/10 animate-pulse" />
+                    <div className="h-2 w-full rounded bg-white/10 animate-pulse" />
+                    <div className="h-2 w-4/5 rounded bg-white/10 animate-pulse" />
                   </div>
                 ))}
               </div>
@@ -185,7 +193,8 @@ export function PromotionCommentsDrawer({
                   key={comment.id}
                   initial={{ opacity: 0, y: -8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="rounded-lg border border-border/30 bg-background/50 p-3"
+                  className="rounded-2xl p-3"
+                  style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2.5 flex-1 min-w-0">
@@ -195,10 +204,10 @@ export function PromotionCommentsDrawer({
                         size="sm"
                       />
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs font-medium">
+                        <div className="text-xs font-medium" style={{ color: "#fff" }}>
                           {comment.userName}
                           {comment.userHandle ? (
-                            <span className="font-normal text-muted-foreground">
+                            <span className="font-normal" style={{ color: "rgba(255,255,255,.5)" }}>
                               {" "}
                               | @{comment.userHandle.replace(/^@/, "")}
                             </span>
@@ -211,6 +220,11 @@ export function PromotionCommentsDrawer({
                               value={editDraft}
                               onChange={(e) => setEditDraft(e.target.value)}
                               className="min-h-16 resize-none text-sm"
+                              style={{
+                                background: "rgba(255,255,255,.07)",
+                                border: "1px solid rgba(255,255,255,.12)",
+                                color: "#fff",
+                              }}
                               disabled={savingEditId === comment.id}
                               autoFocus
                               onKeyDown={(e) => {
@@ -226,7 +240,8 @@ export function PromotionCommentsDrawer({
                                 type="button"
                                 onClick={() => handleSaveEdit(comment.id)}
                                 disabled={!editDraft.trim() || savingEditId === comment.id}
-                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                               >
                                 <Check className="h-3 w-3" />
                                 Salvar
@@ -235,7 +250,8 @@ export function PromotionCommentsDrawer({
                                 type="button"
                                 onClick={handleCancelEdit}
                                 disabled={savingEditId === comment.id}
-                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50 transition-colors"
+                                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium disabled:opacity-50 transition-colors"
+                                style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)" }}
                               >
                                 <X className="h-3 w-3" />
                                 Cancelar
@@ -243,12 +259,12 @@ export function PromotionCommentsDrawer({
                             </div>
                           </div>
                         ) : (
-                          <p className="mt-1 text-sm leading-relaxed break-words">
+                          <p className="mt-1 text-sm leading-relaxed break-words" style={{ color: "rgba(255,255,255,.85)" }}>
                             {comment.text}
                           </p>
                         )}
 
-                        <div className="mt-1 text-xs text-muted-foreground">
+                        <div className="mt-1 text-xs" style={{ color: "rgba(255,255,255,.4)" }}>
                           {new Date(comment.createdAt).toLocaleString("pt-BR")}
                         </div>
                       </div>
@@ -261,7 +277,8 @@ export function PromotionCommentsDrawer({
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                           onClick={() => handleStartEdit(comment)}
-                          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          className="rounded-lg p-1.5 transition-colors"
+                          style={{ color: "rgba(255,255,255,.5)" }}
                           aria-label="Editar comentário"
                         >
                           <Pencil className="h-4 w-4" />
@@ -272,7 +289,8 @@ export function PromotionCommentsDrawer({
                           whileTap={{ scale: 0.9 }}
                           onClick={() => handleDelete(comment.id)}
                           disabled={deletingId === comment.id}
-                          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="rounded-lg p-1.5 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed"
+                          style={{ color: "rgba(255,255,255,.5)" }}
                           aria-label="Excluir comentário"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -284,9 +302,9 @@ export function PromotionCommentsDrawer({
               ))
             ) : (
               <div className="py-8 text-center">
-                <MessageCircle className="mx-auto h-8 w-8 text-muted-foreground/40 mb-2" />
-                <p className="text-sm font-medium text-muted-foreground">Nenhum comentário ainda</p>
-                <p className="text-xs text-muted-foreground/70 mt-1">
+                <MessageCircle className="mx-auto h-8 w-8 mb-2" style={{ color: "rgba(255,255,255,.2)" }} />
+                <p className="text-sm font-medium" style={{ color: "rgba(255,255,255,.5)" }}>Nenhum comentário ainda</p>
+                <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,.3)" }}>
                   Seja o primeiro a opinar sobre essa promoção!
                 </p>
               </div>
@@ -310,18 +328,24 @@ export function PromotionCommentsDrawer({
                   }
                 }}
                 className="min-h-20 resize-none"
+                style={{
+                  background: "rgba(255,255,255,.07)",
+                  border: "1px solid rgba(255,255,255,.12)",
+                  color: "#fff",
+                }}
                 disabled={submitting}
               />
               <Button
                 onClick={handleSubmit}
                 disabled={!draft.trim() || submitting}
-                className="w-full rounded-lg"
+                className="w-full rounded-lg border-0"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
               >
                 {submitting ? "Enviando..." : "Comentar"}
               </Button>
             </div>
           ) : (
-            <div className="rounded-lg border border-border/50 bg-muted/20 p-3 text-center text-sm text-muted-foreground shrink-0">
+            <div className="rounded-2xl p-3 text-center text-sm shrink-0" style={{ border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.04)", color: "rgba(255,255,255,.5)" }}>
               Entre para comentar e ajudar a comunidade
             </div>
           )}

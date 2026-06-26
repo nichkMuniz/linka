@@ -93,21 +93,25 @@ Feed de vídeos curtos no estilo TikTok/Reels. O usuário rola verticalmente ent
 
 ```
 ┌──────────────────────────────────┐
-│  Comentários                     │
-│  ─────────────────────────────   │
-│  [Avatar] Nome          [Excluir]│
+│  ▁▁▁  (handle)                   │
+│  Comentários · 12                │
+│  [Avatar] Nome · 2h     [✎] [🗑] │
 │  Texto do comentário             │
-│  ─────────────────────────────   │
-│  [Avatar] Nome          [Excluir]│
+│  reações                         │
+│  [Avatar] Nome · 1d              │
 │  Texto...                        │
-│  ─────────────────────────────   │
-│  [Input comentário...] [Enviar]  │
+│  ────────────────────────────    │
+│  [Avatar] [Input...]        [➤]  │
 └──────────────────────────────────┘
 ```
 
+- Mesmo layout visual do drawer de comentários do feed (`PostCommentsDialog`): fundo glassmorphism escuro (gradiente + `backdrop-blur`), cantos `rounded-t-[32px]`, título `Comentários · N`, tempo relativo (`agora`/`m`/`h`/`d`), avatar do usuário atual na barra de input e botão de enviar circular com gradiente azul/roxo
+- Altura controlada por `useKeyboardAwareHeight` (não encolhe com o teclado iOS)
 - Carrega comentários via `getShotCommentsDb`
 - Adiciona via `addShotCommentDb`
+- Edita via `updateShotCommentDb`
 - Remove via `deleteShotCommentDb`
+- Reações por comentário via `CommentReactions`
 
 ---
 

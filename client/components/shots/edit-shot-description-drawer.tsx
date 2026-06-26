@@ -55,9 +55,20 @@ export function EditShotDescriptionDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="flex flex-col z-[100]" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="flex flex-col !rounded-t-[32px] !border-0"
+        style={{
+          maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle>Editar descrição</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>Editar descrição</DrawerTitle>
         </DrawerHeader>
         <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
           <Textarea
@@ -65,11 +76,17 @@ export function EditShotDescriptionDrawer({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Descrição do clip..."
             className="min-h-28 resize-none"
+            style={{
+              background: "rgba(255,255,255,.07)",
+              border: "1px solid rgba(255,255,255,.12)",
+              color: "#fff",
+            }}
           />
           <Button
-            className="w-full rounded-full"
+            className="w-full rounded-full border-0"
             disabled={isSaving}
             onClick={handleSave}
+            style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
           >
             {isSaving ? "Salvando..." : "Salvar"}
           </Button>

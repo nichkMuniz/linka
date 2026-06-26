@@ -61,13 +61,28 @@ export function ImageCropperDrawer({
       return;
     }
 
+    let cancelled = false;
     const img = new Image();
-    img.onload = () => {
-      imgRef.current = img;
-      setImageLoaded(true);
-      setTransform({ scale: 1, offsetX: 0, offsetY: 0 });
-    };
     img.src = imageSrc;
+    // decode() is async and off the main thread, preventing UI freeze on large photos
+    img.decode()
+      .then(() => {
+        if (cancelled) return;
+        imgRef.current = img;
+        setImageLoaded(true);
+        setTransform({ scale: 1, offsetX: 0, offsetY: 0 });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        img.onload = () => {
+          if (cancelled) return;
+          imgRef.current = img;
+          setImageLoaded(true);
+          setTransform({ scale: 1, offsetX: 0, offsetY: 0 });
+        };
+      });
+
+    return () => { cancelled = true; };
   }, [imageSrc]);
 
   // Measure container
@@ -363,8 +378,13 @@ export function ImageCropperDrawer({
   return (
     <Drawer open={!!imageSrc} onOpenChange={(open) => { if (!open) onCancel(); }} dismissible={false} shouldScaleBackground={false}>
       <DrawerContent
-        className="h-[100dvh] mt-0 rounded-none flex flex-col bg-black !z-[200]"
-        overlayClassName="!z-[190] bg-black/90"
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="h-[100dvh] mt-0 rounded-none flex flex-col bg-black !z-[500] !border-0"
+        style={{
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+        }}
+        overlayClassName="!z-[490] bg-black/90"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         {/* Header */}

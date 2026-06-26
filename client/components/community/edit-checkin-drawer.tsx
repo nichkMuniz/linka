@@ -125,9 +125,20 @@ export function EditCheckInDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="flex flex-col z-[100]" style={{ maxHeight: `min(90dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="flex flex-col z-[100] !rounded-t-[32px] !border-0"
+        style={{
+          maxHeight: `min(90dvh, ${viewportHeight - 8}px)`,
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle>Editar Check-in</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>Editar Check-in</DrawerTitle>
           <DrawerDescription className="sr-only">Edite as informações do seu check-in</DrawerDescription>
         </DrawerHeader>
 
@@ -135,33 +146,44 @@ export function EditCheckInDrawer({
           {checkIn && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Exercício *</label>
+                <label className="text-sm font-medium" style={{ color: "rgba(255,255,255,.7)" }}>Exercício *</label>
                 <Input
                   value={workoutInfo}
                   onChange={(e) => setWorkoutInfo(e.target.value)}
                   placeholder="Ex: Supino Reto..."
+                  style={{
+                    background: "rgba(255,255,255,.07)",
+                    border: "1px solid rgba(255,255,255,.12)",
+                    color: "#fff",
+                  }}
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Descrição</label>
+                <label className="text-sm font-medium" style={{ color: "rgba(255,255,255,.7)" }}>Descrição</label>
                 <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Adicione detalhes sobre seu treino..."
                   className="min-h-24"
+                  style={{
+                    background: "rgba(255,255,255,.07)",
+                    border: "1px solid rgba(255,255,255,.12)",
+                    color: "#fff",
+                  }}
                 />
               </div>
 
               {/* Fotos */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium">Fotos do Treino ({totalCount}/{MAX_PHOTOS})</label>
+                  <label className="text-sm font-medium" style={{ color: "rgba(255,255,255,.7)" }}>Fotos do Treino ({totalCount}/{MAX_PHOTOS})</label>
                   {totalCount < MAX_PHOTOS && (
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 px-2 text-brand"
+                      className="h-8 px-2"
+                      style={{ color: "#5b8cff", background: "rgba(255,255,255,.08)" }}
                       onClick={() => fileInputRef.current?.click()}
                     >
                       <Plus className="h-4 w-4 mr-1" />
@@ -239,7 +261,8 @@ export function EditCheckInDrawer({
                 ) : (
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full aspect-video rounded-xl border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-brand hover:text-brand transition-colors"
+                    className="w-full aspect-video rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-2 transition-colors"
+                    style={{ borderColor: "rgba(255,255,255,.2)", color: "rgba(255,255,255,.5)" }}
                   >
                     <Image className="h-8 w-8" />
                     <span className="text-sm">Adicionar foto</span>
@@ -248,21 +271,26 @@ export function EditCheckInDrawer({
               </div>
 
               <div className="grid grid-cols-3 gap-2">
-                <div className="text-center p-3 rounded-lg bg-muted/20">
-                  <div className="font-semibold text-brand text-lg">{checkIn.series}</div>
-                  <div className="text-xs text-muted-foreground">Séries</div>
+                <div className="text-center p-3 rounded-lg" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)" }}>
+                  <div className="font-semibold text-lg" style={{ color: "#5b8cff" }}>{checkIn.series}</div>
+                  <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>Séries</div>
                 </div>
-                <div className="text-center p-3 rounded-lg bg-muted/20">
-                  <div className="font-semibold text-brand text-lg">{checkIn.volume}</div>
-                  <div className="text-xs text-muted-foreground">Volume (kg)</div>
+                <div className="text-center p-3 rounded-lg" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)" }}>
+                  <div className="font-semibold text-lg" style={{ color: "#5b8cff" }}>{checkIn.volume}</div>
+                  <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>Volume (kg)</div>
                 </div>
-                <div className="text-center p-3 rounded-lg bg-muted/20">
-                  <div className="font-semibold text-brand text-lg">✓</div>
-                  <div className="text-xs text-muted-foreground">Concluído</div>
+                <div className="text-center p-3 rounded-lg" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)" }}>
+                  <div className="font-semibold text-lg" style={{ color: "#5b8cff" }}>✓</div>
+                  <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>Concluído</div>
                 </div>
               </div>
 
-              <Button onClick={handleSave} disabled={isSaving} className="w-full rounded-full">
+              <Button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="w-full rounded-full border-0"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+              >
                 {isSaving ? "Salvando..." : "Salvar Alterações"}
               </Button>
             </div>

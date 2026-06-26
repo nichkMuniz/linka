@@ -10,6 +10,9 @@ import {
   SwitchCamera,
   Type,
   Camera as CameraIcon,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
 } from "lucide-react";
 import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 
@@ -26,6 +29,153 @@ const GRADIENT_PRESETS = [
   { id: "forest", value: "linear-gradient(135deg, #1B5E20 0%, #66BB6A 100%)", label: "Floresta" },
 ];
 
+const FONT_OPTIONS = [
+  { id: "bold",  label: "Bold",  family: "system-ui, -apple-system, sans-serif", weight: 800 },
+  { id: "light", label: "Light", family: "system-ui, -apple-system, sans-serif", weight: 300 },
+  { id: "serif", label: "Serif", family: "Georgia, 'Times New Roman', serif",    weight: 700 },
+  { id: "mono",  label: "Mono",  family: "'Courier New', Courier, monospace",    weight: 400 },
+] as const;
+
+const TEXT_COLORS = [
+  "#ffffff", "#000000", "#FF0080", "#3A8DFF",
+  "#FFD600", "#00C853", "#FF8A2A", "#7B3FF2",
+];
+
+type TextStyle = {
+  fontFamily: string;
+  fontWeight: number;
+  align: "left" | "center" | "right";
+  color: string;
+};
+
+const DEFAULT_TEXT_STYLE: TextStyle = {
+  fontFamily: FONT_OPTIONS[0].family,
+  fontWeight: FONT_OPTIONS[0].weight,
+  align: "center",
+  color: "#ffffff",
+};
+
+// Quanto tempo segurando o obturador até começar a gravar vídeo (toque rápido = foto)
+const LONG_PRESS_MS = 400;
+// Duração máxima de gravação do flow em vídeo
+const MAX_RECORD_MS = 30000;
+
+function pickVideoMimeType(): string {
+  if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported) return "";
+  const candidates = [
+    "video/mp4",
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+  ];
+  for (const c of candidates) {
+    try {
+      if (MediaRecorder.isTypeSupported(c)) return c;
+    } catch {
+      /* ignora */
+    }
+  }
+  return "";
+}
+
+// Transformação aplicada à mídia na tela de compartilhar (estilo story do Instagram)
+type MediaTransform = { scale: number; x: number; y: number };
+const IDENTITY_TRANSFORM: MediaTransform = { scale: 1, x: 0, y: 0 };
+const MIN_MEDIA_SCALE = 0.3;
+const MAX_MEDIA_SCALE = 5;
+
+function isMediaTransformed(t: MediaTransform): boolean {
+  return Math.abs(t.scale - 1) > 0.01 || Math.abs(t.x) > 1 || Math.abs(t.y) > 1;
+}
+
+function loadImageEl(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+// Retângulo equivalente ao object-cover: preenche (fw x fh) preservando o aspecto da imagem
+function coverRect(iw: number, ih: number, fw: number, fh: number) {
+  const ir = iw / ih;
+  const fr = fw / fh;
+  let dw: number, dh: number;
+  if (ir > fr) {
+    dh = fh;
+    dw = fh * ir;
+  } else {
+    dw = fw;
+    dh = fw / ir;
+  }
+  return { dx: (fw - dw) / 2, dy: (fh - dh) / 2, dw, dh };
+}
+
+// Compõe a imagem transformada num canvas (com fundo desfocado) para que o
+// resultado compartilhado seja exatamente o que o usuário enxerga.
+async function bakeTransformedImage(
+  src: string,
+  frameW: number,
+  frameH: number,
+  t: MediaTransform,
+): Promise<string | null> {
+  try {
+    if (frameW <= 0 || frameH <= 0) return null;
+    const img = await loadImageEl(src);
+    const fr = frameW / frameH;
+    const maxDim = 1280;
+    let outW: number, outH: number;
+    if (frameW >= frameH) {
+      outW = maxDim;
+      outH = Math.round(maxDim / fr);
+    } else {
+      outH = maxDim;
+      outW = Math.round(maxDim * fr);
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const sx = outW / frameW; // converte px da tela para px do canvas
+
+    // Fundo desfocado (truque de downscale → upscale, funciona em qualquer WebView)
+    const small = document.createElement("canvas");
+    const smw = 28;
+    const smh = Math.max(1, Math.round(28 / fr));
+    small.width = smw;
+    small.height = smh;
+    const sctx = small.getContext("2d");
+    if (sctx) {
+      const bgc = coverRect(img.width, img.height, smw, smh);
+      sctx.drawImage(img, bgc.dx, bgc.dy, bgc.dw, bgc.dh);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(small, 0, 0, smw, smh, 0, 0, outW, outH);
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.fillRect(0, 0, outW, outH);
+    } else {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, outW, outH);
+    }
+
+    // Primeiro plano: mesma transformação do CSS (translate → scale em torno do centro)
+    const cx = outW / 2;
+    const cy = outH / 2;
+    ctx.save();
+    ctx.translate(cx + t.x * sx, cy + t.y * sx);
+    ctx.scale(t.scale, t.scale);
+    ctx.translate(-cx, -cy);
+    const fc = coverRect(img.width, img.height, outW, outH);
+    ctx.drawImage(img, fc.dx, fc.dy, fc.dw, fc.dh);
+    ctx.restore();
+
+    return canvas.toDataURL("image/jpeg", 0.92);
+  } catch {
+    return null;
+  }
+}
+
 interface FlowCreationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -35,6 +185,7 @@ interface FlowCreationDialogProps {
     backgroundColor?: string | null,
     textPosition?: { x: number; y: number } | null,
     textElements?: { text: string; x: number; y: number }[] | null,
+    mediaTransform?: { scale: number; x: number; y: number } | null,
   ) => Promise<void>;
   isLoading?: boolean;
 }
@@ -57,17 +208,41 @@ export function FlowCreationDialog({
   const [facingMode, setFacingMode] = React.useState<"user" | "environment">("environment");
   const [cameraError, setCameraError] = React.useState<string | null>(null);
   const [cameraReady, setCameraReady] = React.useState(false);
+  const [isRecording, setIsRecording] = React.useState(false);
+  const [recordSeconds, setRecordSeconds] = React.useState(0);
+  const [mediaTransform, setMediaTransformState] = React.useState<MediaTransform>(IDENTITY_TRANSFORM);
 
-  type TextItem = { id: string; text: string; x: number; y: number };
+  type TextItem = { id: string; text: string; x: number; y: number; style: TextStyle };
   const [texts, setTexts] = React.useState<TextItem[]>([]);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editingValue, setEditingValue] = React.useState("");
+  const [editingStyle, setEditingStyle] = React.useState<TextStyle>(DEFAULT_TEXT_STYLE);
   const isEditingText = editingId !== null;
 
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
+  const audioStreamRef = React.useRef<MediaStream | null>(null);
+  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = React.useRef<Blob[]>([]);
+  const holdTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxDurationTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordTickRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingActiveRef = React.useRef(false);
+  // Verdadeiro enquanto o usuário mantém o obturador pressionado com intenção de gravar
+  const wantRecordingRef = React.useRef(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const captionFrameRef = React.useRef<HTMLDivElement>(null);
+  const transformRef = React.useRef<MediaTransform>(IDENTITY_TRANSFORM);
+  const pointersRef = React.useRef<Map<number, { x: number; y: number }>>(new Map());
+  const gestureStartRef = React.useRef<{
+    scale: number;
+    x: number;
+    y: number;
+    dist: number;
+    midX: number;
+    midY: number;
+  } | null>(null);
   const dragRef = React.useRef<{
     id: string;
     pointerId: number;
@@ -79,6 +254,37 @@ export function FlowCreationDialog({
   } | null>(null);
 
   const stopStream = React.useCallback(() => {
+    wantRecordingRef.current = false;
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (maxDurationTimerRef.current) {
+      clearTimeout(maxDurationTimerRef.current);
+      maxDurationTimerRef.current = null;
+    }
+    if (recordTickRef.current) {
+      clearInterval(recordTickRef.current);
+      recordTickRef.current = null;
+    }
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      try {
+        recorder.stop();
+      } catch {
+        /* ignora */
+      }
+    }
+    mediaRecorderRef.current = null;
+    recordedChunksRef.current = [];
+    recordingActiveRef.current = false;
+    setIsRecording(false);
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((t) => t.stop());
+      audioStreamRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -197,6 +403,169 @@ export function FlowCreationDialog({
     setStep("caption");
   };
 
+  // Obtém (e reutiliza) um stream de áudio para gravar vídeo com som.
+  // Falha graciosamente: se o microfone for negado, grava sem áudio.
+  const ensureAudioStream = React.useCallback(async (): Promise<MediaStream | null> => {
+    if (audioStreamRef.current && audioStreamRef.current.getAudioTracks().some((t) => t.readyState === "live")) {
+      return audioStreamRef.current;
+    }
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) return null;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      audioStreamRef.current = stream;
+      return stream;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const clearRecordTimers = React.useCallback(() => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (maxDurationTimerRef.current) {
+      clearTimeout(maxDurationTimerRef.current);
+      maxDurationTimerRef.current = null;
+    }
+    if (recordTickRef.current) {
+      clearInterval(recordTickRef.current);
+      recordTickRef.current = null;
+    }
+  }, []);
+
+  const stopRecording = React.useCallback(() => {
+    wantRecordingRef.current = false;
+    if (maxDurationTimerRef.current) {
+      clearTimeout(maxDurationTimerRef.current);
+      maxDurationTimerRef.current = null;
+    }
+    if (recordTickRef.current) {
+      clearInterval(recordTickRef.current);
+      recordTickRef.current = null;
+    }
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      try {
+        recorder.stop();
+      } catch {
+        /* ignora */
+      }
+    }
+    recordingActiveRef.current = false;
+    setIsRecording(false);
+  }, []);
+
+  const startRecording = React.useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || !cameraReady || !streamRef.current) return;
+    if (typeof MediaRecorder === "undefined") return;
+    const videoTracks = streamRef.current.getVideoTracks();
+    if (videoTracks.length === 0) return;
+
+    // Pré-aquece o microfone (pode exibir prompt na primeira vez)
+    const audioStream = await ensureAudioStream();
+    // Usuário soltou o obturador antes da gravação iniciar de fato
+    if (!wantRecordingRef.current) return;
+
+    const combined = new MediaStream();
+    videoTracks.forEach((t) => combined.addTrack(t));
+    audioStream?.getAudioTracks().forEach((t) => combined.addTrack(t));
+
+    const mimeType = pickVideoMimeType();
+    let recorder: MediaRecorder;
+    try {
+      recorder = mimeType
+        ? new MediaRecorder(combined, { mimeType })
+        : new MediaRecorder(combined);
+    } catch {
+      try {
+        recorder = new MediaRecorder(combined);
+      } catch {
+        return;
+      }
+    }
+
+    recordedChunksRef.current = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
+    };
+    recorder.onstop = () => {
+      const chunks = recordedChunksRef.current;
+      recordedChunksRef.current = [];
+      if (chunks.length === 0) return;
+      const blobType = recorder.mimeType || mimeType || "video/mp4";
+      const blob = new Blob(chunks, { type: blobType });
+      if (blob.size > 50 * 1024 * 1024) {
+        toast({
+          title: "Vídeo muito longo",
+          description: "Grave um vídeo mais curto (máximo de 50MB)",
+          variant: "destructive",
+        });
+        return;
+      }
+      // Blob URL evita o problema de tela preta que data: URLs causam no WebView do iOS
+      const blobUrl = URL.createObjectURL(blob);
+      setMediaIsVideo(true);
+      setMediaPreview(blobUrl);
+      setStep("caption");
+    };
+
+    mediaRecorderRef.current = recorder;
+    try {
+      // Timeslice garante emissão periódica de dados (evita blob vazio em gravações curtas)
+      recorder.start(100);
+    } catch {
+      return;
+    }
+    recordingActiveRef.current = true;
+    setIsRecording(true);
+    setRecordSeconds(0);
+    recordTickRef.current = setInterval(() => {
+      setRecordSeconds((s) => s + 1);
+    }, 1000);
+    maxDurationTimerRef.current = setTimeout(() => {
+      stopRecording();
+    }, MAX_RECORD_MS);
+
+    // Caso o usuário tenha soltado o obturador enquanto o gravador iniciava
+    if (!wantRecordingRef.current) {
+      stopRecording();
+    }
+  }, [cameraReady, ensureAudioStream, stopRecording]);
+
+  const handleShutterPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    if (!cameraReady) return;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    wantRecordingRef.current = false;
+    // Após o limite de tempo segurando, inicia a gravação de vídeo
+    if (typeof MediaRecorder !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+      holdTimerRef.current = setTimeout(() => {
+        wantRecordingRef.current = true;
+        startRecording();
+      }, LONG_PRESS_MS);
+    }
+  };
+
+  const handleShutterPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    if (recordingActiveRef.current) {
+      // Estava gravando → finaliza o vídeo
+      stopRecording();
+    } else if (wantRecordingRef.current) {
+      // Passou do limite mas o gravador ainda estava iniciando → aborta
+      wantRecordingRef.current = false;
+    } else {
+      // Toque rápido → foto
+      handleCapture();
+    }
+  };
+
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -233,8 +602,93 @@ export function FlowCreationDialog({
     setStep("preview");
   };
 
+  const setMediaTransform = React.useCallback((t: MediaTransform) => {
+    transformRef.current = t;
+    setMediaTransformState(t);
+  }, []);
+
+  // Reseta o enquadramento sempre que uma nova mídia é carregada
+  React.useEffect(() => {
+    transformRef.current = IDENTITY_TRANSFORM;
+    setMediaTransformState(IDENTITY_TRANSFORM);
+    pointersRef.current.clear();
+    gestureStartRef.current = null;
+  }, [mediaPreview]);
+
+  const beginMediaGesture = React.useCallback(() => {
+    const pts = Array.from(pointersRef.current.values());
+    const cur = transformRef.current;
+    if (pts.length === 1) {
+      gestureStartRef.current = {
+        scale: cur.scale,
+        x: cur.x,
+        y: cur.y,
+        dist: 0,
+        midX: pts[0].x,
+        midY: pts[0].y,
+      };
+    } else if (pts.length >= 2) {
+      const [a, b] = pts;
+      gestureStartRef.current = {
+        scale: cur.scale,
+        x: cur.x,
+        y: cur.y,
+        dist: Math.hypot(a.x - b.x, a.y - b.y),
+        midX: (a.x + b.x) / 2,
+        midY: (a.y + b.y) / 2,
+      };
+    }
+  }, []);
+
+  const handleMediaPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    beginMediaGesture();
+  };
+
+  const handleMediaPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pointersRef.current.has(e.pointerId)) return;
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const start = gestureStartRef.current;
+    if (!start) return;
+    const pts = Array.from(pointersRef.current.values());
+    if (pts.length === 1) {
+      setMediaTransform({
+        scale: start.scale,
+        x: start.x + (pts[0].x - start.midX),
+        y: start.y + (pts[0].y - start.midY),
+      });
+    } else if (pts.length >= 2) {
+      const [a, b] = pts;
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const ratio = start.dist ? dist / start.dist : 1;
+      const scale = Math.min(MAX_MEDIA_SCALE, Math.max(MIN_MEDIA_SCALE, start.scale * ratio));
+      setMediaTransform({
+        scale,
+        x: start.x + (mid.x - start.midX),
+        y: start.y + (mid.y - start.midY),
+      });
+    }
+  };
+
+  const handleMediaPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.delete(e.pointerId);
+      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    }
+    if (pointersRef.current.size > 0) {
+      beginMediaGesture();
+    } else {
+      gestureStartRef.current = null;
+    }
+  };
+
   const handleRetake = () => {
-    setMediaPreview(null);
+    setMediaPreview((prev) => {
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return null;
+    });
     setMediaIsVideo(false);
     setDescription("");
     setStep("camera");
@@ -244,7 +698,34 @@ export function FlowCreationDialog({
     if (!mediaPreview) return;
     setIsSubmitting(true);
     try {
-      await onCreateStory(mediaPreview, description, null);
+      let mediaToShare = mediaPreview;
+      let mediaTransformPayload: MediaTransform | null = null;
+      const t = transformRef.current;
+      if (isMediaTransformed(t)) {
+        const frame = captionFrameRef.current;
+        const fw = frame?.clientWidth || window.innerWidth;
+        const fh = frame?.clientHeight || window.innerHeight;
+        // Enquadramento em % (translate relativo ao tamanho do elemento → resolução-independente)
+        const percentTransform: MediaTransform = {
+          scale: Math.round(t.scale * 1000) / 1000,
+          x: Math.round((t.x / fw) * 1000) / 10,
+          y: Math.round((t.y / fh) * 1000) / 10,
+        };
+        if (mediaIsVideo) {
+          // Vídeo não pode ser recomposto no cliente → persiste o enquadramento
+          mediaTransformPayload = percentTransform;
+        } else {
+          // Imagem: compõe num canvas (enquadramento "queimado" na imagem final)
+          const baked = await bakeTransformedImage(mediaPreview, fw, fh, t);
+          if (baked) {
+            mediaToShare = baked;
+          } else {
+            // Fallback: se a composição falhar, mantém o original e persiste o enquadramento
+            mediaTransformPayload = percentTransform;
+          }
+        }
+      }
+      await onCreateStory(mediaToShare, description, null, null, null, mediaTransformPayload);
       resetForm();
       onOpenChange(false);
       toast({
@@ -277,6 +758,7 @@ export function FlowCreationDialog({
         text: t.text,
         x: Math.round((t.x / window.innerWidth) * 1000) / 10,
         y: Math.round((t.y / window.innerHeight) * 1000) / 10,
+        style: t.style,
       }));
       const joinedDescription = texts.map((t) => t.text).join("\n");
       await onCreateStory("", joinedDescription, selectedGradient, null, elementsPercent);
@@ -298,7 +780,11 @@ export function FlowCreationDialog({
   };
 
   const resetForm = () => {
-    setMediaPreview(null);
+    // Revoga blob URL de vídeo gravado para liberar memória
+    setMediaPreview((prev) => {
+      if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return null;
+    });
     setMediaIsVideo(false);
     setDescription("");
     setPendingCropSrc(null);
@@ -306,6 +792,9 @@ export function FlowCreationDialog({
     setTexts([]);
     setEditingId(null);
     setEditingValue("");
+    setEditingStyle(DEFAULT_TEXT_STYLE);
+    setIsRecording(false);
+    setRecordSeconds(0);
     setStep("camera");
   };
 
@@ -319,19 +808,21 @@ export function FlowCreationDialog({
   const beginEditText = (item: TextItem) => {
     setEditingValue(item.text);
     setEditingId(item.id);
+    setEditingStyle(item.style);
     setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
   const commitEditing = () => {
     if (!editingId) return;
     const trimmed = editingValue.trim();
+    const style = editingStyle;
     setTexts((prev) => {
       const existing = prev.find((t) => t.id === editingId);
       if (!trimmed) {
         return existing ? prev.filter((t) => t.id !== editingId) : prev;
       }
       if (existing) {
-        return prev.map((t) => (t.id === editingId ? { ...t, text: trimmed } : t));
+        return prev.map((t) => (t.id === editingId ? { ...t, text: trimmed, style } : t));
       }
       return [
         ...prev,
@@ -340,6 +831,7 @@ export function FlowCreationDialog({
           text: trimmed,
           x: window.innerWidth / 2,
           y: window.innerHeight / 2,
+          style,
         },
       ];
     });
@@ -371,8 +863,8 @@ export function FlowCreationDialog({
     const dy = e.clientY - d.startY;
     if (!d.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) d.moved = true;
     if (d.moved) {
-      const newX = Math.max(40, Math.min(window.innerWidth - 40, d.origX + dx));
-      const newY = Math.max(80, Math.min(window.innerHeight - 80, d.origY + dy));
+      const newX = d.origX + dx;
+      const newY = d.origY + dy;
       setTexts((prev) =>
         prev.map((t) => (t.id === d.id ? { ...t, x: newX, y: newY } : t)),
       );
@@ -469,7 +961,29 @@ export function FlowCreationDialog({
               </div>
             </div>
 
+            {/* Recording timer */}
+            {isRecording && (
+              <div className="relative z-10 flex items-center justify-center pb-3">
+                <div className="flex items-center gap-2 rounded-full bg-red-500/90 backdrop-blur px-3 py-1">
+                  <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
+                  <span className="text-white text-sm font-semibold tabular-nums">
+                    {Math.floor(recordSeconds / 60)}:
+                    {String(recordSeconds % 60).padStart(2, "0")}
+                  </span>
+                </div>
+              </div>
+            )}
+
             <div className="flex-1" />
+
+            {/* Hint */}
+            {!isRecording && !cameraError && (
+              <div className="relative z-10 flex items-center justify-center pb-3 px-6">
+                <p className="text-white/70 text-xs text-center">
+                  Toque para foto • Segure para gravar vídeo
+                </p>
+              </div>
+            )}
 
             {/* Bottom controls */}
             <div
@@ -478,19 +992,33 @@ export function FlowCreationDialog({
             >
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="h-12 w-12 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center text-white"
+                className={`h-12 w-12 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center text-white transition-opacity ${
+                  isRecording ? "opacity-0 pointer-events-none" : "opacity-100"
+                }`}
                 aria-label="Galeria"
+                disabled={isRecording}
               >
                 <ImageIcon className="h-6 w-6" />
               </button>
 
               <button
-                onClick={handleCapture}
+                onPointerDown={handleShutterPointerDown}
+                onPointerUp={handleShutterPointerUp}
+                onPointerCancel={handleShutterPointerUp}
+                onContextMenu={(e) => e.preventDefault()}
                 disabled={!cameraReady}
-                className="h-20 w-20 rounded-full bg-white/20 backdrop-blur flex items-center justify-center disabled:opacity-50"
-                aria-label="Capturar"
+                className="h-20 w-20 rounded-full bg-white/20 backdrop-blur flex items-center justify-center disabled:opacity-50 select-none touch-none"
+                style={{ touchAction: "none" }}
+                aria-label="Toque para foto, segure para gravar vídeo"
               >
-                <div className="h-16 w-16 rounded-full bg-white ring-4 ring-white/40" />
+                {isRecording ? (
+                  <span className="relative flex items-center justify-center h-20 w-20">
+                    <span className="absolute inset-0 rounded-full ring-4 ring-red-500 animate-pulse" />
+                    <span className="h-7 w-7 rounded-md bg-red-500" />
+                  </span>
+                ) : (
+                  <div className="h-16 w-16 rounded-full bg-white ring-4 ring-white/40" />
+                )}
               </button>
 
               <div className="h-12 w-12" aria-hidden />
@@ -531,12 +1059,15 @@ export function FlowCreationDialog({
               texts.map((item) => (
                 <div
                   key={item.id}
-                  className="absolute z-[5] select-none px-6 max-w-[90vw] touch-none"
+                  className="absolute z-[5] select-none touch-none"
                   style={{
                     left: item.x,
                     top: item.y,
                     transform: "translate(-50%, -50%)",
                     cursor: "move",
+                    width: "max-content",
+                    maxWidth: "80vw",
+                    padding: "0 0.5rem",
                   }}
                   onPointerDown={(e) => handleTextPointerDown(e, item)}
                   onPointerMove={handleTextPointerMove}
@@ -544,8 +1075,14 @@ export function FlowCreationDialog({
                   onPointerCancel={(e) => handleTextPointerUp(e, item)}
                 >
                   <p
-                    className="text-white text-center font-bold text-3xl leading-tight break-words whitespace-pre-wrap"
-                    style={{ textShadow: "0 1px 6px rgba(0,0,0,0.45)" }}
+                    className="text-3xl leading-tight break-words whitespace-pre-wrap"
+                    style={{
+                      textShadow: "0 1px 6px rgba(0,0,0,0.45)",
+                      fontFamily: item.style.fontFamily,
+                      fontWeight: item.style.fontWeight,
+                      textAlign: item.style.align,
+                      color: item.style.color,
+                    }}
                   >
                     {item.text}
                   </p>
@@ -564,32 +1101,36 @@ export function FlowCreationDialog({
               </div>
             )}
 
-            {/* Editing overlay */}
+            {/* Dim overlay while editing */}
             {isEditingText && (
-              <>
-                {/* dim background while editing */}
-                <div
-                  className="absolute inset-0 z-[3] bg-black/30"
-                  onClick={commitEditing}
+              <div className="absolute inset-0 z-[3] bg-black/30" onClick={commitEditing} />
+            )}
+
+            {/* Textarea de edição */}
+            {isEditingText && (
+              <div
+                className="absolute inset-x-0 z-[5] flex items-center justify-center px-6 pointer-events-none"
+                style={{ top: "52%", transform: "translateY(-50%)" }}
+              >
+                <textarea
+                  ref={textareaRef}
+                  value={editingValue}
+                  onChange={(e) => setEditingValue(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  maxLength={200}
+                  placeholder="Digite aqui..."
+                  className="w-full bg-transparent text-3xl leading-tight placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
+                  style={{
+                    textShadow: "0 1px 6px rgba(0,0,0,0.45)",
+                    fontFamily: editingStyle.fontFamily,
+                    fontWeight: editingStyle.fontWeight,
+                    textAlign: editingStyle.align,
+                    color: editingStyle.color,
+                  }}
+                  rows={3}
+                  autoFocus
                 />
-                <div
-                  className="absolute inset-x-0 z-[5] flex items-center justify-center px-6 pointer-events-none"
-                  style={{ top: "40%", transform: "translateY(-50%)" }}
-                >
-                  <textarea
-                    ref={textareaRef}
-                    value={editingValue}
-                    onChange={(e) => setEditingValue(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    maxLength={200}
-                    placeholder="Digite aqui..."
-                    className="w-full bg-transparent text-white text-center font-bold text-3xl leading-tight placeholder:text-white/60 resize-none outline-none border-0 pointer-events-auto"
-                    style={{ textShadow: "0 1px 6px rgba(0,0,0,0.45)" }}
-                    rows={3}
-                    autoFocus
-                  />
-                </div>
-              </>
+              </div>
             )}
 
             {/* Top bar */}
@@ -627,6 +1168,73 @@ export function FlowCreationDialog({
                 </button>
               )}
             </div>
+
+            {/* Toolbar de estilo — visível apenas durante a edição de texto */}
+            {isEditingText && (
+              <div
+                className="relative z-[10] px-4 pt-2 pb-1 space-y-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Cores da fonte */}
+                <div className="flex gap-2 justify-center">
+                  {TEXT_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setEditingStyle((s) => ({ ...s, color }))}
+                      className="h-7 w-7 rounded-full border-2 shrink-0 transition-transform"
+                      style={{
+                        background: color,
+                        borderColor: editingStyle.color === color ? "white" : "rgba(255,255,255,0.25)",
+                        transform: editingStyle.color === color ? "scale(1.25)" : "scale(1)",
+                        boxShadow: color === "#ffffff" ? "inset 0 0 0 1px rgba(0,0,0,0.2)" : undefined,
+                      }}
+                      aria-label={`Cor ${color}`}
+                    />
+                  ))}
+                </div>
+
+                {/* Fontes */}
+                <div className="flex gap-1.5 justify-center">
+                  {FONT_OPTIONS.map((font) => {
+                    const isActive = editingStyle.fontFamily === font.family && editingStyle.fontWeight === font.weight;
+                    return (
+                      <button
+                        key={font.id}
+                        onClick={() => setEditingStyle((s) => ({ ...s, fontFamily: font.family, fontWeight: font.weight }))}
+                        className="px-3 py-0.5 rounded-full text-sm transition-all"
+                        style={{
+                          fontFamily: font.family,
+                          fontWeight: font.weight,
+                          background: isActive ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.45)",
+                          color: isActive ? "#000" : "#fff",
+                        }}
+                      >
+                        {font.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Alinhamento */}
+                <div className="flex gap-2 justify-center">
+                  {(["left", "center", "right"] as const).map((align) => {
+                    const Icon = align === "left" ? AlignLeft : align === "center" ? AlignCenter : AlignRight;
+                    const isActive = editingStyle.align === align;
+                    return (
+                      <button
+                        key={align}
+                        onClick={() => setEditingStyle((s) => ({ ...s, align }))}
+                        className="h-8 w-8 rounded-full flex items-center justify-center transition-all"
+                        style={{ background: isActive ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.45)" }}
+                        aria-label={`Alinhar ${align}`}
+                      >
+                        <Icon className="h-4 w-4" style={{ color: isActive ? "#000" : "#fff" }} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="flex-1" />
 
@@ -711,13 +1319,52 @@ export function FlowCreationDialog({
         {/* Caption step */}
         {step === "caption" && mediaPreview && (
           <>
-            <div className="absolute inset-0">
-              {mediaIsVideo ? (
-                <video src={mediaPreview} className="h-full w-full object-cover bg-black" autoPlay loop muted playsInline />
-              ) : (
-                <img src={mediaPreview} alt="Preview" className="h-full w-full object-cover bg-black" />
+            <div ref={captionFrameRef} className="absolute inset-0 overflow-hidden bg-black">
+              {/* Fundo desfocado revelado ao redimensionar/mover (apenas imagem) */}
+              {!mediaIsVideo && (
+                <img
+                  src={mediaPreview}
+                  alt=""
+                  aria-hidden
+                  className="absolute inset-0 h-full w-full object-cover scale-110 blur-2xl brightness-[0.55]"
+                />
               )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/40" />
+              {/* Mídia ajustável (pinça para redimensionar, arraste para mover) */}
+              <div
+                className="absolute inset-0 will-change-transform"
+                style={{
+                  transform: `translate(${mediaTransform.x}px, ${mediaTransform.y}px) scale(${mediaTransform.scale})`,
+                  transformOrigin: "center",
+                }}
+              >
+                {mediaIsVideo ? (
+                  <video
+                    src={mediaPreview}
+                    className="h-full w-full object-cover"
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                  />
+                ) : (
+                  <img
+                    src={mediaPreview}
+                    alt="Preview"
+                    draggable={false}
+                    className="h-full w-full object-cover select-none"
+                  />
+                )}
+              </div>
+              {/* Camada de gestos (cobre a mídia → também impede gestos nativos sobre o vídeo) */}
+              <div
+                className="absolute inset-0 z-[4] touch-none"
+                style={{ touchAction: "none" }}
+                onPointerDown={handleMediaPointerDown}
+                onPointerMove={handleMediaPointerMove}
+                onPointerUp={handleMediaPointerUp}
+                onPointerCancel={handleMediaPointerUp}
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/40 pointer-events-none z-[5]" />
             </div>
 
             <div
@@ -732,6 +1379,15 @@ export function FlowCreationDialog({
                 <X className="h-5 w-5" />
               </button>
             </div>
+
+            {/* Dica de manipulação (some assim que o usuário ajusta) */}
+            {!isMediaTransformed(mediaTransform) && (
+              <div className="relative z-10 flex justify-center pt-2 pointer-events-none">
+                <span className="text-white/80 text-xs bg-black/35 backdrop-blur rounded-full px-3 py-1">
+                  Belisque para redimensionar • arraste para mover
+                </span>
+              </div>
+            )}
 
             <div className="flex-1" />
 

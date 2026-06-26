@@ -29,6 +29,8 @@ Hub social do aplicativo. Reúne mensagens diretas, duelos em grupo (desafios co
 
 ## Tab: Mensagens
 
+> **Visual (LinKa Glass — refatorado 2026-06-26):** A aba de Mensagens segue o design system LinKa Glass. A lista de conversas usa **cartões frosted-glass** empilhados (`rounded-[20px]`, fundo `rgba(255,255,255,.04)`, sem divisórias) em vez de linhas com `divide-y`. A busca é um pill de vidro; o botão de nova conversa é um círculo de vidro. Na conversa individual, as bolhas próprias usam **gradiente azul→roxo** (`linear-gradient(135deg,#5b8cff,#7b3ff2)`) e as do contato usam vidro translúcido (`rgba(255,255,255,.08)`), ambas com cantos `rounded-[20px]` e um canto "rabicho" reduzido. Header, banner de resposta e barra de envio têm fundo de vidro com blur. A **barra de input é mais alta** (pill de `52px` de altura mínima, `rounded-[26px]`, com highlight interno de vidro), os botões de mídia (câmera/galeria/microfone) são alvos circulares de `44px` com **fundo de vidro sutil** (`rgba(255,255,255,.05)` + borda) e ícones de **traço fino** (`strokeWidth 1.8`) para combinar com o glass, e o botão de enviar é um círculo de `48px` com gradiente azul→roxo e sombra. Todas as strings da aba usam `t()` (chaves `community_*`).
+
 ### Vista: Lista de Conversas
 
 **Header:**
@@ -155,34 +157,23 @@ Exibe:
 
 Desafios em grupo onde os participantes fazem check-ins para registrar progresso coletivo.
 
-### Lista de Grupos/Duelos
+### Layout da Lista (LinKa Glass — refatorado 2026-06-26)
 
-**Header:**
-- Título "Duelos"
-- Botão `Plus` → abre modal de criação de grupo
+Layout em **lista vertical** (anteriormente: grid de 2 colunas). Segue o design system LinKa Glass com cartões frosted-glass e efeito blur.
 
-**Subseções:**
-1. **Convites Pendentes** — grupos para os quais o usuário foi convidado
-2. **Meus Grupos** — grupos criados pelo usuário **e grupos em que o usuário participa**
-3. **Grupos Disponíveis** — grupos públicos que o usuário pode entrar
+**Seções:**
 
----
+1. **CTA "Criar um duelo"** — card de destaque com gradiente azul/roxo no topo da lista; clique abre o wizard de criação de grupo
 
-### Card de Grupo/Duelo
+2. **Meus grupos ativos** — grupos criados pelo usuário ou em que participa:
+   - **Card hero** (primeiro grupo) — banner de foto/cor no topo (110px), badge de papel ("Seu grupo" / "Participante"), badge de dias restantes, nome, contagem de participantes + cidade, botão branco "Fazer check-in de hoje" (ação: abre `openGroupView` + modal de check-in simultaneamente)
+   - **Cards compactos** (demais grupos) — ícone/foto quadrado (50×50, border-radius 16px), nome, participantes, cidade, dias restantes, chevron para navegar
 
-Cada grupo exibe:
-| Elemento | Descrição |
-|---|---|
-| Foto do grupo | Imagem customizável |
-| Nome do grupo | Título do desafio |
-| Tag de papel | "Seu Grupo" (criador) / "Participante" (membro) |
-| Criador | Frame com foto e nome do criador (visível nos cards de "Meus Grupos" apenas para grupos em que o usuário é participante, e em "Todos os Grupos") |
-| Descrição | Objetivo do grupo |
-| Participantes | Contagem + lista de avatares |
-| Progresso coletivo | Barra ou percentual |
-| Check-ins do dia | Quem já fez check-in hoje |
-| Botão Check-in | Registrar participação |
-| Botão Ver Detalhes | Expande/recolhe informações |
+3. **Da comunidade** — grupos disponíveis para entrar (lista simples):
+   - Ícone/foto, nome, contagem + nome do criador, botão "Entrar" / "Ver Grupo" / "⏳ Pendente"
+   - Ao clicar "Entrar" → `addMembersToGroupDb` + notificação ao criador; estado muda para "Pendente"
+
+4. **Empty state** — ícone `Swords` com mensagem central quando não há grupos
 
 ---
 

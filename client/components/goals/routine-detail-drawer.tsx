@@ -90,9 +90,20 @@ export function RoutineDetailDrawer({
 
   return (
     <Drawer open onOpenChange={(o) => !o && onClose()}>
-      <DrawerContent className="flex flex-col" style={{ maxHeight: "90dvh" }} onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="flex flex-col !rounded-t-[32px] !border-0"
+        style={{
+          maxHeight: "90dvh",
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DrawerHeader className="shrink-0 pb-2">
-          <DrawerTitle className="flex items-center gap-2 text-left">
+          <DrawerTitle className="flex items-center gap-2 text-left" style={{ color: "#fff" }}>
             <span>{card.type === 1 ? "🏋️" : card.type === 2 ? "🥗" : "✅"}</span>
             <span className="flex-1 truncate">{label}</span>
           </DrawerTitle>
@@ -126,7 +137,8 @@ export function RoutineDetailDrawer({
               return (
                 <div
                   key={item.id}
-                  className="flex items-center gap-3 bg-card border border-border/40 rounded-xl p-2.5"
+                  className="flex items-center gap-3 rounded-2xl p-2.5"
+                  style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
                 >
                   {item.kind === "workout" ? (
                     <ExerciseImage
@@ -147,10 +159,10 @@ export function RoutineDetailDrawer({
                     </button>
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate ${completed ? "line-through text-muted-foreground" : ""}`}>
+                    <p className={`text-sm font-medium truncate ${completed ? "line-through" : ""}`} style={{ color: completed ? "rgba(255,255,255,.4)" : "#fff" }}>
                       {itemName}
                     </p>
-                    <p className="text-xs text-muted-foreground truncate">
+                    <p className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>
                       {item.kind === "workout"
                         ? item.muscle_group || ""
                         : item.kind === "diet"
@@ -172,21 +184,22 @@ export function RoutineDetailDrawer({
 
           {/* Inline editors */}
           {editor === "rename" && (
-            <div className="bg-card border border-border/40 rounded-xl p-3 space-y-2">
+            <div className="rounded-2xl p-3 space-y-2" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
               <Input
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
                 placeholder={t("goals_edit_routine_name_placeholder")}
                 maxLength={60}
-                style={{ fontSize: "16px" }}
+                style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
               />
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" className="flex-1 rounded-full" onClick={() => setEditor(null)}>
+                <Button variant="outline" size="sm" className="flex-1 rounded-full" style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }} onClick={() => setEditor(null)}>
                   {t("goals_cancel")}
                 </Button>
                 <Button
                   size="sm"
                   className="flex-1 rounded-full"
+                  style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                   disabled={!renameValue.trim() || isBusy}
                   onClick={() => runAction(() => onRename(card, renameValue.trim()))}
                 >
@@ -197,16 +210,16 @@ export function RoutineDetailDrawer({
           )}
 
           {editor === "time" && (
-            <div className="bg-card border border-border/40 rounded-xl p-3 space-y-2">
-              <p className="text-xs text-muted-foreground">
+            <div className="rounded-2xl p-3 space-y-2" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+              <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
                 {timeValue ? t("goals_edit_routine_time_set").replace("{time}", timeValue) : t("goals_edit_routine_time_empty")}
               </p>
               <input
                 type="time"
                 value={timeValue}
                 onChange={(e) => setTimeValue(e.target.value)}
-                className="w-full h-11 rounded-xl bg-muted/40 border border-border/40 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                style={{ fontSize: "16px" }}
+                className="w-full h-11 rounded-xl px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
               />
               <div className="flex gap-2">
                 {card.scheduledTime && (
@@ -214,6 +227,7 @@ export function RoutineDetailDrawer({
                     variant="outline"
                     size="sm"
                     className="flex-1 rounded-full"
+                    style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
                     disabled={isBusy}
                     onClick={() => runAction(() => onSetTime(card, null))}
                   >
@@ -223,6 +237,7 @@ export function RoutineDetailDrawer({
                 <Button
                   size="sm"
                   className="flex-1 rounded-full"
+                  style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                   disabled={!timeValue || isBusy}
                   onClick={() => runAction(() => onSetTime(card, timeValue))}
                 >
@@ -233,9 +248,9 @@ export function RoutineDetailDrawer({
           )}
 
           {editor === "goal" && (
-            <div className="bg-card border border-border/40 rounded-xl p-3 space-y-1.5">
+            <div className="rounded-2xl p-3 space-y-1.5" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
               {userGoals.filter((g) => g.perc < 100).length === 0 && (
-                <p className="text-xs text-muted-foreground text-center py-2">
+                <p className="text-xs text-center py-2" style={{ color: "rgba(255,255,255,.5)" }}>
                   {t("goals_no_available_routines")}
                 </p>
               )}
@@ -248,12 +263,11 @@ export function RoutineDetailDrawer({
                     onClick={() =>
                       runAction(() => onLinkGoal(card, card.goalId === g.goal_id ? null : g))
                     }
-                    className={`w-full flex items-center gap-2 rounded-xl border p-2.5 text-left text-sm transition-all ${
-                      card.goalId === g.goal_id ? "border-primary bg-primary/5" : "border-border/40"
-                    }`}
+                    className="w-full flex items-center gap-2 rounded-2xl p-3 text-left text-sm transition-all"
+                  style={card.goalId === g.goal_id ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                   >
                     <Target className="h-4 w-4 text-primary shrink-0" />
-                    <span className="flex-1 truncate font-medium">{g.description}</span>
+                    <span className="flex-1 truncate font-medium" style={{ color: "#fff" }}>{g.description}</span>
                     {card.goalId === g.goal_id && <Check className="h-4 w-4 text-primary shrink-0" />}
                   </button>
                 ))}
@@ -264,27 +278,24 @@ export function RoutineDetailDrawer({
           <div className="grid grid-cols-3 gap-2 pt-1">
             <button
               onClick={() => setEditor(editor === "rename" ? null : "rename")}
-              className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium transition-all ${
-                editor === "rename" ? "border-primary bg-primary/5" : "border-border/40 bg-card"
-              }`}
+              className="flex flex-col items-center gap-1 rounded-2xl p-3 text-xs font-medium transition-all"
+              style={editor === "rename" ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)", color: "#fff" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.06)", color: "rgba(255,255,255,.7)" }}
             >
               <Pencil className="h-4 w-4" />
               {t("goals_detail_rename")}
             </button>
             <button
               onClick={() => setEditor(editor === "time" ? null : "time")}
-              className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium transition-all ${
-                editor === "time" ? "border-primary bg-primary/5" : "border-border/40 bg-card"
-              }`}
+              className="flex flex-col items-center gap-1 rounded-2xl p-3 text-xs font-medium transition-all"
+              style={editor === "time" ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)", color: "#fff" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.06)", color: "rgba(255,255,255,.7)" }}
             >
               <Bell className="h-4 w-4" />
               {t("goals_detail_reminder")}
             </button>
             <button
               onClick={() => setEditor(editor === "goal" ? null : "goal")}
-              className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium transition-all ${
-                editor === "goal" ? "border-primary bg-primary/5" : "border-border/40 bg-card"
-              }`}
+              className="flex flex-col items-center gap-1 rounded-2xl p-3 text-xs font-medium transition-all"
+              style={editor === "goal" ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)", color: "#fff" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.06)", color: "rgba(255,255,255,.7)" }}
             >
               <Target className="h-4 w-4" />
               {t("goals_detail_goal")}
@@ -294,6 +305,7 @@ export function RoutineDetailDrawer({
           {card.type === 1 && (
             <Button
               className="w-full rounded-full h-12"
+              style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
               onClick={() => {
                 onClose();
                 onStartWorkout(card);
@@ -306,7 +318,8 @@ export function RoutineDetailDrawer({
 
           <Button
             variant="outline"
-            className="w-full rounded-full h-11 text-destructive border-destructive/30"
+            className="w-full rounded-full h-11"
+            style={{ background: "rgba(239,68,68,.1)", color: "#f87171", border: "1px solid rgba(239,68,68,.3)" }}
             onClick={() => setDeleteConfirmOpen(true)}
           >
             <Trash2 className="h-4 w-4 mr-1.5" />

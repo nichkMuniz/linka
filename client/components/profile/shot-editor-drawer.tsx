@@ -77,14 +77,25 @@ export function ShotEditorDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
+        style={{
+          maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle>{isEditing ? "Editar Shot" : "Opções do Shot"}</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>{isEditing ? "Editar Shot" : "Opções do Shot"}</DrawerTitle>
         </DrawerHeader>
 
         {shot && (
           <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-4">
-            <div className="relative aspect-square overflow-hidden rounded-lg bg-black border border-border/60">
+            <div className="relative aspect-square overflow-hidden rounded-2xl bg-black" style={{ border: "1px solid rgba(255,255,255,.1)" }}>
               <video
                 src={shot.video_url}
                 className="w-full h-full object-cover"
@@ -94,26 +105,27 @@ export function ShotEditorDrawer({
 
             {isEditing ? (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Descrição</label>
+                <label className="text-sm font-medium" style={{ color: "#fff" }}>Descrição</label>
                 <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="resize-none"
+                  style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                   rows={4}
                 />
               </div>
             ) : (
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Descrição</label>
-                <p className="text-sm mt-1">{shot.description}</p>
+                <label className="text-xs font-medium" style={{ color: "rgba(255,255,255,.5)" }}>Descrição</label>
+                <p className="text-sm mt-1" style={{ color: "#fff" }}>{shot.description}</p>
               </div>
             )}
 
             {confirmDelete && (
-              <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 space-y-3">
-                <p className="text-sm text-destructive font-medium">Tem certeza que deseja deletar este shot?</p>
+              <div className="rounded-2xl p-4 space-y-3" style={{ border: "1px solid rgba(239,68,68,.4)", background: "rgba(239,68,68,.08)" }}>
+                <p className="text-sm font-medium" style={{ color: "#f87171" }}>Tem certeza que deseja deletar este shot?</p>
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={() => setConfirmDelete(false)} disabled={isSaving}>
+                  <Button variant="outline" className="flex-1" style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }} onClick={() => setConfirmDelete(false)} disabled={isSaving}>
                     Cancelar
                   </Button>
                   <Button variant="destructive" className="flex-1" onClick={handleDelete} disabled={isSaving}>
@@ -127,7 +139,7 @@ export function ShotEditorDrawer({
               <div className="flex gap-2 pt-4">
                 {!isEditing ? (
                   <>
-                    <Button variant="outline" className="flex-1" onClick={() => setIsEditing(true)}>
+                    <Button variant="outline" className="flex-1" style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }} onClick={() => setIsEditing(true)}>
                       <Edit2 className="h-4 w-4 mr-2" />
                       Editar
                     </Button>
@@ -141,12 +153,13 @@ export function ShotEditorDrawer({
                     <Button
                       variant="outline"
                       className="flex-1"
+                      style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
                       onClick={() => { setIsEditing(false); setDescription(shot.description || ""); }}
                       disabled={isSaving}
                     >
                       Cancelar
                     </Button>
-                    <Button className="flex-1" onClick={handleSave} disabled={isSaving}>
+                    <Button className="flex-1" style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }} onClick={handleSave} disabled={isSaving}>
                       {isSaving ? "Salvando..." : "Salvar"}
                     </Button>
                   </>

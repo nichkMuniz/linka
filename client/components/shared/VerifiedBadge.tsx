@@ -1,3 +1,4 @@
+import * as React from "react";
 import { cn } from "@/lib/utils";
 
 interface VerifiedBadgeProps {
@@ -17,6 +18,8 @@ const sizeMap = {
  * Renders nothing when `show` is false — callers gate on `isVerified`.
  */
 export function VerifiedBadge({ size = "md", className }: VerifiedBadgeProps) {
+  const uid = React.useId();
+  const gradientId = `vbg${uid.replace(/:/g, "")}`;
   const s = sizeMap[size];
 
   return (
@@ -25,7 +28,6 @@ export function VerifiedBadge({ size = "md", className }: VerifiedBadgeProps) {
       aria-label="Conta verificada"
       className={cn("inline-flex items-center justify-center shrink-0", s.outer, className)}
     >
-      {/* Golden circle with checkmark */}
       <svg
         viewBox="0 0 20 20"
         fill="none"
@@ -33,9 +35,7 @@ export function VerifiedBadge({ size = "md", className }: VerifiedBadgeProps) {
         className="w-full h-full"
         aria-hidden="true"
       >
-        {/* Outer golden circle */}
-        <circle cx="10" cy="10" r="10" fill="url(#gold-gradient)" />
-        {/* Inner white/dark checkmark */}
+        <circle cx="10" cy="10" r="10" fill={`url(#${gradientId})`} />
         <path
           d="M6 10.5L8.5 13L14 7.5"
           stroke="white"
@@ -44,7 +44,7 @@ export function VerifiedBadge({ size = "md", className }: VerifiedBadgeProps) {
           strokeLinejoin="round"
         />
         <defs>
-          <linearGradient id="gold-gradient" x1="0" y1="0" x2="20" y2="20" gradientUnits="userSpaceOnUse">
+          <linearGradient id={gradientId} x1="0" y1="0" x2="20" y2="20" gradientUnits="userSpaceOnUse">
             <stop offset="0%" stopColor="#FFB800" />
             <stop offset="100%" stopColor="#FF8A2A" />
           </linearGradient>

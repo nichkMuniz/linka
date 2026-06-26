@@ -435,7 +435,14 @@ Posts de Flow (formato Stories, mídia efêmera).
 | `background_color` | text | — | `null` | Gradient CSS de fundo para Flows somente-texto. |
 | `text_position` | jsonb | — | `null` | **Legado**. Posição única em flows antigos de texto: `{ "x": number, "y": number }` em % (0–100). Substituído por `text_elements`. |
 | `text_elements` | jsonb | — | `null` | Lista de textos em Flows somente-texto: `[{ "text": string, "x": number, "y": number }]` com x/y em % (0–100). Cada elemento pode ser arrastado independentemente pelo autor. |
+| `media_transform` | jsonb | — | `null` | Enquadramento da **mídia em vídeo** ajustado na criação (pinça/arraste): `{ "scale": number, "x": number, "y": number }`, onde `x`/`y` são translação em **% do tamanho do elemento** (resolução-independente). Aplicado via CSS `transform` no viewer. Imagens **não** usam este campo (o ajuste é composto no canvas antes do upload). |
 | `created_at` | timestamptz | ✓ | `now()` | Data de publicação |
+
+> **Migração (rodar no Supabase SQL Editor):**
+> ```sql
+> ALTER TABLE public.flow ADD COLUMN IF NOT EXISTS media_transform jsonb;
+> ```
+> Enquanto a coluna não existir, o app degrada graciosamente (vídeos são salvos sem o enquadramento; o código detecta `42703` e reenvia sem o campo).
 
 ---
 
@@ -696,6 +703,7 @@ Perfil público dos usuários da plataforma.
 | `created_at` | timestamptz | ✓ | `now()` | Data de criação |
 | `updated_at` | timestamp | — | `now()` | Data de atualização |
 | `photo` | text | — | — | URL da foto de perfil |
+| `cover_photo` | text | — | — | URL da foto de capa/banner do perfil. Quando preenchida, substitui o gradiente colorido no topo do perfil. `null` = usar gradiente padrão |
 | `objectives` | text[] | — | — | Objetivos fitness selecionados no cadastro (ex: ["fitness", "cardio"]) |
 | `gender` | text[] | — | — | sexo do usuario |
 | `height` | bigint[] | — | — | altura do usuario |
@@ -703,6 +711,10 @@ Perfil público dos usuários da plataforma.
 | `age` | bigint[] | — | — | idade do usuario |
 | `handle` | text[] | — | — | handle do usuario |
 | `is_verified` | boolean | ✓ | `false` | Indica conta oficial verificada (badge dourado). Só pode ser alterado via service_role (admin). |
+| `hide_follow_lists` | boolean | ✓ | `false` | Privacidade: quando `true`, outros usuários não conseguem abrir as listas de seguidores/seguindo deste perfil (gating client-side em `Profile.tsx`). |
+| `hide_posts_from_non_followers` | boolean | ✓ | `false` | Privacidade: quando `true`, a aba Posts do perfil só é visível para quem segue o dono. |
+
+> Migration: `docs/migrations/20260626-profile-privacy.sql`
 
 ---
 

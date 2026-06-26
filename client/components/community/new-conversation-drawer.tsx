@@ -58,18 +58,34 @@ export function NewConversationDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="flex flex-col z-[100]" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="flex flex-col z-[100] !rounded-t-[32px] !border-0"
+        style={{
+          maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle>Nova mensagem</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>Nova mensagem</DrawerTitle>
         </DrawerHeader>
         <div className="px-4 pb-3 shrink-0">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none" style={{ color: "rgba(255,255,255,.4)" }} />
             <Input
               placeholder="Buscar usuário..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="rounded-full pl-9 bg-muted/30 border-transparent"
+              className="rounded-full pl-9"
+              style={{
+                background: "rgba(255,255,255,.07)",
+                border: "1px solid rgba(255,255,255,.12)",
+                color: "#fff",
+              }}
               autoFocus
             />
           </div>
@@ -77,24 +93,25 @@ export function NewConversationDrawer({
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           {!search.trim() ? (
             <div className="flex flex-col items-center gap-2 py-10 px-2">
-              <Search className="h-8 w-8 text-muted-foreground" />
-              <p className="text-muted-foreground text-sm text-center">
+              <Search className="h-8 w-8" style={{ color: "rgba(255,255,255,.3)" }} />
+              <p className="text-sm text-center" style={{ color: "rgba(255,255,255,.5)" }}>
                 Digite o nome de um usuário para iniciar uma conversa
               </p>
             </div>
           ) : isSearching ? (
             <div className="py-10 flex justify-center">
-              <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <div className="h-5 w-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "rgba(255,255,255,.4)", borderTopColor: "transparent" }} />
             </div>
           ) : results.length === 0 ? (
-            <p className="text-center text-muted-foreground text-sm py-10">
+            <p className="text-center text-sm py-10" style={{ color: "rgba(255,255,255,.5)" }}>
               Nenhum usuário encontrado
             </p>
           ) : (
             results.map((user) => (
               <button
                 key={user.id}
-                className="w-full flex items-center gap-3 py-3 hover:bg-muted/30 rounded-lg px-2 transition-colors"
+                className="w-full flex items-center gap-3 p-3 mb-2 rounded-2xl active:scale-[0.99] transition-all"
+                style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
                 onClick={() => {
                   onSelectFollower({
                     userId: user.id,
@@ -113,7 +130,7 @@ export function NewConversationDrawer({
                   size="md"
                   className="shrink-0"
                 />
-                <span className="font-medium text-sm">{user.nickname}</span>
+                <span className="font-medium text-sm" style={{ color: "#fff" }}>{user.nickname}</span>
               </button>
             ))
           )}

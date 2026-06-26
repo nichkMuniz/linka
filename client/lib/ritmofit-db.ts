@@ -1205,12 +1205,17 @@ export type UserProfile = {
   nickname: string;
   bio: string;
   photo: string | null;
+  cover_photo?: string | null;
   objectives?: string[] | null;
   handle?: string;
   height?: string | null;
   weight?: string | null;
   age?: string | null;
   is_verified?: boolean;
+  /** Oculta listas de seguidores/seguindo de outros usuários */
+  hide_follow_lists?: boolean;
+  /** Oculta posts para quem não segue o usuário */
+  hide_posts_from_non_followers?: boolean;
 };
 
 export async function getUserProfileDb(
@@ -1225,7 +1230,7 @@ export async function getUserProfileDb(
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, nickname, bio, photo, objectives, height, weight, age, handle, is_verified")
+    .select("id, nickname, bio, photo, cover_photo, objectives, height, weight, age, handle, is_verified, hide_follow_lists, hide_posts_from_non_followers")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -1246,12 +1251,15 @@ export async function getUserProfileDb(
     nickname: String(data.nickname ?? ""),
     bio: String(data.bio ?? ""),
     photo: data.photo ? String(data.photo) : null,
+    cover_photo: data.cover_photo ? String(data.cover_photo) : null,
     objectives: data.objectives ?? null,
     handle: data.handle ? String(data.handle) : undefined,
     height: data.height != null ? String(data.height) : null,
     weight: data.weight != null ? String(data.weight) : null,
     age: data.age != null ? String(data.age) : null,
     is_verified: data.is_verified === true,
+    hide_follow_lists: data.hide_follow_lists === true,
+    hide_posts_from_non_followers: data.hide_posts_from_non_followers === true,
   };
 
   _profileCache.set(userId, { data: profile, expiry: Date.now() + PROFILE_CACHE_TTL_MS });
@@ -1260,7 +1268,7 @@ export async function getUserProfileDb(
 
 export async function updateUserProfileDb(
   userId: string,
-  updates: { nickname?: string; bio?: string; photo?: string | null; height?: number | null; weight?: number | null; age?: number | null; handle?: string; objectives?: string[] | null },
+  updates: { nickname?: string; bio?: string; photo?: string | null; cover_photo?: string | null; height?: number | null; weight?: number | null; age?: number | null; handle?: string; objectives?: string[] | null; hide_follow_lists?: boolean; hide_posts_from_non_followers?: boolean },
 ): Promise<UserProfile | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
@@ -1271,7 +1279,7 @@ export async function updateUserProfileDb(
     .from("profiles")
     .update(updates)
     .eq("user_id", userId)
-    .select("id, nickname, bio, photo, objectives, handle, height, weight, age")
+    .select("id, nickname, bio, photo, cover_photo, objectives, handle, height, weight, age, is_verified, hide_follow_lists, hide_posts_from_non_followers")
     .maybeSingle();
 
   if (error) {
@@ -1291,11 +1299,15 @@ export async function updateUserProfileDb(
     nickname: String(data.nickname ?? ""),
     bio: String(data.bio ?? ""),
     photo: data.photo ? String(data.photo) : null,
+    cover_photo: data.cover_photo ? String(data.cover_photo) : null,
     objectives: data.objectives ?? null,
     handle: data.handle ? String(data.handle) : undefined,
     height: data.height != null ? String(data.height) : null,
     weight: data.weight != null ? String(data.weight) : null,
     age: data.age != null ? String(data.age) : null,
+    is_verified: data.is_verified === true,
+    hide_follow_lists: data.hide_follow_lists === true,
+    hide_posts_from_non_followers: data.hide_posts_from_non_followers === true,
   };
 }
 
@@ -3374,7 +3386,15 @@ export async function getFollowingIdsDb(): Promise<string[]> {
 
 // Stories functionality
 export type StoryTextPosition = { x: number; y: number }; // percentages 0–100
-export type StoryTextElement = { text: string; x: number; y: number }; // x/y in %
+export type StoryTextStyle = {
+  fontFamily?: string;
+  fontWeight?: number;
+  align?: "left" | "center" | "right";
+  color?: string;
+};
+export type StoryTextElement = { text: string; x: number; y: number; style?: StoryTextStyle }; // x/y in %
+// Enquadramento da mídia (vídeo): scale unitário, x/y em % do tamanho do elemento
+export type StoryMediaTransform = { scale: number; x: number; y: number };
 
 export type Story = {
   id: string;
@@ -3384,6 +3404,7 @@ export type Story = {
   background_color?: string | null;
   text_position?: StoryTextPosition | null;
   text_elements?: StoryTextElement[] | null;
+  media_transform?: StoryMediaTransform | null;
   created_at: string;
 };
 
@@ -3393,9 +3414,14 @@ export type StoryWithUser = Story & {
 };
 
 const FLOW_COLS_FULL =
+  "id, user_id, description, media_url, background_color, text_position, text_elements, media_transform, created_at";
+// Sem media_transform (banco ainda não migrado), mas preserva os textos
+const FLOW_COLS_TEXT =
   "id, user_id, description, media_url, background_color, text_position, text_elements, created_at";
 const FLOW_COLS_BASE =
   "id, user_id, description, media_url, background_color, created_at";
+// Degradação em camadas: FULL → TEXT → BASE (cada queda remove só o que falta)
+const FLOW_COLS_TIERS = [FLOW_COLS_FULL, FLOW_COLS_TEXT, FLOW_COLS_BASE];
 let flowColsCache = FLOW_COLS_FULL;
 
 // PostgREST code for "undefined column"
@@ -3403,14 +3429,16 @@ const isMissingColumnError = (err: any) =>
   err?.code === "42703" || /column .* does not exist/i.test(err?.message ?? "");
 
 async function selectFlow(builder: (cols: string) => any): Promise<{ data: any[]; error: any }> {
-  const first = await builder(flowColsCache);
-  if (first.error && isMissingColumnError(first.error) && flowColsCache !== FLOW_COLS_BASE) {
-    console.warn("[flow] new columns missing on table — falling back to base columns");
-    flowColsCache = FLOW_COLS_BASE;
-    const retry = await builder(FLOW_COLS_BASE);
-    return { data: retry.data ?? [], error: retry.error };
+  let idx = FLOW_COLS_TIERS.indexOf(flowColsCache);
+  if (idx < 0) idx = 0;
+  let result = await builder(FLOW_COLS_TIERS[idx]);
+  while (result.error && isMissingColumnError(result.error) && idx < FLOW_COLS_TIERS.length - 1) {
+    idx++;
+    console.warn(`[flow] coluna ausente — caindo para colunas: ${FLOW_COLS_TIERS[idx]}`);
+    flowColsCache = FLOW_COLS_TIERS[idx];
+    result = await builder(FLOW_COLS_TIERS[idx]);
   }
-  return { data: first.data ?? [], error: first.error };
+  return { data: result.data ?? [], error: result.error };
 }
 
 export async function getActiveStoriesDb(): Promise<StoryWithUser[]> {
@@ -3562,6 +3590,7 @@ export async function createStoryDb(
   backgroundColor?: string | null,
   textPosition?: StoryTextPosition | null,
   textElements?: StoryTextElement[] | null,
+  mediaTransform?: StoryMediaTransform | null,
 ): Promise<Story | null> {
   if (!hasSupabaseConfig || !supabase) return null;
 
@@ -3576,6 +3605,7 @@ export async function createStoryDb(
       background_color: backgroundColor ?? null,
       text_position: textPosition ?? null,
       text_elements: textElements ?? null,
+      media_transform: mediaTransform ?? null,
     };
 
     let { data, error } = await supabase
@@ -3587,7 +3617,7 @@ export async function createStoryDb(
     // Fallback: if a new column is missing on the DB, retry without it
     if (error && isMissingColumnError(error)) {
       console.warn("[flow] insert failed due to missing column — retrying without new fields:", error?.message);
-      const { text_position: _tp, text_elements: _te, ...basePayload } = fullPayload;
+      const { text_position: _tp, text_elements: _te, media_transform: _mt, ...basePayload } = fullPayload;
       const retry = await supabase!
         .from("flow")
         .insert(basePayload)
@@ -4622,6 +4652,8 @@ export async function getShotsDb(): Promise<ShotWithUser[]> {
     const { data: shotsData, error: shotsError } = await supabase
       .from("shots")
       .select("id, user_id, video_url, description, created_at")
+      .not("video_url", "is", null)
+      .neq("video_url", "")
       .order("created_at", { ascending: false })
       .limit(50);
 

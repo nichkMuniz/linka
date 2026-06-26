@@ -5,11 +5,8 @@ import {
   Drawer,
   DrawerContent,
   DrawerDescription,
-  DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { PostIncentiveButton } from "@/components/shared/post-incentive-button";
 import { FollowButton } from "@/components/shared/follow-button";
 import { toast } from "@/components/ui/use-toast";
@@ -23,6 +20,7 @@ import {
   updateShotCommentDb,
   getFollowingStatusBatchDb,
   deleteShotDb,
+  getUserProfileDb,
   type ShotWithUser,
   type ShotComment,
   type PostIncentiveType,
@@ -52,7 +50,19 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { useLanguage } from "@/lib/language-context";
+import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import { hapticLight, hapticMedium } from "@/lib/haptics";
+
+function formatRelativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "agora";
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
 
 export default function Shots() {
   const { user } = useAuth();
@@ -72,6 +82,8 @@ export default function Shots() {
   );
   const [comments, setComments] = React.useState<ShotComment[]>([]);
   const [commentText, setCommentText] = React.useState("");
+  const [currentUserPhoto, setCurrentUserPhoto] = React.useState<string | null>(null);
+  const viewportHeight = useKeyboardAwareHeight();
   const [isLoadingComments, setIsLoadingComments] = React.useState(false);
   const [isAddingComment, setIsAddingComment] = React.useState(false);
   const [followingStatus, setFollowingStatus] = React.useState<
@@ -152,6 +164,14 @@ export default function Shots() {
       pauseIconTimerRef.current = setTimeout(() => setShowPauseIcon(false), 800);
     }, 300);
   }, []);
+
+  // Load current user avatar once when the comments drawer opens
+  React.useEffect(() => {
+    if (!commentsOpen || !user) return;
+    getUserProfileDb(user.id)
+      .then((profile) => setCurrentUserPhoto(profile?.photo ?? null))
+      .catch(() => {});
+  }, [commentsOpen, user?.id]);
 
   // Auto-dismiss swipe hint after 4s to prevent blocking interaction
   React.useEffect(() => {
@@ -249,7 +269,7 @@ export default function Shots() {
         setVisibleShotId(shotId);
         const video = videoRefsMap.current[shotId];
         if (video) {
-          video.play().catch((err) => { if (err?.name !== "AbortError") console.error("Erro ao reproduzir vídeo:", err); });
+          video.play().catch((err) => { if (err?.name !== "AbortError" && err?.name !== "NotSupportedError") console.error("Erro ao reproduzir vídeo:", err); });
         }
       });
     }, observerOptions);
@@ -690,6 +710,7 @@ export default function Shots() {
                     preload="metadata"
                     className="h-full w-full object-cover"
                     style={{ pointerEvents: "none" }}
+                    onError={() => { delete videoRefsMap.current[shot.id]; }}
                   />
                   {/* Tap feedback icon */}
                   {showPauseIcon && visibleShotId === shot.id && (
@@ -970,42 +991,80 @@ export default function Shots() {
       <Drawer
         open={commentsOpen && selectedShot !== null}
         onOpenChange={setCommentsOpen}
+        noBodyStyles
+        shouldScaleBackground={false}
       >
-        <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
-          <DrawerHeader>
-            <DrawerTitle>{t("comments_title")}</DrawerTitle>
-            <DrawerDescription className="sr-only">{t("shots_comments_desc")}</DrawerDescription>
-          </DrawerHeader>
+        <DrawerContent
+          handleClassName="mt-[10px] h-1 w-[38px] bg-white/25"
+          className="flex flex-col !rounded-t-[32px] !border-0"
+          style={{
+            maxHeight: `min(82dvh, ${viewportHeight - 8}px)`,
+            background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+            backdropFilter: "blur(40px) saturate(180%)",
+            WebkitBackdropFilter: "blur(40px) saturate(180%)",
+            borderTop: "1px solid rgba(255,255,255,.14)",
+          }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <DrawerDescription className="sr-only">{t("shots_comments_desc")}</DrawerDescription>
 
-          <div ref={commentsListRef} className="flex-1 overflow-y-auto space-y-4 px-4 py-4">
+          {/* Title */}
+          <DrawerTitle
+            className="flex-shrink-0 px-[18px] pb-[14px] text-[18px] leading-none"
+            style={{ fontWeight: 740, color: "#fff" }}
+          >
+            {t("comments_title")} · {selectedShot?.commentCount ?? comments.length}
+          </DrawerTitle>
+
+          {/* Comments list */}
+          <div
+            ref={commentsListRef}
+            className="flex-1 overflow-y-auto px-[18px] pb-3"
+            style={{ display: "flex", flexDirection: "column", gap: "18px" }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
             {isLoadingComments ? (
-              <p className="text-sm text-muted-foreground text-center">
+              <div className="text-sm py-6 text-center" style={{ color: "rgba(255,255,255,.5)" }}>
                 {t("comments_loading")}
-              </p>
+              </div>
             ) : comments && comments.length > 0 ? (
               comments.map((comment) => (
-                <div
-                  key={comment.id}
-                  className="flex items-start gap-3 pb-3 border-b border-border/60"
-                >
+                <div key={comment.id} className="flex gap-[11px]">
+                  {/* Avatar */}
                   <UserAvatar
                     photo={comment.userPhoto}
                     nickname={comment.userName}
                     size="sm"
+                    className="flex-shrink-0 mt-0.5"
                   />
+
+                  {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium">
-                      {comment.userName || "Usuário"}
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        {comment.userHandle ? (comment.userHandle.startsWith("@") ? comment.userHandle : `@${comment.userHandle}`) : "@user"}
+                    {/* Name + time */}
+                    <div className="text-[13.5px]" style={{ color: "rgba(255,255,255,.95)" }}>
+                      <span className="font-semibold" style={{ color: "#fff" }}>
+                        {comment.userName}
                       </span>
-                    </p>
+                      {" "}
+                      <span style={{ color: "rgba(255,255,255,.4)", fontSize: "11.5px" }}>
+                        · {formatRelativeTime(comment.createdAt)}
+                      </span>
+                    </div>
+
+                    {/* Text or edit form */}
                     {editingCommentId === comment.id ? (
                       <div className="mt-1 flex flex-col gap-1.5">
                         <textarea
                           value={editCommentDraft}
                           onChange={(e) => setEditCommentDraft(e.target.value)}
-                          className="w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-h-16"
+                          className="w-full rounded-2xl px-3 py-2 text-sm resize-none"
+                          style={{
+                            background: "rgba(255,255,255,.07)",
+                            border: "1px solid rgba(255,255,255,.12)",
+                            color: "#fff",
+                            minHeight: "64px",
+                            outline: "none",
+                          }}
                           disabled={isSavingEditComment}
                           autoFocus
                           onKeyDown={(e) => {
@@ -1021,7 +1080,8 @@ export default function Shots() {
                             type="button"
                             onClick={() => handleSaveEditComment(comment.id)}
                             disabled={!editCommentDraft.trim() || isSavingEditComment}
-                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium disabled:opacity-50 transition-colors"
+                            style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                           >
                             <Check className="h-3 w-3" />
                             {t("comments_edit_save")}
@@ -1030,7 +1090,8 @@ export default function Shots() {
                             type="button"
                             onClick={handleCancelEditComment}
                             disabled={isSavingEditComment}
-                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50 transition-colors"
+                            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium disabled:opacity-50 transition-colors"
+                            style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)" }}
                           >
                             <X className="h-3 w-3" />
                             {t("comments_edit_cancel")}
@@ -1038,68 +1099,116 @@ export default function Shots() {
                         </div>
                       </div>
                     ) : (
-                      <p className="text-sm text-foreground mt-1">
+                      <p
+                        className="break-words"
+                        style={{ margin: "3px 0 7px", fontSize: "13.5px", lineHeight: "1.45", color: "rgba(255,255,255,.82)" }}
+                      >
                         {comment.text}
                       </p>
                     )}
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {new Date(comment.createdAt).toLocaleString("pt-BR")}
-                    </p>
-                    <CommentReactions commentType="shot" commentId={comment.id} commentOwnerId={comment.userId} sourceId={selectedShot?.id} isOwnComment={!!(user?.id === comment.userId)} />
+
+                    <CommentReactions
+                      commentType="shot"
+                      commentId={comment.id}
+                      commentOwnerId={comment.userId}
+                      sourceId={selectedShot?.id}
+                      isOwnComment={!!(user?.id === comment.userId)}
+                    />
                   </div>
+
+                  {/* Edit/Delete for own comments */}
                   {user?.id === comment.userId && editingCommentId !== comment.id && (
-                    <div className="flex shrink-0 gap-0.5">
+                    <div className="flex gap-0.5 shrink-0">
                       <button
+                        type="button"
                         onClick={() => handleStartEditComment(comment)}
-                        className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                        className="rounded-lg p-1.5 transition-colors active:opacity-70"
+                        style={{ color: "rgba(255,255,255,.4)" }}
                         aria-label={t("comments_edit_label")}
                       >
-                        <Pencil className="h-4 w-4" />
+                        <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <button
+                        type="button"
                         onClick={() => handleDeleteComment(comment.id)}
-                        className="text-muted-foreground hover:text-destructive transition-colors p-1"
+                        className="rounded-lg p-1.5 transition-colors active:opacity-70"
+                        style={{ color: "rgba(255,255,255,.4)" }}
+                        aria-label={t("comments_delete_label")}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   )}
                 </div>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground text-center">
+              <div className="py-6 text-center text-sm" style={{ color: "rgba(255,255,255,.5)" }}>
                 {t("shots_comments_empty")}
-              </p>
+              </div>
             )}
           </div>
 
-          {/* Comment Input */}
+          {/* Input bar */}
           {selectedShot && (
             <div
-              className="flex gap-2 border-t border-border/60 px-4 py-4 items-center"
-              style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+              className="flex-shrink-0 flex items-center gap-[10px] px-[16px]"
+              style={{
+                paddingTop: "12px",
+                paddingBottom: "max(28px, env(safe-area-inset-bottom))",
+                borderTop: "1px solid rgba(255,255,255,.08)",
+                marginBottom: "var(--keyboard-offset, 0px)",
+              }}
             >
-              <Input
+              {/* User avatar */}
+              <UserAvatar
+                photo={currentUserPhoto}
+                nickname={user?.email}
+                size="sm"
+                className="flex-shrink-0"
+              />
+
+              {/* Input field */}
+              <input
+                type="text"
                 placeholder={t("comments_placeholder")}
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  if (e.key === "Enter" && !e.shiftKey && !isAddingComment && commentText.trim()) {
                     e.preventDefault();
                     handleAddComment();
                   }
                 }}
                 disabled={isAddingComment}
-                className="rounded-full"
+                className="flex-1 text-[13.5px] outline-none bg-transparent"
+                style={{
+                  height: "42px",
+                  borderRadius: "21px",
+                  padding: "0 16px",
+                  background: "rgba(255,255,255,.07)",
+                  border: "1px solid rgba(255,255,255,.12)",
+                  color: "rgba(255,255,255,.95)",
+                }}
               />
-              <Button
+
+              {/* Send button */}
+              <button
+                type="button"
                 onClick={handleAddComment}
                 disabled={!commentText.trim() || isAddingComment}
-                size="sm"
-                className="rounded-full"
+                className="flex-shrink-0 flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg,#5b8cff,#9d6bff)",
+                  color: "#fff",
+                  boxShadow: "0 6px 18px -6px rgba(91,140,255,.5)",
+                }}
+                aria-label={t("comments_submit")}
               >
-                <Send className="h-4 w-4" />
-              </Button>
+                <Send className="h-[17px] w-[17px]" />
+              </button>
             </div>
           )}
         </DrawerContent>

@@ -42,7 +42,6 @@ import {
 import { supabase, resetSupabaseAuth } from "@/lib/supabase";
 import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
-import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useLanguage } from "@/lib/language-context";
 import { useKeyboardAwareHeight } from "@/hooks/use-keyboard-aware-height";
 import {
@@ -63,6 +62,7 @@ import {
   EyeOff,
   ChevronDown,
   ChevronUp,
+  Lock,
 } from "lucide-react";
 
 interface SettingsDrawerProps {
@@ -92,7 +92,6 @@ export function SettingsDrawer({
   hideTrigger,
 }: SettingsDrawerProps) {
   const navigate = useNavigate();
-  const { layoutMode, toggleLayoutMode } = useLayoutMode();
   const { language, setLanguage, t } = useLanguage();
   const viewportHeight = useKeyboardAwareHeight();
 
@@ -145,9 +144,7 @@ export function SettingsDrawer({
     if (!file) return;
     pendingPhotoFileRef.current = file;
     setRemovePhoto(false);
-    const reader = new FileReader();
-    reader.onload = (ev) => setPendingPhotoCropSrc(ev.target?.result as string);
-    reader.readAsDataURL(file);
+    setPendingPhotoCropSrc(URL.createObjectURL(file));
   };
 
   const handleRemovePhoto = () => {
@@ -304,15 +301,55 @@ export function SettingsDrawer({
     sound: true,
   });
 
+  // --- Privacy ---
+  const [isPrivacyOpen, setIsPrivacyOpen] = React.useState(false);
+  const [hideFollowLists, setHideFollowLists] = React.useState(profile.hide_follow_lists ?? false);
+  const [hidePostsFromNonFollowers, setHidePostsFromNonFollowers] = React.useState(profile.hide_posts_from_non_followers ?? false);
+  const [isSavingPrivacy, setIsSavingPrivacy] = React.useState(false);
+
+  // Mantém os toggles sincronizados quando o perfil é recarregado
+  React.useEffect(() => {
+    setHideFollowLists(profile.hide_follow_lists ?? false);
+    setHidePostsFromNonFollowers(profile.hide_posts_from_non_followers ?? false);
+  }, [profile.hide_follow_lists, profile.hide_posts_from_non_followers]);
+
+  const handleSavePrivacy = async (next: { hideFollowLists?: boolean; hidePostsFromNonFollowers?: boolean }) => {
+    const newHideFollows = next.hideFollowLists ?? hideFollowLists;
+    const newHidePosts = next.hidePostsFromNonFollowers ?? hidePostsFromNonFollowers;
+    // Atualização otimista
+    setHideFollowLists(newHideFollows);
+    setHidePostsFromNonFollowers(newHidePosts);
+    setIsSavingPrivacy(true);
+    try {
+      const updated = await updateUserProfileDb(userId, {
+        nickname: profile.nickname,
+        bio: profile.bio ?? undefined,
+        photo: profile.photo ?? null,
+        handle: profile.handle ?? undefined,
+        objectives: profile.objectives ?? null,
+        hide_follow_lists: newHideFollows,
+        hide_posts_from_non_followers: newHidePosts,
+      });
+      if (updated) {
+        onProfileUpdated(updated);
+        toast({ title: t("settings_privacy_saved"), description: t("settings_privacy_saved_desc") });
+      }
+    } catch (err: any) {
+      // Reverte em caso de erro
+      setHideFollowLists(profile.hide_follow_lists ?? false);
+      setHidePostsFromNonFollowers(profile.hide_posts_from_non_followers ?? false);
+      toast({ title: t("settings_privacy_error"), description: err?.message || t("retry"), variant: "destructive" });
+    } finally {
+      setIsSavingPrivacy(false);
+    }
+  };
+
   // --- Time Management ---
   const [isTimeManagementOpen, setIsTimeManagementOpen] = React.useState(false);
   const [dailyUsageLimit, setDailyUsageLimit] = React.useState(() => {
     const stored = localStorage.getItem("ritmofit_daily_limit_minutes");
     return stored ? parseInt(stored, 10) : 0;
   });
-
-  // --- Personalization ---
-  const [isPersonalizationOpen, setIsPersonalizationOpen] = React.useState(false);
 
   // --- Flow History ---
   const [isFlowHistoryOpen, setIsFlowHistoryOpen] = React.useState(false);
@@ -436,7 +473,7 @@ export function SettingsDrawer({
   };
 
   const subDrawerBack = (setter: (v: boolean) => void) => (
-    <button onClick={() => setter(false)} className="p-1 rounded-full hover:bg-muted transition-colors">
+    <button onClick={() => setter(false)} className="p-1 rounded-full transition-colors" style={{ color: "rgba(255,255,255,.7)" }}>
       <ArrowLeft className="h-5 w-5" />
     </button>
   );
@@ -455,15 +492,25 @@ export function SettingsDrawer({
           </Button>
         )}
 
-        <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DrawerContent
+          handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+          className="max-h-[80dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+          style={{
+            background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+            backdropFilter: "blur(40px) saturate(180%)",
+            WebkitBackdropFilter: "blur(40px) saturate(180%)",
+            borderTop: "1px solid rgba(255,255,255,.14)",
+          }}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <DrawerHeader className="shrink-0">
-            <DrawerTitle>{t("settings_title")}</DrawerTitle>
+            <DrawerTitle style={{ color: "#fff" }}>{t("settings_title")}</DrawerTitle>
           </DrawerHeader>
 
           <div className="flex flex-col flex-1 gap-2 overflow-y-auto px-4 pb-4">
 
             {/* ── Perfil ── */}
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-1 pb-0.5">{t("settings_section_profile")}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider pt-1 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_profile")}</p>
 
             {/* My Profile (unified) */}
             <Drawer open={isEditOpen} onOpenChange={setIsEditOpen}>
@@ -471,24 +518,37 @@ export function SettingsDrawer({
                 <span>{t("settings_my_profile")}</span>
                 <User className="h-4 w-4" />
               </Button>
-              <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
+              <DrawerContent
+                handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+                className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                style={{
+                  maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
+                  background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+                  backdropFilter: "blur(40px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  borderTop: "1px solid rgba(255,255,255,.14)",
+                }}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
                 <DrawerHeader className="shrink-0 flex items-center gap-2">
                   {subDrawerBack(setIsEditOpen)}
-                  <DrawerTitle>Meu Perfil</DrawerTitle>
+                  <DrawerTitle style={{ color: "#fff" }}>Meu Perfil</DrawerTitle>
                 </DrawerHeader>
 
                 {/* Tabs */}
                 <div className="shrink-0 px-4 pb-2">
-                  <div className="flex rounded-lg bg-muted p-1 gap-1">
+                  <div className="flex rounded-lg p-1 gap-1" style={{ background: "rgba(255,255,255,.08)" }}>
                     <button
                       onClick={() => setProfileTab("public")}
-                      className={`flex-1 text-sm font-medium py-1.5 rounded-md transition-colors ${profileTab === "public" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      className={`flex-1 text-sm font-medium py-1.5 rounded-md transition-colors`}
+                      style={profileTab === "public" ? { background: "rgba(255,255,255,.15)", color: "#fff" } : { color: "rgba(255,255,255,.5)" }}
                     >
                       Público
                     </button>
                     <button
                       onClick={() => setProfileTab("personal")}
-                      className={`flex-1 text-sm font-medium py-1.5 rounded-md transition-colors ${profileTab === "personal" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      className={`flex-1 text-sm font-medium py-1.5 rounded-md transition-colors`}
+                      style={profileTab === "personal" ? { background: "rgba(255,255,255,.15)", color: "#fff" } : { color: "rgba(255,255,255,.5)" }}
                     >
                       Pessoal
                     </button>
@@ -500,7 +560,7 @@ export function SettingsDrawer({
                     <div className="space-y-4">
                       {/* Photo */}
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Foto do Perfil</label>
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>Foto do Perfil</label>
                         <div className="flex items-center gap-4">
                           <div className="relative h-16 w-16 shrink-0">
                             <div className="h-16 w-16 rounded-full overflow-hidden bg-muted">
@@ -531,49 +591,50 @@ export function SettingsDrawer({
                       </div>
                       {/* Name */}
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">{t("settings_name_label")}</label>
-                        <Input value={editNickname} onChange={(e) => setEditNickname(e.target.value)} placeholder={t("settings_name_placeholder")} />
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_name_label")}</label>
+                        <Input value={editNickname} onChange={(e) => setEditNickname(e.target.value)} placeholder={t("settings_name_placeholder")} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                       </div>
                       {/* Bio */}
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">{t("profile_bio")}</label>
-                        <Textarea value={editBio} onChange={(e) => setEditBio(e.target.value)} placeholder={t("settings_bio_placeholder")} className="min-h-24" />
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("profile_bio")}</label>
+                        <Textarea value={editBio} onChange={(e) => setEditBio(e.target.value)} placeholder={t("settings_bio_placeholder")} className="min-h-24" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                       </div>
                       {/* Handle */}
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">{t("settings_handle_label")}</label>
-                        <div className="flex items-center rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0 overflow-hidden">
-                          <span className="px-3 py-2 text-sm text-muted-foreground bg-muted border-r border-input select-none">@</span>
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_handle_label")}</label>
+                        <div className="flex items-center rounded-md overflow-hidden" style={{ border: "1px solid rgba(255,255,255,.12)" }}>
+                          <span className="px-3 py-2 text-sm select-none" style={{ background: "rgba(255,255,255,.1)", borderRight: "1px solid rgba(255,255,255,.12)", color: "rgba(255,255,255,.5)" }}>@</span>
                           <Input
                             value={editHandle}
                             onChange={(e) => setEditHandle(e.target.value.replace(/[^a-zA-Z0-9_.]/g, ""))}
                             placeholder="seu_usuario"
                             className="border-0 focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none"
+                            style={{ background: "rgba(255,255,255,.07)", color: "#fff" }}
                           />
                         </div>
-                        <p className="text-xs text-muted-foreground">{t("settings_handle_hint")}</p>
+                        <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>{t("settings_handle_hint")}</p>
                       </div>
-                      <Button onClick={handleSaveProfile} disabled={isSaving} className="w-full rounded-full">
+                      <Button onClick={handleSaveProfile} disabled={isSaving} className="w-full rounded-full" style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}>
                         {isSaving ? t("saving") : t("settings_save_changes")}
                       </Button>
                     </div>
                   ) : (
                     <div className="space-y-4">
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">{t("settings_height_label")}</label>
-                        <Input type="number" min={100} max={250} step={1} value={personalDataForm.height} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 175" />
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_height_label")}</label>
+                        <Input type="number" min={100} max={250} step={1} value={personalDataForm.height} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, height: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 175" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">{t("settings_weight_label")}</label>
-                        <Input type="number" min={30} max={300} step="0.1" value={personalDataForm.weight} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))} placeholder="Ex: 70.5" />
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_weight_label")}</label>
+                        <Input type="number" min={30} max={300} step="0.1" value={personalDataForm.weight} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, weight: e.target.value }))} placeholder="Ex: 70.5" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">{t("settings_age_label")}</label>
-                        <Input type="number" min={10} max={120} step={1} value={personalDataForm.age} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 28" />
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_age_label")}</label>
+                        <Input type="number" min={10} max={120} step={1} value={personalDataForm.age} onChange={(e) => setPersonalDataForm((prev) => ({ ...prev, age: String(Math.trunc(Number(e.target.value))) }))} placeholder="Ex: 28" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                       </div>
                       {/* Objectives */}
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">{t("settings_objectives_label")}</label>
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_objectives_label")}</label>
                         <div className="grid grid-cols-2 gap-2">
                           {([
                             { id: "fitness", key: "obj_fitness" },
@@ -590,7 +651,8 @@ export function SettingsDrawer({
                                 key={obj.id}
                                 type="button"
                                 onClick={() => setEditObjectives((prev) => selected ? prev.filter((o) => o !== obj.id) : [...prev, obj.id])}
-                                className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-muted border-border hover:bg-muted/80"}`}
+                                className="text-left text-xs px-3 py-2 rounded-xl transition-all active:scale-[0.99]"
+                                style={selected ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff", border: "1px solid #5b8cff" } : { background: "rgba(255,255,255,.06)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.1)" }}
                               >
                                 {label}
                               </button>
@@ -598,7 +660,7 @@ export function SettingsDrawer({
                           })}
                         </div>
                       </div>
-                      <Button onClick={handleSavePersonalData} disabled={isSavingPersonalData} className="w-full rounded-full">
+                      <Button onClick={handleSavePersonalData} disabled={isSavingPersonalData} className="w-full rounded-full" style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}>
                         {isSavingPersonalData ? t("saving") : t("save")}
                       </Button>
                     </div>
@@ -613,21 +675,33 @@ export function SettingsDrawer({
                 <span>{t("settings_account_security")}</span>
                 <Settings className="h-4 w-4" />
               </Button>
-              <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
+              <DrawerContent
+                handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+                className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                style={{
+                  maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
+                  background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+                  backdropFilter: "blur(40px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  borderTop: "1px solid rgba(255,255,255,.14)",
+                }}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
                 <DrawerHeader className="shrink-0 flex items-center gap-2">
                   {subDrawerBack(setIsAccountOpen)}
-                  <DrawerTitle>{t("settings_account_security")}</DrawerTitle>
+                  <DrawerTitle style={{ color: "#fff" }}>{t("settings_account_security")}</DrawerTitle>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-4">
                     {/* Email */}
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">{t("settings_email_label")}</label>
+                      <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_email_label")}</label>
                       <Input
                         type="email"
                         value={editEmail}
                         onChange={(e) => setEditEmail(e.target.value)}
                         placeholder="seu@email.com"
+                        style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                       />
                       {editEmail.trim() && editEmail.trim() !== userEmail && (
                         <>
@@ -649,10 +723,11 @@ export function SettingsDrawer({
                             disabled={isChangingEmail}
                             variant="outline"
                             className="w-full rounded-full"
+                            style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
                           >
                             {isChangingEmail ? t("sending") : t("settings_change_email")}
                           </Button>
-                          <p className="text-xs text-muted-foreground">{t("settings_change_email_hint")}</p>
+                          <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>{t("settings_change_email_hint")}</p>
                         </>
                       )}
                     </div>
@@ -667,10 +742,10 @@ export function SettingsDrawer({
                           setConfirmPwd("");
                         }}
                       >
-                        <label className="text-sm font-medium cursor-pointer">{t("settings_reset_password")}</label>
-                        {showPasswordForm ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                        <label className="text-sm font-medium cursor-pointer" style={{ color: "#fff" }}>{t("settings_reset_password")}</label>
+                        {showPasswordForm ? <ChevronUp className="h-4 w-4" style={{ color: "rgba(255,255,255,.5)" }} /> : <ChevronDown className="h-4 w-4" style={{ color: "rgba(255,255,255,.5)" }} />}
                       </button>
-                      <p className="text-xs text-muted-foreground">{t("settings_reset_password_hint")}</p>
+                      <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>{t("settings_reset_password_hint")}</p>
                       {showPasswordForm && (
                         <div className="space-y-3 pt-1">
                           <div className="relative">
@@ -680,8 +755,9 @@ export function SettingsDrawer({
                               value={newPwd}
                               onChange={(e) => setNewPwd(e.target.value)}
                               className="pr-10"
+                              style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                             />
-                            <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" onClick={() => setShowNewPwdInput((v) => !v)}>
+                            <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,.5)" }} onClick={() => setShowNewPwdInput((v) => !v)}>
                               {showNewPwdInput ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                             </button>
                           </div>
@@ -692,8 +768,9 @@ export function SettingsDrawer({
                               value={confirmPwd}
                               onChange={(e) => setConfirmPwd(e.target.value)}
                               className="pr-10"
+                              style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                             />
-                            <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" onClick={() => setShowConfirmPwdInput((v) => !v)}>
+                            <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,.5)" }} onClick={() => setShowConfirmPwdInput((v) => !v)}>
                               {showConfirmPwdInput ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                             </button>
                           </div>
@@ -723,6 +800,7 @@ export function SettingsDrawer({
                             }}
                             disabled={isResettingPassword || !newPwd || !confirmPwd}
                             className="w-full rounded-full"
+                            style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                           >
                             {isResettingPassword ? t("sending") : t("settings_save_password")}
                           </Button>
@@ -730,8 +808,8 @@ export function SettingsDrawer({
                       )}
                     </div>
                     {/* Danger Zone */}
-                    <div className="border-t pt-4 space-y-3">
-                      <h3 className="text-sm font-semibold text-destructive">{t("settings_danger_zone")}</h3>
+                    <div className="pt-4 space-y-3" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                      <h3 className="text-sm font-semibold" style={{ color: "#f87171" }}>{t("settings_danger_zone")}</h3>
                       <Button
                         onClick={() => { setIsAccountOpen(false); onRequestDeleteAccount(); }}
                         variant="destructive"
@@ -740,7 +818,7 @@ export function SettingsDrawer({
                         <Trash2 className="h-4 w-4" />
                         {t("settings_close_account")}
                       </Button>
-                      <p className="text-xs text-muted-foreground">{t("settings_close_account_hint")}</p>
+                      <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>{t("settings_close_account_hint")}</p>
                     </div>
                   </div>
                 </div>
@@ -749,7 +827,7 @@ export function SettingsDrawer({
 
             {/* ── Negócio ── */}
             {(commercialProfile) && (
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">{t("settings_section_business")}</p>
+              <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_business")}</p>
             )}
 
             {/* Commercial Profile Dashboard */}
@@ -760,12 +838,22 @@ export function SettingsDrawer({
                   <BarChart3 className="h-4 w-4" />
                 </Button>
                 <Drawer open={isCommercialDashboardOpen} onOpenChange={setIsCommercialDashboardOpen}>
-                  <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+                  <DrawerContent
+                    handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+                    className="max-h-[80dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                    style={{
+                      background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+                      backdropFilter: "blur(40px) saturate(180%)",
+                      WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                      borderTop: "1px solid rgba(255,255,255,.14)",
+                    }}
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                  >
                     <DrawerHeader className="shrink-0">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           {subDrawerBack(setIsCommercialDashboardOpen)}
-                          <DrawerTitle>🏪 {commercialProfile.business_name || t("settings_commercial_profile_fallback")}</DrawerTitle>
+                          <DrawerTitle style={{ color: "#fff" }}>🏪 {commercialProfile.business_name || t("settings_commercial_profile_fallback")}</DrawerTitle>
                         </div>
                         <div className="flex items-center gap-1">
                           <button
@@ -815,28 +903,28 @@ export function SettingsDrawer({
                         </div>
                       )}
                       <div className="grid grid-cols-3 gap-3">
-                        <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
-                          <p className="text-2xl font-bold">{stats.followersCount}</p>
-                          <p className="text-xs text-muted-foreground text-center">{t("profile_followers")}</p>
+                        <div className="rounded-2xl p-4 flex flex-col items-center gap-1" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                          <p className="text-2xl font-bold" style={{ color: "#fff" }}>{stats.followersCount}</p>
+                          <p className="text-xs text-center" style={{ color: "rgba(255,255,255,.5)" }}>{t("profile_followers")}</p>
                         </div>
-                        <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
-                          <p className="text-2xl font-bold">{stats.postsCount}</p>
-                          <p className="text-xs text-muted-foreground text-center">{t("profile_posts")}</p>
+                        <div className="rounded-2xl p-4 flex flex-col items-center gap-1" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                          <p className="text-2xl font-bold" style={{ color: "#fff" }}>{stats.postsCount}</p>
+                          <p className="text-xs text-center" style={{ color: "rgba(255,255,255,.5)" }}>{t("profile_posts")}</p>
                         </div>
-                        <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex flex-col items-center gap-1">
-                          <p className="text-2xl font-bold">{stats.followingCount}</p>
-                          <p className="text-xs text-muted-foreground text-center">{t("profile_following")}</p>
+                        <div className="rounded-2xl p-4 flex flex-col items-center gap-1" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                          <p className="text-2xl font-bold" style={{ color: "#fff" }}>{stats.followingCount}</p>
+                          <p className="text-xs text-center" style={{ color: "rgba(255,255,255,.5)" }}>{t("profile_following")}</p>
                         </div>
                       </div>
                       <div>
-                        <p className="text-sm font-semibold mb-2">{t("settings_commercial_engagement")}</p>
+                        <p className="text-sm font-semibold mb-2" style={{ color: "#fff" }}>{t("settings_commercial_engagement")}</p>
                         <div className="space-y-2">
-                          <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                            <span className="text-sm text-muted-foreground">{t("settings_commercial_account_level")}</span>
+                          <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                            <span className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_commercial_account_level")}</span>
                             <span className="text-sm font-medium">{t("ranking_level")} {stats.level}</span>
                           </div>
-                          <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                            <span className="text-sm text-muted-foreground">{t("settings_commercial_total_points")}</span>
+                          <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                            <span className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_commercial_total_points")}</span>
                             <span className="text-sm font-medium">{stats.points} pts</span>
                           </div>
                         </div>
@@ -846,20 +934,20 @@ export function SettingsDrawer({
                           <p className="text-sm font-semibold mb-2">{t("settings_commercial_contact")}</p>
                           <div className="space-y-2">
                             {commercialProfile.business_phone && (
-                              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                                <span className="text-sm text-muted-foreground">{t("settings_commercial_phone_label")}</span>
+                              <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                                <span className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_commercial_phone_label")}</span>
                                 <span className="text-sm font-medium">{commercialProfile.business_phone}</span>
                               </div>
                             )}
                             {commercialProfile.business_email && (
-                              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                                <span className="text-sm text-muted-foreground">{t("settings_commercial_email_label")}</span>
+                              <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                                <span className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_commercial_email_label")}</span>
                                 <span className="text-sm font-medium">{commercialProfile.business_email}</span>
                               </div>
                             )}
                             {commercialProfile.business_website && (
-                              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5">
-                                <span className="text-sm text-muted-foreground">{t("settings_commercial_website_label")}</span>
+                              <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                                <span className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_commercial_website_label")}</span>
                                 <a href={commercialProfile.business_website} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-brand hover:underline">
                                   {commercialProfile.business_website.replace(/^https?:\/\//, "")}
                                 </a>
@@ -871,7 +959,7 @@ export function SettingsDrawer({
                       {commercialProfile.business_description && (
                         <div>
                           <p className="text-sm font-semibold mb-2">{t("settings_commercial_business_desc")}</p>
-                          <p className="text-sm text-muted-foreground leading-relaxed">{commercialProfile.business_description}</p>
+                          <p className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,.5)" }}>{commercialProfile.business_description}</p>
                         </div>
                       )}
                     </div>
@@ -886,17 +974,28 @@ export function SettingsDrawer({
                   <span className="text-lg">🏪</span>
                 </Button>
               )}
-              <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
+              <DrawerContent
+                handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+                className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                style={{
+                  maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
+                  background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+                  backdropFilter: "blur(40px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  borderTop: "1px solid rgba(255,255,255,.14)",
+                }}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsCommercialOpen)}
-                    <DrawerTitle>{t("settings_commercial_title")}</DrawerTitle>
+                    <DrawerTitle style={{ color: "#fff" }}>{t("settings_commercial_title")}</DrawerTitle>
                   </div>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">{t("settings_commercial_segment")}</label>
+                      <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_segment")}</label>
                       <Select value={commercialFormData.business_segment} onValueChange={(v) => setCommercialFormData({ ...commercialFormData, business_segment: v })}>
                         <SelectTrigger><SelectValue placeholder={t("settings_commercial_segment_placeholder")} /></SelectTrigger>
                         <SelectContent position="popper" className="z-[200]">
@@ -911,33 +1010,33 @@ export function SettingsDrawer({
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">{t("settings_commercial_name")}</label>
-                      <Input value={commercialFormData.business_name} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_name: e.target.value })} placeholder="Ex: Academia Força Total" />
+                      <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_name")}</label>
+                      <Input value={commercialFormData.business_name} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_name: e.target.value })} placeholder="Ex: Academia Força Total" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">{t("settings_commercial_desc")}</label>
-                      <Textarea value={commercialFormData.business_description} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_description: e.target.value })} placeholder={t("settings_commercial_desc_placeholder")} className="min-h-24" />
+                      <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_desc")}</label>
+                      <Textarea value={commercialFormData.business_description} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_description: e.target.value })} placeholder={t("settings_commercial_desc_placeholder")} className="min-h-24" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">{t("settings_commercial_phone")}</label>
-                      <Input type="tel" value={commercialFormData.business_phone} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_phone: formatPhone(e.target.value) })} placeholder="(11) 99999-9999" maxLength={15} />
+                      <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_phone")}</label>
+                      <Input type="tel" value={commercialFormData.business_phone} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_phone: formatPhone(e.target.value) })} placeholder="(11) 99999-9999" maxLength={15} style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">{t("settings_commercial_email")}</label>
-                      <Input type="email" value={commercialFormData.business_email} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_email: e.target.value })} placeholder="contato@negocio.com" />
+                      <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_email")}</label>
+                      <Input type="email" value={commercialFormData.business_email} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_email: e.target.value })} placeholder="contato@negocio.com" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">{t("settings_commercial_website")}</label>
-                      <Input type="url" value={commercialFormData.business_website} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_website: e.target.value })} placeholder="https://seu-site.com" />
+                      <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_website")}</label>
+                      <Input type="url" value={commercialFormData.business_website} onChange={(e) => setCommercialFormData({ ...commercialFormData, business_website: e.target.value })} placeholder="https://seu-site.com" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
                     </div>
                     {/* Logo */}
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">{t("settings_commercial_logo")}</label>
+                      <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_logo")}</label>
                       <div className="flex items-center gap-3">
                         {commercialLogoPreview ? (
                           <img src={commercialLogoPreview} alt="Logo" className="h-20 w-20 rounded-lg object-cover border border-border" />
                         ) : (
-                          <div className="h-16 w-16 rounded-lg border border-dashed border-border flex items-center justify-center bg-muted text-muted-foreground text-xs text-center">{t("settings_commercial_logo_none")}</div>
+                          <div className="h-16 w-16 rounded-lg text-xs text-center flex items-center justify-center" style={{ border: "1px dashed rgba(255,255,255,.2)", background: "rgba(255,255,255,.06)", color: "rgba(255,255,255,.4)" }}>{t("settings_commercial_logo_none")}</div>
                         )}
                         <label className="cursor-pointer">
                           <span className="inline-flex items-center gap-1 text-sm text-brand font-medium hover:underline">
@@ -948,9 +1047,7 @@ export function SettingsDrawer({
                             e.target.value = "";
                             if (!file) return;
                             pendingLogoFileRef.current = file;
-                            const reader = new FileReader();
-                            reader.onload = (ev) => setPendingLogoCropSrc(ev.target?.result as string);
-                            reader.readAsDataURL(file);
+                            setPendingLogoCropSrc(URL.createObjectURL(file));
                           }} />
                         </label>
                         {commercialLogoPreview && (
@@ -963,18 +1060,18 @@ export function SettingsDrawer({
                     {/* Service Plans */}
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium">{t("settings_commercial_plans")}</label>
-                        <span className="text-xs text-muted-foreground">{servicePlans.length}/5</span>
+                        <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_commercial_plans")}</label>
+                        <span className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{servicePlans.length}/5</span>
                       </div>
                       {servicePlans.length > 0 && (
                         <div className="space-y-2">
                           {servicePlans.map((plan, idx) => (
                             editingPlanIdx === idx ? (
-                              <div key={idx} className="space-y-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
+                              <div key={idx} className="space-y-2 rounded-lg p-3" style={{ border: "1px solid rgba(91,140,255,.4)", background: "rgba(91,140,255,.08)" }}>
                                 <p className="text-xs font-medium text-brand">{t("settings_commercial_new_plan")}</p>
-                                <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_name")} value={editPlanName} onChange={(e) => setEditPlanName(e.target.value)} maxLength={60} />
-                                <input type="number" min="0" step="0.01" className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_price")} value={editPlanPrice} onChange={(e) => setEditPlanPrice(e.target.value)} />
-                                <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_desc")} value={editPlanDescription} onChange={(e) => setEditPlanDescription(e.target.value)} maxLength={100} />
+                                <input className="w-full rounded-md px-3 py-2 text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-brand" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} placeholder={t("settings_commercial_plan_name")} value={editPlanName} onChange={(e) => setEditPlanName(e.target.value)} maxLength={60} />
+                                <input type="number" min="0" step="0.01" className="w-full rounded-md px-3 py-2 text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-brand" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} placeholder={t("settings_commercial_plan_price")} value={editPlanPrice} onChange={(e) => setEditPlanPrice(e.target.value)} />
+                                <input className="w-full rounded-md px-3 py-2 text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-brand" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} placeholder={t("settings_commercial_plan_desc")} value={editPlanDescription} onChange={(e) => setEditPlanDescription(e.target.value)} maxLength={100} />
                                 <div className="flex gap-2">
                                   <button type="button" disabled={!editPlanName.trim()} onClick={() => {
                                     if (!editPlanName.trim()) return;
@@ -984,15 +1081,15 @@ export function SettingsDrawer({
                                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
                                     {t("settings_commercial_plan_confirm")}
                                   </button>
-                                  <button type="button" onClick={() => { setEditingPlanIdx(null); setEditPlanName(""); setEditPlanPrice(""); setEditPlanDescription(""); }} className="px-3 rounded-md border border-border text-sm text-muted-foreground hover:text-foreground transition-colors">{t("cancel")}</button>
+                                  <button type="button" onClick={() => { setEditingPlanIdx(null); setEditPlanName(""); setEditPlanPrice(""); setEditPlanDescription(""); }} className="px-3 rounded-md text-sm transition-colors" style={{ border: "1px solid rgba(255,255,255,.12)", color: "rgba(255,255,255,.7)" }}>{t("cancel")}</button>
                                 </div>
                               </div>
                             ) : (
-                              <div key={idx} className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+                              <div key={idx} className="flex items-start gap-2 rounded-lg px-3 py-2.5" style={{ border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.06)" }}>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium truncate">{plan.name}</p>
+                                  <p className="text-sm font-medium truncate" style={{ color: "#fff" }}>{plan.name}</p>
                                   {plan.price != null && <p className="text-xs text-brand font-semibold">R$ {plan.price.toFixed(2).replace(".", ",")}</p>}
-                                  {plan.description && <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{plan.description}</p>}
+                                  {plan.description && <p className="text-xs line-clamp-2 mt-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{plan.description}</p>}
                                 </div>
                                 <button type="button" onClick={() => { setEditingPlanIdx(idx); setEditPlanName(plan.name); setEditPlanPrice(plan.price != null ? String(plan.price) : ""); setEditPlanDescription(plan.description ?? ""); setIsAddingPlan(false); }} className="p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5" aria-label="Editar plano">
                                   <Edit2 className="h-3.5 w-3.5" />
@@ -1007,11 +1104,11 @@ export function SettingsDrawer({
                       )}
                       {servicePlans.length < 5 && (
                         isAddingPlan ? (
-                          <div className="space-y-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
+                          <div className="space-y-2 rounded-lg p-3" style={{ border: "1px solid rgba(91,140,255,.4)", background: "rgba(91,140,255,.08)" }}>
                             <p className="text-xs font-medium text-brand">{t("settings_commercial_new_plan")}</p>
-                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_name")} value={newPlanName} onChange={(e) => setNewPlanName(e.target.value)} maxLength={60} />
-                            <input type="number" min="0" step="0.01" className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_price")} value={newPlanPrice} onChange={(e) => setNewPlanPrice(e.target.value)} />
-                            <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand" placeholder={t("settings_commercial_plan_desc")} value={newPlanDescription} onChange={(e) => setNewPlanDescription(e.target.value)} maxLength={100} />
+                            <input className="w-full rounded-md px-3 py-2 text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-brand" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} placeholder={t("settings_commercial_plan_name")} value={newPlanName} onChange={(e) => setNewPlanName(e.target.value)} maxLength={60} />
+                            <input type="number" min="0" step="0.01" className="w-full rounded-md px-3 py-2 text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-brand" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} placeholder={t("settings_commercial_plan_price")} value={newPlanPrice} onChange={(e) => setNewPlanPrice(e.target.value)} />
+                            <input className="w-full rounded-md px-3 py-2 text-base md:text-sm focus:outline-none focus:ring-1 focus:ring-brand" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} placeholder={t("settings_commercial_plan_desc")} value={newPlanDescription} onChange={(e) => setNewPlanDescription(e.target.value)} maxLength={100} />
                             <div className="flex gap-2">
                               <button type="button" disabled={!newPlanName.trim()} onClick={() => {
                                 if (!newPlanName.trim()) return;
@@ -1021,19 +1118,19 @@ export function SettingsDrawer({
                                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
                                 {t("settings_commercial_plan_confirm")}
                               </button>
-                              <button type="button" onClick={() => { setIsAddingPlan(false); setNewPlanName(""); setNewPlanPrice(""); setNewPlanDescription(""); }} className="px-3 rounded-md border border-border text-sm text-muted-foreground hover:text-foreground transition-colors">{t("cancel")}</button>
+                              <button type="button" onClick={() => { setIsAddingPlan(false); setNewPlanName(""); setNewPlanPrice(""); setNewPlanDescription(""); }} className="px-3 rounded-md text-sm transition-colors" style={{ border: "1px solid rgba(255,255,255,.12)", color: "rgba(255,255,255,.7)" }}>{t("cancel")}</button>
                             </div>
                           </div>
                         ) : (
-                          <button type="button" onClick={() => { setIsAddingPlan(true); setEditingPlanIdx(null); setEditPlanName(""); setEditPlanPrice(""); setEditPlanDescription(""); }} className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-border py-2.5 text-sm text-muted-foreground hover:text-foreground hover:border-brand/50 transition-colors">
+                          <button type="button" onClick={() => { setIsAddingPlan(true); setEditingPlanIdx(null); setEditPlanName(""); setEditPlanPrice(""); setEditPlanDescription(""); }} className="w-full flex items-center justify-center gap-2 rounded-2xl py-3 text-sm transition-colors" style={{ border: "1px dashed rgba(255,255,255,.2)", color: "rgba(255,255,255,.5)" }}>
                             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
                             {t("settings_commercial_add_plan")}
                           </button>
                         )
                       )}
-                      {servicePlans.length >= 5 && <p className="text-xs text-muted-foreground text-center">{t("settings_commercial_plan_limit")}</p>}
+                      {servicePlans.length >= 5 && <p className="text-xs text-center" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_commercial_plan_limit")}</p>}
                     </div>
-                    <Button onClick={handleSaveCommercial} disabled={isSavingCommercial || !commercialFormData.business_name} className="w-full rounded-full">
+                    <Button onClick={handleSaveCommercial} disabled={isSavingCommercial || !commercialFormData.business_name} className="w-full rounded-full" style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}>
                       {isSavingCommercial ? t("saving") : t("settings_commercial_save")}
                     </Button>
                   </div>
@@ -1042,7 +1139,7 @@ export function SettingsDrawer({
             </Drawer>
 
             {/* ── Preferências ── */}
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">{t("settings_section_preferences")}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_preferences")}</p>
 
             {/* Language */}
             <Drawer open={isLanguageOpen} onOpenChange={setIsLanguageOpen}>
@@ -1050,19 +1147,29 @@ export function SettingsDrawer({
                 <span>{t("settings_language")}</span>
                 <Globe className="h-4 w-4" />
               </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+              <DrawerContent
+                handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+                className="max-h-[80dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                style={{
+                  background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+                  backdropFilter: "blur(40px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  borderTop: "1px solid rgba(255,255,255,.14)",
+                }}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsLanguageOpen)}
-                    <DrawerTitle>{t("settings_language_select")}</DrawerTitle>
+                    <DrawerTitle style={{ color: "#fff" }}>{t("settings_language_select")}</DrawerTitle>
                   </div>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-2">
                     {(["pt", "en"] as const).map((lang) => (
-                      <button key={lang} onClick={() => { setLanguage(lang); setIsLanguageOpen(false); }} className={`w-full p-3 rounded-lg border text-left transition-colors ${language === lang ? "border-brand bg-brand/10" : "border-border hover:border-brand/50"}`}>
-                        <div className="font-medium">{lang === "pt" ? "Português (Brasil)" : "English"}</div>
-                        <div className="text-xs text-muted-foreground">{lang === "pt" ? "pt-BR" : "en-US"}</div>
+                      <button key={lang} onClick={() => { setLanguage(lang); setIsLanguageOpen(false); }} className="w-full p-4 rounded-2xl text-left transition-all active:scale-[0.99]" style={language === lang ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}>
+                        <div className="font-medium" style={{ color: "#fff" }}>{lang === "pt" ? "Português (Brasil)" : "English"}</div>
+                        <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{lang === "pt" ? "pt-BR" : "en-US"}</div>
                       </button>
                     ))}
                   </div>
@@ -1076,11 +1183,21 @@ export function SettingsDrawer({
                 <span>{t("settings_notifications")}</span>
                 <Bell className="h-4 w-4" />
               </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+              <DrawerContent
+                handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+                className="max-h-[80dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                style={{
+                  background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+                  backdropFilter: "blur(40px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  borderTop: "1px solid rgba(255,255,255,.14)",
+                }}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsNotificationsOpen)}
-                    <DrawerTitle>{t("settings_notif_configure")}</DrawerTitle>
+                    <DrawerTitle style={{ color: "#fff" }}>{t("settings_notif_configure")}</DrawerTitle>
                   </div>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -1091,26 +1208,82 @@ export function SettingsDrawer({
                       { key: "friendActivity", labelKey: "settings_notif_friends", descKey: "settings_notif_friends_desc" },
                       { key: "messages", labelKey: "settings_notif_messages", descKey: "settings_notif_messages_desc" },
                     ] as { key: keyof typeof notifications; labelKey: import("../../lib/i18n").TranslationKey; descKey: import("../../lib/i18n").TranslationKey }[]).map(({ key, labelKey, descKey }) => (
-                      <div key={key} className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                      <div key={key} className="flex items-center justify-between p-4 rounded-2xl transition-colors" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
                         <div>
-                          <div className="text-sm font-medium">{t(labelKey)}</div>
-                          <div className="text-xs text-muted-foreground">{t(descKey)}</div>
+                          <div className="text-sm font-medium" style={{ color: "#fff" }}>{t(labelKey)}</div>
+                          <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t(descKey)}</div>
                         </div>
                         <button onClick={() => setNotifications({ ...notifications, [key]: !notifications[key] })} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications[key] ? "bg-brand" : "bg-muted"}`}>
                           <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications[key] ? "translate-x-6" : "translate-x-1"}`} />
                         </button>
                       </div>
                     ))}
-                    <div className="border-t pt-4 mt-4">
-                      <div className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:border-border transition-colors">
+                    <div className="pt-4 mt-4" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                      <div className="flex items-center justify-between p-3 rounded-lg transition-colors" style={{ border: "1px solid rgba(255,255,255,.1)" }}>
                         <div>
-                          <div className="text-sm font-medium">{t("settings_notif_sounds")}</div>
-                          <div className="text-xs text-muted-foreground">{t("settings_notif_sounds_desc")}</div>
+                          <div className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_notif_sounds")}</div>
+                          <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_notif_sounds_desc")}</div>
                         </div>
                         <button onClick={() => setNotifications({ ...notifications, sound: !notifications.sound })} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications.sound ? "bg-brand" : "bg-muted"}`}>
                           <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${notifications.sound ? "translate-x-6" : "translate-x-1"}`} />
                         </button>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </DrawerContent>
+            </Drawer>
+
+            {/* Privacy */}
+            <Drawer open={isPrivacyOpen} onOpenChange={setIsPrivacyOpen}>
+              <Button onClick={() => setIsPrivacyOpen(true)} variant="outline" className="gap-2 justify-between">
+                <span>{t("settings_privacy")}</span>
+                <Lock className="h-4 w-4" />
+              </Button>
+              <DrawerContent
+                handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+                className="max-h-[80dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                style={{
+                  background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+                  backdropFilter: "blur(40px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  borderTop: "1px solid rgba(255,255,255,.14)",
+                }}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
+                <DrawerHeader className="shrink-0">
+                  <div className="flex items-center gap-2">
+                    {subDrawerBack(setIsPrivacyOpen)}
+                    <DrawerTitle style={{ color: "#fff" }}>{t("settings_privacy")}</DrawerTitle>
+                  </div>
+                </DrawerHeader>
+                <div className="flex-1 overflow-y-auto px-4 pb-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between p-4 rounded-2xl transition-colors" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                      <div className="flex-1 pr-3">
+                        <div className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_privacy_hide_follows_label")}</div>
+                        <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_privacy_hide_follows_desc")}</div>
+                      </div>
+                      <button
+                        disabled={isSavingPrivacy}
+                        onClick={() => handleSavePrivacy({ hideFollowLists: !hideFollowLists })}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${hideFollowLists ? "bg-brand" : "bg-muted"}`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${hideFollowLists ? "translate-x-6" : "translate-x-1"}`} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between p-4 rounded-2xl transition-colors" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                      <div className="flex-1 pr-3">
+                        <div className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_privacy_hide_posts_label")}</div>
+                        <div className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_privacy_hide_posts_desc")}</div>
+                      </div>
+                      <button
+                        disabled={isSavingPrivacy}
+                        onClick={() => handleSavePrivacy({ hidePostsFromNonFollowers: !hidePostsFromNonFollowers })}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${hidePostsFromNonFollowers ? "bg-brand" : "bg-muted"}`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${hidePostsFromNonFollowers ? "translate-x-6" : "translate-x-1"}`} />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1123,22 +1296,33 @@ export function SettingsDrawer({
                 <span>{t("settings_time_management")}</span>
                 <BarChart3 className="h-4 w-4" />
               </Button>
-              <DrawerContent className="flex flex-col modal-enter" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
+              <DrawerContent
+                handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+                className="flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                style={{
+                  maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
+                  background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+                  backdropFilter: "blur(40px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  borderTop: "1px solid rgba(255,255,255,.14)",
+                }}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsTimeManagementOpen)}
-                    <DrawerTitle>{t("settings_time_management")}</DrawerTitle>
+                    <DrawerTitle style={{ color: "#fff" }}>{t("settings_time_management")}</DrawerTitle>
                   </div>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">{t("settings_time_limit_label")}</label>
+                      <label className="text-sm font-medium" style={{ color: "#fff" }}>{t("settings_time_limit_label")}</label>
                       <div className="flex gap-2">
-                        <Input type="number" min="0" value={dailyUsageLimit} onChange={(e) => setDailyUsageLimit(parseInt(e.target.value) || 0)} placeholder={t("settings_time_limit_placeholder")} className="flex-1" />
-                        <span className="text-sm text-muted-foreground py-2">min</span>
+                        <Input type="number" min="0" value={dailyUsageLimit} onChange={(e) => setDailyUsageLimit(parseInt(e.target.value) || 0)} placeholder={t("settings_time_limit_placeholder")} className="flex-1" style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }} />
+                        <span className="text-sm py-2" style={{ color: "rgba(255,255,255,.5)" }}>min</span>
                       </div>
-                      <p className="text-xs text-muted-foreground">{dailyUsageLimit === 0 ? t("settings_time_no_limit") : t("settings_time_limit_active").replace("{n}", String(dailyUsageLimit))}</p>
+                      <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>{dailyUsageLimit === 0 ? t("settings_time_no_limit") : t("settings_time_limit_active").replace("{n}", String(dailyUsageLimit))}</p>
                     </div>
                     <Button onClick={() => {
                       if (dailyUsageLimit > 0) {
@@ -1150,7 +1334,7 @@ export function SettingsDrawer({
                       }
                       toast({ title: t("settings_time_saved"), description: dailyUsageLimit > 0 ? t("settings_time_limit_set").replace("{n}", String(dailyUsageLimit)) : t("settings_time_limit_removed") });
                       setIsTimeManagementOpen(false);
-                    }} className="w-full rounded-full">
+                    }} className="w-full rounded-full" style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}>
                       {t("settings_time_save")}
                     </Button>
                   </div>
@@ -1158,34 +1342,8 @@ export function SettingsDrawer({
               </DrawerContent>
             </Drawer>
 
-            {/* Personalization */}
-            <Drawer open={isPersonalizationOpen} onOpenChange={setIsPersonalizationOpen}>
-              <Button onClick={() => setIsPersonalizationOpen(true)} variant="outline" className="gap-2 justify-between">
-                <span>{t("settings_personalization")}</span>
-                <span>🎨</span>
-              </Button>
-              <DrawerContent className="max-h-[80dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
-                <DrawerHeader className="shrink-0">
-                  <div className="flex items-center gap-2">
-                    {subDrawerBack(setIsPersonalizationOpen)}
-                    <DrawerTitle>{t("settings_personalization")}</DrawerTitle>
-                  </div>
-                </DrawerHeader>
-                <div className="flex-1 overflow-y-auto px-4 pb-4">
-                  <div className="space-y-2">
-                    {window.innerWidth < 768 && (
-                      <Button onClick={() => { toggleLayoutMode(); window.location.reload(); }} variant="outline" className="w-full rounded-full gap-2">
-                        <span>📐</span>
-                        {layoutMode === "novo" ? t("settings_layout_old") : t("settings_layout_new")}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </DrawerContent>
-            </Drawer>
-
             {/* ── Outros ── */}
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pt-2 pb-0.5">{t("settings_section_other")}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider pt-2 pb-0.5" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_section_other")}</p>
 
             {/* Flow History */}
             <Drawer open={isFlowHistoryOpen} onOpenChange={setIsFlowHistoryOpen}>
@@ -1193,11 +1351,21 @@ export function SettingsDrawer({
                 <span>{t("settings_flow_archive")}</span>
                 <span>🕐</span>
               </Button>
-              <DrawerContent className="max-h-[85dvh] flex flex-col modal-enter" onOpenAutoFocus={(e) => e.preventDefault()}>
+              <DrawerContent
+                handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+                className="max-h-[85dvh] flex flex-col modal-enter !rounded-t-[32px] !border-0"
+                style={{
+                  background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+                  backdropFilter: "blur(40px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                  borderTop: "1px solid rgba(255,255,255,.14)",
+                }}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
                 <DrawerHeader className="shrink-0">
                   <div className="flex items-center gap-2">
                     {subDrawerBack(setIsFlowHistoryOpen)}
-                    <DrawerTitle>{t("settings_flow_archive")}</DrawerTitle>
+                    <DrawerTitle style={{ color: "#fff" }}>{t("settings_flow_archive")}</DrawerTitle>
                   </div>
                 </DrawerHeader>
                 <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -1206,8 +1374,8 @@ export function SettingsDrawer({
                   ) : expiredFlows.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
                       <span className="text-4xl">📂</span>
-                      <p className="text-sm text-muted-foreground">{t("settings_flow_empty")}</p>
-                      <p className="text-xs text-muted-foreground">{t("settings_flow_empty_desc")}</p>
+                      <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>{t("settings_flow_empty")}</p>
+                      <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>{t("settings_flow_empty_desc")}</p>
                     </div>
                   ) : (
                     <>
@@ -1286,7 +1454,7 @@ export function SettingsDrawer({
 
                       <div className="grid grid-cols-3 gap-1">
                         {expiredFlows.map((flow) => (
-                          <div key={flow.id} className="relative aspect-[9/16] rounded-lg overflow-hidden bg-muted border border-border/40 group">
+                          <div key={flow.id} className="relative aspect-[9/16] rounded-lg overflow-hidden group" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
                             <button
                               className="absolute inset-0 w-full h-full"
                               onClick={() => setExpandedFlow(flow)}
@@ -1359,13 +1527,17 @@ export function SettingsDrawer({
         imageSrc={pendingPhotoCropSrc}
         aspectRatio={1}
         onConfirm={(dataUrl, blob) => {
+          if (pendingPhotoCropSrc) URL.revokeObjectURL(pendingPhotoCropSrc);
           const original = pendingPhotoFileRef.current;
           const croppedFile = new File([blob], original?.name ?? "photo.jpg", { type: "image/jpeg" });
           setEditPhotoFile(croppedFile);
           setEditPhotoPreview(dataUrl);
           setPendingPhotoCropSrc(null);
         }}
-        onCancel={() => setPendingPhotoCropSrc(null)}
+        onCancel={() => {
+          if (pendingPhotoCropSrc) URL.revokeObjectURL(pendingPhotoCropSrc);
+          setPendingPhotoCropSrc(null);
+        }}
       />
 
       {/* Cropper — commercial logo */}
@@ -1373,13 +1545,17 @@ export function SettingsDrawer({
         imageSrc={pendingLogoCropSrc}
         aspectRatio={1}
         onConfirm={(dataUrl, blob) => {
+          if (pendingLogoCropSrc) URL.revokeObjectURL(pendingLogoCropSrc);
           const original = pendingLogoFileRef.current;
           const croppedFile = new File([blob], original?.name ?? "logo.jpg", { type: "image/jpeg" });
           setCommercialLogoFile(croppedFile);
           setCommercialLogoPreview(dataUrl);
           setPendingLogoCropSrc(null);
         }}
-        onCancel={() => setPendingLogoCropSrc(null)}
+        onCancel={() => {
+          if (pendingLogoCropSrc) URL.revokeObjectURL(pendingLogoCropSrc);
+          setPendingLogoCropSrc(null);
+        }}
       />
     </>
   );

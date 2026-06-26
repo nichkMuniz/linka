@@ -19,10 +19,12 @@ import {
   getFollowersDb,
   getFollowingDb,
   getFollowingStatusBatchDb,
+  isFollowingDb,
   getUserShotsDb,
   getUserGoalsByUserIdDb,
   deletePostDb,
   updatePostDb,
+  updateUserProfileDb,
   removePostPhotoDb,
   deleteRoutineDb,
   getPostLikeUsersDb,
@@ -114,6 +116,7 @@ import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { ProfileSkeleton } from "@/components/shared/animated-loading";
 import { ShareDrawer } from "@/components/shared/share-drawer";
+import { ImageCropperDrawer } from "@/components/shared/image-cropper-drawer";
 import { profileShareUrl } from "@/lib/share-url";
 import {
   Edit2,
@@ -133,11 +136,14 @@ import {
   ListChecks,
   Target,
   ShieldCheck,
+  ImagePlus,
+  Lock,
 } from "lucide-react";
-import { resetSupabaseAuth } from "@/lib/supabase";
+import { resetSupabaseAuth, supabase } from "@/lib/supabase";
 import { useNavigate, useParams } from "react-router-dom";
 import { useLanguage } from "@/lib/language-context";
 import { Browser } from "@capacitor/browser";
+import { hapticLight } from "@/lib/haptics";
 
 export default function Profile() {
   const { user, loading: authLoading } = useAuth();
@@ -145,6 +151,11 @@ export default function Profile() {
   const { userId } = useParams<{ userId?: string }>();
   const { t } = useLanguage();
 
+  // Pull-to-refresh state (handlers declared after loadProfile)
+  const pullStartY = React.useRef(0);
+  const [pullDistance, setPullDistance] = React.useState(0);
+  const [isPulling, setIsPulling] = React.useState(false);
+  const PULL_THRESHOLD = 72;
 
   // Centralized confirmation dialog state (replaces native confirm())
   const [confirmDialog, setConfirmDialog] = React.useState<{
@@ -249,6 +260,8 @@ export default function Profile() {
   const [isDeletingRoutine, setIsDeletingRoutine] = React.useState(false);
   const [showFollowersModal, setShowFollowersModal] = React.useState(false);
   const [showFollowingModal, setShowFollowingModal] = React.useState(false);
+  // Indica se o usuário logado segue o dono do perfil (para regras de privacidade)
+  const [viewerFollowsProfile, setViewerFollowsProfile] = React.useState(false);
   const [followers, setFollowers] = React.useState<any[]>([]);
   const [following, setFollowing] = React.useState<any[]>([]);
   const [isLoadingFollowers, setIsLoadingFollowers] = React.useState(false);
@@ -273,6 +286,11 @@ export default function Profile() {
 
   // Settings drawer (controlled externally so the trigger can be styled per design)
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+
+  // Cover photo (banner) — own profile can replace the gradient with a photo
+  const coverFileInputRef = React.useRef<HTMLInputElement>(null);
+  const [coverCropSrc, setCoverCropSrc] = React.useState<string | null>(null);
+  const [isSavingCover, setIsSavingCover] = React.useState(false);
 
   // Delete account state (UI trigger not yet implemented)
   const [isDeleteAccountOpen, setIsDeleteAccountOpen] = React.useState(false);
@@ -332,6 +350,13 @@ export default function Profile() {
 
       // Batch 3 — stories: fire-and-forget
       getUserActiveStoriesDb(profileUserId).then(setProfileStories).catch((err) => console.error("Erro ao carregar stories do perfil:", err));
+
+      // Status de seguimento do visitante (usado nas regras de privacidade)
+      if (isViewingOtherProfile) {
+        isFollowingDb(profileUserId).then(setViewerFollowsProfile).catch(() => setViewerFollowsProfile(false));
+      } else {
+        setViewerFollowsProfile(false);
+      }
     } catch (err: any) {
       console.error("Error loading profile:", err);
       toast({
@@ -343,6 +368,29 @@ export default function Profile() {
       setLoading(false);
     }
   }, [profileUserId]);
+
+  // Pull-to-refresh handlers (declared after loadProfile to avoid forward reference)
+  const onTouchStart = React.useCallback((e: React.TouchEvent) => {
+    if (window.scrollY > 0) return;
+    pullStartY.current = e.touches[0].clientY;
+    setIsPulling(true);
+  }, []);
+
+  const onTouchMove = React.useCallback((e: React.TouchEvent) => {
+    if (!isPulling) return;
+    const delta = e.touches[0].clientY - pullStartY.current;
+    if (delta > 0) setPullDistance(Math.min(delta * 0.4, PULL_THRESHOLD + 20));
+  }, [isPulling]);
+
+  const onTouchEnd = React.useCallback(() => {
+    if (!isPulling) return;
+    if (pullDistance >= PULL_THRESHOLD) {
+      hapticLight();
+      loadProfile();
+    }
+    setPullDistance(0);
+    setIsPulling(false);
+  }, [isPulling, pullDistance, loadProfile]);
 
   const handleViewPost = React.useCallback(async (post: PostWithUser) => {
     setSelectedPost(post);
@@ -973,6 +1021,58 @@ export default function Profile() {
     }
   };
 
+  const handleCoverFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setCoverCropSrc(reader.result as string);
+    reader.readAsDataURL(file);
+    e.target.value = ""; // allow re-selecting the same file
+  };
+
+  const handleCoverCropConfirm = async (_dataUrl: string, blob: Blob) => {
+    setCoverCropSrc(null);
+    if (!user || !supabase) return;
+    setIsSavingCover(true);
+    try {
+      const filePath = `covers/${user.id}-${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from("posts")
+        .upload(filePath, blob, { contentType: "image/jpeg" });
+      if (uploadError) throw uploadError;
+      const { data: { publicUrl } } = supabase.storage.from("posts").getPublicUrl(filePath);
+      const updated = await updateUserProfileDb(user.id, { cover_photo: publicUrl });
+      if (updated) setProfile(updated);
+      toast({ title: t("profile_cover_updated") });
+    } catch (err: any) {
+      console.error("Error updating cover photo:", err);
+      toast({ title: t("profile_cover_update_error"), description: err?.message || t("retry"), variant: "destructive" });
+    } finally {
+      setIsSavingCover(false);
+    }
+  };
+
+  const handleRemoveCover = () => {
+    if (!user) return;
+    showConfirm(
+      t("profile_remove_cover"),
+      t("profile_remove_cover"),
+      async () => {
+        setIsSavingCover(true);
+        try {
+          const updated = await updateUserProfileDb(user.id, { cover_photo: null });
+          if (updated) setProfile(updated);
+          toast({ title: t("profile_cover_removed") });
+        } catch (err: any) {
+          console.error("Error removing cover photo:", err);
+          toast({ title: t("profile_cover_remove_error"), description: err?.message || t("retry"), variant: "destructive" });
+        } finally {
+          setIsSavingCover(false);
+        }
+      }
+    );
+  };
+
   if (authLoading || loading) {
     return <ProfileSkeleton />;
   }
@@ -997,19 +1097,99 @@ export default function Profile() {
   }
 
   return (
-    <div className="space-y-6">
+    <div
+      className="space-y-6"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      {/* Pull-to-refresh indicator */}
+      {pullDistance > 0 && (
+        <div
+          className="flex items-center justify-center overflow-hidden transition-all"
+          style={{ height: `${pullDistance}px` }}
+        >
+          <div
+            className="h-6 w-6 rounded-full border-2 border-brand border-t-transparent transition-transform"
+            style={{
+              transform: `rotate(${(pullDistance / PULL_THRESHOLD) * 360}deg)`,
+              opacity: pullDistance / PULL_THRESHOLD,
+            }}
+          />
+        </div>
+      )}
+
       {/* Profile Header with banner */}
       <div className="relative">
-        {/* Banner gradient */}
-        <div
-          aria-hidden
-          className="absolute top-0 left-0 right-0 pointer-events-none"
-          style={{ height: "210px", background: "radial-gradient(120% 100% at 60% 0%,#d8567a,#7b3ff2 55%,#1a1438 90%)" }}
-        />
+        {/* Banner — user cover photo when set, gradient otherwise */}
+        {profile.cover_photo ? (
+          <div
+            aria-hidden
+            className="absolute top-0 left-0 right-0 overflow-hidden pointer-events-none"
+            style={{ height: "210px" }}
+          >
+            <ImageWithFallback
+              src={profile.cover_photo}
+              alt=""
+              className="w-full h-full object-cover"
+            />
+          </div>
+        ) : (
+          <div
+            aria-hidden
+            className="absolute top-0 left-0 right-0 pointer-events-none"
+            style={{ height: "210px", background: "radial-gradient(120% 100% at 60% 0%,#d8567a,#7b3ff2 55%,#1a1438 90%)" }}
+          />
+        )}
         <div
           aria-hidden
           className="absolute top-0 left-0 right-0 pointer-events-none"
           style={{ height: "270px", background: "linear-gradient(to bottom,transparent 30%,#06070c 100%)" }}
+        />
+
+        {/* Cover photo controls — own profile only */}
+        {!isViewingOtherProfile && (
+          <div className="absolute z-30 flex gap-2" style={{ top: "8px", right: "12px" }}>
+            {profile.cover_photo && (
+              <button
+                onClick={handleRemoveCover}
+                disabled={isSavingCover}
+                aria-label={t("profile_remove_cover")}
+                className="flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
+                style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(0,0,0,.3)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.18)", color: "#fff" }}
+              >
+                <Trash2 className="h-[18px] w-[18px]" />
+              </button>
+            )}
+            <button
+              onClick={() => { hapticLight(); coverFileInputRef.current?.click(); }}
+              disabled={isSavingCover}
+              aria-label={t("profile_edit_cover")}
+              className="flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
+              style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(0,0,0,.3)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", border: "1px solid rgba(255,255,255,.18)", color: "#fff" }}
+            >
+              {isSavingCover ? (
+                <span className="h-[18px] w-[18px] rounded-full border-2 border-white/40 border-t-transparent animate-spin" />
+              ) : (
+                <ImagePlus className="h-[18px] w-[18px]" />
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Hidden file input + cropper for the cover photo */}
+        <input
+          ref={coverFileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleCoverFileChange}
+          className="hidden"
+        />
+        <ImageCropperDrawer
+          imageSrc={coverCropSrc}
+          aspectRatio={16 / 9}
+          onConfirm={handleCoverCropConfirm}
+          onCancel={() => setCoverCropSrc(null)}
         />
 
         {/* Back chip — only when viewing another user's profile */}
@@ -1158,19 +1338,37 @@ export default function Profile() {
                   <div style={{ fontSize: "11px", color: "rgba(255,255,255,.5)" }}>{t("profile_posts")}</div>
                 </div>
                 <button
-                  onClick={() => setShowFollowersModal(true)}
+                  onClick={() => {
+                    if (isViewingOtherProfile && profile?.hide_follow_lists) {
+                      toast({ title: t("profile_follows_private") });
+                      return;
+                    }
+                    setShowFollowersModal(true);
+                  }}
                   className="flex-1 text-center active:scale-95 transition-transform"
                   style={{ borderRadius: "18px", padding: "12px 8px", background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}
                 >
-                  <div style={{ fontSize: "17px", fontWeight: 740, color: "#fff" }}>{stats.followersCount}</div>
+                  <div className="flex items-center justify-center gap-1" style={{ fontSize: "17px", fontWeight: 740, color: "#fff" }}>
+                    {isViewingOtherProfile && profile?.hide_follow_lists && <Lock className="h-3 w-3" style={{ color: "rgba(255,255,255,.5)" }} />}
+                    {stats.followersCount}
+                  </div>
                   <div style={{ fontSize: "11px", color: "rgba(255,255,255,.5)" }}>{t("profile_stat_followers")}</div>
                 </button>
                 <button
-                  onClick={() => setShowFollowingModal(true)}
+                  onClick={() => {
+                    if (isViewingOtherProfile && profile?.hide_follow_lists) {
+                      toast({ title: t("profile_follows_private") });
+                      return;
+                    }
+                    setShowFollowingModal(true);
+                  }}
                   className="flex-1 text-center active:scale-95 transition-transform"
                   style={{ borderRadius: "18px", padding: "12px 8px", background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}
                 >
-                  <div style={{ fontSize: "17px", fontWeight: 740, color: "#fff" }}>{stats.followingCount}</div>
+                  <div className="flex items-center justify-center gap-1" style={{ fontSize: "17px", fontWeight: 740, color: "#fff" }}>
+                    {isViewingOtherProfile && profile?.hide_follow_lists && <Lock className="h-3 w-3" style={{ color: "rgba(255,255,255,.5)" }} />}
+                    {stats.followingCount}
+                  </div>
                   <div style={{ fontSize: "11px", color: "rgba(255,255,255,.5)" }}>{t("profile_stat_following")}</div>
                 </button>
               </div>
@@ -1414,7 +1612,13 @@ export default function Profile() {
 
         {/* Posts Tab */}
         <TabsContent value="posts" className="space-y-4">
-          {posts.length > 0 ? (
+          {isViewingOtherProfile && profile?.hide_posts_from_non_followers && !viewerFollowsProfile ? (
+            <div className="rounded-xl p-8 text-center flex flex-col items-center gap-2" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
+              <Lock className="h-6 w-6" style={{ color: "rgba(255,255,255,.5)" }} />
+              <p className="text-sm font-medium text-white">{t("profile_posts_private")}</p>
+              <p className="text-xs text-white/50">{t("profile_posts_private_desc")}</p>
+            </div>
+          ) : posts.length > 0 ? (
             <div className="grid gap-[5px] grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
               {posts.map((post) => (
                 <button

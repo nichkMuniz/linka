@@ -39,19 +39,19 @@ function getPostGradient(postId: string) {
 }
 
 const GLASS_TOP = {
-  background: "linear-gradient(rgba(255,255,255,.14),rgba(255,255,255,.05))",
-  backdropFilter: "blur(18px) saturate(160%)",
-  WebkitBackdropFilter: "blur(18px) saturate(160%)",
-  border: "1px solid rgba(255,255,255,.16)",
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,.28)",
+  background: "linear-gradient(rgba(255,255,255,.07),rgba(255,255,255,.02))",
+  backdropFilter: "blur(10px) saturate(130%)",
+  WebkitBackdropFilter: "blur(10px) saturate(130%)",
+  border: "1px solid rgba(255,255,255,.10)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.14)",
 } as React.CSSProperties;
 
 const GLASS_ACTION = {
-  background: "linear-gradient(rgba(255,255,255,.16),rgba(255,255,255,.06))",
-  backdropFilter: "blur(20px) saturate(170%)",
-  WebkitBackdropFilter: "blur(20px) saturate(170%)",
-  border: "1px solid rgba(255,255,255,.18)",
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,.3)",
+  background: "linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.03))",
+  backdropFilter: "blur(12px) saturate(140%)",
+  WebkitBackdropFilter: "blur(12px) saturate(140%)",
+  border: "1px solid rgba(255,255,255,.12)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.16)",
 } as React.CSSProperties;
 
 interface PostCardProps {
@@ -95,6 +95,7 @@ export function PostCard({
   const lastTapRef = React.useRef<number>(0);
   const badgeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [descExpanded, setDescExpanded] = React.useState(false);
+  const [carouselIndex, setCarouselIndex] = React.useState(0);
 
   function renderWithHashtags(text: string) {
     return text.split(/(\s+)/).map((token, i) =>
@@ -144,7 +145,13 @@ export function PostCard({
       >
         {/* Photo or gradient background */}
         {hasPhotos && photos ? (
-          <PostCarousel photos={photos} alt="Post" objectFit="cover" />
+          <PostCarousel
+            photos={photos}
+            alt="Post"
+            objectFit="cover"
+            hideDots
+            onIndexChange={setCarouselIndex}
+          />
         ) : (
           <div className="w-full" style={{ minHeight: "360px", background: getPostGradient(post.id) }} />
         )}
@@ -263,8 +270,19 @@ export function PostCard({
           {/* Description */}
           {description && (
             <p
-              className="text-[13px] text-white leading-snug mb-2.5 px-1"
-              style={{ textShadow: "0 1px 8px rgba(0,0,0,.5)" }}
+              className={cn("text-[13px] text-white leading-snug mb-2.5 px-1", isDescTruncatable && "cursor-pointer")}
+              style={{
+                textShadow: "0 1px 8px rgba(0,0,0,.5)",
+                ...(isDescTruncatable && descExpanded ? {
+                  background: "rgba(0,0,0,.45)",
+                  backdropFilter: "blur(14px)",
+                  WebkitBackdropFilter: "blur(14px)",
+                  borderRadius: "14px",
+                  padding: "8px 12px",
+                  marginBottom: "10px",
+                } : {}),
+              }}
+              onClick={() => { if (isDescTruncatable) setDescExpanded((v) => !v); }}
             >
               {!isDescTruncatable || descExpanded ? (
                 <>
@@ -310,6 +328,22 @@ export function PostCard({
                 <div className="h-full rounded-full" style={{ width: progressWidth, background: "linear-gradient(90deg,#5b8cff,#9d6bff)" }} />
               </div>
             </button>
+          )}
+
+          {/* Carousel indicator — sits right above the incentive action bar */}
+          {photos && photos.length > 1 && (
+            <div className="flex justify-center gap-1 mb-2.5 pointer-events-none">
+              {photos.map((_, index) => (
+                <div
+                  key={index}
+                  className={cn(
+                    "h-1.5 rounded-full transition-all duration-200",
+                    carouselIndex === index ? "w-4 bg-white" : "w-1.5 bg-white/50",
+                  )}
+                  style={{ boxShadow: "0 1px 4px rgba(0,0,0,.45)" }}
+                />
+              ))}
+            </div>
           )}
 
           {/* Glass action bar */}

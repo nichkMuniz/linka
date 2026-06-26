@@ -15,6 +15,10 @@ interface PostCarouselProps {
   onRemovePhoto?: (photoUrl: string, index: number) => void;
   removingPhoto?: boolean;
   objectFit?: "cover" | "contain";
+  /** Notifica a foto atual — usado para renderizar o indicador fora do frame. */
+  onIndexChange?: (index: number) => void;
+  /** Oculta os dots internos quando o indicador é renderizado externamente. */
+  hideDots?: boolean;
 }
 
 function getPinchDist(touches: React.TouchList | TouchList) {
@@ -124,8 +128,14 @@ export function PostCarousel({
   onRemovePhoto,
   removingPhoto,
   objectFit = "cover",
+  onIndexChange,
+  hideDots,
 }: PostCarouselProps) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    onIndexChange?.(currentIndex);
+  }, [currentIndex, onIndexChange]);
   const touchStartX = React.useRef<number | null>(null);
   const touchStartY = React.useRef<number | null>(null);
   const touchCount = React.useRef(0);
@@ -274,17 +284,19 @@ export function PostCarousel({
         </span>
       </div>
 
-      {/* Dots — top-center */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 flex gap-1 pointer-events-none">
-        {photos.map((_, index) => (
-          <div
-            key={index}
-            className={`h-1.5 rounded-full transition-all duration-200 ${
-              currentIndex === index ? "w-4 bg-white" : "w-1.5 bg-white/50"
-            }`}
-          />
-        ))}
-      </div>
+      {/* Dots — top-center (ocultados quando renderizados externamente acima do frame de ações) */}
+      {!hideDots && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 flex gap-1 pointer-events-none">
+          {photos.map((_, index) => (
+            <div
+              key={index}
+              className={`h-1.5 rounded-full transition-all duration-200 ${
+                currentIndex === index ? "w-4 bg-white" : "w-1.5 bg-white/50"
+              }`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

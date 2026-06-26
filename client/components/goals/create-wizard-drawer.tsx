@@ -496,24 +496,32 @@ export function CreateWizardDrawer({
   ) => (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-3 bg-card border border-border/40 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
+      className="w-full flex items-center gap-3 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
+      style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
     >
       <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
         {icon}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="text-xs text-muted-foreground">{desc}</p>
+        <p className="text-sm font-semibold" style={{ color: "#fff" }}>{title}</p>
+        <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{desc}</p>
       </div>
-      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+      <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
     </button>
   );
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent
-        className="flex flex-col"
-        style={{ maxHeight: `min(92dvh, ${viewportHeight - 8}px)` }}
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="flex flex-col !rounded-t-[32px] !border-0"
+        style={{
+          maxHeight: `min(92dvh, ${viewportHeight - 8}px)`,
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <DrawerHeader className="shrink-0 pb-2">
@@ -521,13 +529,14 @@ export function CreateWizardDrawer({
             {history.length > 0 && (
               <button
                 onClick={goBack}
-                className="h-8 w-8 rounded-full flex items-center justify-center bg-muted/50 shrink-0"
+                className="h-8 w-8 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: "rgba(255,255,255,.1)" }}
                 aria-label={t("goals_back")}
               >
                 <ArrowLeft className="h-4 w-4" />
               </button>
             )}
-            <DrawerTitle className="flex-1 text-left">{stepTitle[step]}</DrawerTitle>
+            <DrawerTitle className="flex-1 text-left" style={{ color: "#fff" }}>{stepTitle[step]}</DrawerTitle>
           </div>
         </DrawerHeader>
 
@@ -571,7 +580,7 @@ export function CreateWizardDrawer({
           {/* ── Step: pick fitness level ─────────────────────────── */}
           {step === "suggested" && (
             <>
-              <p className="text-sm text-muted-foreground -mt-1">
+              <p className="text-sm -mt-1" style={{ color: "rgba(255,255,255,.5)" }}>
                 {t("goals_suggest_level_subtitle")}
               </p>
               {LEVELS.map((l) => (
@@ -582,14 +591,15 @@ export function CreateWizardDrawer({
                     setExpandedDay(null);
                     goTo("suggested-program");
                   }}
-                  className="w-full flex items-center gap-3 bg-card border border-border/40 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
+                  className="w-full flex items-center gap-3 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
+                  style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
                 >
                   <span className="text-2xl shrink-0">{l.emoji}</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold">{t(l.labelKey)}</p>
-                    <p className="text-xs text-muted-foreground">{t(l.descKey)}</p>
+                    <p className="text-sm font-semibold" style={{ color: "#fff" }}>{t(l.labelKey)}</p>
+                    <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{t(l.descKey)}</p>
                   </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "rgba(255,255,255,.4)" }} />
                 </button>
               ))}
             </>
@@ -607,9 +617,9 @@ export function CreateWizardDrawer({
                 const workoutByKey = new Map(program.workouts.map((w) => [w.key, w]));
                 return (
                   <>
-                    <div className="bg-card border border-border/40 rounded-2xl p-4 space-y-2">
-                      <p className="text-base font-bold tracking-tight">{progName}</p>
-                      <p className="text-xs text-muted-foreground">{progDesc}</p>
+                    <div className="rounded-2xl p-4 space-y-2" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                      <p className="text-base font-bold tracking-tight" style={{ color: "#fff" }}>{progName}</p>
+                      <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{progDesc}</p>
                       <div className="flex items-center gap-2 pt-1 text-[11px] font-semibold text-muted-foreground">
                         <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary">
                           {t("goals_program_workouts").replace("{n}", String(program.workouts.length))}
@@ -646,7 +656,8 @@ export function CreateWizardDrawer({
                       return (
                         <div
                           key={workout.key}
-                          className="bg-card border border-border/40 rounded-2xl p-4 space-y-2"
+                          className="rounded-2xl p-4 space-y-2"
+                          style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
                         >
                           <button
                             className="w-full flex items-center gap-2 text-left"
@@ -654,8 +665,8 @@ export function CreateWizardDrawer({
                           >
                             <span className="text-lg shrink-0">🏋️</span>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold truncate">{wName}</p>
-                              <p className="text-xs text-muted-foreground">
+                              <p className="text-sm font-semibold truncate" style={{ color: "#fff" }}>{wName}</p>
+                              <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
                                 {days.join(" · ")} ·{" "}
                                 {t("goals_suggest_n_exercises").replace(
                                   "{n}",
@@ -670,14 +681,14 @@ export function CreateWizardDrawer({
                             />
                           </button>
                           {expanded && (
-                            <ul className="space-y-1 pt-1 border-t border-border/40">
+                            <ul className="space-y-1 pt-1" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
                               {workout.exercises.map((ex, i) => (
                                 <li
                                   key={i}
                                   className="flex items-center justify-between text-xs py-1"
                                 >
-                                  <span className="font-medium truncate mr-2">{ex.name}</span>
-                                  <span className="text-muted-foreground shrink-0">
+                                  <span className="font-medium truncate mr-2" style={{ color: "#fff" }}>{ex.name}</span>
+                                  <span className="shrink-0" style={{ color: "rgba(255,255,255,.5)" }}>
                                     {ex.series}×{ex.reps} · {ex.muscleGroup}
                                   </span>
                                 </li>
@@ -690,6 +701,7 @@ export function CreateWizardDrawer({
 
                     <Button
                       className="w-full rounded-full h-12"
+                      style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                       onClick={() => {
                         setLinkGoalId(null);
                         goTo("suggested-goal");
@@ -715,7 +727,7 @@ export function CreateWizardDrawer({
           {/* ── Step: link program to a goal (last step) ─────────── */}
           {step === "suggested-goal" && selectedProgram && (
             <>
-              <p className="text-sm text-muted-foreground -mt-1">
+              <p className="text-sm -mt-1" style={{ color: "rgba(255,255,255,.5)" }}>
                 {t("goals_program_link_subtitle")}
               </p>
 
@@ -723,7 +735,7 @@ export function CreateWizardDrawer({
                 const activeGoals = userGoals.filter((g) => g.perc < 100);
                 if (activeGoals.length === 0) {
                   return (
-                    <p className="text-sm text-muted-foreground text-center py-6">
+                    <p className="text-sm text-center py-6" style={{ color: "rgba(255,255,255,.5)" }}>
                       {t("goals_program_link_none")}
                     </p>
                   );
@@ -733,11 +745,10 @@ export function CreateWizardDrawer({
                     {/* opção: não vincular */}
                     <button
                       onClick={() => setLinkGoalId(null)}
-                      className={`w-full flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${
-                        linkGoalId === null ? "border-primary bg-primary/5" : "border-border/40 bg-card"
-                      }`}
+                      className="w-full flex items-center gap-2 rounded-xl p-3 text-left text-sm transition-all"
+                      style={linkGoalId === null ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                     >
-                      <span className="flex-1 font-medium text-muted-foreground">
+                      <span className="flex-1 font-medium" style={{ color: "rgba(255,255,255,.6)" }}>
                         {t("goals_program_link_skip")}
                       </span>
                       {linkGoalId === null && <Check className="h-4 w-4 text-primary shrink-0" />}
@@ -746,12 +757,11 @@ export function CreateWizardDrawer({
                       <button
                         key={g.id}
                         onClick={() => setLinkGoalId(g.id)}
-                        className={`w-full flex items-center gap-2 rounded-xl border p-3 text-left text-sm transition-all ${
-                          linkGoalId === g.id ? "border-primary bg-primary/5" : "border-border/40 bg-card"
-                        }`}
+                        className="w-full flex items-center gap-2 rounded-xl p-3 text-left text-sm transition-all"
+                        style={linkGoalId === g.id ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                       >
                         <Target className="h-4 w-4 text-primary shrink-0" />
-                        <span className="flex-1 truncate font-medium">{g.description}</span>
+                        <span className="flex-1 truncate font-medium" style={{ color: "#fff" }}>{g.description}</span>
                         {linkGoalId === g.id && <Check className="h-4 w-4 text-primary shrink-0" />}
                       </button>
                     ))}
@@ -761,6 +771,7 @@ export function CreateWizardDrawer({
 
               <Button
                 className="w-full rounded-full h-12"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                 disabled={addingProgram}
                 onClick={() => handleAddWeeklyProgram(selectedProgram)}
               >
@@ -780,7 +791,7 @@ export function CreateWizardDrawer({
           {step === "build" && (
             <>
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">{t("goals_routine_name_label")}</Label>
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_routine_name_label")}</Label>
                 <Input
                   placeholder={
                     routineType === 1
@@ -792,12 +803,12 @@ export function CreateWizardDrawer({
                   value={routineName}
                   onChange={(e) => setRoutineName(e.target.value)}
                   maxLength={60}
-                  style={{ fontSize: "16px" }}
+                  style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">{t("goals_select_items_hint")}</Label>
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_select_items_hint")}</Label>
                 <Input
                   placeholder={
                     routineType === 1
@@ -808,7 +819,7 @@ export function CreateWizardDrawer({
                   }
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{ fontSize: "16px" }}
+                  style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                 />
                 {(routineType === 1 ? muscleGroups : routineType === 2 ? dietCategories : []).length > 0 && (
                   <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
@@ -847,9 +858,8 @@ export function CreateWizardDrawer({
                       <button
                         key={item.id}
                         onClick={() => toggleItem(item.id)}
-                        className={`w-full flex items-center gap-3 rounded-xl border p-2.5 text-left transition-all active:scale-[0.99] ${
-                          selected ? "border-primary bg-primary/5" : "border-border/40 bg-card"
-                        }`}
+                        className="w-full flex items-center gap-3 rounded-xl p-2.5 text-left transition-all active:scale-[0.99]"
+                        style={selected ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                       >
                         {routineType === 1 ? (
                           <ExerciseImage
@@ -864,8 +874,8 @@ export function CreateWizardDrawer({
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{item.name}</p>
-                          <p className="text-xs text-muted-foreground truncate">
+                          <p className="text-sm font-medium truncate" style={{ color: "#fff" }}>{item.name}</p>
+                          <p className="text-xs truncate" style={{ color: "rgba(255,255,255,.5)" }}>
                             {routineType === 1
                               ? item.muscle_group || ""
                               : routineType === 2
@@ -888,7 +898,8 @@ export function CreateWizardDrawer({
                   {!showCustomForm ? (
                     <button
                       onClick={() => setShowCustomForm(true)}
-                      className="w-full h-11 rounded-xl border border-dashed border-border/60 text-xs font-medium text-muted-foreground flex items-center justify-center gap-1"
+                      className="w-full h-11 rounded-xl text-xs font-medium flex items-center justify-center gap-1"
+                      style={{ border: "1px dashed rgba(255,255,255,.2)", color: "rgba(255,255,255,.5)" }}
                     >
                       <Plus className="h-3.5 w-3.5" />
                       {routineType === 1
@@ -898,7 +909,7 @@ export function CreateWizardDrawer({
                           : t("goals_not_found_habit")}
                     </button>
                   ) : (
-                    <div className="bg-card border border-border/40 rounded-xl p-3 space-y-2">
+                    <div className="rounded-xl p-3 space-y-2" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
                       <Input
                         placeholder={
                           routineType === 1
@@ -910,7 +921,7 @@ export function CreateWizardDrawer({
                         value={customName}
                         onChange={(e) => setCustomName(e.target.value)}
                         maxLength={80}
-                        style={{ fontSize: "16px" }}
+                        style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                       />
                       <Input
                         placeholder={
@@ -924,13 +935,14 @@ export function CreateWizardDrawer({
                         onChange={(e) => setCustomExtra(e.target.value)}
                         inputMode={routineType === 2 ? "numeric" : undefined}
                         maxLength={80}
-                        style={{ fontSize: "16px" }}
+                        style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                       />
                       <div className="flex gap-2">
                         <Button
                           variant="outline"
                           size="sm"
                           className="flex-1 rounded-full"
+                          style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
                           onClick={() => setShowCustomForm(false)}
                         >
                           {t("goals_cancel")}
@@ -938,6 +950,7 @@ export function CreateWizardDrawer({
                         <Button
                           size="sm"
                           className="flex-1 rounded-full"
+                          style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                           disabled={!customName.trim() || isCreatingCustom}
                           onClick={handleCreateCustomItem}
                         >
@@ -950,20 +963,20 @@ export function CreateWizardDrawer({
               )}
 
               {/* schedule + goal link */}
-              <div className="space-y-2 pt-2 border-t border-border/40">
-                <Label className="text-sm font-semibold">{t("goals_edit_routine_time_label")}</Label>
+              <div className="space-y-2 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_edit_routine_time_label")}</Label>
                 <input
                   type="time"
                   value={scheduledTime}
                   onChange={(e) => setScheduledTime(e.target.value)}
-                  className="w-full h-11 rounded-xl bg-muted/40 border border-border/40 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  style={{ fontSize: "16px" }}
+                  className="w-full h-11 rounded-xl px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                 />
               </div>
 
               {userGoals.filter((g) => g.perc < 100).length > 0 && (
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold">{t("goals_link_step_title")}</Label>
+                  <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_link_step_title")}</Label>
                   <div className="space-y-1.5">
                     {userGoals
                       .filter((g) => g.perc < 100)
@@ -971,12 +984,11 @@ export function CreateWizardDrawer({
                         <button
                           key={g.id}
                           onClick={() => setLinkGoalId(linkGoalId === g.id ? null : g.id)}
-                          className={`w-full flex items-center gap-2 rounded-xl border p-2.5 text-left text-sm transition-all ${
-                            linkGoalId === g.id ? "border-primary bg-primary/5" : "border-border/40 bg-card"
-                          }`}
+                          className="w-full flex items-center gap-2 rounded-xl p-2.5 text-left text-sm transition-all"
+                          style={linkGoalId === g.id ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                         >
                           <Target className="h-4 w-4 text-primary shrink-0" />
-                          <span className="flex-1 truncate font-medium">{g.description}</span>
+                          <span className="flex-1 truncate font-medium" style={{ color: "#fff" }}>{g.description}</span>
                           {linkGoalId === g.id && <Check className="h-4 w-4 text-primary shrink-0" />}
                         </button>
                       ))}
@@ -986,6 +998,7 @@ export function CreateWizardDrawer({
 
               <Button
                 className="w-full rounded-full h-12"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                 disabled={isSaving || selectedIds.size === 0}
                 onClick={handleSaveRoutine}
               >
@@ -1013,7 +1026,7 @@ export function CreateWizardDrawer({
                 t("goals_onboarding_create_title"),
                 t("goals_onboarding_create_desc"),
               )}
-              <p className="text-xs text-muted-foreground text-center pt-2">
+              <p className="text-xs text-center pt-2" style={{ color: "rgba(255,255,255,.4)" }}>
                 {t("goals_onboarding_footer")}
               </p>
             </>
@@ -1030,8 +1043,8 @@ export function CreateWizardDrawer({
                 programmedGoals
                   .filter((g) => !selectedGoalIds.includes(g.id))
                   .map((g) => (
-                    <div key={g.id} className="bg-card border border-border/40 rounded-2xl p-4 space-y-3">
-                      <p className="text-sm font-semibold">{g.description}</p>
+                    <div key={g.id} className="rounded-2xl p-4 space-y-3" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                      <p className="text-sm font-semibold" style={{ color: "#fff" }}>{g.description}</p>
                       <div className="flex gap-2">
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-400 text-xs font-semibold">
                           <Calendar className="h-3.5 w-3.5" />
@@ -1058,7 +1071,7 @@ export function CreateWizardDrawer({
                   ))
               )}
               {!goalsLoading && programmedGoals.filter((g) => !selectedGoalIds.includes(g.id)).length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-8">{t("goals_empty")}</p>
+                <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,.5)" }}>{t("goals_empty")}</p>
               )}
             </>
           )}
@@ -1067,53 +1080,48 @@ export function CreateWizardDrawer({
           {step === "goal-custom" && (
             <>
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">{t("goals_create_label_desc")}</Label>
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_create_label_desc")}</Label>
                 <Input
                   placeholder={t("goals_create_placeholder")}
                   value={goalDescription}
                   onChange={(e) => setGoalDescription(e.target.value)}
                   maxLength={120}
-                  style={{ fontSize: "16px" }}
+                  style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">{t("goals_create_label_type")}</Label>
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_create_label_type")}</Label>
                 <div className="grid grid-cols-3 gap-2">
                   {GOAL_TYPES.map((gt) => (
                     <button
                       key={gt.value}
                       onClick={() => setGoalType(gt.value)}
-                      className={`rounded-2xl border p-3 text-center transition-all ${
-                        goalType === gt.value ? "border-primary bg-primary/10" : "border-border/40 bg-card"
-                      }`}
+                      className="rounded-2xl p-3 text-center transition-all"
+                      style={goalType === gt.value ? { border: "1px solid #5b8cff", background: "rgba(91,140,255,.1)" } : { border: "1px solid rgba(255,255,255,.1)", background: "rgba(255,255,255,.04)" }}
                     >
                       <span className="text-xl block">{gt.emoji}</span>
-                      <span className="text-xs font-semibold block mt-1">{t(gt.labelKey)}</span>
+                      <span className="text-xs font-semibold block mt-1" style={{ color: "#fff" }}>{t(gt.labelKey)}</span>
                     </button>
                   ))}
                 </div>
               </div>
               <div className="space-y-2">
-                <Label className="text-sm font-semibold">{t("goals_create_label_duration")}</Label>
+                <Label className="text-sm font-semibold" style={{ color: "#fff" }}>{t("goals_create_label_duration")}</Label>
                 <div className="flex gap-2 flex-wrap">
                   {DURATION_PRESETS.map((d) => (
                     <button
                       key={d}
                       onClick={() => { setGoalDuration(d); setUseCustomDuration(false); }}
-                      className={`px-4 py-2 rounded-full text-sm font-medium ${
-                        !useCustomDuration && goalDuration === d
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted/50 text-muted-foreground"
-                      }`}
+                      className="px-4 py-2 rounded-full text-sm font-medium"
+                      style={!useCustomDuration && goalDuration === d ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" } : { background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.6)" }}
                     >
                       {d} {t("goals_streak_days")}
                     </button>
                   ))}
                   <button
                     onClick={() => setUseCustomDuration(true)}
-                    className={`px-4 py-2 rounded-full text-sm font-medium ${
-                      useCustomDuration ? "bg-primary text-primary-foreground" : "bg-muted/50 text-muted-foreground"
-                    }`}
+                    className="px-4 py-2 rounded-full text-sm font-medium"
+                    style={useCustomDuration ? { background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" } : { background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.6)" }}
                   >
                     {t("goals_create_custom_days")}
                   </button>
@@ -1125,12 +1133,13 @@ export function CreateWizardDrawer({
                     placeholder={t("goals_duration_days")}
                     value={goalCustomDuration}
                     onChange={(e) => setGoalCustomDuration(e.target.value)}
-                    style={{ fontSize: "16px" }}
+                    style={{ fontSize: "16px", background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", color: "#fff" }}
                   />
                 )}
               </div>
               <Button
                 className="w-full rounded-full h-12"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                 disabled={isSaving || !goalDescription.trim()}
                 onClick={handleCreateCustomGoal}
               >

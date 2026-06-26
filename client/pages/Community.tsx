@@ -63,7 +63,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 // Tabs component replaced by custom underline tabs
 import { toast } from "@/components/ui/use-toast";
-import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, ChevronDown, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Pencil, Camera, Image, Mic, Crop, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, Send, Check, CheckCheck, Trophy, TrendingUp, Plus, X, ChevronRight, Trash2, Edit3, Search, PenSquare, MessageCircle, Users, ChevronLeft, Swords, BarChart2, Camera, Image, Mic, Crop, CheckCircle2, XCircle, Pencil } from "lucide-react";
 import { CommentReactions } from "@/components/shared/comment-reactions";
 import { ClassificationsDrawer } from "@/components/community/classifications-drawer";
 import { NewConversationDrawer } from "@/components/community/new-conversation-drawer";
@@ -104,7 +104,6 @@ import { useLanguage } from "@/lib/language-context";
 import { UserInsignias } from "@/components/profile/user-insignias";
 import { ImageWithFallback } from "@/components/shared/image-with-fallback";
 import { UserAvatar } from "@/components/shared/user-avatar";
-import { FabButton } from "@/components/shared/fab-button";
 
 type ViewMode = "conversations" | "conversation";
 
@@ -162,7 +161,6 @@ export default function Community() {
   const [joinedGroupIds, setJoinedGroupIds] = React.useState<Set<string>>(new Set());
   const [joiningGroupId, setJoiningGroupId] = React.useState<string | null>(null);
   const [selectedGroupForView, setSelectedGroupForView] = React.useState<any>(null);
-  const [allGroupsOpen, setAllGroupsOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (selectedGroupForView) {
@@ -176,6 +174,7 @@ export default function Community() {
   const [groupCheckIns, setGroupCheckIns] = React.useState<GroupCheckIn[]>([]);
   const [groupParticipants, setGroupParticipants] = React.useState<Array<{ userId: string; userNickname: string; userPhoto: string | null }>>([]);
   const [activeGroupViewTab, setActiveGroupViewTab] = React.useState<"check-ins" | "participants">("check-ins");
+  const [activeGroupIndex, setActiveGroupIndex] = React.useState(0);
   const [isAddCheckInModalOpen, setIsAddCheckInModalOpen] = React.useState(false);
   const [isSubmittingCheckIn, setIsSubmittingCheckIn] = React.useState(false);
   const [checkInForm, setCheckInForm] = React.useState({
@@ -838,7 +837,7 @@ export default function Community() {
   React.useEffect(() => {
     if (!selectedConversation || !user || !supabase) return;
     const channel = supabase
-      .channel(`messages:${selectedConversation.userId}`)
+      .channel(`messages:${selectedConversation.userId}:${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
@@ -929,7 +928,16 @@ export default function Community() {
     return ReactDOM.createPortal(
       <div className={`fixed top-0 right-0 ${bottomClass} bg-background flex flex-col z-[100]`} style={{ left: "var(--sidebar-width, 0px)" }}>
         {/* Header */}
-        <div className="flex-shrink-0 border-b border-border/60 bg-background px-4 py-3 flex items-center gap-3" style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}>
+        <div
+          className="flex-shrink-0 px-4 py-3 flex items-center gap-3"
+          style={{
+            paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)",
+            background: "linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.03))",
+            backdropFilter: "blur(24px) saturate(180%)",
+            WebkitBackdropFilter: "blur(24px) saturate(180%)",
+            borderBottom: "1px solid rgba(255,255,255,.1)",
+          }}
+        >
           <button
             onClick={handleBackToConversations}
             className="text-muted-foreground hover:text-foreground flex-shrink-0"
@@ -968,9 +976,10 @@ export default function Community() {
             )}
             <button
               onClick={() => navigate(`/usuario/${selectedConversation.userId}`)}
-              className="px-5 py-2 rounded-xl bg-muted hover:bg-muted/70 text-sm font-medium transition-colors"
+              className="px-5 py-2 rounded-full text-sm font-medium text-white transition-colors hover:bg-white/[.1]"
+              style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.12)" }}
             >
-              Ver perfil
+              {t("community_view_profile")}
             </button>
           </div>
 
@@ -992,13 +1001,13 @@ export default function Community() {
                       onTouchEnd={handleMessageTouchEnd}
                       onTouchMove={handleMessageTouchEnd}
                       onContextMenu={(e) => { e.preventDefault(); handleMessageLongPress(message); }}
-                      className={`max-w-xs px-4 py-2 rounded-lg space-y-1 break-words select-none ${isOwn
-                          ? "bg-brand text-white rounded-br-none"
-                          : "bg-muted rounded-bl-none"
-                        }`}
+                      className={`max-w-xs px-4 py-2.5 space-y-1 break-words select-none text-white ${isOwn ? "rounded-[20px] rounded-br-md" : "rounded-[20px] rounded-bl-md"}`}
+                      style={isOwn
+                        ? { background: "linear-gradient(135deg,#5b8cff,#7b3ff2)" }
+                        : { background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.08)" }}
                     >
                       {replyQuote && (
-                        <div className={`text-xs px-2 py-1 rounded mb-1 border-l-2 ${isOwn ? "bg-white/10 border-white/50 text-white/80" : "bg-muted-foreground/10 border-muted-foreground/40 text-muted-foreground"}`}>
+                        <div className={`text-xs px-2 py-1 rounded mb-1 border-l-2 ${isOwn ? "bg-white/10 border-white/50 text-white/80" : "bg-white/10 border-white/40 text-white/70"}`}>
                           <p className="truncate">{replyQuote?.startsWith("[audio]:") ? "🎤 Áudio" : replyQuote}</p>
                         </div>
                       )}
@@ -1023,8 +1032,7 @@ export default function Community() {
                       )}
                       <div className="flex items-center justify-between gap-2">
                         <p
-                          className={`text-xs ${isOwn ? "text-white/70" : "text-muted-foreground"
-                            }`}
+                          className={`text-xs ${isOwn ? "text-white/70" : "text-white/50"}`}
                         >
                           {new Date(message.created_at).toLocaleTimeString(
                             "pt-BR",
@@ -1054,8 +1062,8 @@ export default function Community() {
               );
             })
           ) : (
-            <div className="text-center text-muted-foreground text-sm">
-              Sem mensagens ainda. Inicie uma conversa!
+            <div className="text-center text-white/50 text-sm">
+              {t("community_no_messages_yet")}
             </div>
           )}
           <div ref={messagesEndRef} />
@@ -1063,12 +1071,12 @@ export default function Community() {
 
         {/* Reply banner */}
         {replyingTo && (
-          <div className="flex-shrink-0 border-t border-border/60 bg-muted/40 px-4 py-2 flex items-center gap-2">
+          <div className="flex-shrink-0 px-4 py-2 flex items-center gap-2" style={{ background: "rgba(255,255,255,.05)", borderTop: "1px solid rgba(255,255,255,.08)" }}>
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-muted-foreground mb-0.5">Respondendo</p>
-              <p className="text-xs truncate">{replyingTo.text.replace(/^↩ .+?\n\n/, "")}</p>
+              <p className="text-xs text-white/50 mb-0.5">{t("community_replying")}</p>
+              <p className="text-xs truncate text-white/80">{replyingTo.text.replace(/^↩ .+?\n\n/, "")}</p>
             </div>
-            <button onClick={() => setReplyingTo(null)} className="text-muted-foreground hover:text-foreground flex-shrink-0">
+            <button onClick={() => setReplyingTo(null)} className="text-white/50 hover:text-white flex-shrink-0">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -1077,44 +1085,70 @@ export default function Community() {
         {/* Input — estilo Instagram */}
         {isRecording ? (
           /* ── Modo gravação ── */
-          <div className="flex-shrink-0 border-t border-border/60 bg-background px-3 py-2 flex items-center gap-3">
+          <div
+            className="flex-shrink-0 px-3.5 pt-3 flex items-center gap-2"
+            style={{
+              background: "linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.025))",
+              backdropFilter: "blur(30px) saturate(180%)",
+              WebkitBackdropFilter: "blur(30px) saturate(180%)",
+              borderTop: "1px solid rgba(255,255,255,.1)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,.12)",
+              paddingBottom: "max(0.85rem, env(safe-area-inset-bottom))",
+            }}
+          >
             {/* Cancelar */}
             <button
               onClick={cancelRecording}
-              className="flex-shrink-0 text-muted-foreground hover:text-destructive transition-colors p-1.5"
+              className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-white/70 hover:text-destructive hover:bg-white/[.1] active:scale-95 transition-all"
+              style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)" }}
               title="Cancelar gravação"
             >
-              <X className="h-6 w-6" />
+              <X className="h-[21px] w-[21px]" strokeWidth={1.8} />
             </button>
             {/* Indicador de gravação */}
-            <div className="flex-1 flex items-center gap-2 bg-muted/50 rounded-full px-4 py-2 border border-border/40">
+            <div
+              className="flex-1 flex items-center gap-2.5 rounded-[26px] px-5"
+              style={{ minHeight: "52px", background: "rgba(255,255,255,.09)", border: "1px solid rgba(255,255,255,.13)", boxShadow: "inset 0 1px 0 rgba(255,255,255,.08)" }}
+            >
               <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
-              <span className="text-sm text-muted-foreground flex-1">
-                Gravando... {Math.floor(recordingSeconds / 60).toString().padStart(2, "0")}:{(recordingSeconds % 60).toString().padStart(2, "0")}
+              <span className="text-[15px] text-white/70 flex-1">
+                {t("community_recording")} {Math.floor(recordingSeconds / 60).toString().padStart(2, "0")}:{(recordingSeconds % 60).toString().padStart(2, "0")}
               </span>
             </div>
             {/* Enviar */}
             <button
               onClick={stopRecordingAndSend}
-              className="flex-shrink-0 bg-brand text-white rounded-full p-2 hover:opacity-80 transition-opacity"
+              className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white hover:opacity-90 active:scale-95 transition-all"
+              style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", boxShadow: "0 8px 22px -6px rgba(123,63,242,.6), inset 0 1px 0 rgba(255,255,255,.3)" }}
               title="Enviar áudio"
             >
               <Send className="h-5 w-5" />
             </button>
           </div>
         ) : (
-          <div className="flex-shrink-0 border-t border-border/60 bg-background px-3 py-2 flex items-center gap-2">
+          <div
+            className="flex-shrink-0 px-3.5 pt-3 flex items-center gap-2"
+            style={{
+              background: "linear-gradient(rgba(255,255,255,.08),rgba(255,255,255,.025))",
+              backdropFilter: "blur(30px) saturate(180%)",
+              WebkitBackdropFilter: "blur(30px) saturate(180%)",
+              borderTop: "1px solid rgba(255,255,255,.1)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,.12)",
+              paddingBottom: "max(0.85rem, env(safe-area-inset-bottom))",
+            }}
+          >
             {/* Câmera */}
             <button
-              className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors p-1.5"
+              className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/[.1] active:scale-95 transition-all"
+              style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)" }}
               onClick={() => photoInputRef.current?.click()}
               disabled={isSendingPhoto}
               title="Enviar foto da câmera"
             >
               {isSendingPhoto ? (
-                <div className="h-5 w-5 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
+                <div className="h-5 w-5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
               ) : (
-                <Camera className="h-6 w-6" />
+                <Camera className="h-[21px] w-[21px]" strokeWidth={1.8} />
               )}
             </button>
 
@@ -1133,7 +1167,15 @@ export default function Community() {
             />
 
             {/* Input de texto */}
-            <div className="flex-1 flex items-center bg-muted/50 rounded-full px-4 py-1.5 gap-2 border border-border/40">
+            <div
+              className="flex-1 flex items-center rounded-[26px] px-5 gap-2"
+              style={{
+                minHeight: "52px",
+                background: "rgba(255,255,255,.09)",
+                border: "1px solid rgba(255,255,255,.13)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,.08)",
+              }}
+            >
               <Input
                 ref={messageInputRef}
                 placeholder={t("community_type_message")}
@@ -1145,7 +1187,7 @@ export default function Community() {
                     handleSendMessage();
                   }
                 }}
-                className="border-0 bg-transparent p-0 h-auto text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 flex-1"
+                className="border-0 bg-transparent p-0 h-auto text-[15px] text-white placeholder:text-white/45 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 flex-1"
               />
             </div>
 
@@ -1154,16 +1196,18 @@ export default function Community() {
               <button
                 onClick={handleSendMessage}
                 disabled={isSending}
-                className="flex-shrink-0 text-brand hover:opacity-80 transition-opacity p-1.5"
+                className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white hover:opacity-90 active:scale-95 transition-all"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", boxShadow: "0 8px 22px -6px rgba(123,63,242,.6), inset 0 1px 0 rgba(255,255,255,.3)" }}
                 title="Enviar mensagem"
               >
                 <Send className="h-5 w-5" />
               </button>
             ) : (
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <div className="flex items-center gap-1.5 flex-shrink-0">
                 {/* Galeria */}
                 <button
-                  className="text-muted-foreground hover:text-foreground transition-colors p-1.5"
+                  className="w-11 h-11 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/[.1] active:scale-95 transition-all"
+                  style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)" }}
                   title="Enviar da galeria"
                   onClick={() => {
                     if (photoInputRef.current) {
@@ -1173,16 +1217,17 @@ export default function Community() {
                     }
                   }}
                 >
-                  <Image className="h-6 w-6" />
+                  <Image className="h-[21px] w-[21px]" strokeWidth={1.8} />
                 </button>
                 {/* Microfone — iniciar gravação */}
                 <button
-                  className="text-muted-foreground hover:text-foreground transition-colors p-1.5"
+                  className="w-11 h-11 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/[.1] active:scale-95 transition-all"
+                  style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)" }}
                   title="Gravar áudio"
                   onMouseDown={startRecording}
                   onTouchStart={() => { startRecording(); }}
                 >
-                  <Mic className="h-6 w-6" />
+                  <Mic className="h-[21px] w-[21px]" strokeWidth={1.8} />
                 </button>
               </div>
             )}
@@ -1390,35 +1435,39 @@ export default function Community() {
           {/* Search Bar + Nova conversa */}
           <div className="flex-shrink-0 px-4 pt-3 pb-2 flex items-center gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40 pointer-events-none z-10" />
               <Input
-                placeholder="Buscar conversa..."
+                placeholder={t("community_search_conversation")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="rounded-full pl-9 bg-muted/30 border-transparent focus:border-border/60 focus:bg-background"
+                className="rounded-full pl-9 text-white placeholder:text-white/40 focus-visible:ring-0"
+                style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.10)" }}
               />
             </div>
             <button
-              aria-label="Nova conversa"
+              aria-label={t("community_new_conversation_aria")}
               onClick={() => { setIsNewConversationDrawerOpen(true); }}
-              className="flex-shrink-0 p-2 rounded-lg hover:bg-white/[.06] transition-colors"
-              style={{ border: "1px solid rgba(255,255,255,.10)" }}
+              className="flex-shrink-0 p-2.5 rounded-full hover:bg-white/[.1] transition-colors"
+              style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.10)" }}
             >
-              <PenSquare className="h-4 w-4 text-white/50" />
+              <PenSquare className="h-4 w-4 text-white/70" />
             </button>
           </div>
 
-          {/* Conversations List */}
-          <div className="flex-1 overflow-y-auto">
+          {/* Conversations List — LinKa Glass cards */}
+          <div className="flex-1 overflow-y-auto px-3 pt-1 pb-4">
             {filteredConversations.length > 0 ? (
-              <div className="divide-y" style={{ borderColor: "rgba(255,255,255,.06)" }}>
+              <div className="flex flex-col gap-1">
                 {filteredConversations.map((conversation) => (
-                  <div key={conversation.userId} className="flex items-center group" style={{ borderColor: "rgba(255,255,255,.06)" }}>
+                  <div
+                    key={conversation.userId}
+                    className="group relative flex items-center gap-3 rounded-[20px] px-3 py-3 transition-colors hover:bg-white/[.07] active:bg-white/[.09]"
+                    style={{ background: "rgba(255,255,255,.04)" }}
+                  >
                     <button
                       onClick={() => handleOpenConversation(conversation)}
-                      className="flex-1 flex items-center gap-3 px-4 py-3.5 hover:bg-white/[.04] active:bg-white/[.07] transition-colors text-left min-w-0"
+                      className="flex flex-1 items-center gap-3 min-w-0 text-left"
                     >
-                      {/* Avatar com ring se não lido */}
                       <div className="relative shrink-0">
                         <UserAvatar
                           photo={conversation.userPhoto}
@@ -1429,28 +1478,28 @@ export default function Community() {
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2 mb-0.5">
-                          <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-semibold text-foreground" : "font-medium"}`}>
+                          <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-semibold text-white" : "font-medium text-white/90"}`}>
                             {conversation.userNickname}
                           </p>
-                          <p className={`text-xs shrink-0 ${conversation.unreadCount > 0 ? "text-brand font-medium" : "text-muted-foreground"}`}>
+                          <p className={`text-xs shrink-0 ${conversation.unreadCount > 0 ? "text-brand font-medium" : "text-white/40"}`}>
                             {formatTimeAgo(conversation.lastMessageTime)}
                           </p>
                         </div>
-                        <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-medium text-foreground" : "text-muted-foreground"}`}>
-                          {conversation.lastMessage?.startsWith("[audio]:") ? "🎤 Áudio" : conversation.lastMessage?.startsWith("[image]:") ? "🖼️ Imagem" : conversation.lastMessage || "Iniciar conversa"}
+                        <p className={`text-sm truncate ${conversation.unreadCount > 0 ? "font-medium text-white/80" : "text-white/55"}`}>
+                          {conversation.lastMessage?.startsWith("[audio]:") ? "🎤 Áudio" : conversation.lastMessage?.startsWith("[image]:") ? "🖼️ Imagem" : conversation.lastMessage || t("community_start_conversation")}
                         </p>
                       </div>
-
-                      {conversation.unreadCount > 0 && (
-                        <div className="flex items-center justify-center h-5 w-5 rounded-full bg-brand text-white text-[11px] font-bold shrink-0">
-                          {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
-                        </div>
-                      )}
                     </button>
+
+                    {conversation.unreadCount > 0 && (
+                      <span className="flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full bg-brand text-white text-[11px] font-bold shrink-0 transition-opacity group-hover:opacity-0">
+                        {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
+                      </span>
+                    )}
                     <button
                       onClick={() => { setConvToDelete(conversation); setDeleteConvConfirmOpen(true); }}
-                      className="px-3 py-3.5 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 shrink-0"
-                      aria-label="Excluir conversa"
+                      className="absolute right-3 p-1.5 rounded-full text-white/50 hover:text-destructive hover:bg-white/[.08] transition-all opacity-0 group-hover:opacity-100"
+                      aria-label={t("community_delete_conversation")}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -1459,15 +1508,16 @@ export default function Community() {
 
                 {/* Separador para sugestões quando há busca */}
                 {searchQuery && filteredFollowers.filter(f => !conversations.some(c => c.userId === f.id)).length > 0 && (
-                  <div className="px-4 pt-4 pb-1">
-                    <p className="text-xs font-semibold text-white/40 uppercase tracking-wide">Sugestões</p>
+                  <div className="px-2 pt-4 pb-1">
+                    <p className="text-xs font-semibold text-white/40 uppercase tracking-wide">{t("community_suggestions")}</p>
                   </div>
                 )}
                 {searchQuery && filteredFollowers.filter(f => !conversations.some(c => c.userId === f.id)).map((follower) => (
                   <button
                     key={follower.id}
                     onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/[.04] transition-colors text-left"
+                    className="w-full flex items-center gap-3 rounded-[20px] px-3 py-3 hover:bg-white/[.07] transition-colors text-left"
+                    style={{ background: "rgba(255,255,255,.04)" }}
                   >
                     <div className="shrink-0">
                       <UserAvatar
@@ -1477,58 +1527,55 @@ export default function Community() {
                       />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{follower.nickname}</p>
-                      {follower.bio && <p className="text-xs text-muted-foreground truncate">{follower.bio}</p>}
+                      <p className="text-sm font-medium text-white/90">{follower.nickname}</p>
+                      {follower.bio && <p className="text-xs text-white/50 truncate">{follower.bio}</p>}
                     </div>
                   </button>
                 ))}
               </div>
             ) : filteredFollowers.length > 0 ? (
-              <div>
-                <div className="px-4 py-5 text-center space-y-2">
-                  <MessageCircle className="h-10 w-10 mx-auto text-muted-foreground/40" />
-                  <p className="text-sm font-medium">Nenhuma conversa ainda</p>
-                  <p className="text-xs text-muted-foreground">Escolha alguém abaixo para começar</p>
+              <div className="flex flex-col gap-1">
+                <div className="py-5 text-center space-y-2">
+                  <MessageCircle className="h-10 w-10 mx-auto text-white/30" />
+                  <p className="text-sm font-medium text-white/90">{t("community_no_conversation_yet")}</p>
+                  <p className="text-xs text-white/50">{t("community_choose_someone")}</p>
                 </div>
-                <div className="px-4 pb-1">
-                  <p className="text-xs font-semibold text-white/40 uppercase tracking-wide">Quem você segue</p>
+                <div className="px-2 pb-1">
+                  <p className="text-xs font-semibold text-white/40 uppercase tracking-wide">{t("community_whom_you_follow")}</p>
                 </div>
-                <div className="divide-y" style={{ borderColor: "rgba(255,255,255,.06)" }}>
-                  {filteredFollowers.map((follower) => (
-                    <button
-                      key={follower.id}
-                      onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
-                      className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/[.04] transition-colors text-left"
-                    >
-                      <div className="shrink-0">
-                        {follower.photo ? (
-                          <ImageWithFallback src={follower.photo} alt={follower.nickname} className="h-12 w-12 rounded-full object-cover" fallback="/placeholder.svg" />
-                        ) : (
-                          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-                            <span className="text-sm font-semibold text-muted-foreground">{follower.nickname?.charAt(0).toUpperCase() || "?"}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{follower.nickname}</p>
-                        {follower.bio && <p className="text-xs text-muted-foreground truncate">{follower.bio}</p>}
-                      </div>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                    </button>
-                  ))}
-                </div>
+                {filteredFollowers.map((follower) => (
+                  <button
+                    key={follower.id}
+                    onClick={() => { setSelectedConversation({ userId: follower.id, userNickname: follower.nickname, userPhoto: follower.photo, lastMessage: "", lastMessageTime: new Date().toISOString(), unreadCount: 0 }); setViewMode("conversation"); }}
+                    className="w-full flex items-center gap-3 rounded-[20px] px-3 py-3 hover:bg-white/[.07] transition-colors text-left"
+                    style={{ background: "rgba(255,255,255,.04)" }}
+                  >
+                    <div className="shrink-0">
+                      <UserAvatar
+                        photo={follower.photo}
+                        nickname={follower.nickname}
+                        size="lg"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white/90">{follower.nickname}</p>
+                      {follower.bio && <p className="text-xs text-white/50 truncate">{follower.bio}</p>}
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-white/40 shrink-0" />
+                  </button>
+                ))}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-16 px-8 text-center space-y-4">
-                <div className="h-16 w-16 rounded-full bg-muted/50 flex items-center justify-center">
-                  <MessageCircle className="h-8 w-8 text-muted-foreground/50" />
+                <div className="h-16 w-16 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}>
+                  <MessageCircle className="h-8 w-8 text-white/40" />
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm font-semibold">Nenhuma conversa</p>
-                  <p className="text-xs text-muted-foreground">Siga pessoas para poder trocar mensagens</p>
+                  <p className="text-sm font-semibold text-white/90">{t("community_no_conversation")}</p>
+                  <p className="text-xs text-white/50">{t("community_follow_to_message")}</p>
                 </div>
                 <Button onClick={() => navigate("/buscar")} className="rounded-full" size="sm">
-                  Encontrar pessoas
+                  {t("community_find_people")}
                 </Button>
               </div>
             )}
@@ -1943,29 +1990,37 @@ export default function Community() {
           </div>
 
           {/* Centered Add Check-in Button at Bottom */}
-          <div className="fixed bottom-[88px] right-4 z-[101]">
-            <button
-              onClick={() => {
-                if (!user?.id) return;
-                // Open modal immediately — load routines in background
-                setSelectedRoutineKey(null);
-                setCheckInForm({ photo: "", photos: [], description: "", workoutId: "" });
-                setCheckInPhotoFiles([]);
-                setCheckInPhotoPreviewUrls([]);
-                setCompletedRoutines([]);
-                setIsAddCheckInModalOpen(true);
-                setIsLoadingRoutines(true);
-                getCompletedRoutinesTodayDb(user.id)
-                  .then(setCompletedRoutines)
-                  .catch((err: any) => { console.error("Error loading completed routines:", err); })
-                  .finally(() => setIsLoadingRoutines(false));
-              }}
-              className="h-14 w-14 rounded-full bg-brand text-white flex items-center justify-center hover:bg-brand/90 transition-colors shadow-lg"
-              title="Adicionar check-in"
-            >
-              <Plus className="h-6 w-6" />
-            </button>
-          </div>
+          {(() => {
+            const isGroupExpired = selectedGroupForView?.endDate
+              ? new Date(selectedGroupForView.endDate) <= new Date()
+              : false;
+            return (
+              <div className="fixed bottom-[88px] right-4 z-[101]">
+                <button
+                  disabled={isGroupExpired}
+                  onClick={() => {
+                    if (!user?.id || isGroupExpired) return;
+                    // Open modal immediately — load routines in background
+                    setSelectedRoutineKey(null);
+                    setCheckInForm({ photo: "", photos: [], description: "", workoutId: "" });
+                    setCheckInPhotoFiles([]);
+                    setCheckInPhotoPreviewUrls([]);
+                    setCompletedRoutines([]);
+                    setIsAddCheckInModalOpen(true);
+                    setIsLoadingRoutines(true);
+                    getCompletedRoutinesTodayDb(user.id)
+                      .then(setCompletedRoutines)
+                      .catch((err: any) => { console.error("Error loading completed routines:", err); })
+                      .finally(() => setIsLoadingRoutines(false));
+                  }}
+                  className={`h-14 w-14 rounded-full text-white flex items-center justify-center transition-colors shadow-lg ${isGroupExpired ? "bg-muted-foreground/40 cursor-not-allowed" : "bg-brand hover:bg-brand/90"}`}
+                  title={isGroupExpired ? t("duels_ended") : t("duels_checkin_today")}
+                >
+                  <Plus className="h-6 w-6" />
+                </button>
+              </div>
+            );
+          })()}
 
           {/* Check-in Emoji Long-Press Overlay */}
           {longPressedCheckIn && (
@@ -2040,219 +2095,299 @@ export default function Community() {
       {/* Duels Tab */}
       {activeTab === "duels" && !selectedGroupForView && (
         <>
-          {/* Header */}
-          <div className="flex-shrink-0 px-4 pt-4 pb-0 flex items-center justify-start">
-            <h1 className="text-2xl font-bold tracking-tight">{t("community_duels")}</h1>
-          </div>
+          <div className="flex-1 overflow-y-auto px-4 pb-6 pt-4 space-y-5 min-h-0">
 
-          {/* Duels Grid */}
-          <div className="flex-1 overflow-y-auto px-3 pb-4 pt-4 space-y-6 min-h-0">
-            {/* User Created Groups Section */}
+            {/* CTA: Criar um duelo */}
+            <button
+              onClick={() => {
+                setGroupStep(1);
+                setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "", scoringType: "check_in_count", memeRule: "" });
+                setSelectedInvitees(new Set());
+                setIsCreateGroupModalOpen(true);
+              }}
+              className="w-full flex items-center gap-3 rounded-[20px] p-3.5 text-left active:opacity-80 transition-opacity"
+              style={{
+                background: "linear-gradient(135deg,rgba(91,140,255,.18),rgba(157,107,255,.1))",
+                border: "1px solid rgba(123,99,242,.32)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,.14)",
+              }}
+            >
+              <span
+                className="w-[46px] h-[46px] rounded-[14px] flex-shrink-0 flex items-center justify-center text-white"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", boxShadow: "0 6px 16px -4px rgba(123,63,242,.5)" }}
+              >
+                <Plus className="h-6 w-6" />
+              </span>
+              <div className="flex-1">
+                <div className="text-[15px] font-bold text-white">{t("duels_create")}</div>
+                <div className="text-[11.5px] mt-0.5" style={{ color: "rgba(255,255,255,.6)" }}>{t("duels_create_subtitle")}</div>
+              </div>
+              <ChevronRight className="h-5 w-5 flex-shrink-0" style={{ color: "rgba(255,255,255,.45)" }} />
+            </button>
+
+            {/* Meus grupos ativos */}
             {userCreatedGroups.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-brand mb-3">{t("duels_my_groups")}</h2>
-                <div className="grid grid-cols-2 gap-3">
-                  {userCreatedGroups.map((group) => (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[15px] font-bold text-white">{t("duels_my_groups")}</span>
+                  <span className="text-[12px] font-semibold" style={{ color: "rgba(255,255,255,.45)" }}>{userCreatedGroups.length}</span>
+                </div>
+
+                {/* Todos os grupos — card expande/colapsa in-place ao clicar */}
+                {userCreatedGroups.map((group, i) => {
+                  const isActive = i === Math.min(activeGroupIndex, userCreatedGroups.length - 1);
+                  const daysRemaining = group.endDate
+                    ? Math.ceil((new Date(group.endDate).getTime() - Date.now()) / 86400000)
+                    : null;
+                  return (
                     <div
                       key={group.id}
-                      className="rounded-xl flex flex-col overflow-hidden"
+                      onClick={!isActive ? () => setActiveGroupIndex(i) : undefined}
                       style={{
-                        background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
-                        backdropFilter: "blur(20px) saturate(160%)",
-                        WebkitBackdropFilter: "blur(20px) saturate(160%)",
-                        border: "1px solid rgba(255,255,255,.10)",
+                        borderRadius: 24,
+                        overflow: "hidden",
+                        cursor: isActive ? "default" : "pointer",
+                        WebkitTapHighlightColor: "transparent",
+                        transition: "background 0.35s ease, border-color 0.35s ease",
+                        background: isActive
+                          ? "linear-gradient(rgba(255,255,255,.07),rgba(255,255,255,.03))"
+                          : "rgba(255,255,255,.04)",
+                        border: isActive
+                          ? "1px solid rgba(255,255,255,.09)"
+                          : "1px solid rgba(255,255,255,.08)",
                       }}
                     >
-                      {/* Group cover photo */}
-                      <div className="relative w-full h-20 flex-shrink-0" style={{ background: "rgba(255,255,255,.05)" }}>
+                      {/* Banner — aparece com animação de altura */}
+                      <div
+                        style={{
+                          height: isActive ? 110 : 0,
+                          overflow: "hidden",
+                          position: "relative",
+                          transition: "height 0.38s cubic-bezier(0.4,0,0.2,1)",
+                          flexShrink: 0,
+                        }}
+                      >
                         {group.photo ? (
-                          <ImageWithFallback
-                            src={group.photo}
-                            alt={group.name}
-                            className="w-full h-full object-cover"
-                          />
+                          <ImageWithFallback src={group.photo} alt={group.name} className="w-full h-full object-cover" />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-brand/10">
-                            <span className="text-3xl">{group.icon}</span>
-                          </div>
+                          <div className="w-full h-full" style={{ background: "radial-gradient(circle at 40% 35%,#ffd07a,#ff7a3c 80%)" }} />
+                        )}
+                        <span
+                          style={{ position: "absolute", top: 10, left: 10, padding: "5px 11px", borderRadius: 13, fontSize: 11, fontWeight: 700, color: "#0a0b12", background: "#fff" }}
+                        >
+                          {group.createdBy === user?.id ? t("duels_your_group") : t("duels_participant")}
+                        </span>
+                        {daysRemaining !== null && (
+                          <span
+                            style={{ position: "absolute", top: 10, right: 10, display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 13, fontSize: 11, fontWeight: 700, color: "#fff", background: "rgba(0,0,0,.35)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }}
+                          >
+                            ⏳ {daysRemaining > 0 ? `${daysRemaining} ${t("duels_days_remaining")}` : t("duels_ended")}
+                          </span>
                         )}
                       </div>
-                      <div className="p-3 flex flex-col h-full">
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <p className="font-semibold text-xs line-clamp-2 flex-1">{group.name}</p>
-                          <span className="inline-block text-xs bg-brand/20 text-brand px-1.5 py-0.5 rounded-full flex-shrink-0">
-                            {group.createdBy === user?.id ? "Seu Grupo" : "Participante"}
-                          </span>
-                        </div>
-                        <p className="text-xs text-white/50 line-clamp-2 mb-2">{group.description}</p>
-                        {/* Creator info */}
-                        {(
-                          <div className="flex items-center gap-1.5 mb-2">
-                            {group.creatorPhoto ? (
-                              <img
-                                src={group.creatorPhoto}
-                                alt={group.creatorNickname}
-                                className="h-5 w-5 rounded-full object-cover flex-shrink-0"
-                              />
-                            ) : (
-                              <div className="h-5 w-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "rgba(255,255,255,.1)" }}>
-                                <span className="text-[9px] font-semibold text-white/60">
-                                  {group.creatorNickname?.[0]?.toUpperCase() || "?"}
-                                </span>
-                              </div>
-                            )}
-                            <span className="text-xs text-white/50 truncate">
-                              por <span className="font-medium">{group.creatorNickname}</span>
-                            </span>
-                          </div>
-                        )}
-                        <div className="space-y-2 mb-3 flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-white/50">👥 {group.participants}</span>
-                            <span className="text-xs text-white/50">📍 {group.city}</span>
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          className="w-full rounded-full text-xs h-8"
-                          onClick={() => openGroupView(group)}
+
+                      {/* Linha de corpo — thumbnail some quando o banner abre */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 14 }}>
+                        {/* Thumbnail (visível só quando colapsado) */}
+                        <div
+                          style={{
+                            width: isActive ? 0 : 50,
+                            height: isActive ? 0 : 50,
+                            flexShrink: 0,
+                            borderRadius: 16,
+                            overflow: "hidden",
+                            opacity: isActive ? 0 : 1,
+                            transition: "width 0.32s cubic-bezier(0.4,0,0.2,1), height 0.32s cubic-bezier(0.4,0,0.2,1), opacity 0.22s ease",
+                          }}
                         >
-                          {t("duels_view")}
-                        </Button>
+                          {group.photo ? (
+                            <ImageWithFallback src={group.photo} alt={group.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-[22px]" style={{ background: "rgba(255,255,255,.1)" }}>
+                              {group.icon}
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontSize: isActive ? 15.5 : 14,
+                              fontWeight: 700,
+                              color: "#fff",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              transition: "font-size 0.3s ease",
+                            }}
+                          >
+                            {group.name}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: "rgba(255,255,255,.55)", marginTop: 2 }}>
+                            {group.participants} participantes · {group.city}
+                            {!isActive && daysRemaining !== null && ` · ${daysRemaining > 0 ? `${daysRemaining}d` : t("duels_ended")}`}
+                          </div>
+                        </div>
+
+                        {/* Chevron (visível só quando colapsado) */}
+                        <ChevronRight
+                          className="flex-shrink-0"
+                          style={{
+                            width: 20,
+                            height: 20,
+                            color: "rgba(255,255,255,.4)",
+                            opacity: isActive ? 0 : 1,
+                            transition: "opacity 0.2s ease",
+                          }}
+                        />
+                      </div>
+
+                      {/* Botão check-in — expande junto com o banner */}
+                      <div
+                        style={{
+                          maxHeight: isActive ? 70 : 0,
+                          overflow: "hidden",
+                          paddingLeft: 14,
+                          paddingRight: 14,
+                          transition: "max-height 0.38s cubic-bezier(0.4,0,0.2,1), padding-bottom 0.38s ease",
+                          paddingBottom: isActive ? 14 : 0,
+                        }}
+                      >
+                        <button
+                          disabled={daysRemaining !== null && daysRemaining <= 0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (daysRemaining !== null && daysRemaining <= 0) return;
+                            openGroupView(group);
+                            if (user?.id) {
+                              setSelectedRoutineKey(null);
+                              setCheckInForm({ photo: "", photos: [], description: "", workoutId: "" });
+                              setCheckInPhotoFiles([]);
+                              setCheckInPhotoPreviewUrls([]);
+                              setCompletedRoutines([]);
+                              setIsAddCheckInModalOpen(true);
+                              setIsLoadingRoutines(true);
+                              getCompletedRoutinesTodayDb(user.id)
+                                .then(setCompletedRoutines)
+                                .catch(() => {})
+                                .finally(() => setIsLoadingRoutines(false));
+                            }
+                          }}
+                          style={{
+                            width: "100%",
+                            height: 42,
+                            borderRadius: 21,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 8,
+                            fontSize: 14,
+                            fontWeight: 600,
+                            color: daysRemaining !== null && daysRemaining <= 0 ? "rgba(255,255,255,.35)" : "#0a0b12",
+                            background: daysRemaining !== null && daysRemaining <= 0
+                              ? "rgba(255,255,255,.08)"
+                              : "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.82))",
+                            border: "none",
+                            cursor: daysRemaining !== null && daysRemaining <= 0 ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          <Check className="h-[17px] w-[17px]" />
+                          {daysRemaining !== null && daysRemaining <= 0 ? t("duels_ended") : t("duels_checkin_today")}
+                        </button>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
             )}
 
-            {/* All Groups Section — collapsible */}
-            <div>
-              <button
-                className="w-full flex items-center justify-between mb-3"
-                onClick={() => setAllGroupsOpen((v) => !v)}
-              >
-                <h2 className="text-sm font-semibold text-white/50">{t("duels_all_groups")}</h2>
-                <ChevronDown className={`h-4 w-4 text-white/40 transition-transform duration-200 ${allGroupsOpen ? "rotate-180" : ""}`} />
-              </button>
-              {allGroupsOpen && availableGroups.length === 0 ? (
-                <div className="rounded-xl p-4 text-center" style={{ background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.08)" }}>
-                  <p className="text-xs text-white/50">{t("duels_no_groups")}</p>
+            {/* Da comunidade */}
+            {availableGroups.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[15px] font-bold text-white">{t("duels_community_groups")}</span>
+                  <span className="text-[12px] font-semibold" style={{ color: "#9d6bff" }}>{availableGroups.length}</span>
                 </div>
-              ) : allGroupsOpen ? (
-                <div className="grid grid-cols-2 gap-3">
-                  {availableGroups.map((group) => (
-                    <div
-                      key={group.id}
-                      className="rounded-xl flex flex-col overflow-hidden"
-                      style={{
-                        background: "linear-gradient(rgba(255,255,255,.09),rgba(255,255,255,.03))",
-                        backdropFilter: "blur(20px) saturate(160%)",
-                        WebkitBackdropFilter: "blur(20px) saturate(160%)",
-                        border: "1px solid rgba(255,255,255,.10)",
-                      }}
-                    >
-                      {/* Group cover photo */}
-                      <div className="relative w-full h-20 flex-shrink-0" style={{ background: "rgba(255,255,255,.05)" }}>
-                        {group.photo ? (
-                          <ImageWithFallback
-                            src={group.photo}
-                            alt={group.name}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-brand/10">
-                            <span className="text-3xl">{group.icon}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-3 flex flex-col h-full">
-                        <p className="font-semibold text-xs line-clamp-2 mb-1">{group.name}</p>
-                        <p className="text-xs text-white/50 line-clamp-2 mb-2">{group.description}</p>
-                        {/* Creator info */}
-                        <div className="flex items-center gap-1.5 mb-3">
-                          <UserAvatar
-                            photo={group.creatorPhoto}
-                            nickname={group.creatorNickname}
-                            className="h-5 w-5 flex-shrink-0"
-                          />
-                          <span className="text-xs text-white/50 truncate">
-                            por <span className="font-medium">{group.creatorNickname}</span>
-                          </span>
+
+                {availableGroups.map((group) => (
+                  <div
+                    key={group.id}
+                    className="flex items-center gap-3 p-3.5 rounded-[22px]"
+                    style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
+                  >
+                    <div className="w-[50px] h-[50px] rounded-[16px] flex-shrink-0 overflow-hidden">
+                      {group.photo ? (
+                        <ImageWithFallback src={group.photo} alt={group.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[22px]" style={{ background: "rgba(255,255,255,.1)" }}>
+                          {group.icon}
                         </div>
-                        <div className="space-y-2 mb-3 flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-white/50">👥 {group.participants}</span>
-                            <span className="text-xs text-white/50">📍 {group.city}</span>
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          {joinedGroupIds.has(group.id) && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="w-full rounded-full text-xs h-8"
-                              onClick={() => openGroupView(group)}
-                            >
-                              {t("duels_view")}
-                            </Button>
-                          )}
-                          {!joinedGroupIds.has(group.id) && !group.isPending && (
-                            <Button
-                              size="sm"
-                              className="w-full rounded-full text-xs h-8"
-                              disabled={joiningGroupId === group.id}
-                              onClick={async () => {
-                                if (!user) return;
-                                setJoiningGroupId(group.id);
-                                try {
-                                  await addMembersToGroupDb(group.id, [user.id]);
-                                  // Notify the group creator about the join request
-                                  if (group.createdBy) {
-                                    await sendGroupJoinRequestNotificationDb(group.id, group.createdBy);
-                                  }
-                                  setAvailableGroups((prev) =>
-                                    prev.map((g) =>
-                                      g.id === group.id
-                                        ? { ...g, isPending: true }
-                                        : g
-                                    )
-                                  );
-                                  toast({ title: "Solicitação enviada!", description: "Aguarde a aprovação do administrador." });
-                                } catch (err: any) {
-                                  console.error("Error joining group:", err);
-                                } finally {
-                                  setJoiningGroupId(null);
-                                }
-                              }}
-                            >
-                              {joiningGroupId === group.id ? "Enviando..." : "Solicitar Entrada"}
-                            </Button>
-                          )}
-                          {!joinedGroupIds.has(group.id) && group.isPending && (
-                            <Button size="sm" variant="outline" className="w-full rounded-full text-xs h-8" disabled>
-                              ⏳ Pendente
-                            </Button>
-                          )}
-                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[14px] font-semibold text-white truncate">{group.name}</div>
+                      <div className="text-[11.5px]" style={{ color: "rgba(255,255,255,.5)" }}>
+                        {group.participants} participantes · por {group.creatorNickname}
                       </div>
                     </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </div>
+                    {group.isPending ? (
+                      <span
+                        className="text-[12px] font-semibold shrink-0 px-3.5 py-1.5 rounded-[14px]"
+                        style={{ color: "rgba(255,255,255,.5)", background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)" }}
+                      >
+                        ⏳ {t("duels_pending")}
+                      </span>
+                    ) : joinedGroupIds.has(group.id) ? (
+                      <button
+                        onClick={() => openGroupView(group)}
+                        className="text-[12px] font-semibold shrink-0 px-3.5 py-1.5 rounded-[14px] active:opacity-80 transition-opacity"
+                        style={{ color: "#fff", background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.14)" }}
+                      >
+                        {t("duels_view")}
+                      </button>
+                    ) : (
+                      <button
+                        disabled={joiningGroupId === group.id}
+                        onClick={async () => {
+                          if (!user) return;
+                          setJoiningGroupId(group.id);
+                          try {
+                            await addMembersToGroupDb(group.id, [user.id]);
+                            if (group.createdBy) {
+                              await sendGroupJoinRequestNotificationDb(group.id, group.createdBy);
+                            }
+                            setAvailableGroups((prev) =>
+                              prev.map((g) => g.id === group.id ? { ...g, isPending: true } : g)
+                            );
+                            toast({ title: "Solicitação enviada!", description: "Aguarde a aprovação do administrador." });
+                          } catch (err: any) {
+                            console.error("Error joining group:", err);
+                          } finally {
+                            setJoiningGroupId(null);
+                          }
+                        }}
+                        className="text-[12px] font-semibold shrink-0 px-3.5 py-1.5 rounded-[14px] disabled:opacity-50 active:opacity-80 transition-opacity"
+                        style={{ color: "#fff", background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.14)" }}
+                      >
+                        {joiningGroupId === group.id ? "..." : t("duels_join")}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
-          {/* Create Group Button — fixed above footer, outside scroll */}
-          <FabButton
-            onClick={() => {
-              setGroupStep(1);
-              setGroupConfig({ name: "", location: "", goal: "", durationDays: "", photo: "", scoringType: "check_in_count", memeRule: "" });
-              setSelectedInvitees(new Set());
-              setIsCreateGroupModalOpen(true);
-            }}
-            title={t("duels_create")}
-          />
+            {/* Empty state */}
+            {userCreatedGroups.length === 0 && availableGroups.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
+                <div className="h-16 w-16 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,.05)" }}>
+                  <Swords className="h-8 w-8" style={{ color: "rgba(255,255,255,.2)" }} />
+                </div>
+                <p className="text-sm font-semibold text-white">{t("duels_empty")}</p>
+                <p className="text-xs" style={{ color: "rgba(255,255,255,.4)" }}>{t("duels_empty_desc")}</p>
+              </div>
+            )}
+          </div>
         </>
       )}
 

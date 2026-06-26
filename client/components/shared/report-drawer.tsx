@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
-import { cn } from "@/lib/utils";
+import { Check } from "lucide-react";
 
 interface ReportTarget {
   id: string;
@@ -67,55 +67,56 @@ export function ReportDrawer({ open, onOpenChange, type, target }: ReportDrawerP
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="!rounded-t-[32px] !border-0"
+        style={{
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DrawerHeader>
-          <DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>
             {type === "user" ? "Denunciar usuário" : "Denunciar post"}
           </DrawerTitle>
-        </DrawerHeader>
-        {target && (
-          <div className="space-y-4 px-4 pb-6">
-            <div className="p-4 border border-border/60 rounded-lg bg-muted/30">
-              <p className="text-sm mb-3">
-                {type === "user"
-                  ? `Você está denunciando o usuário: ${target.userName}`
-                  : `Você está denunciando o post de ${target.userName}`}
-              </p>
+          {target && (
+            <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>
+              {type === "user"
+                ? `Denunciando: ${target.userName}`
+                : `Post de ${target.userName}`}
               {type === "post" && target.description && (
-                <p className="text-xs text-muted-foreground">
-                  "{target.description.substring(0, 100)}..."
-                </p>
+                <span className="block mt-0.5 text-xs line-clamp-1">"{target.description}"</span>
               )}
-            </div>
+            </p>
+          )}
+        </DrawerHeader>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Motivo da denúncia</label>
-              <select
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                className={cn(
-                  "flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-sm",
-                  "ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-                  "disabled:cursor-not-allowed disabled:opacity-50",
-                  "appearance-none cursor-pointer",
-                  !reason && "text-muted-foreground"
-                )}
+        {target && (
+          <div className="px-4 pb-6 space-y-3">
+            <p className="text-sm font-medium" style={{ color: "rgba(255,255,255,.5)" }}>Motivo da denúncia</p>
+
+            {REPORT_REASONS.map((r) => (
+              <button
+                key={r}
+                onClick={() => setReason(r)}
+                className="w-full flex items-center gap-3 rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
+                style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
               >
-                <option value="" disabled hidden>
-                  Selecione um motivo
-                </option>
-                {REPORT_REASONS.map((r) => (
-                  <option key={r} value={r} className="text-foreground bg-background">
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <div className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${reason === r ? "bg-primary border-primary" : ""}`} style={reason !== r ? { borderColor: "rgba(255,255,255,.3)" } : undefined}>
+                  {reason === r && <Check className="h-3 w-3 text-primary-foreground" />}
+                </div>
+                <span className="text-sm font-medium flex-1" style={{ color: "#fff" }}>{r}</span>
+              </button>
+            ))}
 
-            <div className="flex gap-2 pt-4">
+            <div className="flex gap-2 pt-2">
               <Button
                 variant="outline"
                 className="flex-1 rounded-full"
+                style={{ background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", border: "1px solid rgba(255,255,255,.12)" }}
                 onClick={() => onOpenChange(false)}
                 disabled={isSubmitting}
               >
@@ -123,6 +124,7 @@ export function ReportDrawer({ open, onOpenChange, type, target }: ReportDrawerP
               </Button>
               <Button
                 className="flex-1 rounded-full"
+                style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
                 onClick={handleSubmit}
                 disabled={isSubmitting || !reason.trim()}
               >

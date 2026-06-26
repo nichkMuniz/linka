@@ -80,8 +80,8 @@ DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
 
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & { overlayClassName?: string }
->(({ className, children, overlayClassName, style, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & { overlayClassName?: string; handleClassName?: string }
+>(({ className, children, overlayClassName, handleClassName, style, ...props }, ref) => {
   const keyboardOffset = useKeyboardOffset();
   const innerRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -110,7 +110,7 @@ const DrawerContent = React.forwardRef<
         }}
         {...props}
       >
-        <div className="mx-auto mt-4 h-2 w-[100px] shrink-0 rounded-full bg-muted" />
+        <div className={cn("mx-auto mt-4 h-2 w-[100px] shrink-0 rounded-full bg-muted", handleClassName)} />
         {children}
       </DrawerPrimitive.Content>
     </DrawerPortal>
@@ -123,7 +123,7 @@ const DrawerHeader = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("grid gap-1.5 p-4 text-center sm:text-left", className)}
+    className={cn("grid gap-1 px-4 pt-4 pb-2 text-left", className)}
     {...props}
   />
 );
@@ -147,7 +147,7 @@ const DrawerTitle = React.forwardRef<
   <DrawerPrimitive.Title
     ref={ref}
     className={cn(
-      "text-lg font-semibold leading-none tracking-tight",
+      "text-xl font-bold leading-tight",
       className,
     )}
     {...props}

@@ -74,9 +74,20 @@ export function AddMembersDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="flex flex-col z-[100]" style={{ maxHeight: `min(80dvh, ${viewportHeight - 8}px)` }} onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="flex flex-col z-[100] !rounded-t-[32px] !border-0"
+        style={{
+          maxHeight: `min(80dvh, ${viewportHeight - 8}px)`,
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle>Adicionar Membros</DrawerTitle>
+          <DrawerTitle style={{ color: "#fff" }}>Adicionar Membros</DrawerTitle>
           <DrawerDescription className="sr-only">Convide pessoas para o grupo</DrawerDescription>
         </DrawerHeader>
 
@@ -88,6 +99,11 @@ export function AddMembersDrawer({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="rounded-lg"
+                style={{
+                  background: "rgba(255,255,255,.07)",
+                  border: "1px solid rgba(255,255,255,.12)",
+                  color: "#fff",
+                }}
               />
             </div>
           )}
@@ -98,35 +114,40 @@ export function AddMembersDrawer({
                 <button
                   key={follower.id}
                   onClick={() => toggleMember(follower.id)}
-                  className={`w-full p-3 rounded-lg border transition-all text-left flex items-center gap-2 ${
-                    selected.has(follower.id)
-                      ? "border-brand bg-brand/10"
-                      : "border-border hover:border-brand/50"
-                  }`}
+                  className="w-full p-3 rounded-2xl transition-all text-left flex items-center gap-2 active:scale-[0.99]"
+                  style={{
+                    background: selected.has(follower.id) ? "rgba(91,140,255,.15)" : "rgba(255,255,255,.06)",
+                    border: selected.has(follower.id) ? "1px solid rgba(91,140,255,.5)" : "1px solid rgba(255,255,255,.1)",
+                  }}
                 >
                   <div
-                    className={`h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                      selected.has(follower.id)
-                        ? "bg-brand border-brand"
-                        : "border-muted-foreground"
-                    }`}
+                    className="h-5 w-5 rounded border-2 flex items-center justify-center flex-shrink-0"
+                    style={{
+                      background: selected.has(follower.id) ? "linear-gradient(135deg,#5b8cff,#9d6bff)" : "transparent",
+                      borderColor: selected.has(follower.id) ? "#5b8cff" : "rgba(255,255,255,.4)",
+                    }}
                   >
                     {selected.has(follower.id) && <Check className="h-3 w-3 text-white" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{follower.nickname}</div>
+                    <div className="text-sm font-medium truncate" style={{ color: "#fff" }}>{follower.nickname}</div>
                   </div>
                 </button>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-4">
+              <p className="text-sm text-center py-4" style={{ color: "rgba(255,255,255,.5)" }}>
                 Você não segue ninguém ainda
               </p>
             )}
           </div>
 
-          <div className="mt-4 pt-4 border-t border-border/40">
-            <Button onClick={handleAdd} className="w-full rounded-full" disabled={selected.size === 0}>
+          <div className="mt-4 pt-4" style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
+            <Button
+              onClick={handleAdd}
+              className="w-full rounded-full border-0"
+              disabled={selected.size === 0}
+              style={{ background: "linear-gradient(135deg,#5b8cff,#9d6bff)", color: "#fff" }}
+            >
               Adicionar {selected.size > 0 ? `(${selected.size})` : ""}
             </Button>
           </div>

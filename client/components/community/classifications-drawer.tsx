@@ -112,11 +112,22 @@ export function ClassificationsDrawer({
   }, [groupCheckIns, checkInVotes, scoringType]);
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col z-[100]" onOpenAutoFocus={(e) => e.preventDefault()}>
+    <Drawer open={open} onOpenChange={onOpenChange} shouldScaleBackground={false}>
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        overlayClassName="bg-transparent"
+        className="max-h-[80dvh] flex flex-col z-[100] !rounded-t-[32px] !border-0"
+        style={{
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DrawerHeader className="shrink-0">
-          <DrawerTitle>Classificações</DrawerTitle>
-          <DrawerDescription className="text-xs text-muted-foreground">
+          <DrawerTitle style={{ color: "#fff" }}>Classificações</DrawerTitle>
+          <DrawerDescription className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>
             {scoringType === "memes" && memeRule
               ? `🎭 Regra: ${memeRule}`
               : `Critério: ${meta.label}`}
@@ -127,14 +138,18 @@ export function ClassificationsDrawer({
           <div className="space-y-2">
             {rankingEntries.length > 0 ? (
               rankingEntries.map(([userId, data], index) => (
-                <div key={userId} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border border-border/40">
-                  <div className="text-lg font-bold text-brand w-8 text-center shrink-0">
+                <div
+                  key={userId}
+                  className="flex items-center gap-3 p-3 rounded-2xl"
+                  style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)" }}
+                >
+                  <div className="text-lg font-bold w-8 text-center shrink-0" style={{ color: "#5b8cff" }}>
                     {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate">{data.userName}</p>
+                    <p className="text-sm font-semibold truncate" style={{ color: "#fff" }}>{data.userName}</p>
                     <div className="flex items-center gap-2">
-                      <p className="text-xs text-muted-foreground">{meta.format(data.score)}</p>
+                      <p className="text-xs" style={{ color: "rgba(255,255,255,.5)" }}>{meta.format(data.score)}</p>
                       {scoringType === "memes" && (disqualifiedPerUser[userId] || 0) > 0 && (
                         <span className="text-[10px] text-destructive bg-destructive/10 px-1.5 py-0.5 rounded-full leading-none">
                           {disqualifiedPerUser[userId]} desclassif.
@@ -142,16 +157,16 @@ export function ClassificationsDrawer({
                       )}
                     </div>
                   </div>
-                  <div className="text-sm font-bold text-brand shrink-0">
+                  <div className="text-sm font-bold shrink-0" style={{ color: "#5b8cff" }}>
                     {scoringType === "distance"
                       ? data.score.toFixed(1)
                       : Math.round(data.score).toLocaleString("pt-BR")}
-                    <span className="text-xs font-normal text-muted-foreground ml-1">{meta.unit}</span>
+                    <span className="text-xs font-normal ml-1" style={{ color: "rgba(255,255,255,.5)" }}>{meta.unit}</span>
                   </div>
                 </div>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">Nenhum dado ainda</p>
+              <p className="text-sm text-center py-8" style={{ color: "rgba(255,255,255,.5)" }}>Nenhum dado ainda</p>
             )}
           </div>
         </div>

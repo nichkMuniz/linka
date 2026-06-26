@@ -182,9 +182,9 @@ export default function Index() {
 
   React.useEffect(() => {
     const handler = () => {
-      feedScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: "smooth" });
       setDiscoverLoaded(false);
-      loadFeed(true);
+      loadFeed(false);
     };
     window.addEventListener("ritmofit-refresh-feed", handler);
     return () => window.removeEventListener("ritmofit-refresh-feed", handler);
@@ -302,6 +302,7 @@ export default function Index() {
       backgroundColor?: string | null,
       textPosition?: { x: number; y: number } | null,
       textElements?: { text: string; x: number; y: number }[] | null,
+      mediaTransform?: { scale: number; x: number; y: number } | null,
     ) => {
       setIsCreatingStory(true);
       try {
@@ -333,7 +334,7 @@ export default function Index() {
           publicUrl = url;
         }
 
-        const newStory = await createStoryDb(description, publicUrl, backgroundColor, textPosition, textElements);
+        const newStory = await createStoryDb(description, publicUrl, backgroundColor, textPosition, textElements, mediaTransform);
         if (newStory && user) {
           const enrichedStory: StoryWithUser = {
             ...newStory,
@@ -906,7 +907,7 @@ export default function Index() {
             {selectedGoalPost?.userGoal && (
               <div className="space-y-4 flex-1">
                 {/* Goal Info */}
-                <div className="p-4 border border-border/60 rounded-lg bg-muted/30 space-y-3">
+                <div className="p-4 border border-border/40 rounded-2xl bg-card space-y-3">
                   <p className="text-lg font-bold">{selectedGoalPost.userGoal.description}</p>
 
                   {/* Progress Bar — Bug 9 fix: clamp to 100 */}
@@ -926,15 +927,15 @@ export default function Index() {
                   </div>
 
                   <div className="grid grid-cols-3 gap-3 pt-2">
-                    <div className="p-2 bg-background/50 rounded text-center">
+                    <div className="p-2 bg-muted/30 rounded-xl text-center">
                       <p className="text-xs text-muted-foreground">{t("feed_goal_duration")}</p>
                       <p className="text-sm font-bold">{selectedGoalPost.userGoal.duration}d</p>
                     </div>
-                    <div className="p-2 bg-background/50 rounded text-center">
+                    <div className="p-2 bg-muted/30 rounded-xl text-center">
                       <p className="text-xs text-muted-foreground">{t("feed_goal_quantity")}</p>
                       <p className="text-sm font-bold">{selectedGoalPost.userGoal.quantity}</p>
                     </div>
-                    <div className="p-2 bg-background/50 rounded text-center">
+                    <div className="p-2 bg-muted/30 rounded-xl text-center">
                       <p className="text-xs text-muted-foreground">{t("feed_goal_type_label")}</p>
                       <p className="text-sm font-bold">
                         {selectedGoalPost.userGoal.type_goal === 1
@@ -972,7 +973,7 @@ export default function Index() {
                             postUserId={selectedGoalPost.user_id}
                           />
                         ) : (
-                          <div className="border border-border/60 rounded-lg p-4 bg-muted/20 text-center space-y-3">
+                          <div className="border border-border/40 rounded-2xl p-4 bg-card text-center space-y-3">
                             <p className="text-sm text-muted-foreground">
                               {t("feed_routines_no_linked")}
                             </p>

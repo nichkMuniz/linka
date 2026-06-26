@@ -2,22 +2,17 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { toast } from "@/components/ui/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
 import { withNetworkRetry } from "@/lib/network-status";
 import {
   getUserGoalsDb,
+  getUserProfileDb,
   createPostDb,
   createShotDb,
   type UserGoal,
+  type UserProfile,
   incrementGoalProgressDb,
 } from "@/lib/ritmofit-db";
 import {
@@ -32,9 +27,21 @@ import {
   Clapperboard,
   Camera,
   ArrowLeft,
+  Send,
+  Smile,
+  MapPin,
+  Hash,
+  Check,
+  Dumbbell,
+  Heart,
+  Trophy,
+  Plus,
+  ChevronDown,
+  Pencil,
 } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { PhotoLibrary, type PhotoLibraryAsset } from "@capgo/capacitor-photo-library";
+import { UserAvatar } from "@/components/shared/user-avatar";
 
 // ─── Crop types & helpers ───────────────────────────────────────────────────
 
@@ -345,6 +352,8 @@ export default function NewPost() {
   const [userGoals, setUserGoals] = React.useState<UserGoal[]>([]);
   const [isLoadingGoals, setIsLoadingGoals] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [profile, setProfile] = React.useState<UserProfile | null>(null);
+  const [imagePreviewOpen, setImagePreviewOpen] = React.useState(false);
 
   const [galleryAssets, setGalleryAssets] = React.useState<PhotoLibraryAsset[]>([]);
   const [galleryLoading, setGalleryLoading] = React.useState(false);
@@ -360,6 +369,7 @@ export default function NewPost() {
   const videoInputRef = React.useRef<HTMLInputElement>(null);
   const imageCameraRef = React.useRef<HTMLInputElement>(null);
   const videoCameraRef = React.useRef<HTMLInputElement>(null);
+  const hasAutoSelectedRef = React.useRef(false);
   // Tracks the actual pixel width of the preview frame for accurate crop export
   const cropContainerWidthRef = React.useRef<number>(
     typeof window !== "undefined" ? window.innerWidth : 375
@@ -395,6 +405,12 @@ export default function NewPost() {
     videoDraft.file = selectedVideoFile;
     videoDraft.preview = videoPreview;
   }, [selectedVideoFile, videoPreview]);
+
+  // ── Load profile ──
+  React.useEffect(() => {
+    if (!user || authLoading) return;
+    getUserProfileDb(user.id).then(setProfile).catch(() => {});
+  }, [user, authLoading]);
 
   // ── Load goals ──
   React.useEffect(() => {
@@ -461,6 +477,7 @@ export default function NewPost() {
   }, []);
 
   React.useEffect(() => {
+    hasAutoSelectedRef.current = false;
     setMultiSelectMode(false);
     setSelectedAssetIds([]);
     if (galleryPermission === "granted" || galleryPermission === "limited") {
@@ -468,6 +485,39 @@ export default function NewPost() {
       loadGalleryPage(0, true);
     }
   }, [mediaType]);
+
+  // ── Auto-select first gallery photo when gallery loads and no image is selected ──
+  React.useEffect(() => {
+    if (hasAutoSelectedRef.current) return;
+    if (mediaType !== "post") return;
+    if (galleryAssets.length === 0) return;
+    if (previewUrls.length > 0) return;
+
+    hasAutoSelectedRef.current = true;
+    const firstAsset = galleryAssets.find((a) => a.type === "image");
+    if (!firstAsset) return;
+
+    (async () => {
+      try {
+        const { webPath } = await PhotoLibrary.getPhotoUrl({ id: firstAsset.id });
+        const response = await fetch(webPath);
+        const blob = await response.blob();
+        const file = new File([blob], firstAsset.fileName, { type: firstAsset.mimeType || "image/jpeg" });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = reader.result as string;
+          setSelectedFiles([file]);
+          setPreviewUrls([dataUrl]);
+          setCropTransforms({});
+          setCurrentPreviewIndex(0);
+          setSelectedAssetIds([firstAsset.id]);
+        };
+        reader.readAsDataURL(file);
+      } catch {
+        // silently fail — browser/web or permission issue
+      }
+    })();
+  }, [galleryAssets, mediaType]);
 
   // ── Add image directly (no crop modal) ──
   const addImageFile = React.useCallback((file: File) => {
@@ -754,13 +804,11 @@ export default function NewPost() {
 
   const canAdvance = mediaType === "post" ? previewUrls.length > 0 : !!videoPreview;
 
-  // Signal AppLayout to hide/show header+nav based on current step.
-  // Use useLayoutEffect so the body dataset is set synchronously before paint,
-  // preventing a flash of the header/footer when navigating from /shots → /postar.
+  // Always fullscreen on /postar — both steps hide the AppLayout header+nav.
   React.useLayoutEffect(() => {
-    document.body.dataset.fullscreenStep = step === "select" ? "true" : "false";
+    document.body.dataset.fullscreenStep = "true";
     return () => { delete document.body.dataset.fullscreenStep; };
-  }, [step]);
+  }, []);
 
   if (authLoading) {
     return (
@@ -784,330 +832,262 @@ export default function NewPost() {
   }
 
   // ─────────────────────────────────────────
-  //  STEP 1 — Gallery picker
+  //  STEP 1 — Gallery picker (glass design)
   // ─────────────────────────────────────────
   if (step === "select") {
-    return (
-      <div className="flex flex-col" style={{ minHeight: "100dvh" }}>
+    const renderGrid = () => (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 2 }}>
+        {/* Camera cell */}
+        <button
+          onClick={() => (mediaType === "post" ? imageCameraRef : videoCameraRef).current?.click()}
+          style={{ aspectRatio: "1/1", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.06)", color: "#fff" }}
+        >
+          {mediaType === "post"
+            ? <Camera className="h-6 w-6" style={{ opacity: 0.7 }} />
+            : <Video className="h-6 w-6" style={{ opacity: 0.7 }} />}
+        </button>
 
-        {/* ── Custom header ── */}
+        {galleryPermission === "denied" && galleryAssets.length === 0 && (
+          <div style={{ gridColumn: "span 3", aspectRatio: "1/1", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 12px" }}>
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,.4)", textAlign: "center" }}>{t("newpost_gallery_permission_denied")}</p>
+          </div>
+        )}
+
+        {galleryAssets.map((asset) => {
+          const selectedIdx = selectedAssetIds.indexOf(asset.id);
+          const isSelected = mediaType === "post" ? selectedIdx !== -1 : selectedVideoFile?.name === asset.fileName;
+          const thumbSrc = asset.thumbnail?.webPath;
+          return (
+            <button
+              key={asset.id}
+              onClick={() => handleGalleryAssetTap(asset)}
+              style={{
+                position: "relative", aspectRatio: "1/1", overflow: "hidden",
+                outline: isSelected ? "2.5px solid #9d6bff" : "none",
+                outlineOffset: -2.5,
+              }}
+            >
+              {thumbSrc ? (
+                <img src={thumbSrc} alt={asset.fileName} className="w-full h-full object-cover" />
+              ) : (
+                <div style={{ width: "100%", height: "100%", background: "rgba(255,255,255,.06)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {mediaType === "post"
+                    ? <Camera className="h-4 w-4" style={{ color: "rgba(255,255,255,.3)" }} />
+                    : <Video className="h-4 w-4" style={{ color: "rgba(255,255,255,.3)" }} />}
+                </div>
+              )}
+              {isSelected && mediaType === "post" && (
+                <div style={{ position: "absolute", bottom: 4, left: 4, background: "#9d6bff", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, fontWeight: 700 }}>
+                  {selectedIdx + 1}
+                </div>
+              )}
+              {asset.type === "video" && asset.duration && (
+                <div style={{ position: "absolute", bottom: 4, right: 4, background: "rgba(0,0,0,.6)", color: "#fff", fontSize: 9, padding: "1px 4px", borderRadius: 4 }}>
+                  {Math.floor(asset.duration / 60)}:{String(Math.round(asset.duration % 60)).padStart(2, "0")}
+                </div>
+              )}
+            </button>
+          );
+        })}
+
+        {galleryLoading && galleryAssets.length === 0 &&
+          Array.from({ length: 11 }).map((_, i) => (
+            <div key={`ph-${i}`} style={{ aspectRatio: "1/1", background: "rgba(255,255,255,.05)", animation: "pulse 1.5s ease-in-out infinite" }} />
+          ))
+        }
+      </div>
+    );
+
+    return (
+      <div
+        className="relative flex flex-col overflow-hidden"
+        style={{ height: "100dvh", background: "#06070c" }}
+      >
+        {/* Aura blob */}
+        <div className="absolute rounded-full pointer-events-none" style={{
+          width: 300, height: 300, right: -60, top: 120,
+          background: "radial-gradient(circle,#7b3ff2,transparent 70%)",
+          filter: "blur(70px)", opacity: 0.4,
+        }} />
+
+        {/* ── Header ── */}
         <div
-          className="flex items-center justify-between px-4 py-3 bg-background border-b border-border/40"
-          style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
+          className="relative z-10 flex items-center justify-between px-[18px] flex-shrink-0"
+          style={{ paddingTop: "max(54px, env(safe-area-inset-top))", paddingBottom: 14 }}
         >
           <button
             onClick={() => navigate(-1)}
-            className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-muted transition-colors"
+            style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", flexShrink: 0 }}
           >
-            <X className="h-5 w-5" />
+            <X className="h-6 w-6" />
           </button>
-          <span className="text-base font-semibold">{t("newpost_title_simple")}</span>
+          <span style={{ fontSize: 16, fontWeight: 680, color: "#fff" }}>{t("newpost_title_simple")}</span>
           <button
             onClick={() => setStep("caption")}
             disabled={!canAdvance}
-            className={`min-h-[44px] px-2 flex items-center text-sm font-semibold transition-colors ${canAdvance ? "text-primary" : "text-muted-foreground"}`}
+            style={{ fontSize: 15, fontWeight: 640, color: canAdvance ? "#6ea8ff" : "rgba(255,255,255,.3)", cursor: canAdvance ? "pointer" : "default", minHeight: 44, display: "flex", alignItems: "center" }}
           >
             {t("newpost_advance")}
           </button>
         </div>
 
-        {/* ── Media type — segmented control ── */}
-        <div className="px-4 py-3 bg-background border-b border-border/40">
-          <div className="flex items-center bg-muted rounded-xl p-1 gap-1">
+        {/* ── Content area (preview + gallery) ── */}
+        <div className="relative flex flex-col flex-1 overflow-hidden">
+
+          {/* Preview area */}
+          <div
+            className="flex-shrink-0"
+            style={{ margin: "0 14px", aspectRatio: "1/1", borderRadius: 28, overflow: "hidden", position: "relative", boxShadow: "0 22px 50px -20px rgba(0,0,0,.6)", background: "#0a0b10" }}
+          >
+            {mediaType === "post" ? (
+              previewUrls.length > 0 ? (
+                <>
+                  <InlineCropPreview
+                    imageSrc={previewUrls[currentPreviewIndex]}
+                    transform={cropTransforms[currentPreviewIndex] || DEFAULT_TRANSFORM}
+                    onTransformChange={(t) =>
+                      setCropTransforms((prev) => ({ ...prev, [currentPreviewIndex]: t }))
+                    }
+                    containerWidthRef={cropContainerWidthRef}
+                  />
+                  {/* "Editar" pill */}
+                  <span style={{
+                    position: "absolute", top: 12, left: 12, padding: "6px 12px", borderRadius: 14,
+                    fontSize: 12, fontWeight: 600, color: "#fff",
+                    background: "rgba(0,0,0,.35)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
+                    display: "flex", alignItems: "center", gap: 6, pointerEvents: "none",
+                  }}>
+                    <Pencil className="h-3.5 w-3.5" />
+                    {t("newpost_edit_photo")}
+                  </span>
+                  {/* Carousel nav */}
+                  {previewUrls.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => setCurrentPreviewIndex((i) => (i - 1 + previewUrls.length) % previewUrls.length)}
+                        style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,.5)", borderRadius: "50%", padding: 8 }}
+                      >
+                        <ChevronLeft className="h-5 w-5 text-white" />
+                      </button>
+                      <button
+                        onClick={() => setCurrentPreviewIndex((i) => (i + 1) % previewUrls.length)}
+                        style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,.5)", borderRadius: "50%", padding: 8 }}
+                      >
+                        <ChevronRight className="h-5 w-5 text-white" />
+                      </button>
+                      <div style={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 4, pointerEvents: "none" }}>
+                        {previewUrls.map((_, i) => (
+                          <div key={i} style={{ borderRadius: 99, background: "#fff", width: i === currentPreviewIndex ? 16 : 6, height: 6, opacity: i === currentPreviewIndex ? 1 : 0.5, transition: "width .2s" }} />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <button
+                  onClick={() => imageInputRef.current?.click()}
+                  style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: "rgba(255,255,255,.5)" }}
+                >
+                  <Camera className="h-12 w-12" />
+                  <span style={{ fontSize: 14 }}>{t("newpost_tap_to_select")}</span>
+                </button>
+              )
+            ) : (
+              videoPreview ? (
+                <video src={videoPreview} controls playsInline className="w-full h-full object-contain" />
+              ) : (
+                <button
+                  onClick={() => videoInputRef.current?.click()}
+                  style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: "rgba(255,255,255,.5)" }}
+                >
+                  <Video className="h-12 w-12" />
+                  <span style={{ fontSize: 14 }}>{t("newpost_tap_to_select_video")}</span>
+                </button>
+              )
+            )}
+          </div>
+
+          {/* Gallery toolbar */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px 10px", flexShrink: 0 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#fff", display: "flex", alignItems: "center", gap: 6 }}>
+              {t("newpost_recents")} <ChevronDown className="h-4 w-4" />
+            </span>
+            {mediaType === "post" && (
+              <button
+                onClick={() => {
+                  const next = !multiSelectMode;
+                  setMultiSelectMode(next);
+                  if (!next && selectedFiles.length > 1) {
+                    const keepIdx = currentPreviewIndex;
+                    setSelectedFiles([selectedFiles[keepIdx]]);
+                    setPreviewUrls([previewUrls[keepIdx]]);
+                    setCropTransforms({ 0: cropTransforms[keepIdx] || DEFAULT_TRANSFORM });
+                    setSelectedAssetIds([selectedAssetIds[keepIdx]].filter(Boolean));
+                    setCurrentPreviewIndex(0);
+                  }
+                }}
+                style={{ fontSize: 13, fontWeight: 600, color: multiSelectMode ? "#6ea8ff" : "#9d6bff" }}
+              >
+                {t("newpost_select_btn")}
+              </button>
+            )}
+          </div>
+
+          {/* Gallery grid — scrollable */}
+          <div className="flex-1 overflow-y-auto" style={{ padding: "0 2px 160px", scrollbarWidth: "none" }}>
+            {renderGrid()}
+            {galleryHasMore && !galleryLoading && (
+              <button
+                onClick={() => loadGalleryPage(galleryPage + 1)}
+                style={{ width: "100%", padding: "12px 0", fontSize: 12, color: "rgba(255,255,255,.4)", textAlign: "center" }}
+              >
+                {t("newpost_load_more_photos")}
+              </button>
+            )}
+            {galleryLoading && galleryAssets.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "center", padding: 12 }}>
+                <Loader2 className="h-4 w-4 animate-spin" style={{ color: "rgba(255,255,255,.4)" }} />
+              </div>
+            )}
+          </div>
+
+          {/* ── Floating media type selector ── */}
+          <div style={{
+            position: "absolute",
+            bottom: `max(36px, calc(env(safe-area-inset-bottom) + 16px))`,
+            left: "50%", transform: "translateX(-50%)",
+            display: "flex", gap: 6, padding: 5, borderRadius: 24,
+            background: "linear-gradient(rgba(255,255,255,.12),rgba(255,255,255,.05))",
+            backdropFilter: "blur(24px) saturate(180%)",
+            WebkitBackdropFilter: "blur(24px) saturate(180%)",
+            border: "1px solid rgba(255,255,255,.16)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,.28), 0 16px 36px -12px rgba(0,0,0,.6)",
+            zIndex: 20, whiteSpace: "nowrap",
+          }}>
             <button
               onClick={() => setMediaType("post")}
-              className={`flex flex-1 items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                mediaType === "post"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground"
-              }`}
+              style={{
+                padding: "10px 26px", borderRadius: 19, fontSize: 14, fontWeight: 680,
+                color: mediaType === "post" ? "#0a0b12" : "#fff",
+                background: mediaType === "post" ? "#fff" : "transparent",
+                transition: "all .2s",
+              }}
             >
-              <ImagePlus className="h-4 w-4 shrink-0" />
-              {t("newpost_tab_post")}
+              POST
             </button>
             <button
               onClick={() => setMediaType("shot")}
-              className={`flex flex-1 items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                mediaType === "shot"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground"
-              }`}
-            >
-              <Clapperboard className="h-4 w-4 shrink-0" />
-              {t("newpost_tab_shots")}
-            </button>
-          </div>
-        </div>
-
-        {/* ── Preview area ── */}
-        <div className="relative w-full bg-black" style={{ aspectRatio: "1/1" }}>
-          {mediaType === "post" ? (
-            previewUrls.length > 0 ? (
-              <>
-                <InlineCropPreview
-                  imageSrc={previewUrls[currentPreviewIndex]}
-                  transform={cropTransforms[currentPreviewIndex] || DEFAULT_TRANSFORM}
-                  onTransformChange={(t) =>
-                    setCropTransforms((prev) => ({ ...prev, [currentPreviewIndex]: t }))
-                  }
-                  containerWidthRef={cropContainerWidthRef}
-                />
-                {/* Carousel nav */}
-                {previewUrls.length > 1 && (
-                  <>
-                    <button
-                      onClick={() => setCurrentPreviewIndex((i) => (i - 1 + previewUrls.length) % previewUrls.length)}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 p-2 rounded-full pointer-events-auto"
-                    >
-                      <ChevronLeft className="h-5 w-5 text-white" />
-                    </button>
-                    <button
-                      onClick={() => setCurrentPreviewIndex((i) => (i + 1) % previewUrls.length)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 p-2 rounded-full pointer-events-auto"
-                    >
-                      <ChevronRight className="h-5 w-5 text-white" />
-                    </button>
-                    {/* Dots */}
-                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1 pointer-events-none">
-                      {previewUrls.map((_, i) => (
-                        <div
-                          key={i}
-                          className={`rounded-full transition-all ${i === currentPreviewIndex ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/50"}`}
-                        />
-                      ))}
-                    </div>
-                  </>
-                )}
-                {/* Multi-select badge */}
-                <div className="absolute top-3 right-3 bg-black/60 rounded-full px-2.5 py-1 text-white text-xs font-semibold flex items-center gap-1 pointer-events-none">
-                  <ImagePlus className="h-3.5 w-3.5" />
-                  {previewUrls.length}
-                </div>
-              </>
-            ) : (
-              <button
-                onClick={() => imageInputRef.current?.click()}
-                className="w-full h-full flex flex-col items-center justify-center gap-3 text-white/60"
-              >
-                <Camera className="h-12 w-12" />
-                <span className="text-sm">{t("newpost_tap_to_select")}</span>
-              </button>
-            )
-          ) : (
-            videoPreview ? (
-              <video src={videoPreview} controls playsInline className="w-full h-full object-contain" />
-            ) : (
-              <button
-                onClick={() => videoInputRef.current?.click()}
-                className="w-full h-full flex flex-col items-center justify-center gap-3 text-white/60"
-              >
-                <Video className="h-12 w-12" />
-                <span className="text-sm">{t("newpost_tap_to_select_video")}</span>
-              </button>
-            )
-          )}
-        </div>
-
-        {/* ── Crop hint ── */}
-        {mediaType === "post" && previewUrls.length > 0 && (
-          <div className="px-4 py-1.5 bg-background border-b border-border/10 text-center">
-            <span className="text-[10px] text-muted-foreground">{t("newpost_crop_hint")}</span>
-          </div>
-        )}
-
-        {/* ── Gallery toolbar ── */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/20 bg-background">
-          <span className="text-sm font-semibold">{t("newpost_recents")}</span>
-          {mediaType === "post" && (
-            <button
-              onClick={() => {
-                const next = !multiSelectMode;
-                setMultiSelectMode(next);
-                // Turning off multi-select: keep only the currently visible photo
-                if (!next && selectedFiles.length > 1) {
-                  const keepIdx = currentPreviewIndex;
-                  setSelectedFiles([selectedFiles[keepIdx]]);
-                  setPreviewUrls([previewUrls[keepIdx]]);
-                  setCropTransforms({ 0: cropTransforms[keepIdx] || DEFAULT_TRANSFORM });
-                  setSelectedAssetIds([selectedAssetIds[keepIdx]].filter(Boolean));
-                  setCurrentPreviewIndex(0);
-                }
+              style={{
+                padding: "10px 26px", borderRadius: 19, fontSize: 14, fontWeight: 680,
+                color: mediaType === "shot" ? "#0a0b12" : "#fff",
+                background: mediaType === "shot" ? "#fff" : "transparent",
+                transition: "all .2s",
               }}
-              className={`flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full transition-colors ${
-                multiSelectMode
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted hover:bg-muted/80 text-foreground"
-              }`}
             >
-              <ImagePlus className="h-4 w-4" />
-              {t("newpost_select_btn")}
+              SHOT
             </button>
-          )}
+          </div>
         </div>
-
-        {/* ── Gallery grid ── */}
-        {mediaType === "post" && (
-          <div className="flex-1 overflow-y-auto bg-background">
-            <div className="grid grid-cols-4 gap-px bg-border/20">
-              <button
-                onClick={() => imageCameraRef.current?.click()}
-                className="aspect-square bg-muted/60 flex items-center justify-center"
-              >
-                <Camera className="h-6 w-6 text-muted-foreground" />
-              </button>
-
-              {galleryPermission === "denied" && galleryAssets.length === 0 && (
-                <div className="col-span-3 aspect-square flex items-center justify-center px-3">
-                  <p className="text-xs text-muted-foreground text-center">{t("newpost_gallery_permission_denied")}</p>
-                </div>
-              )}
-
-              {galleryAssets.map((asset) => {
-                const selectedIdx = selectedAssetIds.indexOf(asset.id);
-                const isSelected = selectedIdx !== -1;
-                const thumbSrc = asset.thumbnail?.webPath;
-                return (
-                  <button
-                    key={asset.id}
-                    onClick={() => handleGalleryAssetTap(asset)}
-                    className="relative aspect-square overflow-hidden"
-                  >
-                    {thumbSrc ? (
-                      <img src={thumbSrc} alt={asset.fileName} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-muted/40 flex items-center justify-center">
-                        <Camera className="h-4 w-4 text-muted-foreground/40" />
-                      </div>
-                    )}
-                    {isSelected && (
-                      <div className="absolute inset-0 bg-primary/25 ring-2 ring-inset ring-primary" />
-                    )}
-                    {isSelected && (
-                      <div className="absolute bottom-1 left-1 bg-primary rounded-full w-5 h-5 flex items-center justify-center text-white text-[10px] font-bold">
-                        {selectedIdx + 1}
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-
-              {galleryLoading && galleryAssets.length === 0 &&
-                Array.from({ length: 11 }).map((_, i) => (
-                  <div key={`ph-${i}`} className="aspect-square bg-muted/30 animate-pulse" />
-                ))
-              }
-            </div>
-
-            {galleryHasMore && !galleryLoading && (
-              <button
-                onClick={() => loadGalleryPage(galleryPage + 1)}
-                className="w-full py-3 text-xs text-muted-foreground"
-              >
-                {t("newpost_load_more_photos")}
-              </button>
-            )}
-            {galleryLoading && galleryAssets.length > 0 && (
-              <div className="flex justify-center py-3">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            )}
-          </div>
-        )}
-
-        {mediaType === "shot" && (
-          <div className="flex-1 overflow-y-auto bg-background">
-            {videoPreview && (
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border/20">
-                <div className="flex items-center gap-3">
-                  <Clapperboard className="h-5 w-5 text-muted-foreground" />
-                  {selectedVideoFile && (
-                    <div>
-                      <p className="text-sm font-medium truncate max-w-[200px]">{selectedVideoFile.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {selectedVideoFile.size < 1024 * 1024
-                          ? `${Math.round(selectedVideoFile.size / 1024)} KB`
-                          : `${(selectedVideoFile.size / (1024 * 1024)).toFixed(1)} MB`}
-                      </p>
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => {
-                    if (videoPreview?.startsWith("blob:")) URL.revokeObjectURL(videoPreview);
-                    setVideoPreview(null);
-                    setSelectedVideoFile(null);
-                  }}
-                  className="flex items-center gap-1 text-destructive text-sm"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-
-            <div className="grid grid-cols-4 gap-px bg-border/20">
-              <button
-                onClick={() => videoCameraRef.current?.click()}
-                className="aspect-square bg-muted/60 flex items-center justify-center"
-              >
-                <Video className="h-6 w-6 text-muted-foreground" />
-              </button>
-
-              {galleryPermission === "denied" && galleryAssets.length === 0 && (
-                <div className="col-span-3 aspect-square flex items-center justify-center px-3">
-                  <p className="text-xs text-muted-foreground text-center">{t("newpost_gallery_permission_denied")}</p>
-                </div>
-              )}
-
-              {galleryAssets.map((asset) => {
-                const isSelected = selectedVideoFile?.name === asset.fileName;
-                const thumbSrc = asset.thumbnail?.webPath;
-                return (
-                  <button
-                    key={asset.id}
-                    onClick={() => handleGalleryAssetTap(asset)}
-                    className="relative aspect-square overflow-hidden"
-                  >
-                    {thumbSrc ? (
-                      <img src={thumbSrc} alt={asset.fileName} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-muted/40 flex items-center justify-center">
-                        <Video className="h-4 w-4 text-muted-foreground/40" />
-                      </div>
-                    )}
-                    {asset.duration && (
-                      <div className="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] px-1 rounded">
-                        {Math.floor(asset.duration / 60)}:{String(Math.round(asset.duration % 60)).padStart(2, "0")}
-                      </div>
-                    )}
-                    {isSelected && (
-                      <div className="absolute inset-0 bg-primary/25 ring-2 ring-inset ring-primary" />
-                    )}
-                  </button>
-                );
-              })}
-
-              {galleryLoading && galleryAssets.length === 0 &&
-                Array.from({ length: 11 }).map((_, i) => (
-                  <div key={`ph-${i}`} className="aspect-square bg-muted/30 animate-pulse" />
-                ))
-              }
-            </div>
-
-            {galleryHasMore && !galleryLoading && (
-              <button
-                onClick={() => loadGalleryPage(galleryPage + 1)}
-                className="w-full py-3 text-xs text-muted-foreground"
-              >
-                {t("newpost_load_more_photos")}
-              </button>
-            )}
-            {galleryLoading && galleryAssets.length > 0 && (
-              <div className="flex justify-center py-3">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Hidden file inputs */}
         <input ref={imageInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
@@ -1119,152 +1099,310 @@ export default function NewPost() {
   }
 
   // ─────────────────────────────────────────
-  //  STEP 2 — Caption & publish
+  //  STEP 2 — Caption & publish (glass design)
   // ─────────────────────────────────────────
+
+  const activeText = mediaType === "post" ? description : videoDescription;
+  const isDisabled = isSubmitting || (mediaType === "post" ? selectedFiles.length === 0 : !selectedVideoFile);
+
+  const goalEmoji = (typeGoal: number) => {
+    if (typeGoal === 2) return "❤️";
+    if (typeGoal === 3) return "🏆";
+    return "🎯";
+  };
+
   return (
-    <div className="flex flex-col">
+    <div
+      className="flex flex-col relative overflow-hidden"
+      style={{ minHeight: "100dvh", background: "#06070c" }}
+    >
+      {/* ── Aura blobs ── */}
+      <div
+        className="absolute rounded-full pointer-events-none"
+        style={{
+          width: 300, height: 300, right: -70, top: 90,
+          background: "radial-gradient(circle,#7b3ff2,transparent 70%)",
+          filter: "blur(70px)", opacity: 0.36,
+        }}
+      />
+      <div
+        className="absolute rounded-full pointer-events-none"
+        style={{
+          width: 260, height: 260, left: -60, top: 420,
+          background: "radial-gradient(circle,#3f7fe6,transparent 70%)",
+          filter: "blur(70px)", opacity: 0.32,
+        }}
+      />
 
       {/* ── Header ── */}
-      <div className="flex items-center justify-between px-4 py-3 bg-background border-b border-border/40">
+      <div
+        className="relative z-10 flex items-center justify-between px-[18px]"
+        style={{ paddingTop: "max(54px, env(safe-area-inset-top))", paddingBottom: 14 }}
+      >
         <button
           onClick={() => setStep("select")}
-          className="flex items-center justify-center w-9 h-9 rounded-full hover:bg-muted transition-colors"
+          style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", flexShrink: 0 }}
         >
-          <ArrowLeft className="h-5 w-5" />
+          <ArrowLeft className="h-6 w-6" />
         </button>
-        <span className="text-base font-semibold">{t("newpost_new_post_header")}</span>
-        <div className="w-9" />
+        <span style={{ fontSize: 16, fontWeight: 680, color: "#fff" }}>{t("newpost_new_post_header")}</span>
+        <span style={{ width: 36, flexShrink: 0 }} />
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {/* ── Preview strip ── */}
-        <div className="flex items-start gap-3 px-4 py-4 border-b border-border/20">
+      {/* ── Scrollable body ── */}
+      <div className="flex-1 overflow-y-auto relative z-10 px-4" style={{ paddingBottom: 110 }}>
+
+        {/* Author row */}
+        <div style={{ display: "flex", gap: 13, marginBottom: 16, alignItems: "center" }}>
+          <UserAvatar photo={profile?.photo} nickname={profile?.nickname} size="md" />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 660, color: "#fff", lineHeight: 1.2 }}>
+              {profile?.nickname || user.email?.split("@")[0]}
+            </div>
+            <div style={{ fontSize: 11.5, color: "rgba(255,255,255,.5)", marginTop: 1 }}>
+              {t("newpost_visibility_label")}
+            </div>
+          </div>
           {mediaType === "post" && previewUrls.length > 0 && (
-            <img
-              src={previewUrls[currentPreviewIndex]}
-              alt="Preview"
-              className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-            />
+            <button
+              onClick={() => setImagePreviewOpen(true)}
+              aria-label={t("newpost_view_image")}
+              style={{ width: 64, height: 64, borderRadius: 16, overflow: "hidden", flexShrink: 0, boxShadow: "0 8px 20px -8px rgba(0,0,0,.6)", padding: 0, border: "none", cursor: "pointer" }}
+            >
+              <img src={previewUrls[currentPreviewIndex]} alt="Preview" className="w-full h-full object-cover" />
+            </button>
           )}
           {mediaType === "shot" && videoPreview && (
-            <video src={videoPreview} playsInline muted className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
+            <div style={{ width: 64, height: 64, borderRadius: 16, overflow: "hidden", flexShrink: 0, boxShadow: "0 8px 20px -8px rgba(0,0,0,.6)" }}>
+              <video src={videoPreview} playsInline muted className="w-full h-full object-cover" />
+            </div>
           )}
+        </div>
+
+        {/* Caption glass card */}
+        <div style={{
+          borderRadius: 24, padding: 16, minHeight: 150,
+          background: "linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.025))",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          border: "1px solid rgba(255,255,255,.1)",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,.14)",
+        }}>
           <Textarea
             placeholder={mediaType === "post" ? t("newpost_caption_placeholder") : t("newpost_caption_video_placeholder")}
-            value={mediaType === "post" ? description : videoDescription}
+            value={activeText}
             onChange={(e) =>
               mediaType === "post" ? setDescription(e.target.value) : setVideoDescription(e.target.value)
             }
             maxLength={500}
-            className="flex-1 resize-none border-0 shadow-none focus-visible:ring-0 p-0 text-base leading-relaxed bg-transparent min-h-[80px]"
-            rows={4}
+            className="resize-none border-0 shadow-none focus-visible:ring-0 p-0 bg-transparent w-full text-white placeholder:text-white/40"
+            style={{ fontSize: 15, lineHeight: 1.5, minHeight: 118 }}
+            rows={5}
           />
         </div>
 
-        {/* ── Selected photos strip (if multiple) ── */}
-        {mediaType === "post" && previewUrls.length > 1 && (
-          <div className="px-4 py-3 border-b border-border/20">
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {previewUrls.map((url, i) => (
-                <div key={i} className="relative flex-shrink-0">
-                  <img
-                    src={url}
-                    alt={t("newpost_photo_alt").replace("{n}", String(i + 1))}
-                    className={`h-14 w-14 rounded-lg object-cover ${i === currentPreviewIndex ? "ring-2 ring-primary" : ""}`}
-                    onClick={() => setCurrentPreviewIndex(i)}
-                  />
-                  {previewUrls.length > 1 && (
-                    <button
-                      onClick={() => removePhoto(i)}
-                      className="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5"
-                    >
-                      <X className="h-3 w-3 text-white" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+        {/* Icon bar + char counter */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 6px 0" }}>
+          <div style={{ display: "flex", gap: 14, color: "rgba(255,255,255,.55)" }}>
+            <button style={{ display: "flex", alignItems: "center" }}><Smile width={17} height={17} /></button>
+            <button style={{ display: "flex", alignItems: "center" }}><MapPin width={17} height={17} /></button>
+            <button style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1 }}>#</button>
           </div>
-        )}
-
-        {/* ── Char count ── */}
-        <div className="px-4 py-2 border-b border-border/20">
-          <span className={`text-xs ${(mediaType === "post" ? description : videoDescription).length > 450 ? "text-orange-400" : "text-muted-foreground"}`}>
-            {(mediaType === "post" ? description : videoDescription).length}/500
+          <span style={{ fontSize: 12, color: activeText.length > 450 ? "#fb923c" : "rgba(255,255,255,.4)" }}>
+            {activeText.length}/500
           </span>
         </div>
 
-        {/* ── Goal (post only) ── */}
+        {/* Multiple photos strip */}
+        {mediaType === "post" && previewUrls.length > 1 && (
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginTop: 14, scrollbarWidth: "none" }}>
+            {previewUrls.map((url, i) => (
+              <div key={i} style={{ position: "relative", flexShrink: 0 }}>
+                <img
+                  src={url}
+                  alt={t("newpost_photo_alt").replace("{n}", String(i + 1))}
+                  onClick={() => setCurrentPreviewIndex(i)}
+                  style={{
+                    width: 56, height: 56, borderRadius: 12, objectFit: "cover", cursor: "pointer",
+                    outline: i === currentPreviewIndex ? "2px solid #6ea8ff" : "none",
+                    outlineOffset: 1,
+                  }}
+                />
+                <button
+                  onClick={() => removePhoto(i)}
+                  style={{ position: "absolute", top: -4, right: -4, background: "rgba(0,0,0,.7)", borderRadius: "50%", padding: 2 }}
+                >
+                  <X className="h-3 w-3 text-white" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Goals section (post only) */}
         {mediaType === "post" && (
-          <div className="px-4 py-4 border-b border-border/20 space-y-2">
-            <div className="flex items-center gap-2">
-              <Target className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold">{t("newpost_link_goal")}</span>
-              <span className="text-xs text-muted-foreground">{t("newpost_optional")}</span>
+          <>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "rgba(255,255,255,.45)", margin: "22px 4px 10px" }}>
+              {t("newpost_goal_link_section")}
             </div>
             {isLoadingGoals ? (
-              <p className="text-sm text-muted-foreground">{t("newpost_goals_loading")}</p>
+              <p style={{ fontSize: 14, color: "rgba(255,255,255,.5)" }}>{t("newpost_goals_loading")}</p>
             ) : userGoals.filter((g) => g.perc < 100).length > 0 ? (
-              <Select value={selectedGoalId} onValueChange={setSelectedGoalId}>
-                <SelectTrigger className="rounded-xl">
-                  <SelectValue placeholder={t("newpost_select_goal")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {userGoals
-                    .filter((g) => g.perc < 100)
-                    .map((goal) => (
-                      <SelectItem key={goal.id} value={goal.id}>
-                        {goal.description}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+              <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4, margin: "0 -2px", scrollbarWidth: "none" }}>
+                {userGoals.filter((g) => g.perc < 100).map((goal) => {
+                  const isSelected = selectedGoalId === goal.id;
+                  return (
+                    <button
+                      key={goal.id}
+                      onClick={() => setSelectedGoalId(isSelected ? "" : goal.id)}
+                      style={{
+                        flexShrink: 0, display: "flex", alignItems: "center", gap: 10,
+                        padding: "12px 16px 12px 12px", borderRadius: 18,
+                        background: isSelected
+                          ? "linear-gradient(rgba(91,140,255,.16),rgba(157,107,255,.08))"
+                          : "rgba(255,255,255,.05)",
+                        border: isSelected
+                          ? "1px solid rgba(123,99,242,.4)"
+                          : "1px solid rgba(255,255,255,.1)",
+                        boxShadow: isSelected ? "inset 0 1px 0 rgba(255,255,255,.14)" : "none",
+                      }}
+                    >
+                      <span style={{
+                        width: 36, height: 36, borderRadius: 11, fontSize: 17,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        background: isSelected
+                          ? "linear-gradient(135deg,#5b8cff,#9d6bff)"
+                          : "rgba(255,255,255,.08)",
+                        flexShrink: 0,
+                      }}>
+                        {goalEmoji(goal.type_goal)}
+                      </span>
+                      <div style={{ lineHeight: 1.2, textAlign: "left" }}>
+                        <div style={{ fontSize: 13, fontWeight: 660, color: "#fff", whiteSpace: "nowrap", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {goal.description}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: isSelected ? "rgba(255,255,255,.6)" : "rgba(255,255,255,.5)", marginTop: 2 }}>
+                          {goal.perc}%{isSelected ? ` · ${t("newpost_goal_link_action")}` : ""}
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <span style={{
+                          width: 20, height: 20, borderRadius: "50%", background: "#6ea8ff",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          color: "#fff", marginLeft: 4, flexShrink: 0,
+                        }}>
+                          <Check width={12} height={12} strokeWidth={3} />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+                {/* Nova meta shortcut */}
+                <button
+                  onClick={() => navigate("/metas?tab=metas")}
+                  style={{
+                    flexShrink: 0, display: "flex", alignItems: "center", gap: 8,
+                    padding: "12px 18px", borderRadius: 18,
+                    border: "1px dashed rgba(255,255,255,.2)",
+                    color: "rgba(255,255,255,.6)", fontSize: 13, fontWeight: 600,
+                  }}
+                >
+                  <Plus width={15} height={15} strokeWidth={2.2} />
+                  {t("newpost_new_goal_shortcut")}
+                </button>
+              </div>
             ) : (
               <button
                 onClick={() => navigate("/metas?tab=metas")}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                style={{ fontSize: 14, color: "rgba(255,255,255,.5)" }}
               >
                 {t("newpost_no_goals")}{" "}
-                <span className="text-primary font-medium">{t("newpost_create_goal")}</span>
+                <span style={{ color: "#6ea8ff", fontWeight: 600 }}>{t("newpost_create_goal")}</span>
               </button>
             )}
             {selectedGoalId && (
-              <p className="text-xs text-emerald-400 flex items-center gap-1">
+              <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#6ee7b7", marginTop: 10 }}>
                 <Sparkles className="h-3 w-3" />
                 {t("newpost_goal_progress_hint")}
-              </p>
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
 
-      {/* ── Publish button ── */}
+      {/* ── Image preview modal ── */}
+      {imagePreviewOpen && previewUrls.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+          style={{
+            paddingTop: "max(1rem, env(safe-area-inset-top))",
+            paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+            paddingLeft: "max(1rem, env(safe-area-inset-left))",
+            paddingRight: "max(1rem, env(safe-area-inset-right))",
+          }}
+        >
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 pointer-events-auto"
+            style={{ background: "rgba(0,0,0,.88)" }}
+            onClick={() => setImagePreviewOpen(false)}
+          />
+          {/* Image */}
+          <div className="relative pointer-events-auto w-full max-w-full" style={{ maxHeight: "calc(100dvh - 4rem)" }}>
+            <img
+              src={previewUrls[currentPreviewIndex]}
+              alt={t("newpost_view_image")}
+              style={{ width: "100%", maxHeight: "calc(100dvh - 4rem)", objectFit: "contain", borderRadius: 16 }}
+            />
+            {/* Close button */}
+            <button
+              onClick={() => setImagePreviewOpen(false)}
+              aria-label={t("newpost_close_image_preview")}
+              style={{
+                position: "absolute", top: -12, right: -12,
+                width: 36, height: 36, borderRadius: "50%",
+                background: "rgba(0,0,0,.7)", border: "1px solid rgba(255,255,255,.15)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: "#fff", cursor: "pointer",
+              }}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Publish bar ── */}
       <div
-        className="px-4 py-4 border-t border-border/40 bg-background"
-        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+        className="absolute bottom-0 left-0 right-0 z-10"
+        style={{
+          padding: `14px 16px max(30px, env(safe-area-inset-bottom))`,
+          background: "linear-gradient(transparent,rgba(6,7,12,.92) 30%)",
+        }}
       >
-        <Button
-          className="w-full rounded-full font-semibold"
+        <button
           onClick={mediaType === "post" ? handleImageSubmit : handleVideoSubmit}
-          disabled={isSubmitting || (mediaType === "post" ? selectedFiles.length === 0 : !selectedVideoFile)}
+          disabled={isDisabled}
+          style={{
+            width: "100%", height: 54, borderRadius: 27,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
+            fontSize: 16, fontWeight: 700, color: "#fff",
+            background: "linear-gradient(135deg,#5b8cff,#9d6bff)",
+            boxShadow: "0 12px 30px -8px rgba(123,63,242,.6),inset 0 1px 0 rgba(255,255,255,.35)",
+            opacity: isDisabled ? 0.45 : 1,
+            cursor: isDisabled ? "not-allowed" : "pointer",
+            transition: "opacity .2s",
+            border: "none",
+          }}
         >
           {isSubmitting ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              {t("newpost_publishing")}
-            </>
+            <><Loader2 className="h-5 w-5 animate-spin" />{t("newpost_publishing")}</>
           ) : mediaType === "post" ? (
-            <>
-              <Sparkles className="h-4 w-4 mr-2" />
-              {t("newpost_publish")}
-            </>
+            <><Send className="h-5 w-5" />{t("newpost_publish")}</>
           ) : (
-            <>
-              <Clapperboard className="h-4 w-4 mr-2" />
-              {t("newpost_publish_shot")}
-            </>
+            <><Clapperboard className="h-5 w-5" />{t("newpost_publish_shot")}</>
           )}
-        </Button>
+        </button>
       </div>
     </div>
   );

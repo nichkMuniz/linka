@@ -98,26 +98,36 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[85dvh] flex flex-col bg-gradient-to-b from-background via-background to-muted/30 pb-6" onOpenAutoFocus={(e) => e.preventDefault()}>
-        <DrawerHeader className="shrink-0 border-b border-border/60">
-          <DrawerTitle className="flex items-center gap-2">
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="max-h-[85dvh] flex flex-col pb-6 !rounded-t-[32px] !border-0"
+        style={{
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        <DrawerHeader className="shrink-0">
+          <DrawerTitle className="flex items-center gap-2" style={{ color: "#fff" }}>
             <span className="text-2xl">🏆</span>
             {t("badges_title")}
           </DrawerTitle>
-          <DrawerDescription className="">
+          <DrawerDescription className="" style={{ color: "rgba(255,255,255,.5)" }}>
             {t("badges_desc")}
           </DrawerDescription>
         </DrawerHeader>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 scrollbar-hide">
           {/* Progress Overview - Integrated logic for NEXT level */}
-          <div className="mb-6 p-4 rounded-2xl bg-brand/10 border border-brand/20 shadow-sm">
+          <div className="mb-6 p-4 rounded-2xl shadow-sm" style={{ background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.12)" }}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Star className="h-4 w-4 text-brand animate-pulse" />
-                <p className="font-semibold text-sm">{t("badges_next_level")}</p>
+                <p className="font-semibold text-sm" style={{ color: "#fff" }}>{t("badges_next_level")}</p>
               </div>
-              <p className="font-bold text-lg tabular-nums">
+              <p className="font-bold text-lg tabular-nums" style={{ color: "#fff" }}>
                 {totalCheckIns}/{targetRequired}
               </p>
             </div>
@@ -127,7 +137,7 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
                 style={{ width: `${Math.min(100, (totalCheckIns / targetRequired) * 100)}%` }}
               />
             </div>
-            <p className="text-xs text-muted-foreground mt-3 font-medium">
+            <p className="text-xs mt-3 font-medium" style={{ color: "rgba(255,255,255,.5)" }}>
               {isMaxed
                 ? t("badges_maxed")
                 : nextBadge
@@ -196,7 +206,7 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
                           </div>
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{badge.description}</p>
+                      <p className="text-xs mt-1 line-clamp-1" style={{ color: "rgba(255,255,255,.5)" }}>{badge.description}</p>
                       
                       {!unlocked && (
                         <div className="mt-2 flex items-center gap-2">
@@ -225,8 +235,8 @@ export function InsigniasDrawer({ open, onOpenChange, userBadges, allBadges, tot
           </div>
         </div>
 
-        <div className="border-t border-border/60 p-5 bg-background/95 sticky bottom-0">
-          <p className="text-xs font-medium text-muted-foreground text-center">
+        <div className="p-5 sticky bottom-0" style={{ borderTop: "1px solid rgba(255,255,255,.08)", background: "rgba(14,13,20,.95)" }}>
+          <p className="text-xs font-medium text-center" style={{ color: "rgba(255,255,255,.5)" }}>
             {isMaxed
               ? t("badges_bottom_maxed")
               : t("badges_bottom_progress")

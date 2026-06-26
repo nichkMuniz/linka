@@ -3,12 +3,10 @@ import {
   Drawer,
   DrawerContent,
   DrawerDescription,
-  DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { UserAvatar } from "@/components/shared/user-avatar";
 import { useNavigate } from "react-router-dom";
-import { Heart } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { getIncentiveConfig } from "@/lib/incentive-config";
 
@@ -25,6 +23,15 @@ interface PostLikesModalProps {
   likes: PostLike[];
 }
 
+const BADGE_COLORS: Record<number, string> = {
+  1: "#ff5f7a",
+  2: "#ffb15e",
+  3: "#ffd76a",
+  4: "#6ea8ff",
+  5: "#5b8cff",
+  6: "#ffe14a",
+};
+
 export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProps) {
   const navigate = useNavigate();
   const { t } = useLanguage();
@@ -34,118 +41,141 @@ export function PostLikesModal({ open, onOpenChange, likes }: PostLikesModalProp
     if (!open) setActiveFilter(null);
   }, [open]);
 
-  const getIncentiveTypeName = (type: number): string => {
-    const map: Record<number, "incentive_1"|"incentive_2"|"incentive_3"|"incentive_4"|"incentive_5"|"incentive_6"> = {
-      1: "incentive_1", 2: "incentive_2", 3: "incentive_3",
-      4: "incentive_4", 5: "incentive_5", 6: "incentive_6",
-    };
-    return map[type] ? t(map[type]) : t("incentive_default");
-  };
-
   const handleUserClick = (userId: string) => {
     navigate(`/usuario/${userId}`);
     onOpenChange(false);
   };
 
-  // Count distinct users (not total incentives)
-  const distinctUsers = new Set(likes.map((like) => like.userId)).size;
+  const totalCount = likes.length;
 
-  // Count incentives by numeric type
   const incentiveTypeCounts = likes.reduce(
     (acc, like) => {
       acc[like.type] = (acc[like.type] || 0) + 1;
       return acc;
     },
-    {} as { [key: number]: number }
+    {} as { [key: number]: number },
   );
 
-  const filteredLikes = activeFilter !== null ? likes.filter((l) => l.type === activeFilter) : likes;
+  const filteredLikes =
+    activeFilter !== null ? likes.filter((l) => l.type === activeFilter) : likes;
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[80dvh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
-        <DrawerHeader className="shrink-0 border-b border-border/60">
-          <div className="space-y-3">
-            <DrawerTitle className="flex items-center gap-2">
-              <Heart className="h-5 w-5 text-red-500 fill-red-500" />
-              {t("incentives_title")}
-            </DrawerTitle>
-            <DrawerDescription className="sr-only">{t("incentives_desc")}</DrawerDescription>
+      <DrawerContent
+        handleClassName="mt-[6px] h-1 w-[38px] bg-white/25"
+        className="max-h-[80dvh] flex flex-col !rounded-t-[32px] !border-0"
+        style={{
+          background: "linear-gradient(rgba(30,28,40,.88),rgba(14,13,20,.96))",
+          backdropFilter: "blur(40px) saturate(180%)",
+          WebkitBackdropFilter: "blur(40px) saturate(180%)",
+          borderTop: "1px solid rgba(255,255,255,.14)",
+        }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        <DrawerDescription className="sr-only">{t("incentives_desc")}</DrawerDescription>
 
-            {/* Distinct Users Counter */}
-            <div className="bg-muted/50 rounded-lg p-3">
-              <p className="text-sm font-medium text-foreground">
-                {distinctUsers} {distinctUsers === 1 ? t("incentives_one") : t("incentives_many")}
-              </p>
-            </div>
+        {/* Header */}
+        <div className="px-[18px] pb-[14px] shrink-0">
+          <DrawerTitle
+            className="text-[18px] leading-none mb-[14px]"
+            style={{ fontWeight: 740, color: "#fff" }}
+          >
+            {t("incentives_title")} · {totalCount}
+          </DrawerTitle>
 
-            {/* Incentive Type Breakdown — Filterable */}
-            {Object.keys(incentiveTypeCounts).length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(incentiveTypeCounts).map(([typeStr, count]) => {
-                  const typeNum = Number(typeStr);
-                  const isActive = activeFilter === typeNum;
-                  const cfg = getIncentiveConfig(typeNum);
-                  const Icon = cfg?.Icon;
-                  return (
-                    <button
-                      key={typeStr}
-                      onClick={() => setActiveFilter(isActive ? null : typeNum)}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm transition-all active:scale-95 ${
-                        isActive
-                          ? "bg-primary text-primary-foreground shadow-md"
-                          : "bg-muted/40 text-foreground hover:bg-muted/70"
-                      }`}
-                    >
-                      <span className="font-semibold">{count}</span>
-                      <p className={isActive ? "text-primary-foreground" : "text-muted-foreground"}>{getIncentiveTypeName(typeNum)}</p>
-                      {Icon && (
-                        <Icon
-                          className={`h-4 w-4 ml-1 ${isActive ? "text-primary-foreground" : cfg!.activeClassName}`}
-                        />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+          {/* Filter chips */}
+          <div
+            className="flex gap-2 overflow-x-auto"
+            style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+          >
+            <button
+              onClick={() => setActiveFilter(null)}
+              className="flex-shrink-0 flex items-center gap-1.5 text-[13px] rounded-2xl px-[14px] py-[8px] transition-all active:scale-95"
+              style={
+                activeFilter === null
+                  ? { fontWeight: 640, background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.84))", color: "#0a0b12" }
+                  : { fontWeight: 600, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.1)", color: "#fff" }
+              }
+            >
+              {t("incentives_all")} {totalCount}
+            </button>
+            {Object.entries(incentiveTypeCounts).map(([typeStr, count]) => {
+              const typeNum = Number(typeStr);
+              const isActive = activeFilter === typeNum;
+              const cfg = getIncentiveConfig(typeNum);
+              return (
+                <button
+                  key={typeStr}
+                  onClick={() => setActiveFilter(isActive ? null : typeNum)}
+                  className="flex-shrink-0 flex items-center gap-[5px] text-[13px] rounded-2xl px-[13px] py-[8px] transition-all active:scale-95"
+                  style={
+                    isActive
+                      ? { fontWeight: 640, background: "linear-gradient(rgba(255,255,255,.95),rgba(255,255,255,.84))", color: "#0a0b12" }
+                      : { fontWeight: 600, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.1)", color: "#fff" }
+                  }
+                >
+                  {cfg?.emoji} {count}
+                </button>
+              );
+            })}
           </div>
-        </DrawerHeader>
+        </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-6">
+        {/* User list */}
+        <div className="flex-1 overflow-y-auto px-[18px] pb-[28px]">
           {filteredLikes.length === 0 ? (
             <div className="flex items-center justify-center py-8">
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm" style={{ color: "rgba(255,255,255,.5)" }}>
                 {likes.length === 0 ? t("incentives_none") : t("incentives_none_type")}
               </p>
             </div>
           ) : (
-            <div className="space-y-2 pt-4">
-              {filteredLikes.map((like) => {
+            <div className="flex flex-col">
+              {filteredLikes.map((like, idx) => {
                 const cfg = getIncentiveConfig(like.type);
                 const Icon = cfg?.Icon;
+                const badgeColor = BADGE_COLORS[like.type] ?? "#6ea8ff";
+                const badgeIconColor = like.type === 3 ? "#0a0b12" : "#fff";
                 return (
                   <button
-                    key={`${like.userId}-${like.type}`}
+                    key={`${like.userId}-${like.type}-${idx}`}
                     onClick={() => handleUserClick(like.userId)}
-                    className="w-full flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors border border-border/40"
+                    className="flex items-center gap-3 py-[10px] active:opacity-70 transition-opacity"
                   >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {/* Avatar with reaction badge */}
+                    <div className="relative flex-shrink-0">
                       <UserAvatar
                         photo={like.userPhoto}
                         nickname={like.userNickname}
+                        size="lg"
                       />
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {like.userNickname}
-                      </p>
+                      {Icon && (
+                        <span
+                          className="absolute flex items-center justify-center"
+                          style={{
+                            bottom: "-2px",
+                            right: "-2px",
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "50%",
+                            background: badgeColor,
+                            border: "2px solid #16151c",
+                            color: badgeIconColor,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Icon style={{ width: "10px", height: "10px" }} />
+                        </span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs font-semibold bg-red-500/20 text-red-600 px-2 py-1 rounded-full flex items-center gap-1.5">
-                        {getIncentiveTypeName(like.type)}
-                        {Icon && (
-                          <Icon className={`h-3.5 w-3.5 ${cfg!.activeClassName}`} />
-                        )}
-                      </span>
+
+                    <div className="flex-1 text-left">
+                      <div
+                        className="text-[14px] leading-tight"
+                        style={{ fontWeight: 660, color: "#fff" }}
+                      >
+                        {like.userNickname}
+                      </div>
                     </div>
                   </button>
                 );

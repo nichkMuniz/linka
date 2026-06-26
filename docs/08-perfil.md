@@ -47,7 +47,11 @@ Página de perfil do usuário. Exibe informações pessoais, estatísticas, cont
 > - O trigger do `SettingsDrawer` agora é externo (props `open`/`onOpenChange`/`hideTrigger`); a engrenagem e o botão "Editar perfil" abrem o mesmo drawer.
 
 ### Foto e Banner
-- **Banner:** imagem de capa (upload disponível no próprio perfil)
+- **Banner:** por padrão é um gradiente colorido radial. No próprio perfil, dois botões circulares "glass" no canto superior direito permitem personalizá-lo:
+  - **Editar capa** (ícone `ImagePlus`) → abre seletor de imagem → `ImageCropperDrawer` (aspecto 16/9) → upload para o bucket `posts` (`covers/{userId}-{timestamp}.jpg`) → salvo em `profiles.cover_photo` via `updateUserProfileDb`
+  - **Remover capa** (ícone `Trash2`, só aparece quando há capa) → confirmação → volta ao gradiente padrão (`cover_photo = null`)
+  - Quando `profile.cover_photo` está preenchido, a imagem (via `ImageWithFallback`, `object-cover`, altura 210px) substitui o gradiente; o fade inferior para `#06070c` é mantido para legibilidade do texto
+  - Botões visíveis apenas no próprio perfil; no perfil de outro usuário a capa é somente exibida
 - **Avatar:** foto de perfil circular, clicável para ampliar ou editar
 
 ### Informações do Usuário
@@ -227,8 +231,20 @@ Aberto pelo botão "Configurações". O menu é organizado em seções com separ
 |---|---|---|
 | Idioma | Botão → Drawer aninhado | Selecionar pt-BR ou en-US |
 | Notificações | Botão → Drawer aninhado | Toggles de treino, conquistas, amigos, mensagens, sons |
+| Privacidade | Botão → Drawer aninhado | Dois toggles: **Ocultar seguidores e seguindo** e **Ocultar posts de quem não te segue** |
 | Gerenciamento de Tempo | Botão → Drawer aninhado | Limite diário de uso em minutos |
 | Personalização | Botão → Drawer aninhado | Trocar layout e tema dark/light |
+
+#### Drawer de Privacidade
+
+Dois toggles que salvam imediatamente em `profiles` via `updateUserProfileDb` (atualização otimista + toast):
+
+| Toggle | Coluna | Efeito |
+|---|---|---|
+| Ocultar seguidores e seguindo | `hide_follow_lists` | No perfil visto por **outros** usuários, os cards de Seguidores/Seguindo exibem um cadeado e, ao tocar, mostram "Esta lista é privada" em vez de abrir a lista. No próprio perfil continua tudo acessível. |
+| Ocultar posts de quem não te segue | `hide_posts_from_non_followers` | A aba **Posts** do perfil só é exibida a quem **segue** o dono. Para não seguidores aparece um estado bloqueado ("Publicações privadas" + cadeado). O dono e seus seguidores veem normalmente. |
+
+O status de seguimento do visitante é carregado com `isFollowingDb(profileUserId)` no carregamento do perfil. O gating é client-side (consistente com o filtro de visibilidade das metas).
 
 ### Seção: Outros
 

@@ -52,6 +52,13 @@ Componente: `FlowCarousel`
 
 **FlowCreationDialog:**
 - Upload de imagem para o story
+- Captura pela câmera com **obturador inteligente**: **toque rápido = foto**, **segurar (>400ms) = grava vídeo** (estilo Instagram/Snapchat). Solta o obturador para finalizar o vídeo
+  - Gravação usa `MediaRecorder` com áudio do microfone (permissão lazy; se negada, grava sem som)
+  - Duração máxima de 30s e teto de 50MB; indicador de gravação (anel vermelho + contador `M:SS`)
+  - Vídeo gerado é enviado pelo mesmo fluxo de upload (`handleCreateStory`), que detecta o tipo via MIME (`.mp4`/`.webm`)
+- **Enquadramento da mídia (tela de compartilhar):** na etapa final, imagem **e vídeo** podem ser **redimensionados (pinça)** e **movidos (arraste)** estilo story do Instagram. A camada de gestos cobre a mídia (inclusive o vídeo — isso também impede gestos nativos do iOS sobre o `<video>`)
+  - **Imagem:** o enquadramento é **composto num canvas** (`bakeTransformedImage`) com fundo desfocado, para que o resultado salvo seja exatamente o que o usuário vê
+  - **Vídeo:** como não pode ser recomposto no cliente, o enquadramento é **persistido** em `flow.media_transform` (`{ scale, x%, y% }`) e reaplicado via CSS `transform` no `FlowViewer`. Requer a coluna `media_transform` (ver `docs/14`); sem ela, o vídeo é salvo sem enquadramento (degradação graciosa)
 - Botão confirmar publicação
 
 **FlowViewerModal:**
@@ -171,3 +178,4 @@ Cada post exibe:
 - Descrições com mais de 30 caracteres ou múltiplas linhas são truncadas exibindo apenas a primeira linha (até 30 chars) seguida de `...` e botão **"mais"** (chave i18n `feed_description_more`); ao expandir, exibe-se o texto completo com botão **"menos"** (`feed_description_less`) para recolher. Estado de expansão é local ao `PostCard`
 - O `body` tem `padding-right: 0 !important` no CSS global para evitar layout shift ao abrir modals/drawers (Radix UI injeta padding-right ao bloquear scroll)
 - **Pinch-to-zoom em todos os posts:** Toda imagem de post (feed Seguindo, Descobrir e PostDetail) é renderizada via `PostCarousel`, que usa o componente interno `ZoomableImage` com gesto de pinça (dois dedos). Escala de 1x até 5x, origem do zoom segue o ponto médio entre os dedos; ao soltar, retorna a 1x com transição suave. Funciona inclusive para posts legados com campo único `post.photo` (encapsulado como `[post.photo]` no carrossel)
+- **Indicador de carrossel (dots) no feed:** No `PostCard` o indicador de fotos é renderizado **logo acima do frame de botões de incentivo** (não mais no topo-centro, onde ficava escondido atrás da pill de identidade). O `PostCarousel` expõe `onIndexChange` (reporta a foto atual) e `hideDots` (oculta os dots internos); o `PostCard` usa ambos para posicionar o indicador no container inferior. O contador em pill (`N/total`) permanece no topo-direito. Demais telas (Perfil, Comunidade, PostDetail) seguem com os dots internos no topo-centro

@@ -44,6 +44,7 @@ import {
   Play,
   Pencil,
   Check,
+  ChevronUp,
 } from "lucide-react";
 import { renderIncentiveIcon } from "@/lib/incentive-config";
 import { CommentReactions } from "@/components/shared/comment-reactions";
@@ -121,9 +122,15 @@ export default function FlowViewer() {
   const [editingCommentId, setEditingCommentId] = React.useState<string | null>(null);
   const [editCommentDraft, setEditCommentDraft] = React.useState("");
   const [savingEditCommentId, setSavingEditCommentId] = React.useState<string | null>(null);
+  const [restartKey, setRestartKey] = React.useState(0);
 
   const timerIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const swipeTouchStartRef = React.useRef<{ x: number; y: number } | null>(null);
+  const holdTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const isPausedByHoldRef = React.useRef(false);
+  const holdFiredRef = React.useRef(false);
+  const holdPointerStartRef = React.useRef<{ x: number; y: number } | null>(null);
 
   const isTypingRef = React.useRef(false);
   const isPausedRef = React.useRef(false);
@@ -148,29 +155,63 @@ export default function FlowViewer() {
   }, [loadingStories, story, navigate]);
 
   const currentIndex = story ? sortedStories.findIndex((s) => s.id === story.id) : -1;
-  const hasNextStory = currentIndex >= 0 && currentIndex < sortedStories.length - 1;
-  const hasPrevStory = currentIndex > 0;
   const isOwner = story ? user?.id === story.user_id : false;
+  const viewingOwnStories = story ? story.user_id === user?.id : false;
   const userStories = story ? sortedStories.filter((s) => s.user_id === story.user_id) : [];
   const storyIndexInUser = story ? userStories.findIndex((s) => s.id === story.id) : -1;
-  const prevStory = hasPrevStory ? sortedStories[currentIndex - 1] : null;
-  const nextStory = hasNextStory ? sortedStories[currentIndex + 1] : null;
+
+  const nextStory = React.useMemo(() => {
+    if (currentIndex < 0) return null;
+    let nextIdx = currentIndex + 1;
+    if (!viewingOwnStories) {
+      while (nextIdx < sortedStories.length && sortedStories[nextIdx].user_id === user?.id) nextIdx++;
+    }
+    return nextIdx < sortedStories.length ? sortedStories[nextIdx] : null;
+  }, [currentIndex, sortedStories, viewingOwnStories, user]);
+
+  const prevStory = React.useMemo(() => {
+    if (currentIndex <= 0) return null;
+    let prevIdx = currentIndex - 1;
+    if (!viewingOwnStories) {
+      while (prevIdx >= 0 && sortedStories[prevIdx].user_id === user?.id) prevIdx--;
+    }
+    return prevIdx >= 0 ? sortedStories[prevIdx] : null;
+  }, [currentIndex, sortedStories, viewingOwnStories, user]);
+
+  const hasNextStory = nextStory !== null;
+  const hasPrevStory = prevStory !== null;
 
   const handleNext = React.useCallback(() => {
     setDirection(1);
-    if (currentIndex >= 0 && currentIndex < sortedStories.length - 1) {
-      navigate(`/flows/${sortedStories[currentIndex + 1].id}`, { replace: true });
+    if (currentIndex < 0) { navigate("/"); return; }
+    const viewingOwnStories = story?.user_id === user?.id;
+    let nextIdx = currentIndex + 1;
+    if (!viewingOwnStories) {
+      while (nextIdx < sortedStories.length && sortedStories[nextIdx].user_id === user?.id) {
+        nextIdx++;
+      }
+    }
+    if (nextIdx < sortedStories.length) {
+      navigate(`/flows/${sortedStories[nextIdx].id}`, { replace: true });
     } else {
       navigate("/");
     }
-  }, [currentIndex, sortedStories, navigate]);
+  }, [currentIndex, sortedStories, navigate, story, user]);
 
   const handlePrev = React.useCallback(() => {
     setDirection(-1);
-    if (currentIndex > 0) {
-      navigate(`/flows/${sortedStories[currentIndex - 1].id}`, { replace: true });
+    if (currentIndex <= 0) return;
+    const viewingOwnStories = story?.user_id === user?.id;
+    let prevIdx = currentIndex - 1;
+    if (!viewingOwnStories) {
+      while (prevIdx >= 0 && sortedStories[prevIdx].user_id === user?.id) {
+        prevIdx--;
+      }
     }
-  }, [currentIndex, sortedStories, navigate]);
+    if (prevIdx >= 0) {
+      navigate(`/flows/${sortedStories[prevIdx].id}`, { replace: true });
+    }
+  }, [currentIndex, sortedStories, navigate, story, user]);
 
   const handleClose = React.useCallback(() => {
     navigate("/");
@@ -183,24 +224,16 @@ export default function FlowViewer() {
     setFloatingBubbles([]);
     if (commentCycleRef.current) clearInterval(commentCycleRef.current);
     if (comments.length > 0) {
-      let idx = 0;
-      const firstComment = comments[0];
       const firstKey = ++bubbleKeyRef.current;
-      const firstBubbleId = `${firstComment.id}-${firstKey}`;
-      setFloatingBubbles([{ id: firstBubbleId, comment: firstComment }]);
-      setTimeout(() => {
-        setFloatingBubbles((prev) => prev.filter((b) => b.id !== firstBubbleId));
-      }, 3500);
+      const firstComment = comments[0];
+      setFloatingBubbles([{ id: `${firstComment.id}-${firstKey}`, comment: firstComment }]);
       if (comments.length > 1) {
-        idx = 1;
+        let idx = 1;
         commentCycleRef.current = setInterval(() => {
           const comment = comments[idx % comments.length];
           const key = ++bubbleKeyRef.current;
-          const bubbleId = `${comment.id}-${key}`;
-          setFloatingBubbles((prev) => [...prev.slice(-2), { id: bubbleId, comment }]);
-          setTimeout(() => {
-            setFloatingBubbles((prev) => prev.filter((b) => b.id !== bubbleId));
-          }, 3500);
+          // Substitui pelo próximo comentário; sem timeout de remoção — fica sempre visível
+          setFloatingBubbles([{ id: `${comment.id}-${key}`, comment }]);
           idx++;
         }, 2800);
       }
@@ -225,6 +258,7 @@ export default function FlowViewer() {
     }
   }, [isPaused]);
 
+  // Carrega dados (likes/comentários) e registra view apenas ao trocar de story
   React.useEffect(() => {
     if (!story) return;
 
@@ -251,6 +285,11 @@ export default function FlowViewer() {
         console.error("Error recording flow view:", err),
       );
     }
+  }, [story?.id, isOwner]);
+
+  // Timer separado — roda ao trocar de story OU ao reiniciar (restartKey)
+  React.useEffect(() => {
+    if (!story) return;
 
     setTimerProgress(100);
     setIsPaused(false);
@@ -278,10 +317,18 @@ export default function FlowViewer() {
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
-  }, [story?.id, isOwner]);
+  }, [story?.id, restartKey]);
 
   const handleTogglePause = React.useCallback(() => {
     setIsPaused((prev) => !prev);
+  }, []);
+
+  const handleRestart = React.useCallback(() => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(() => {});
+    }
+    setRestartKey((k) => k + 1);
   }, []);
 
   const handleOpenViewers = React.useCallback(async () => {
@@ -299,6 +346,71 @@ export default function FlowViewer() {
       setIsLoadingViewers(false);
     }
   }, [story]);
+
+  const handleSwipeTouchStart = React.useCallback((e: React.TouchEvent) => {
+    if (!isOwner) return;
+    const touch = e.touches[0];
+    swipeTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }, [isOwner]);
+
+  const handleSwipeTouchEnd = React.useCallback((e: React.TouchEvent) => {
+    if (!isOwner || !swipeTouchStartRef.current) return;
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - swipeTouchStartRef.current.x;
+    const deltaY = touch.clientY - swipeTouchStartRef.current.y;
+    swipeTouchStartRef.current = null;
+    // Swipe para cima: vertical, mínimo 60px, predominantemente vertical
+    if (deltaY < -60 && Math.abs(deltaY) > Math.abs(deltaX)) {
+      handleOpenViewers();
+    }
+  }, [isOwner, handleOpenViewers]);
+
+  const handleTapZonePointerDown = React.useCallback((e: React.PointerEvent) => {
+    holdPointerStartRef.current = { x: e.clientX, y: e.clientY };
+    holdTimerRef.current = setTimeout(() => {
+      isPausedByHoldRef.current = true;
+      holdFiredRef.current = true;
+      setIsPaused(true);
+      isPausedRef.current = true;
+    }, 150);
+  }, []);
+
+  const handleTapZonePointerMove = React.useCallback((e: React.PointerEvent) => {
+    if (!holdPointerStartRef.current || !holdTimerRef.current) return;
+    const dx = e.clientX - holdPointerStartRef.current.x;
+    const dy = e.clientY - holdPointerStartRef.current.y;
+    if (Math.sqrt(dx * dx + dy * dy) > 10) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  }, []);
+
+  const handleTapZonePointerUp = React.useCallback(() => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    holdPointerStartRef.current = null;
+    if (isPausedByHoldRef.current) {
+      isPausedByHoldRef.current = false;
+      setIsPaused(false);
+      isPausedRef.current = false;
+    }
+  }, []);
+
+  const handleTapZonePointerCancel = React.useCallback(() => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    holdPointerStartRef.current = null;
+    if (isPausedByHoldRef.current) {
+      isPausedByHoldRef.current = false;
+      holdFiredRef.current = false;
+      setIsPaused(false);
+      isPausedRef.current = false;
+    }
+  }, []);
 
   const handleToggleLike = React.useCallback(
     async (incentiveType: PostIncentiveType) => {
@@ -388,6 +500,9 @@ export default function FlowViewer() {
     try {
       const success = await deleteStoryDb(story.id);
       if (success) {
+        // Remove o flow deletado do estado local para que ele suma imediatamente
+        // das barras de progresso e da navegação, sem precisar sair e voltar.
+        setAllStories((prev) => prev.filter((s) => s.id !== story.id));
         toast({ title: "Flow deletado", description: "Seu flow foi removido." });
         if (nextStory) {
           navigate(`/flows/${nextStory.id}`, { replace: true });
@@ -466,7 +581,11 @@ export default function FlowViewer() {
 
         {/* Main card — mobile: fullscreen, desktop: centered 9:16 */}
         <div className="relative w-full h-full md:w-auto md:h-full md:max-h-[92dvh] md:aspect-[9/16] bg-black md:rounded-2xl overflow-hidden flex flex-col shadow-2xl border-0 md:border md:border-white/10">
-          <main className="relative w-full h-full flex flex-col">
+          <main
+            className="relative w-full h-full flex flex-col"
+            onTouchStart={handleSwipeTouchStart}
+            onTouchEnd={handleSwipeTouchEnd}
+          >
             {/* Header overlay */}
             <div
               className="absolute top-0 left-0 right-0 z-[60] pb-12 px-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent"
@@ -596,8 +715,14 @@ export default function FlowViewer() {
                             style={{ left: `${el.x}%`, top: `${el.y}%`, transform: "translate(-50%, -50%)" }}
                           >
                             <p
-                              className="text-white text-center font-bold text-3xl leading-tight break-words whitespace-pre-wrap"
-                              style={{ textShadow: "0 1px 6px rgba(0,0,0,0.5)" }}
+                              className="text-3xl leading-tight break-words whitespace-pre-wrap"
+                              style={{
+                                textShadow: "0 1px 6px rgba(0,0,0,0.5)",
+                                fontFamily: el.style?.fontFamily ?? "system-ui, sans-serif",
+                                fontWeight: el.style?.fontWeight ?? 800,
+                                textAlign: el.style?.align ?? "center",
+                                color: el.style?.color ?? "#ffffff",
+                              }}
                             >
                               {el.text}
                             </p>
@@ -626,6 +751,14 @@ export default function FlowViewer() {
                       ref={videoRef}
                       src={story.media_url}
                       className="w-full h-full object-cover"
+                      style={
+                        story.media_transform
+                          ? {
+                              transform: `translate(${story.media_transform.x}%, ${story.media_transform.y}%) scale(${story.media_transform.scale})`,
+                              transformOrigin: "center",
+                            }
+                          : undefined
+                      }
                       autoPlay
                       loop
                       muted
@@ -637,16 +770,30 @@ export default function FlowViewer() {
                       src={cdnImg(story.media_url, { width: 1920, quality: 90 }) ?? story.media_url}
                       alt="Flow"
                       className="w-full h-full object-cover"
+                      style={
+                        story.media_transform
+                          ? {
+                              transform: `translate(${story.media_transform.x}%, ${story.media_transform.y}%) scale(${story.media_transform.scale})`,
+                              transformOrigin: "center",
+                            }
+                          : undefined
+                      }
                     />
                   )}
                 </motion.div>
               </AnimatePresence>
 
               {/* Navigation tap zones */}
-              <div className="absolute inset-0 flex z-[55]">
-                <div className="flex-1 cursor-pointer" onClick={(e) => { e.stopPropagation(); handlePrev(); }} />
-                <div className="flex-[2] cursor-pointer" onClick={handleTogglePause} />
-                <div className="flex-1 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleNext(); }} />
+              <div
+                className="absolute inset-0 flex z-[55]"
+                onPointerDown={handleTapZonePointerDown}
+                onPointerMove={handleTapZonePointerMove}
+                onPointerUp={handleTapZonePointerUp}
+                onPointerCancel={handleTapZonePointerCancel}
+              >
+                <div className="flex-1 cursor-pointer" onClick={(e) => { if (holdFiredRef.current) { holdFiredRef.current = false; return; } e.stopPropagation(); handleRestart(); }} />
+                <div className="flex-[2] cursor-pointer" onClick={() => { if (holdFiredRef.current) { holdFiredRef.current = false; return; } handleTogglePause(); }} />
+                <div className="flex-1 cursor-pointer" onClick={(e) => { if (holdFiredRef.current) { holdFiredRef.current = false; return; } e.stopPropagation(); handleNext(); }} />
               </div>
 
               {isPaused && (
@@ -709,6 +856,18 @@ export default function FlowViewer() {
               className="shrink-0 pt-2 px-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-[60]"
               style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1.5rem)" }}
             >
+              {isOwner && (
+                <motion.button
+                  className="flex items-center justify-center gap-1.5 w-full mb-2 py-1 active:opacity-60 transition-opacity"
+                  onClick={handleOpenViewers}
+                  animate={{ y: [0, -4, 0] }}
+                  transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  <ChevronUp className="h-3.5 w-3.5 text-white/40" />
+                  <Eye className="h-3.5 w-3.5 text-white/40" />
+                  <span className="text-[10px] text-white/40 font-medium tracking-wide">visualizações</span>
+                </motion.button>
+              )}
               {user && (
                 <motion.div className="flex justify-around items-center mb-3">
                   {([1, 2, 3, 4, 5, 6] as PostIncentiveType[]).map((type) => {
@@ -923,7 +1082,14 @@ export default function FlowViewer() {
               <p className="text-center text-muted-foreground py-10">Nenhuma visualização</p>
             ) : (
               viewers.map((viewer) => (
-                <div key={viewer.followerId} className="flex items-center gap-3 p-3 rounded-xl bg-muted/30">
+                <button
+                  key={viewer.followerId}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-muted/30 w-full text-left active:opacity-70 transition-opacity hover:bg-muted/50"
+                  onClick={() => {
+                    setViewersDrawerOpen(false);
+                    navigate(`/usuario/${viewer.followerId}`);
+                  }}
+                >
                   <div className="h-10 w-10 rounded-full overflow-hidden shrink-0">
                     <UserAvatar photo={viewer.userPhoto} nickname={viewer.userNickname} className="h-full w-full" />
                   </div>
@@ -936,7 +1102,7 @@ export default function FlowViewer() {
                       {viewer.incentiveTypes.map((t, i) => renderIncentiveIcon(t, "h-3.5 w-3.5", i))}
                     </div>
                   )}
-                </div>
+                </button>
               ))
             )}
           </div>
